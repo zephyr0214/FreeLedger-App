@@ -196,6 +196,79 @@ async function nextSort(type, parentId) {
 
 /* ------------------------------------------------------ 首次启动初始化 */
 
+/**
+ * 「对账调整」分类
+ *
+ * 用户直接改账户余额时，差额不是凭空改的 ——
+ * 要在交易记录里留下一笔「对账支出」或「对账收入」，
+ * 这样余额公式（期初 + 收入 - 支出）仍然成立，账也对得上。
+ *
+ * 单独建一个分类放这类记录，不混进日常消费里。
+ */
+export const RECONCILE_CATEGORY = {
+  name: '对账调整',
+  icon: 'more',
+  color: '#969799',
+  children: ['对账支出', '对账收入']
+}
+
+/**
+ * 确保「对账调整」分类存在，返回 { expenseId, incomeId }
+ * （对账支出 / 对账收入 两个二级分类的 id）
+ *
+ * 幂等：已经存在就直接返回，不重复插入。
+ */
+export async function ensureReconcileCategory() {
+  const now = Date.now()
+
+  const findParent = async (type) => {
+    const row = await queryOne(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [RECONCILE_CATEGORY.name, type]
+    )
+    return row ? row.id : null
+  }
+
+  const findChild = async (parentId, name) => {
+    const row = await queryOne(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND parent_id = ?',
+      [name, parentId]
+    )
+    return row ? row.id : null
+  }
+
+  const result = {}
+
+  for (const type of ['expense', 'income']) {
+    let parentId = await findParent(type)
+    if (!parentId) {
+      parentId = prefixedId('cat')
+      await execute(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [parentId, null, RECONCILE_CATEGORY.name, type,
+          RECONCILE_CATEGORY.icon, RECONCILE_CATEGORY.color, 999, now, now]
+      )
+    }
+
+    const childName = type === 'expense' ? '对账支出' : '对账收入'
+    let childId = await findChild(parentId, childName)
+    if (!childId) {
+      childId = prefixedId('cat')
+      await execute(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [childId, parentId, childName, type,
+          RECONCILE_CATEGORY.icon, RECONCILE_CATEGORY.color, 0, now, now]
+      )
+    }
+
+    result[type === 'expense' ? 'expenseId' : 'incomeId'] = childId
+  }
+
+  return result
+}
+
 /** 写入默认分类（仅当分类表为空） */
 export async function seedDefaultCategories() {
   const count = await queryOne('SELECT COUNT(*) AS c FROM category WHERE deleted_at IS NULL')

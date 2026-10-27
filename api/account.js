@@ -9,7 +9,8 @@
 
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
-import { toDayKey } from '../utils/date.js'
+import { toDayKey, makeDateKeys } from '../utils/date.js'
+import { ensureReconcileCategory } from './category.js'
 
 /**
  * 账户类型
@@ -201,6 +202,86 @@ export async function updateAccount(id, patch) {
   })
 
   return getAccount(id)
+}
+
+/**
+ * 把账户余额调整到指定值 —— 差额以「对账交易」的形式记进流水
+ *
+ * ★ 为什么不用「改期初余额」 ★
+ *   期初余额是开户时的钱，用户看到「期初 5000 / 现在 4800」
+ *   根本不知道差在哪。改成直接编辑**当前余额**：
+ *   用户说「我卡里现在是 4800」，差额 200 就记一笔
+ *   「对账支出 200」，在交易记录里看得见、也说得清。
+ *   余额公式（期初 + 收入 - 支出）依然成立，账对得上。
+ *
+ * @param {string} accountId 账户 id
+ * @param {number} targetCents 目标余额（分）
+ * @param {object} opts { note }
+ * @returns {Promise<{changed:boolean, delta:number, txnId:string|null}>}
+ */
+export async function adjustAccountBalance(accountId, targetCents, opts = {}) {
+  const acc = await getAccount(accountId)
+  if (!acc) throw new Error('账户不存在')
+
+  const target = Math.round(Number(targetCents) || 0)
+  const current = Number(acc.balance_cents) || 0
+  const delta = target - current
+
+  // 没变化就什么都不做
+  if (delta === 0) {
+    return { changed: false, delta: 0, txnId: null }
+  }
+
+  // 差额为正 → 记一笔收入；为负 → 记一笔支出
+  const type = delta > 0 ? 'income' : 'expense'
+  const amount = Math.abs(delta)
+
+  // 确保「对账调整」分类存在
+  const cats = await ensureReconcileCategory()
+  const categoryId = type === 'income' ? cats.incomeId : cats.expenseId
+
+  const note = opts.note || '余额对账调整'
+  const now = Date.now()
+  const txnId = prefixedId('txn')
+  const keys = makeDateKeys(new Date())
+
+  // ★ 直接写交易表，不走 api/transaction.js ★
+  //   transaction.js 反过来 import 了本文件的 recalcBalance，
+  //   这里再 import 回去就形成循环依赖。
+  //   写入的字段和 createTransaction 完全一致。
+  await transaction(async () => {
+    await execute(
+      `INSERT INTO txn (
+        id, type, amount_cents, account_id, to_account_id, category_id, note,
+        occurred_at, occurred_day, month_key, year_key, tz_offset,
+        source, raw_text, created_at, updated_at, deleted_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+      [
+        txnId,
+        type,
+        amount,
+        accountId,
+        null,
+        categoryId,
+        note,
+        keys.occurred_at,
+        keys.occurred_day,
+        keys.month_key,
+        keys.year_key,
+        keys.tz_offset,
+        'reconcile',
+        note,
+        now,
+        now
+      ]
+    )
+
+    // 重算余额 + 写快照
+    await recalcBalance(accountId)
+    await writeTodaySnapshot(accountId)
+  })
+
+  return { changed: true, delta, txnId }
 }
 
 /**
