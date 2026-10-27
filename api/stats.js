@@ -963,10 +963,14 @@ export async function getBudgetUsage(monthKey) {
 
   const { passed, total, remain } = monthProgress(mk)
 
+  // ★ 排除标记了「不计入预算」的交易 ★
+  //   （一次性大额购物、退款、报销这类不该占预算额度）
+
   // 总支出
   const totalRow = await queryOne(
     `SELECT COALESCE(SUM(amount_cents),0) AS amt FROM txn
-     WHERE deleted_at IS NULL AND type='expense' AND month_key = ?`,
+     WHERE deleted_at IS NULL AND type='expense' AND month_key = ?
+       AND COALESCE(exclude_from_budget, 0) = 0`,
     [mk]
   )
   const monthExpense = Number(totalRow ? totalRow.amt : 0)
@@ -976,6 +980,7 @@ export async function getBudgetUsage(monthKey) {
     `SELECT COALESCE(c.parent_id, c.id) AS root_id, SUM(t.amount_cents) AS amt
      FROM txn t LEFT JOIN category c ON c.id = t.category_id
      WHERE t.deleted_at IS NULL AND t.type='expense' AND t.month_key = ?
+       AND COALESCE(t.exclude_from_budget, 0) = 0
      GROUP BY root_id`,
     [mk]
   )
@@ -1114,11 +1119,13 @@ export async function getBudgetUsageRange(range) {
   const scope = rangeScope(range)
 
   // 区间内的月度支出（总支出 + 分类支出）
+  // ★ 排除标记了「不计入预算」的交易 ★
   const monthRows = await query(
     `SELECT t.month_key AS mk, COALESCE(c.parent_id, c.id) AS root_id,
             COALESCE(SUM(t.amount_cents),0) AS amt
      FROM txn t LEFT JOIN category c ON c.id = t.category_id
-     WHERE t.deleted_at IS NULL AND t.type='expense'${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type='expense'
+       AND COALESCE(t.exclude_from_budget, 0) = 0${withScope('', scope)}
      GROUP BY t.month_key, root_id`,
     scope.params
   )

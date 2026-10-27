@@ -37,6 +37,8 @@ function normalizeTxn(row) {
     amount_cents: Number(row.amount_cents) || 0,
     occurred_at: Number(row.occurred_at) || 0,
     tz_offset: Number(row.tz_offset) || 480,
+    /** 这笔是否不计入预算 */
+    exclude_from_budget: Number(row.exclude_from_budget) === 1,
     tag_ids: row.tag_ids ? String(row.tag_ids).split(',').filter(Boolean) : []
   }
 }
@@ -363,6 +365,29 @@ export async function updateTransaction(id, patch) {
     }
   })
 
+  return getTransaction(id)
+}
+
+/**
+ * 设置/取消「这笔不计入预算」
+ *
+ * ★ 只改标记，不动余额 ★
+ *   这个标记只影响预算统计（api/stats.js 的 getBudgetUsage），
+ *   账户余额照旧计算 —— 这笔钱确实花出去了，只是不占预算额度。
+ *
+ * @param {string} id 交易 id
+ * @param {boolean} exclude true = 不计入预算
+ * @returns {Promise<object>} 更新后的交易
+ */
+export async function setExcludeFromBudget(id, exclude) {
+  const existing = await getTransaction(id)
+  if (!existing) throw new Error('交易不存在')
+
+  const flag = exclude ? 1 : 0
+  await execute(
+    'UPDATE txn SET exclude_from_budget = ?, updated_at = ? WHERE id = ?',
+    [flag, Date.now(), id]
+  )
   return getTransaction(id)
 }
 

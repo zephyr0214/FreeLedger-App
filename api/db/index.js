@@ -174,6 +174,32 @@ const MIGRATIONS = [
     //     SQLite 的 strftime 按 UTC 算，直接在 SQL 里换本地日期会差一天。
     version: 2,
     up: fixNoonTimestamps
+  },
+  {
+    // ★ txn 表加「不计入预算」标记 ★
+    //   有些支出（比如一次性的大额购物、退款、报销）不该算进预算额度。
+    //   用一个 0/1 字段标记，预算统计时排除掉。
+    //
+    //   用 ALTER TABLE ADD COLUMN 而不是改表结构重建 ——
+    //   SQLite 的 ADD COLUMN 是 O(1) 的元数据操作，不动数据，
+    //   而且老版本内核也支持。
+    version: 3,
+    up: async () => {
+      try {
+        await call('executeSql', {
+          name: DB_NAME,
+          sql: 'ALTER TABLE txn ADD COLUMN exclude_from_budget INTEGER NOT NULL DEFAULT 0'
+        })
+        console.log('[db] migration v3: txn.exclude_from_budget 已添加')
+      } catch (e) {
+        // 字段已存在（重复执行）时会报错，忽略即可
+        if (e && /duplicate|already exists/i.test(e.message || '')) {
+          console.log('[db] migration v3: exclude_from_budget 已存在，跳过')
+        } else {
+          throw e
+        }
+      }
+    }
   }
 ]
 

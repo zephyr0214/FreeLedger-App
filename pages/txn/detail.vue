@@ -82,6 +82,23 @@
         </view>
       </view>
 
+      <!-- 不计入预算（只有支出才有意义） -->
+      <view v-if="txn.type === 'expense'" class="card">
+        <view class="budget-switch-row">
+          <view class="budget-switch-info">
+            <text class="budget-switch-title">不计入预算</text>
+            <text class="budget-switch-desc">
+              这笔钱不占预算额度，但账户余额照常计算
+            </text>
+          </view>
+          <switch
+            :checked="excludeFromBudget"
+            :color="primaryColor"
+            @change="onToggleExclude"
+          />
+        </view>
+      </view>
+
       <!-- 操作 -->
       <view class="action-area">
         <wd-button size="large" plain custom-class="act-btn" @click="onEdit">
@@ -111,7 +128,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useTransactionStore } from '@/stores/transaction.js'
-import { getTransaction, deleteTransaction, getTxnTags } from '@/api/transaction.js'
+import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } from '@/api/transaction.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
@@ -155,6 +172,9 @@ export default {
     const dayLabel = computed(() => txn.value ? formatDayHeader(txn.value.occurred_day) : '')
     const timeLabel = computed(() => txn.value ? formatTime(txn.value.occurred_at) : '')
 
+    /** 这笔是否不计入预算 */
+    const excludeFromBudget = computed(() => !!txn.value && txn.value.exclude_from_budget === true)
+
     async function load() {
       try {
         const t = await getTransaction(txnId.value)
@@ -170,6 +190,30 @@ export default {
         }
       } catch (e) {
         loadingText.value = e.message
+      }
+    }
+
+    /**
+     * 切换「不计入预算」
+     *
+     * 只改标记，账户余额不受影响（这笔钱确实花出去了，
+     * 只是不占预算额度）。
+     */
+    async function onToggleExclude(e) {
+      const next = !!e.detail.value
+      try {
+        const updated = await setExcludeFromBudget(txnId.value, next)
+        txn.value = updated
+        uni.showToast({
+          title: next ? '已不计入预算' : '已恢复计入预算',
+          icon: 'none'
+        })
+        // 预算页面的数字要跟着变
+        txnStore.loadHome(true)
+      } catch (err) {
+        uni.showModal({ title: '设置失败', content: err.message, showCancel: false })
+        // 失败就把开关拨回去
+        await load()
       }
     }
 
@@ -229,8 +273,8 @@ export default {
     return {
       settingStore, statusBarHeight, txn, tags, showPanel, loadingText,
       primaryColor, pageStyle, typeLabel, sourceLabel, iconChar,
-      dayLabel, timeLabel,
-      onEdit, onSaved, onDelete, goBack
+      dayLabel, timeLabel, excludeFromBudget,
+      onEdit, onSaved, onDelete, onToggleExclude, goBack
     }
   }
 }
@@ -328,6 +372,33 @@ export default {
   align-items: flex-start;
   padding: 20rpx 0;
   gap: 8rpx;
+}
+
+/* 不计入预算 开关行 */
+.budget-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 24rpx 0;
+}
+
+.budget-switch-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+.budget-switch-title {
+  font-size: 28rpx;
+  color: var(--app-text);
+}
+
+.budget-switch-desc {
+  font-size: 22rpx;
+  color: var(--app-text-3);
 }
 
 .row-label {

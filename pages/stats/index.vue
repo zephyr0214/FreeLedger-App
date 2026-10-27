@@ -302,6 +302,7 @@
             v-for="(t, i) in topExpenses"
             :key="t.id"
             class="top-item"
+            :class="{ 'top-item-hi': i < 3 }"
             @click="goTxnDetail(t.id)"
           >
             <text class="top-rank" :class="{ 'top-3': i < 3 }">{{ i + 1 }}</text>
@@ -1052,6 +1053,15 @@ export default {
   gap: 16rpx;
   padding: 18rpx 0;
   border-bottom: 1rpx solid var(--app-line);
+}
+
+/* 前三名：浅浅的主题色背景 */
+.top-item-hi {
+  background-color: var(--app-primary-light);
+  border-radius: 12rpx;
+  padding-left: 16rpx;
+  padding-right: 16rpx;
+  margin-bottom: 8rpx;
 }
 
 .top-item:last-child {

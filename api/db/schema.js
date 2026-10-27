@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const SCHEMA_V1 = [
   // ---------------------------------------------------------------- 账户
@@ -87,7 +87,8 @@ export const SCHEMA_V1 = [
     raw_text      TEXT,
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
-    deleted_at    INTEGER
+    deleted_at    INTEGER,
+    exclude_from_budget INTEGER NOT NULL DEFAULT 0
   )`,
 
   // ------------------------------------------------------------ 交易-标签
