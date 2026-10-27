@@ -21,6 +21,7 @@
 
 import { query, queryOne } from './db/index.js'
 import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey } from '../utils/date.js'
+import { ACCOUNT_TYPES } from './account.js'
 
 /* ============================================================ 区间基础 */
 
@@ -443,6 +444,57 @@ export async function getAccountStatsRange(range, type = 'expense') {
   return accountStatsByScope(rangeScope(range), type)
 }
 
+/**
+ * 按**账户类别**（网络支付/信用卡/储蓄卡/现金/充值卡）统计
+ *
+ * 账户统计饼图要分两层：
+ *   - 按具体账户分（每个账户一块）
+ *   - 按账户类别分（网络支付一块、信用卡一块…）
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @param {'expense'|'income'} type
+ * @returns {Promise<Array<{key:string,name:string,icon:string,color:string,amount:number,count:number}>>}
+ */
+export async function getAccountTypeStatsRange(range, type = 'expense') {
+  const rows = await query(
+    `SELECT a.type AS account_type,
+            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+     FROM txn t
+     LEFT JOIN account a ON a.id = t.account_id
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', rangeScope(range))}
+     GROUP BY a.type
+     ORDER BY amt DESC`,
+    [type].concat(rangeScope(range).params)
+  )
+
+  // 按 ACCOUNT_TYPES 的顺序输出，颜色用类型自己的颜色
+  const order = ACCOUNT_TYPES.map((t) => t.key)
+  const rowMap = {}
+  for (const r of rows) {
+    rowMap[r.account_type || 'other'] = r
+  }
+
+  return ACCOUNT_TYPES
+    .filter((t) => rowMap[t.key])
+    .map((t) => ({
+      key: t.key,
+      name: t.name,
+      icon: t.icon,
+      color: ACCOUNT_TYPE_COLORS[t.key] || '#1989FA',
+      amount: Number(rowMap[t.key].amt) || 0,
+      count: Number(rowMap[t.key].cnt) || 0
+    }))
+}
+
+/** 账户类别配色（饼图用） */
+const ACCOUNT_TYPE_COLORS = {
+  online: '#1989FA',
+  credit: '#EE0A24',
+  debit: '#07C160',
+  cash: '#FF976A',
+  prepaid: '#7D5FFF'
+}
+
 /* ------------------------------------------------------- 标签（项目）统计 */
 
 /** 标签聚合主体 */
@@ -718,6 +770,67 @@ async function rangeDaysPassed(range) {
 export async function getAveragesRange(range) {
   const daysPassed = await rangeDaysPassed(range)
   return averagesByScope(rangeScope(range), daysPassed)
+}
+
+/**
+ * 各分类的平均值
+ *
+ * 用户要求「平均值要显示各个类别的平均值」——
+ * 光有总体的日均/笔均不够，还要看每个分类各自的平均值，
+ * 才能知道「餐饮平均花多少」还是「购物平均花多少」。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @param {'expense'|'income'} type
+ * @returns {Promise<Array<{id:string,name:string,icon:string,color:string,
+ *   amount:number,count:number,avgPerTxn:number,avgPerDay:number,totalDays:number}>>}
+ */
+export async function getCategoryAveragesRange(range, type = 'expense') {
+  const scope = rangeScope(range)
+  const daysPassed = await rangeDaysPassed(range)
+
+  const rows = await query(
+    `SELECT COALESCE(c.parent_id, c.id) AS root_id,
+            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+     FROM txn t
+     LEFT JOIN category c ON c.id = t.category_id
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     GROUP BY root_id
+     ORDER BY amt DESC`,
+    [type].concat(scope.params)
+  )
+
+  if (rows.length === 0) return []
+
+  // 取一级分类的名称、图标、颜色
+  const ids = rows.map((r) => r.root_id).filter(Boolean)
+  let cats = []
+  if (ids.length > 0) {
+    cats = await query(
+      `SELECT id, name, icon, color FROM category WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    )
+  }
+  const catMap = {}
+  cats.forEach((c) => { catMap[c.id] = c })
+
+  return rows.map((r) => {
+    const meta = catMap[r.root_id] || {}
+    const amount = Number(r.amt) || 0
+    const count = Number(r.cnt) || 0
+    return {
+      id: r.root_id,
+      name: meta.name || '未分类',
+      icon: meta.icon || 'more',
+      color: meta.color || '#969799',
+      amount,
+      count,
+      // 笔均：该分类平均每笔花多少
+      avgPerTxn: count > 0 ? Math.round(amount / count) : 0,
+      // 日均：该分类平均每天花多少
+      avgPerDay: daysPassed > 0 ? Math.round(amount / daysPassed) : 0,
+      totalDays: daysPassed
+    }
+  })
 }
 
 /* ---------------------------------------------------------- Top N 消费 */
