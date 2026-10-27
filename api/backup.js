@@ -378,12 +378,21 @@ export async function importPayload(payload, opt = {}) {
     // ---------- 快照
     if (Array.isArray(payload.accountSnapshots)) {
       for (const s of payload.accountSnapshots) {
-        await execute(
-          `INSERT INTO account_snapshot (id, account_id, day, balance_cents, created_at)
-           VALUES (?,?,?,?,?)
-           ON CONFLICT(account_id, day) DO UPDATE SET balance_cents = excluded.balance_cents`,
-          [s.id || prefixedId('snap'), s.account_id, s.day, s.balance_cents, s.created_at || Date.now()]
+        const exist = await queryOne(
+          'SELECT id FROM account_snapshot WHERE account_id = ? AND day = ?',
+          [s.account_id, s.day]
         )
+        if (exist) {
+          await execute('UPDATE account_snapshot SET balance_cents = ? WHERE id = ?', [
+            s.balance_cents, exist.id
+          ])
+        } else {
+          await execute(
+            `INSERT INTO account_snapshot (id, account_id, day, balance_cents, created_at)
+             VALUES (?,?,?,?,?)`,
+            [s.id || prefixedId('snap'), s.account_id, s.day, s.balance_cents, s.created_at || Date.now()]
+          )
+        }
       }
     }
   })

@@ -213,7 +213,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { toDayKey, shiftDay, formatDayHeader } from '@/utils/date.js'
-import { parseAmountInput } from '@/utils/money.js'
+import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 
 export default {
   name: 'TxnPanel',
@@ -273,13 +273,14 @@ export default {
     })
 
     const displayAmount = computed(() => {
-      const n = parseAmountInput(form.amountRaw)
+      // 数字键盘支持 12+8 这类表达式，必须用 evaluateAmount 而不是 parseAmountInput
+      const n = evaluateAmount(form.amountRaw)
       if (!n) return ''
       return (n / 100).toFixed(2)
     })
 
     const canSave = computed(() => {
-      const cents = parseAmountInput(form.amountRaw)
+      const cents = evaluateAmount(form.amountRaw)
       if (!cents || cents <= 0) return false
       if (!form.account_id) return false
       if (form.type === 'transfer') {
@@ -477,7 +478,7 @@ export default {
         return
       }
 
-      const cents = parseAmountInput(form.amountRaw)
+      const cents = evaluateAmount(form.amountRaw)
       const payload = {
         type: form.type,
         amount_cents: cents,

@@ -3,14 +3,19 @@
   "version": "1.0.0",
   "description": "本地记账 App — uni-app + Vue3 + wot-design-uni + SQLite",
   "private": true,
+  "type": "module",
   "scripts": {
-    "check": "node scripts/check-syntax.mjs"
+    "test": "node scripts/test-parser.mjs && node scripts/test-logic.mjs",
+    "check": "node scripts/check-syntax.mjs && node scripts/check-deep.mjs",
+    "verify": "npm run check && npm run test"
   },
   "dependencies": {
     "pinia": "2.3.1",
     "wot-design-uni": "1.14.0"
   },
   "devDependencies": {
+    "@babel/parser": "^8.0.8",
+    "@vue/compiler-sfc": "^3.5.44",
     "sass": "1.106.1"
   }
 }

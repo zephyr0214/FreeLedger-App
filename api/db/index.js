@@ -229,6 +229,37 @@ export async function truncateAll() {
   })
 }
 
+/**
+ * Upsert 辅助 —— 不用 ON CONFLICT DO UPDATE。
+ * 原因：Android 各版本内置的 SQLite 内核版本不一致，
+ * ON CONFLICT DO UPDATE 需要 3.24+，在旧内核上会直接报语法错误。
+ * 这里统一退化为「先 UPDATE，若影响 0 行则 INSERT」，兼容所有版本。
+ *
+ * @param {string} table
+ * @param {object} row 字段名 -> 值
+ * @param {string[]} keyCols 唯一键列
+ */
+export async function upsert(table, row, keyCols) {
+  const cols = Object.keys(row)
+  const where = keyCols.map((k) => `${k} = ?`).join(' AND ')
+  const whereParams = keyCols.map((k) => row[k])
+
+  const updated = await execute(
+    `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE ${where}`,
+    cols.map((c) => row[c]).concat(whereParams)
+  )
+
+  // plus.sqlite 的 executeSql 通常不返回 changes，改用存在性判断
+  const exist = await queryOne(`SELECT 1 AS x FROM ${table} WHERE ${where}`, whereParams)
+  if (!exist) {
+    await execute(
+      `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+      cols.map((c) => row[c])
+    )
+  }
+  return updated
+}
+
 /** 调试用：列出所有表 */
 export async function listTables() {
   return query(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)

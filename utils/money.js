@@ -58,18 +58,19 @@ function groupThousands(intStr) {
 
 /** 紧凑展示：12345 分 -> "123.45"，超过 1 万元显示 "1.2万" */
 export function formatCentsCompact(cents) {
-  const n = Math.abs(Number(cents) || 0)
+  const n = Math.abs(Number(cents) || 0)   // 单位：分
   const negative = Number(cents) < 0
   const prefix = negative ? '-' : ''
-  if (n >= 1000000) {
-    // >= 1万元
-    return `${prefix}${(n / 1000000).toFixed(1)}万`
+  const yuan = n / 100                      // 单位：元
+
+  if (yuan >= 10000) {
+    return `${prefix}${(yuan / 10000).toFixed(1)}万`
   }
-  if (n >= 100000) {
-    // >= 1000元
-    return `${prefix}${(n / 10000).toFixed(0)}k`
+  if (yuan >= 1000) {
+    return `${prefix}${(yuan / 1000).toFixed(1)}k`
   }
-  return `${prefix}${(n / 100).toFixed(n % 100 === 0 ? 0 : 2)}`
+  // 元以下保留两位，整数元不带小数
+  return `${prefix}${(yuan).toFixed(n % 100 === 0 ? 0 : 2)}`
 }
 
 /** 金额脱敏：隐私模式 */
@@ -98,4 +99,33 @@ export function parseAmountInput(str) {
   const s = String(str).replace(/[^\d.]/g, '')
   if (!s || s === '.') return 0
   return yuanToCents(s)
+}
+
+/**
+ * 解析带运算符的金额表达式（数字键盘支持 12+8 这类输入）。
+ * 只允许数字与 + -，不用 eval。
+ *
+ *   evaluateAmount("12+8")   -> 2000  （分）
+ *   evaluateAmount("12.5")   -> 1250
+ *   evaluateAmount("")       -> 0
+ */
+export function evaluateAmount(expr) {
+  if (expr === null || expr === undefined) return 0
+  const raw = String(expr).trim()
+  if (!raw) return 0
+
+  // 不含运算符 → 走普通解析
+  if (!/[+\-]/.test(raw.slice(1))) {
+    return parseAmountInput(raw)
+  }
+
+  const s = raw.replace(/[^0-9+\-.]/g, '')
+  const tokens = s.match(/[+\-]?[0-9.]+/g) || []
+  let total = 0
+  for (const tk of tokens) {
+    const n = Number(tk)
+    if (Number.isFinite(n)) total += n
+  }
+  if (!Number.isFinite(total) || total <= 0) return 0
+  return Math.round(total * 100)
 }

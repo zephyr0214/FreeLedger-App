@@ -6,7 +6,7 @@
  *   并且和账户/交易在同一个事务里保持一致。
  */
 
-import { query, execute, transaction } from '../db/index.js'
+import { query, execute, transaction } from './db/index.js'
 
 export const DEFAULT_SETTINGS = {
   // 个人信息
@@ -73,13 +73,11 @@ export async function getSetting(key, fallback) {
   }
 }
 
-/** 写单项 */
+/** 写单项（先删后插，兼容旧 SQLite 内核的 upsert 语法差异） */
 export async function setSetting(key, value) {
   const serialized = JSON.stringify(value === undefined ? null : value)
-  await execute(
-    'INSERT INTO setting (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-    [key, serialized]
-  )
+  await execute('DELETE FROM setting WHERE key = ?', [key])
+  await execute('INSERT INTO setting (key, value) VALUES (?, ?)', [key, serialized])
   CACHE[key] = value
   return true
 }

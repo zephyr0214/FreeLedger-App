@@ -30,6 +30,29 @@
         <text class="nav-arrow" @click="shiftMonthHandle(1)">›</text>
       </view>
 
+      <!-- 收支摘要 -->
+      <view class="ov-summary">
+        <view class="ov-item">
+          <text class="ov-label">支出</text>
+          <MoneyText :cents="overview.monthExpense" :size="34" :weight="600" color="var(--app-text)" />
+        </view>
+        <view class="ov-line" />
+        <view class="ov-item">
+          <text class="ov-label">收入</text>
+          <MoneyText :cents="overview.monthIncome" :size="34" :weight="600" color="var(--app-text)" />
+        </view>
+        <view class="ov-line" />
+        <view class="ov-item">
+          <text class="ov-label">结余</text>
+          <MoneyText
+            :cents="overview.monthBalance"
+            :size="34"
+            :weight="600"
+            :color="overview.monthBalance >= 0 ? 'var(--app-success)' : 'var(--app-danger)'"
+          />
+        </view>
+      </view>
+
       <!-- ① AI 分析 -->
       <view class="card ai-card">
         <view class="card-head">
@@ -523,6 +546,35 @@ export default {
 .month-text {
   font-size: 26rpx;
   color: var(--app-text-2);
+}
+
+/* 收支摘要 */
+.ov-summary {
+  display: flex;
+  align-items: center;
+  background-color: var(--app-card);
+  border-radius: 20rpx;
+  padding: 28rpx 0;
+  margin-bottom: 24rpx;
+}
+
+.ov-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.ov-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.ov-line {
+  width: 1rpx;
+  height: 48rpx;
+  background-color: var(--app-line);
 }
 
 /* 卡片 */

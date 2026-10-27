@@ -252,17 +252,27 @@ export async function deleteAccount(id) {
 
 /* ------------------------------------------------------------------ 快照 */
 
-/** 写今日快照（幂等，INSERT OR REPLACE） */
+/** 写今日快照（幂等，用 upsert 兼容旧 SQLite 内核） */
 export async function writeTodaySnapshot(accountId) {
   const acc = await queryOne('SELECT balance_cents FROM account WHERE id = ?', [accountId])
   if (!acc) return
   const day = toDayKey()
-  await execute(
-    `INSERT INTO account_snapshot (id, account_id, day, balance_cents, created_at)
-     VALUES (?,?,?,?,?)
-     ON CONFLICT(account_id, day) DO UPDATE SET balance_cents = excluded.balance_cents`,
-    [prefixedId('snap'), accountId, day, Number(acc.balance_cents) || 0, Date.now()]
+  const existing = await queryOne(
+    'SELECT id FROM account_snapshot WHERE account_id = ? AND day = ?',
+    [accountId, day]
   )
+  if (existing) {
+    await execute('UPDATE account_snapshot SET balance_cents = ? WHERE id = ?', [
+      Number(acc.balance_cents) || 0,
+      existing.id
+    ])
+  } else {
+    await execute(
+      `INSERT INTO account_snapshot (id, account_id, day, balance_cents, created_at)
+       VALUES (?,?,?,?,?)`,
+      [prefixedId('snap'), accountId, day, Number(acc.balance_cents) || 0, Date.now()]
+    )
+  }
 }
 
 /** 为所有账户写今日快照（App 冷启动时调用） */
@@ -276,12 +286,22 @@ export async function writeAllTodaySnapshots() {
 
   await transaction(async () => {
     for (const acc of list) {
-      await execute(
-        `INSERT INTO account_snapshot (id, account_id, day, balance_cents, created_at)
-         VALUES (?,?,?,?,?)
-         ON CONFLICT(account_id, day) DO UPDATE SET balance_cents = excluded.balance_cents`,
-        [prefixedId('snap'), acc.id, day, Number(acc.balance_cents) || 0, now]
+      const exist = await queryOne(
+        'SELECT id FROM account_snapshot WHERE account_id = ? AND day = ?',
+        [acc.id, day]
       )
+      if (exist) {
+        await execute('UPDATE account_snapshot SET balance_cents = ? WHERE id = ?', [
+          Number(acc.balance_cents) || 0,
+          exist.id
+        ])
+      } else {
+        await execute(
+          `INSERT INTO account_snapshot (id, account_id, day, balance_cents, created_at)
+           VALUES (?,?,?,?,?)`,
+          [prefixedId('snap'), acc.id, day, Number(acc.balance_cents) || 0, now]
+        )
+      }
     }
   })
   return list.length
