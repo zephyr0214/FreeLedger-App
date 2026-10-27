@@ -144,3 +144,92 @@ export function formatChartDay(day) {
   if (parts.length < 3) return day
   return `${Number(parts[1])}/${Number(parts[2])}`
 }
+
+/**
+ * 生成 SVG 源码（整张图，包括折线、填充、数据点）
+ *
+ * ★ 为什么是「一整张 SVG」而不是多个元素 ★
+ *   uni-app 的 template 里不解析 <svg> 标签 ——
+ *   它会被当成文本节点忽略，编译期不报错，运行时就是空白。
+ *   （uni-app 不做 HTML 解析，只认 view / text / image 等内置组件。）
+ *
+ *   所以只能把 SVG 拼成字符串，再用 <image> 以
+ *   data:image/svg+xml;base64 的形式加载。
+ *   App 端（Vue3）跑在 WebView 上，WebView 支持 SVG。
+ *
+ * @param {object} opts
+ * @param {Array} opts.coords 坐标
+ * @param {string} opts.linePath 折线路径
+ * @param {string} opts.areaPath 填充路径
+ * @param {Array} opts.markers 数据点
+ * @param {string} opts.color 主题色
+ * @param {number} opts.zeroY 0 基线的 y（null 表示不画）
+ * @param {number} opts.width viewBox 宽
+ * @param {number} opts.height viewBox 高
+ * @param {string} opts.bgColor 背景色（数据点的空心填充）
+ * @returns {string} SVG 源码
+ */
+export function buildSvgSource(opts = {}) {
+  const {
+    coords = [], linePath = '', areaPath = '', markers = [],
+    color = '#07C160', zeroY = null,
+    width = 300, height = 100, bgColor = '#FFFFFF'
+  } = opts
+
+  if (!linePath) return ''
+
+  const parts = []
+  parts.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`
+  )
+
+  // 渐变填充
+  if (areaPath) {
+    parts.push(
+      '<defs>' +
+      '<linearGradient id="g" x1="0" y1="0" x2="0" y2="1">' +
+      `<stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>` +
+      `<stop offset="100%" stop-color="${color}" stop-opacity="0"/>` +
+      '</linearGradient></defs>'
+    )
+    parts.push(`<path d="${areaPath}" fill="url(#g)"/>`)
+  }
+
+  // 0 值基线
+  if (zeroY !== null && zeroY !== undefined) {
+    parts.push(
+      `<line x1="0" y1="${zeroY}" x2="${width}" y2="${zeroY}" ` +
+      'stroke="#EBEDF0" stroke-width="1" stroke-dasharray="3 3"/>'
+    )
+  }
+
+  // 折线
+  parts.push(
+    `<path d="${linePath}" fill="none" stroke="${color}" ` +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+  )
+
+  // 数据点
+  for (const m of markers) {
+    parts.push(
+      `<circle cx="${m.x}" cy="${m.y}" r="${m.r}" ` +
+      `fill="${m.fill}" stroke="${color}" stroke-width="1.5"/>`
+    )
+  }
+
+  parts.push('</svg>')
+  return parts.join('')
+}
+
+/**
+ * SVG 源码 -> data URI（给 <image> 的 src 用）
+ *
+ * 用 encodeURIComponent 而不是 base64：
+ *   - base64 需要 btoa，中文/特殊字符要额外处理，容易出错
+ *   - URI 编码更简单，而且 <image> 同样认这个形式
+ *   - 注意：# 必须编码，否则会被当成 URL fragment
+ */
+export function svgToDataUri(svg) {
+  if (!svg) return ''
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}

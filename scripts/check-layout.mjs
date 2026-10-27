@@ -157,6 +157,41 @@ for (const file of files) {
   }
 }
 
+/* ------------------------------- 5. template 里不许直接写 <svg> 标签 */
+
+/**
+ * ★ 踩过的坑 ★
+ *   uni-app 的 template 不做 HTML 解析，只认 view / text / image 等内置组件。
+ *   直接写 <svg>...</svg> 会被当成文本节点忽略：
+ *   编译期不报错，运行时就是一片空白。
+ *   （折线图用 <svg> 画过，结果真机上什么都看不到。）
+ *
+ *   要画 SVG，只能把 SVG 拼成字符串，
+ *   用 <image> 以 data:image/svg+xml;base64（或 URI 编码）加载。
+ *   App 端跑在 WebView 上，WebView 支持 SVG。
+ */
+for (const file of files) {
+  if (!file.endsWith('.vue')) continue
+  const code = readFileSync(file, 'utf-8')
+  const rel = relative(ROOT, file).replace(/\\/g, '/')
+
+  const tm = code.match(/<template>([\s\S]*)<\/template>/)
+  if (!tm) continue
+
+  const svgRe = /<\s*svg[\s>]/g
+  let m
+  while ((m = svgRe.exec(tm[1])) !== null) {
+    // tm[1] 是模板内容，用它的起始位置换算行号
+    const tplStart = code.indexOf('<template>')
+    const lineNo = code.slice(0, tplStart + m.index).split('\n').length
+    errors.push(
+      `${rel}:${lineNo} template 里直接写了 <svg> 标签 —— ` +
+      'uni-app 不解析它，会被当文本节点忽略，运行时一片空白。' +
+      '请把 SVG 拼成字符串，用 <image> 以 data:image/svg+xml 加载'
+    )
+  }
+}
+
 /* ------------------------------------------------------------ 输出 */
 
 if (errors.length === 0 && warnings.length === 0) {

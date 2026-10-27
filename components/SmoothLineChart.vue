@@ -7,48 +7,20 @@
 
     <!-- 折线图 -->
     <view v-else class="slc-body">
-      <svg
-        class="slc-svg"
-        :viewBox="'0 0 ' + vbWidth + ' ' + vbHeight"
-        :width="vbWidth"
-        :height="vbHeight"
-        preserveAspectRatio="none"
-      >
-        <defs>
-          <linearGradient :id="gradientId" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" :stop-color="color" stop-opacity="0.22" />
-            <stop offset="100%" :stop-color="color" stop-opacity="0" />
-          </linearGradient>
-        </defs>
-
-        <!-- 0 值基线（数据跨越 0 时才画） -->
-        <line
-          v-if="zeroY !== null"
-          :x1="0"
-          :y1="zeroY"
-          :x2="vbWidth"
-          :y2="zeroY"
-          class="slc-zero-line"
-        />
-
-        <!-- 渐变填充 -->
-        <path v-if="fill" :d="areaPath" :fill="'url(#' + gradientId + ')'" />
-
-        <!-- 折线 -->
-        <path :d="linePath" fill="none" :stroke="color" class="slc-line" />
-
-        <!-- 数据点 -->
-        <circle
-          v-for="(p, i) in markers"
-          :key="i"
-          :cx="p.x"
-          :cy="p.y"
-          :r="p.r"
-          :fill="p.fill"
-          :stroke="color"
-          class="slc-dot"
-        />
-      </svg>
+      <!--
+        ★ 为什么用 image 而不是直接写 SVG 标签 ★
+          uni-app 的 template 里不解析 SVG 标签 ——
+          它会被当成文本节点忽略，编译期不报错，运行时就是空白。
+          （uni-app 不做 HTML 解析，只认 view / text / image 等内置组件。）
+          App 端（Vue3）跑在 WebView 上，WebView 支持 SVG，
+          所以把 SVG 拼成字符串，用 image 以 data URI 加载。
+      -->
+      <image
+        v-if="chartSrc"
+        class="slc-img"
+        :src="chartSrc"
+        mode="scaleToFill"
+      />
 
       <!-- 坐标轴标签 -->
       <view class="slc-axis">
@@ -64,7 +36,7 @@
 import { computed } from 'vue'
 import {
   calcBounds, calcCoords, calcZeroY, calcLinePath, calcAreaPath,
-  calcMarkers, formatChartDay
+  calcMarkers, formatChartDay, buildSvgSource, svgToDataUri
 } from '@/utils/chart.js'
 
 /**
@@ -93,10 +65,7 @@ export default {
     emptyText: { type: String, default: '数据积累中，连续记录几天就能看到趋势' }
   },
   setup(props) {
-    // 渐变 id 要唯一，否则多个图表会共用同一个 defs
-    const gradientId = `slc-grad-${Math.random().toString(36).slice(2, 10)}`
-
-    // viewBox 坐标系：宽 300、高 100，横纵比靠 preserveAspectRatio="none" 拉伸
+    // viewBox 坐标系：宽 300、高 100，横纵比靠 scaleToFill 拉伸
     const vbWidth = 300
     const vbHeight = 100
     const padTop = 8
@@ -130,6 +99,25 @@ export default {
     /** 数据点标记 */
     const markers = computed(() => calcMarkers(coords.value, props.color))
 
+    /**
+     * 整张图的 data URI。
+     * <image> 只能加载位图或 data URI，
+     * 但 data:image/svg+xml 在 App 端（WebView）是可以渲染的。
+     */
+    const chartSrc = computed(() => {
+      const svg = buildSvgSource({
+        coords: coords.value,
+        linePath: linePath.value,
+        areaPath: props.fill ? areaPath.value : '',
+        markers: markers.value,
+        color: props.color,
+        zeroY: zeroY.value,
+        width: vbWidth,
+        height: vbHeight
+      })
+      return svgToDataUri(svg)
+    })
+
     const axisFirst = computed(() => {
       const c = coords.value
       return c.length ? formatChartDay(c[0].day) : ''
@@ -145,8 +133,9 @@ export default {
     })
 
     return {
-      gradientId, vbWidth, vbHeight, hasData, bounds, coords, zeroY,
-      linePath, areaPath, markers, axisFirst, axisMid, axisLast
+      vbWidth, vbHeight, hasData, bounds, coords, zeroY,
+      linePath, areaPath, markers, chartSrc,
+      axisFirst, axisMid, axisLast
     }
   }
 }
@@ -167,30 +156,11 @@ export default {
   min-height: 0;
 }
 
-.slc-svg {
+/* 图表本体：用 <image> 加载 SVG 的 data URI */
+.slc-img {
   width: 100%;
   flex: 1;
   min-height: 0;
-}
-
-.slc-line {
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  /* 关掉默认的矢量缩放，线条粗细保持一致 */
-  vector-effect: non-scaling-stroke;
-}
-
-.slc-dot {
-  stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
-}
-
-.slc-zero-line {
-  stroke: var(--app-line, #ebedf0);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-  vector-effect: non-scaling-stroke;
 }
 
 /* 坐标轴 */

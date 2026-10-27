@@ -13,7 +13,7 @@
 
 import {
   calcBounds, calcCoords, calcZeroY, calcLinePath, calcAreaPath,
-  calcMarkers, formatChartDay
+  calcMarkers, formatChartDay, buildSvgSource, svgToDataUri
 } from '../utils/chart.js'
 
 let pass = 0
@@ -159,6 +159,70 @@ check('10/20', formatChartDay('2026-10-20'), '10/20')
 check('1/5', formatChartDay('2026-01-05'), '1/5')
 check('空', formatChartDay(''), '')
 check('非法', formatChartDay('abc'), 'abc')
+
+console.log('=== SVG 源码生成 ===')
+
+{
+  const points = [
+    { day: '2026-10-20', total: 0 },
+    { day: '2026-10-21', total: 1000 },
+    { day: '2026-10-22', total: 2000 }
+  ]
+  const c = calcCoords(points, OPTS)
+  const d = calcLinePath(c)
+  const area = calcAreaPath(c, d, 100)
+  const m = calcMarkers(c, '#07C160')
+
+  const svg = buildSvgSource({
+    coords: c, linePath: d, areaPath: area, markers: m,
+    color: '#07C160', zeroY: null, width: 300, height: 100
+  })
+
+  check('以 <svg 开头', svg.startsWith('<svg '), true)
+  check('以 </svg> 结尾', svg.trim().endsWith('</svg>'), true)
+  check('含 viewBox', svg.includes('viewBox="0 0 300 100"'), true)
+  check('含 xmlns', svg.includes('xmlns="http://www.w3.org/2000/svg"'), true)
+  check('含折线 path', svg.includes('<path d="M '), true)
+  check('含渐变定义', svg.includes('<linearGradient'), true)
+  check('含填充 path', svg.includes('fill="url(#g)"'), true)
+  check('含主题色', svg.includes('stroke="#07C160"'), true)
+  check('不含 0 基线', svg.includes('stroke-dasharray'), false)
+  check('3 个数据点', (svg.match(/<circle/g) || []).length, 3)
+
+  // data URI
+  const uri = svgToDataUri(svg)
+  check('data URI 前缀', uri.startsWith('data:image/svg+xml;charset=utf-8,'), true)
+  check('data URI 非空', uri.length > 100, true)
+  // # 必须被编码，否则会被当成 URL fragment
+  check('data URI 里没有裸 #', uri.includes('#'), false)
+  check('data URI 里没有裸空格', uri.includes(' '), false)
+  // 解码回来应该等于原 SVG
+  const decoded = decodeURIComponent(uri.replace('data:image/svg+xml;charset=utf-8,', ''))
+  check('解码回来等于原 SVG', decoded, svg)
+}
+
+{
+  // 跨越 0 时要画基线
+  const points = [
+    { day: '2026-10-20', total: -1000 },
+    { day: '2026-10-21', total: 2000 }
+  ]
+  const c = calcCoords(points, OPTS)
+  const d = calcLinePath(c)
+  const b = calcBounds([-1000, 2000])
+  const svg = buildSvgSource({
+    coords: c, linePath: d, areaPath: calcAreaPath(c, d, 100),
+    markers: calcMarkers(c, '#07C160'),
+    color: '#07C160', zeroY: calcZeroY(b, OPTS), width: 300, height: 100
+  })
+  check('有 0 基线', svg.includes('stroke-dasharray="3 3"'), true)
+}
+
+{
+  // 没有折线 -> 没有 SVG
+  check('无折线 -> 空 SVG', buildSvgSource({ linePath: '' }), '')
+  check('无 SVG -> 空 data URI', svgToDataUri(''), '')
+}
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)
