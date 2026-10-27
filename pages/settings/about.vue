@@ -80,6 +80,16 @@
         </view>
       </view>
 
+      <view class="section">
+        <text class="section-title">排查</text>
+        <view class="card">
+          <view class="info-row" @click="onDiagnose">
+            <text class="info-label">数据库自检</text>
+            <text class="info-value" style="color: var(--app-primary)">点击运行</text>
+          </view>
+        </view>
+      </view>
+
       <view class="footer">
         <text class="footer-text">用心记录每一笔</text>
       </view>
@@ -93,6 +103,7 @@
 import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { showDbDiagnostics } from '@/api/db/diagnose.js'
 
 export default {
   components: { PageNav },
@@ -107,11 +118,19 @@ export default {
       return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
     })
 
+    async function onDiagnose() {
+      try {
+        await showDbDiagnostics()
+      } catch (e) {
+        uni.showModal({ title: '自检失败', content: e.message, showCancel: false })
+      }
+    }
+
     function goBack() {
       uni.navigateBack()
     }
 
-    return { primaryColor, pageStyle, scrollHeight, goBack }
+    return { primaryColor, pageStyle, scrollHeight, onDiagnose, goBack }
   }
 }
 </script>

@@ -23,9 +23,15 @@ export default {
     } catch (e) {
       console.error('[app] 数据库打开失败:', e.message)
       uni.showModal({
-        title: '数据库初始化失败',
-        content: `${e.message}\n\n本项目需要运行到手机或模拟器（App 端）才能使用 SQLite。`,
-        showCancel: false
+        title: '创建数据库失败',
+        content: e.message,
+        confirmText: '运行自检',
+        cancelText: '忽略',
+        success: (res) => {
+          if (res.confirm) {
+            import('@/api/db/diagnose.js').then((m) => m.showDbDiagnostics())
+          }
+        }
       })
       return
     }

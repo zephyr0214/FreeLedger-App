@@ -14,7 +14,47 @@ const DB_PATH = '_doc/books.db'
 
 let opened = false
 let opening = null
-let platformSupported = typeof plus !== 'undefined' && !!plus.sqlite
+
+/**
+ * 运行时判定 SQLite 是否可用。
+ *
+ * ★ 不能写成模块级常量 ★
+ *   ES 模块在 App 启动早期就被求值，此时 plus 可能还没注入，
+ *   一旦缓存成 false 就永远 false，后面所有数据库操作都会报"仅 App 端可用"。
+ *   所以每次调用都要重新读。
+ */
+function isSqliteReady() {
+  return typeof plus !== 'undefined' && !!plus.sqlite
+}
+
+/**
+ * 等待 plus 就绪。
+ * 标准基座下 plus 在 onLaunch 前后才注入；云打包下也有极短的空窗。
+ * 用轮询避免"明明在真机上却说不能用"。
+ */
+function waitForPlus(timeoutMs = 3000) {
+  if (isSqliteReady()) return Promise.resolve(true)
+
+  return new Promise((resolve, reject) => {
+    const start = Date.now()
+    const timer = setInterval(() => {
+      if (isSqliteReady()) {
+        clearInterval(timer)
+        resolve(true)
+        return
+      }
+      if (Date.now() - start > timeoutMs) {
+        clearInterval(timer)
+        reject(new Error(
+          'plus.sqlite 不可用。请确认：\n' +
+          '1) 运行在 App 端（不能是 H5 / 小程序）\n' +
+          '2) manifest.json → App模块配置 中已勾选 SQLite\n' +
+          '3) 使用标准基座或已重新云打包'
+        ))
+      }
+    }, 50)
+  })
+}
 
 /* ------------------------------------------------------------------ 工具 */
 
@@ -35,16 +75,38 @@ function bindParams(sql, params) {
   })
 }
 
-function call(fn, arg) {
+/**
+ * 调用 plus.sqlite 的某个方法。
+ *
+ * ★ 必须传方法名而不是函数引用 ★
+ *   plus.sqlite.openDatabase / selectSql / executeSql 是 HTML5+ 的桥接方法，
+ *   内部依赖 this.getCallbackIDByFunction。若写成 call(plus.sqlite.selectSql, ...)，
+ *   方法被摘下来单独调用，this 变成 undefined，就会抛：
+ *     "this.getCallbackIDByFunction is not a function"
+ *   所以统一用 plus.sqlite[method](arg) 的形式，在对象上调用。
+ *
+ * @param {string} method 方法名，如 'selectSql'
+ * @param {object} arg 参数
+ */
+function call(method, arg) {
   return new Promise((resolve, reject) => {
-    if (!platformSupported) {
-      reject(new Error('SQLite 仅在 App 端可用，请在 HBuilderX 中运行到手机或模拟器'))
+    if (!isSqliteReady()) {
+      reject(new Error('plus.sqlite 不可用，请确认运行在 App 端且已勾选 SQLite 模块'))
       return
     }
-    fn({
+    const api = plus.sqlite
+    if (typeof api[method] !== 'function') {
+      reject(new Error(`plus.sqlite.${method} 不存在，可能该模块未打包进基座`))
+      return
+    }
+    api[method]({
       ...arg,
       success: resolve,
-      fail: (e) => reject(new Error(e.message || `SQLite 执行失败: ${e.code || ''}`))
+      fail: (e) => {
+        const code = e && e.code !== undefined ? e.code : ''
+        const msg = (e && e.message) || ''
+        reject(new Error(`SQLite 执行失败${code !== '' ? ` (code ${code})` : ''}${msg ? `: ${msg}` : ''}`))
+      }
     })
   })
 }
@@ -53,7 +115,7 @@ function call(fn, arg) {
 
 async function readUserVersion() {
   try {
-    const rows = await call(plus.sqlite.selectSql, {
+    const rows = await call('selectSql', {
       name: DB_NAME,
       sql: 'PRAGMA user_version'
     })
@@ -62,23 +124,23 @@ async function readUserVersion() {
       return Number(first.user_version !== undefined ? first.user_version : Object.values(first)[0]) || 0
     }
   } catch (e) {
-    // 表尚未创建等情况，视为 0
+    // 库尚未建立或该语法不支持，视为 0
   }
   return 0
 }
 
 async function writeUserVersion(v) {
-  await call(plus.sqlite.executeSql, { name: DB_NAME, sql: `PRAGMA user_version = ${Number(v)}` })
+  await call('executeSql', { name: DB_NAME, sql: `PRAGMA user_version = ${Number(v)}` })
 }
 
 /** 执行建表与索引 —— 幂等，用 IF NOT EXISTS */
 async function applySchemaV1() {
   for (const sql of SCHEMA_V1) {
-    await call(plus.sqlite.executeSql, { name: DB_NAME, sql })
+    await call('executeSql', { name: DB_NAME, sql })
   }
   for (const sql of INDEXES_V1) {
     try {
-      await call(plus.sqlite.executeSql, { name: DB_NAME, sql })
+      await call('executeSql', { name: DB_NAME, sql })
     } catch (e) {
       // 索引已存在或内核不支持该语法时不影响主流程
       console.warn('[db] index skipped:', e.message)
@@ -118,18 +180,31 @@ export function openDb() {
   if (opened) return Promise.resolve(true)
   if (opening) return opening
 
-  opening = (async () => {
-    if (!platformSupported) {
-      throw new Error('SQLite 仅在 App 端可用，请在 HBuilderX 中运行到手机或模拟器')
-    }
-    await call(plus.sqlite.openDatabase, { name: DB_NAME, path: DB_PATH })
+  const p = (async () => {
+    await waitForPlus()
+
+    // 已打开过同名库时 openDatabase 会失败，先尝试关闭一次（忽略错误）
+    try {
+      await new Promise((resolve) => {
+        plus.sqlite.closeDatabase({ name: DB_NAME, success: resolve, fail: resolve })
+      })
+    } catch (e) {}
+
+    await call('openDatabase', { name: DB_NAME, path: DB_PATH })
+
     await migrate()
     opened = true
     console.log('[db] opened', DB_PATH)
     return true
   })()
 
-  return opening
+  opening = p
+
+  // 失败后要清掉缓存的 Promise，否则后续调用会一直拿到同一个 rejected
+  return p.catch((e) => {
+    opening = null
+    throw e
+  })
 }
 
 export function isOpened() {
@@ -139,7 +214,7 @@ export function isOpened() {
 export async function closeDb() {
   if (!opened) return
   try {
-    await call(plus.sqlite.closeDatabase, { name: DB_NAME })
+    await call('closeDatabase', { name: DB_NAME })
   } catch (e) {}
   opened = false
   opening = null
@@ -150,7 +225,7 @@ export async function closeDb() {
 /** 查询，返回行数组 */
 export async function query(sql, params = []) {
   await openDb()
-  const rows = await call(plus.sqlite.selectSql, {
+  const rows = await call('selectSql', {
     name: DB_NAME,
     sql: bindParams(sql, params)
   })
@@ -174,7 +249,7 @@ export async function queryScalar(sql, params = []) {
 /** 执行写入，返回受影响行数（拿不到时返回 true） */
 export async function execute(sql, params = []) {
   await openDb()
-  const res = await call(plus.sqlite.executeSql, {
+  const res = await call('executeSql', {
     name: DB_NAME,
     sql: bindParams(sql, params)
   })
@@ -188,14 +263,14 @@ export async function execute(sql, params = []) {
  */
 export async function transaction(fn) {
   await openDb()
-  await call(plus.sqlite.transaction, { name: DB_NAME, operation: 'begin' })
+  await call('transaction', { name: DB_NAME, operation: 'begin' })
   try {
     const result = await fn()
-    await call(plus.sqlite.transaction, { name: DB_NAME, operation: 'commit' })
+    await call('transaction', { name: DB_NAME, operation: 'commit' })
     return result
   } catch (e) {
     try {
-      await call(plus.sqlite.transaction, { name: DB_NAME, operation: 'rollback' })
+      await call('transaction', { name: DB_NAME, operation: 'rollback' })
     } catch (rollbackErr) {
       console.error('[db] rollback failed', rollbackErr)
     }
@@ -233,7 +308,7 @@ export async function truncateAll() {
  * Upsert 辅助 —— 不用 ON CONFLICT DO UPDATE。
  * 原因：Android 各版本内置的 SQLite 内核版本不一致，
  * ON CONFLICT DO UPDATE 需要 3.24+，在旧内核上会直接报语法错误。
- * 这里统一退化为「先 UPDATE，若影响 0 行则 INSERT」，兼容所有版本。
+ * 这里统一退化为「先 UPDATE，若不存在则 INSERT」，兼容所有版本。
  *
  * @param {string} table
  * @param {object} row 字段名 -> 值
@@ -244,20 +319,18 @@ export async function upsert(table, row, keyCols) {
   const where = keyCols.map((k) => `${k} = ?`).join(' AND ')
   const whereParams = keyCols.map((k) => row[k])
 
-  const updated = await execute(
-    `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE ${where}`,
-    cols.map((c) => row[c]).concat(whereParams)
-  )
-
-  // plus.sqlite 的 executeSql 通常不返回 changes，改用存在性判断
   const exist = await queryOne(`SELECT 1 AS x FROM ${table} WHERE ${where}`, whereParams)
-  if (!exist) {
-    await execute(
-      `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-      cols.map((c) => row[c])
+
+  if (exist) {
+    return execute(
+      `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE ${where}`,
+      cols.map((c) => row[c]).concat(whereParams)
     )
   }
-  return updated
+  return execute(
+    `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+    cols.map((c) => row[c])
+  )
 }
 
 /** 调试用：列出所有表 */
