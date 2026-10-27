@@ -6,6 +6,7 @@ import { writeAllTodaySnapshots } from '@/api/account.js'
 import { getAllSettings, setSettings } from '@/api/settings.js'
 import { autoBackup } from '@/api/backup.js'
 import { toDayKey } from '@/utils/date.js'
+import { enableNativeFollowSystem } from '@/utils/theme.js'
 
 export default {
   data() {
@@ -13,7 +14,6 @@ export default {
       themeListener: null
     }
   },
-
   async onLaunch() {
     console.log('[app] launch')
 
@@ -71,7 +71,15 @@ export default {
       console.warn('[app] 自动备份失败:', e.message)
     }
 
-    // 6) 监听系统主题变化
+    // 6) 开启原生 UI 跟随系统深浅色 + 监听系统主题变化
+    //    setUIStyle('auto') 必须先调，否则收不到主题切换事件
+    //    （官方文档：「在 App 上需要先调用 plus.nativeUI.setUIStyle('auto')
+    //     开启跟随系统主题切换的功能，才能监听到主题切换事件」）
+    try {
+      enableNativeFollowSystem()
+    } catch (e) {
+      console.warn('[app] setUIStyle 失败:', e.message)
+    }
     this.bindThemeListener()
   },
 
@@ -79,7 +87,12 @@ export default {
     // 兜底：部分 Android 机型 uni.onThemeChange 不触发，每次回前台重读一次
     try {
       const settingStore = useSettingStore()
-      if (settingStore.loaded) settingStore.syncSystemTheme()
+      if (settingStore.loaded) {
+        settingStore.syncSystemTheme()
+        // 回前台时也刷一次 tabBar：
+        // 系统主题可能在后台变了，而事件没送达
+        settingStore.refreshTabBar()
+      }
     } catch (e) {}
   },
 
@@ -89,19 +102,21 @@ export default {
 
   methods: {
     bindThemeListener() {
+      // ★ 订阅交给 store 统一管理 ★
+      //   之前这里自己监听 uni.onThemeChange，
+      //   但回调里只比较 settingStore.systemDark，
+      //   而 App 端 onThemeChange 在部分 Android 机型上不触发，
+      //   加上读到的 theme 字段本身在 Android 上就常返回 light，
+      //   结果系统切深色 App 完全没反应。
+      //
+      //   现在 store.watchSystemTheme() 走双保险通道
+      //   （uni.onThemeChange + plus.globalEvent），
+      //   并且用 osTheme 复核，onShow 再兜底重读一次。
       try {
-        if (typeof uni.onThemeChange === 'function') {
-          this.themeListener = (res) => {
-            const settingStore = useSettingStore()
-            settingStore.systemDark = res.theme === 'dark'
-            if (settingStore.settings.themeMode === 'system') {
-              settingStore.applyTheme()
-            }
-          }
-          uni.onThemeChange(this.themeListener)
-        }
+        const settingStore = useSettingStore()
+        settingStore.watchSystemTheme()
       } catch (e) {
-        console.warn('[app] onThemeChange 不可用，将依赖 onShow 兜底:', e.message)
+        console.warn('[app] 主题监听失败，将依赖 onShow 兜底:', e.message)
       }
     }
   }

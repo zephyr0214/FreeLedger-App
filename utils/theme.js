@@ -27,13 +27,129 @@ export function getPreset(key) {
   return THEME_PRESETS.find((p) => p.key === key) || THEME_PRESETS[0]
 }
 
-/** 读系统当前是否深色 */
+/**
+ * 读系统当前是否深色。
+ *
+ * ★ 用 osTheme，不要用旧的 theme 字段 ★
+ *   uni.getSystemInfoSync() 有三个主题相关字段：
+ *     osTheme    操作系统主题（light/dark）—— App 平台正确
+ *     hostTheme  宿主主题（小程序/UniMPSDK）
+ *     theme      旧字段，**不推荐使用**
+ *
+ *   旧字段 theme 在 Android 上有个已知问题：
+ *   明明系统已经是深色模式，它还是返回 'light'
+ *   （只在冷启动或从后台唤醒时读一次系统主题快照，
+ *     不监听深色模式变化广播）。
+ *   社区实测：MIUI / 澎湃OS / 「日落到日出」自动切换全都读成 light。
+ *
+ *   所以这里优先读 osTheme，取不到再退回 theme。
+ */
 export function isSystemDark() {
   try {
     const info = uni.getSystemInfoSync()
+    if (!info) return false
+
+    // App 端：osTheme 才是系统主题
+    const osTheme = info.osTheme
+    if (osTheme === 'dark') return true
+    if (osTheme === 'light') return false
+
+    // 宿主（小程序 / UniMPSDK）
+    const hostTheme = info.hostTheme
+    if (hostTheme === 'dark') return true
+    if (hostTheme === 'light') return false
+
+    // 老版本兜底
     return info.theme === 'dark'
   } catch (e) {
     return false
+  }
+}
+
+/**
+ * 让 App 的原生 UI（状态栏、tabBar、窗口背景）跟随系统深浅色。
+ *
+ * ★ 为什么必须调这个 ★
+ *   官方文档：「在 App 上需要先调用 plus.nativeUI.setUIStyle('auto')
+ *   开启跟随系统主题切换的功能，才能监听到主题切换事件」。
+ *   不调的话，uni.onThemeChange 根本收不到事件，
+ *   原生 tabBar / 状态栏也不会跟着系统变色。
+ *
+ * 只在 App 端有效，其它平台忽略。
+ */
+export function enableNativeFollowSystem() {
+  try {
+    if (typeof plus !== 'undefined' && plus.nativeUI &&
+        typeof plus.nativeUI.setUIStyle === 'function') {
+      plus.nativeUI.setUIStyle('auto')
+    }
+  } catch (e) {
+    console.warn('[theme] setUIStyle 失败:', e && e.message)
+  }
+}
+
+/**
+ * 监听系统深浅色变化。
+ *
+ * ★ 为什么不能只靠 uni.onThemeChange ★
+ *   1. App 端这个接口要求 manifest.json 里配了 darkmode: true，
+ *      且社区实测在部分 Android 机型上运行期不触发。
+ *   2. 它回调里的 res.theme 也不一定准 —— 收到事件后再用
+ *      isSystemDark()（读 osTheme）复核一次更稳妥。
+ *
+ * 所以这里做双保险：
+ *   - uni.onThemeChange：标准通道
+ *   - plus.globalEvent 'themedchanged'：5+ 原生通道（App 端更可靠）
+ *   - onShow 兜底：每次回前台重读一次
+ *
+ * @param {Function} callback 主题变化时调用（无参数）
+ * @returns {Function} 取消监听的函数
+ */
+export function watchSystemTheme(callback) {
+  const handlers = []
+
+  /** 收到事件后统一处理：复核一次当前主题，变了才回调 */
+  const handle = () => {
+    callback()
+  }
+
+  // 1) 标准通道
+  try {
+    if (typeof uni.onThemeChange === 'function') {
+      uni.onThemeChange(handle)
+      handlers.push(() => {
+        if (typeof uni.offThemeChange === 'function') uni.offThemeChange(handle)
+      })
+    }
+  } catch (e) {
+    console.warn('[theme] onThemeChange 不可用:', e && e.message)
+  }
+
+  // 2) 5+ 原生通道（App 端更可靠）
+  try {
+    if (typeof plus !== 'undefined' && plus.globalEvent &&
+        typeof plus.globalEvent.addEventListener === 'function') {
+      // 5+ 的系统主题变化事件名
+      const EVENTS = ['themedchanged', 'themechanged', 'darkmodechange']
+      for (const name of EVENTS) {
+        try {
+          plus.globalEvent.addEventListener(name, handle)
+          handlers.push(() => {
+            try { plus.globalEvent.removeEventListener(name, handle) } catch (e) {}
+          })
+        } catch (e) {
+          // 这个事件名当前平台不支持，忽略
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[theme] plus.globalEvent 不可用:', e && e.message)
+  }
+
+  return () => {
+    for (const off of handlers) {
+      try { off() } catch (e) {}
+    }
   }
 }
 

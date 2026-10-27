@@ -11,6 +11,14 @@
         "nvueStyleCompiler" : "uni-app",
         "compilerVersion" : 3,
         "darkmode" : true,
+        "themeLocation" : "theme.json",
+        "safearea" : {
+            "background" : "#F7F8FA",
+            "backgroundDark" : "#000000",
+            "bottom" : {
+                "offset" : "none"
+            }
+        },
         "splashscreen" : {
             "alwaysShowBeforeRender" : true,
             "waiting" : true,

@@ -38,9 +38,66 @@ try {
   process.exit(1)
 }
 
-/** 检查一个相对路径资源是否存在 */
+/**
+ * 解析 theme.json 里的 @变量。
+ *
+ * pages.json 里可以写 "@iconPath1" 这样的变量引用，
+ * 真正的路径在 theme.json 的 light / dark 两套里。
+ * 检查资源时要把变量解开，否则会误报「资源不存在」。
+ */
+function loadThemeVars() {
+  const themePath = join(ROOT, 'theme.json')
+  if (!existsSync(themePath)) return null
+  try {
+    const raw = readFileSync(themePath, 'utf-8')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    const theme = JSON.parse(raw)
+    const map = new Map()
+    for (const mode of ['light', 'dark']) {
+      const vars = theme[mode] || {}
+      for (const [k, v] of Object.entries(vars)) {
+        if (typeof v !== 'string') continue
+        if (!map.has(k)) map.set(k, new Set())
+        map.get(k).add(v)
+      }
+    }
+    return map
+  } catch (e) {
+    errors.push(`theme.json 解析失败: ${e.message}`)
+    return null
+  }
+}
+
+const themeVars = loadThemeVars()
+
+/**
+ * 检查一个相对路径资源是否存在。
+ * 路径可能是 "@变量" 形式，要先解成 theme.json 里的实际路径。
+ */
 function checkAsset(relPath, context) {
   checked++
+
+  if (typeof relPath === 'string' && relPath.startsWith('@')) {
+    const key = relPath.slice(1)
+    if (!themeVars) {
+      errors.push(`${context}: 用了 @${key} 但找不到 theme.json`)
+      return
+    }
+    const values = themeVars.get(key)
+    if (!values) {
+      errors.push(`${context}: @${key} 在 theme.json 里没有定义`)
+      return
+    }
+    // light / dark 两套路径都要存在
+    for (const v of values) {
+      if (!existsSync(join(ROOT, v))) {
+        errors.push(`${context}: 资源不存在 — ${v}（@${key}）`)
+      }
+    }
+    return
+  }
+
   const abs = join(ROOT, relPath)
   if (!existsSync(abs)) {
     errors.push(`${context}: 资源不存在 — ${relPath}`)

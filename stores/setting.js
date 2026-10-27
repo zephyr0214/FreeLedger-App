@@ -12,7 +12,7 @@ import { getAllSettings, setSettings } from '@/api/settings.js'
 import {
   THEME_PRESETS, THEME_MODE, resolveDark, buildCssVars, buildWotThemeVars,
   buildWotCssVars, wotThemeClass, applyTabBarTheme, refreshTabBarTheme,
-  applyNavigationBarTheme, isSystemDark, getPreset
+  applyNavigationBarTheme, isSystemDark, getPreset, watchSystemTheme
 } from '@/utils/theme.js'
 
 export const useSettingStore = defineStore('setting', {
@@ -96,17 +96,39 @@ export const useSettingStore = defineStore('setting', {
       this.refreshTabBar()
       return this.settings
     },
-    /** 重新读取系统深浅色（onShow 兜底） */
+    /**
+     * 重新读取系统深浅色（onShow 兜底 + 系统事件触发时用）。
+     *
+     * ★ 关键：isDark 要重新算一遍，不能只看 systemDark 变没变 ★
+     *   用户可能把「跟随系统」改成了「始终浅色」，
+     *   这时系统再变深色，App 不该跟着变。
+     */
     syncSystemTheme() {
       const sys = isSystemDark()
-      if (sys !== this.systemDark) {
-        this.systemDark = sys
-        if (this.settings.themeMode === THEME_MODE.SYSTEM) {
-          this.applyTheme()
-          // 系统深浅色变了，tabBar 也要跟着刷
-          this.markTabBarThemeDirty()
-        }
+      const wasDark = this.isDark
+      this.systemDark = sys
+
+      // 重新按 mode 解析出最终是否深色
+      const nextDark = resolveDark(this.settings.themeMode)
+      this.isDark = nextDark
+
+      if (nextDark !== wasDark) {
+        // 页面内容要立刻变
+        applyNavigationBarTheme(nextDark)
+        // tabBar 也要跟着刷
+        this.markTabBarThemeDirty()
       }
+    },
+
+    /**
+     * 订阅系统深浅色变化。
+     * 幂等：重复调用只会订阅一次。
+     */
+    watchSystemTheme() {
+      if (this._themeWatchOff) return
+      this._themeWatchOff = watchSystemTheme(() => {
+        this.syncSystemTheme()
+      })
     },
 
     applyTheme() {

@@ -11,7 +11,8 @@
  */
 
 import {
-  buildCssVars, buildWotCssVars, wotThemeClass, refreshTabBarTheme, THEME_PRESETS
+  buildCssVars, buildWotCssVars, wotThemeClass, refreshTabBarTheme, THEME_PRESETS,
+  isSystemDark, resolveDark, watchSystemTheme, THEME_MODE
 } from '../utils/theme.js'
 
 let pass = 0
@@ -120,6 +121,68 @@ check('选中图标按主题色', (() => {
 })(), 'static/tabbar/home-active-purple.png')
 
 delete globalThis.uni
+
+console.log('=== 系统深浅色检测 ===')
+
+/**
+ * 装一个假的 uni.getSystemInfoSync
+ * @param {object} info 返回的系统信息
+ */
+function fakeSystemInfo(info) {
+  globalThis.uni = {
+    getSystemInfoSync: () => info,
+    onThemeChange: () => {},
+    offThemeChange: () => {}
+  }
+}
+
+// osTheme 是正确的字段 —— 优先用它
+fakeSystemInfo({ osTheme: 'dark', theme: 'light' })
+check('osTheme=dark 识别为深色', isSystemDark(), true)
+
+// ★ 旧字段 theme 在 Android 上总是 light，即使系统是深色 ★
+// 这正是原来「不跟随系统」的原因
+fakeSystemInfo({ theme: 'light' })
+check('只有 theme=light -> 浅色', isSystemDark(), false)
+
+// osTheme 优先于 theme
+fakeSystemInfo({ osTheme: 'light', theme: 'dark' })
+check('osTheme 优先于 theme', isSystemDark(), false)
+
+// hostTheme（小程序 / UniMPSDK）
+fakeSystemInfo({ hostTheme: 'dark' })
+check('hostTheme=dark 识别为深色', isSystemDark(), true)
+
+// 什么都没有 -> 浅色
+fakeSystemInfo({})
+check('没有主题字段 -> 浅色', isSystemDark(), false)
+
+// 抛异常 -> 浅色，不崩
+globalThis.uni = { getSystemInfoSync: () => { throw new Error('boom') } }
+check('读取异常 -> 浅色', isSystemDark(), false)
+
+console.log('=== resolveDark ===')
+
+fakeSystemInfo({ osTheme: 'dark' })
+check('system 模式跟随系统', resolveDark(THEME_MODE.SYSTEM), true)
+check('light 模式强制浅色', resolveDark(THEME_MODE.LIGHT), false)
+check('dark 模式强制深色', resolveDark(THEME_MODE.DARK), true)
+
+fakeSystemInfo({ osTheme: 'light' })
+check('system 模式（系统浅色）', resolveDark(THEME_MODE.SYSTEM), false)
+check('light 模式（系统深色时也浅色）', resolveDark(THEME_MODE.LIGHT), false)
+check('dark 模式（系统浅色时也深色）', resolveDark(THEME_MODE.DARK), true)
+
+console.log('=== 系统主题监听 ===')
+
+{
+  let fired = 0
+  const off = watchSystemTheme(() => { fired++ })
+  // watchSystemTheme 应该正常返回取消函数
+  check('返回取消函数', typeof off, 'function')
+  off()
+  delete globalThis.uni
+}
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

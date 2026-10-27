@@ -1,0 +1,42 @@
+{
+	"light": {
+		"navBgColor": "#FFFFFF",
+		"navTxtStyle": "black",
+		"bgColor": "#F7F8FA",
+		"bgTxtStyle": "light",
+		"bgColorTop": "#F7F8FA",
+		"bgColorBottom": "#F7F8FA",
+		"tabFontColor": "#969799",
+		"tabSelectedColor": "#07C160",
+		"tabBgColor": "#FFFFFF",
+		"tabBorderStyle": "white",
+		"iconPath1": "static/tabbar/home.png",
+		"selectedIconPath1": "static/tabbar/home-active-green.png",
+		"iconPath2": "static/tabbar/account.png",
+		"selectedIconPath2": "static/tabbar/account-active-green.png",
+		"iconPath3": "static/tabbar/stats.png",
+		"selectedIconPath3": "static/tabbar/stats-active-green.png",
+		"iconPath4": "static/tabbar/mine.png",
+		"selectedIconPath4": "static/tabbar/mine-active-green.png"
+	},
+	"dark": {
+		"navBgColor": "#000000",
+		"navTxtStyle": "white",
+		"bgColor": "#000000",
+		"bgTxtStyle": "dark",
+		"bgColorTop": "#000000",
+		"bgColorBottom": "#000000",
+		"tabFontColor": "#8E8E93",
+		"tabSelectedColor": "#07C160",
+		"tabBgColor": "#1C1C1E",
+		"tabBorderStyle": "black",
+		"iconPath1": "static/tabbar/home-dark.png",
+		"selectedIconPath1": "static/tabbar/home-active-green.png",
+		"iconPath2": "static/tabbar/account-dark.png",
+		"selectedIconPath2": "static/tabbar/account-active-green.png",
+		"iconPath3": "static/tabbar/stats-dark.png",
+		"selectedIconPath3": "static/tabbar/stats-active-green.png",
+		"iconPath4": "static/tabbar/mine-dark.png",
+		"selectedIconPath4": "static/tabbar/mine-active-green.png"
+	}
+}

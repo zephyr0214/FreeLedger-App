@@ -141,44 +141,47 @@
 		}
 	],
 	"globalStyle": {
-		"navigationBarTextStyle": "black",
+		"navigationBarTextStyle": "@navTxtStyle",
 		"navigationBarTitleText": "记账本",
-		"navigationBarBackgroundColor": "#FFFFFF",
-		"backgroundColor": "#F7F8FA",
+		"navigationBarBackgroundColor": "@navBgColor",
+		"backgroundColor": "@bgColor",
+		"backgroundTextStyle": "@bgTxtStyle",
+		"backgroundColorTop": "@bgColorTop",
+		"backgroundColorBottom": "@bgColorBottom",
 		"app-plus": {
-			"background": "#F7F8FA",
+			"background": "@bgColor",
 			"softinputMode": "adjustResize"
 		}
 	},
 	"tabBar": {
-		"color": "#969799",
-		"selectedColor": "#07C160",
-		"backgroundColor": "#FFFFFF",
-		"borderStyle": "white",
+		"color": "@tabFontColor",
+		"selectedColor": "@tabSelectedColor",
+		"backgroundColor": "@tabBgColor",
+		"borderStyle": "@tabBorderStyle",
 		"list": [
 			{
 				"pagePath": "pages/index/index",
 				"text": "首页",
-				"iconPath": "static/tabbar/home.png",
-				"selectedIconPath": "static/tabbar/home-active-green.png"
+				"iconPath": "@iconPath1",
+				"selectedIconPath": "@selectedIconPath1"
 			},
 			{
 				"pagePath": "pages/account/index",
 				"text": "账户",
-				"iconPath": "static/tabbar/account.png",
-				"selectedIconPath": "static/tabbar/account-active-green.png"
+				"iconPath": "@iconPath2",
+				"selectedIconPath": "@selectedIconPath2"
 			},
 			{
 				"pagePath": "pages/stats/index",
 				"text": "统计",
-				"iconPath": "static/tabbar/stats.png",
-				"selectedIconPath": "static/tabbar/stats-active-green.png"
+				"iconPath": "@iconPath3",
+				"selectedIconPath": "@selectedIconPath3"
 			},
 			{
 				"pagePath": "pages/mine/index",
 				"text": "我的",
-				"iconPath": "static/tabbar/mine.png",
-				"selectedIconPath": "static/tabbar/mine-active-green.png"
+				"iconPath": "@iconPath4",
+				"selectedIconPath": "@selectedIconPath4"
 			}
 		]
 	},
