@@ -8,9 +8,37 @@
  */
 
 import { query, queryOne } from './db/index.js'
-import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth } from '../utils/date.js'
+import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay } from '../utils/date.js'
 
 /* ------------------------------------------------------------ 总览卡片 */
+
+/**
+ * 最近 N 天各分类的使用次数（用于分类排序）。
+ *
+ * 统计的是「用了多少次」而不是「花了多少钱」——
+ * 高频但便宜的分类（如早餐）也该排在前面。
+ * 只统计支出和收入，转账不涉及分类。
+ *
+ * @param {number} days 回溯天数
+ * @returns {Promise<Object>} { categoryId: count }
+ */
+export async function getCategoryUsageCounts(days = 30) {
+  const from = shiftDay(toDayKey(), -(days - 1))
+  const rows = await query(
+    `SELECT category_id AS id, COUNT(*) AS c
+     FROM txn
+     WHERE deleted_at IS NULL
+       AND category_id IS NOT NULL
+       AND occurred_day >= ?
+     GROUP BY category_id`,
+    [from]
+  )
+  const map = {}
+  for (const r of rows) {
+    map[r.id] = Number(r.c) || 0
+  }
+  return map
+}
 
 /** 首页/统计页核心数字：本月支出、收入、结余、今日支出 */
 export async function getOverview(monthKey) {

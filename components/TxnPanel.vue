@@ -264,9 +264,11 @@ import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
+import { getCategoryUsageCounts } from '@/api/stats.js'
 import { toDayKey, shiftDay, formatDayHeader } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { sortCategoriesByUsage } from '@/utils/categorySort.js'
 
 export default {
   name: 'TxnPanel',
@@ -311,6 +313,8 @@ export default {
 
     const categories = ref([])
     const tags = ref([])
+    /** 最近 30 天各分类的使用次数，用于分类排序 */
+    const usageCounts = ref({})
     const showAccountPicker = ref(false)
     const showToAccountPicker = ref(false)
     const showTagPicker = ref(false)
@@ -322,9 +326,18 @@ export default {
 
     /* ------------------------------------------------------ 计算属性 */
 
+    /**
+     * 当前类型下的分类（已按使用频率排序）。
+     *
+     * 排序规则见 utils/categorySort.js：
+     *   1. 已选中的排第一
+     *   2. 最近 30 天用过的按次数降序
+     *   3. 没用过的按用户设定的 sort 升序
+     */
     const categoryList = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
-      return categories.value.filter((c) => c.type === type && !c.isParent)
+      const list = categories.value.filter((c) => c.type === type && !c.isParent)
+      return sortCategoriesByUsage(list, usageCounts.value, form.category_id)
     })
 
     /**
@@ -562,9 +575,15 @@ export default {
     }
 
     async function loadOptions() {
-      const [cats, tgs] = await Promise.all([listCategories(), listTags()])
+      const [cats, tgs, counts] = await Promise.all([
+        listCategories(),
+        listTags(),
+        // 用不到排序统计时不能影响主流程
+        getCategoryUsageCounts(30).catch(() => ({}))
+      ])
       categories.value = cats
       tags.value = tgs
+      usageCounts.value = counts || {}
     }
 
     /** 重置表单 */
@@ -754,7 +773,7 @@ export default {
 
     return {
       visible, types, form, primaryColor, currencySymbol,
-      categoryList, categoryRows, moreRowItems, allCategoryItems,
+      categoryList, categoryRows, moreRowItems, allCategoryItems, usageCounts,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
