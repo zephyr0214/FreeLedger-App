@@ -334,7 +334,8 @@ import { useSettingStore } from '@/stores/setting.js'
 import {
   getOverviewRange, getSubCategoryStatsRange,
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
-  getDailyTrendRange, getAveragesRange, getTopExpensesRange
+  getDailyTrendRange, getAveragesRange, getTopExpensesRange,
+  PIE_PALETTE
 } from '@/api/stats.js'
 import {
   selectionToRange, defaultSelection, selectionLabel
@@ -465,7 +466,8 @@ export default {
     const accountDonutStyle = computed(() =>
       buildDonut(
         accountStats.value.map((a, i) => ({ amount: a.amount, color: accColor(a, i) })),
-        accountTotal.value
+        accountTotal.value,
+        10
       )
     )
 
@@ -474,14 +476,17 @@ export default {
       buildDonut(accountTypeStats.value, accountTypeTotal.value)
     )
 
-    /** 账户配色：优先用账户自己的颜色，没有就按顺序取主题色系 */
-    const ACCOUNT_PIE_COLORS = [
-      '#1989FA', '#07C160', '#FF8F1F', '#7D5FFF', '#FF976A',
-      '#EE0A24', '#0A8F4A', '#FF6B9D'
-    ]
+    /**
+     * 账户配色
+     *
+     * ★ 统一从调色板按序取色 ★
+     *   账户自带的颜色可能重复（用户建账户时颜色是可选项，
+     *   很容易好几个账户都是同一个默认色），
+     *   饼图上就分不开了。
+     *   排行里的色点跟着饼图的色走，用同一套取色规则。
+     */
     function accColor(acc, index) {
-      if (acc && acc.color) return acc.color
-      return ACCOUNT_PIE_COLORS[index % ACCOUNT_PIE_COLORS.length]
+      return PIE_PALETTE[index % PIE_PALETTE.length]
     }
 
     /** 饼图里的百分比 */

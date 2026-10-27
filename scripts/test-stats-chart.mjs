@@ -12,7 +12,7 @@
 let pass = 0
 let fail = 0
 
-import { shadeColor } from '../api/stats.js'
+import { PIE_PALETTE } from '../api/stats.js'
 
 function check(name, actual, expected) {
   const a = JSON.stringify(actual)
@@ -101,20 +101,32 @@ check('三分之一', piePercent(1, 3), 33.3)
 check('全部', piePercent(100, 100), 100)
 check('total 为 0', piePercent(10, 0), 0)
 
-console.log('=== 二级分类的色阶派生 ===')
+console.log('=== 饼图调色板 ===')
 
 {
-  // 同一父级下的二级分类要能区分开（同一色系的不同深浅）
-  check('第一个用原色', shadeColor('#1989FA', 0), '#1989FA')
-  check('第二个变暗', shadeColor('#1989FA', 1) !== '#1989FA', true)
-  check('第三个比第二个更暗', shadeColor('#1989FA', 2) !== shadeColor('#1989FA', 1), true)
-  // 不能黑到看不见
-  check('序号很大也不会全黑', shadeColor('#1989FA', 20).slice(1, 3) !== '00', true)
-  // 非法输入兜底
-  check('非法颜色兜底', shadeColor('不是颜色', 1), '#1989FA')
-  check('空值兜底', shadeColor('', 0), '#1989FA')
-  // 颜色格式合法
-  check('输出是 7 位十六进制', /^#[0-9a-f]{6}$/.test(shadeColor('#1989FA', 3)), true)
+  // 每块颜色都要不同，否则饼图分不开
+  check('调色板有 10 色', PIE_PALETTE.length, 10)
+  check('没有重复色', new Set(PIE_PALETTE).size, PIE_PALETTE.length)
+  check('都是合法十六进制', PIE_PALETTE.every((c) => /^#[0-9a-fA-F]{6}$/.test(c)), true)
+
+  // 相邻两块要有明显的色相/明度差
+  function rgb(hex) {
+    const n = parseInt(hex.slice(1), 16)
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  }
+  function dist(a, b) {
+    const [r1, g1, b1] = rgb(a)
+    const [r2, g2, b2] = rgb(b)
+    return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2)
+  }
+  let minDist = Infinity
+  for (let i = 0; i < PIE_PALETTE.length; i++) {
+    for (let j = i + 1; j < PIE_PALETTE.length; j++) {
+      minDist = Math.min(minDist, dist(PIE_PALETTE[i], PIE_PALETTE[j]))
+    }
+  }
+  // 任意两块之间的 RGB 距离都要够大（>= 75 才算一眼能分开）
+  check('最接近的两块也差得开', minDist >= 75, true)
 }
 
 console.log('=== 各分类平均值 ===')

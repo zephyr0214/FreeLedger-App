@@ -394,9 +394,11 @@ export async function getCategoryStatsRange(range, type = 'expense') {
  *
  * ★ 二级分类的配色 ★
  *   种子里二级分类继承父级颜色（分类管理页显示的是父级色），
- *   但统计页的饼图要按二级分块 —— 同一父级下全是同一个颜色就分不开了。
- *   所以这里在查询时按「父级色 + 序号」派生出色阶，
- *   同一父级下的二级分类是同一色系的不同深浅。
+ *   但统计页的饼图要按二级分块 —— 全用父级色就分不开了。
+ *   这里**不用父级色**，而是从一个高区分度的调色板里按序取色：
+ *   每一块的颜色都不同，饼图上一眼能分清。
+ *   （之前用「父级色按序号变深浅」，同色系的深浅太接近，
+ *    看上去跟没区分一样。）
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @param {'expense'|'income'} type
@@ -420,49 +422,42 @@ export async function getSubCategoryStatsRange(range, type = 'expense') {
     [type].concat(rangeScope(range).params)
   )
 
-  // 同一父级下按序号派生色阶
-  const seqByParent = {}
-  return rows.map((r) => {
-    const parentId = r.parent_id || '__own__'
-    const idx = seqByParent[parentId] === undefined ? 0 : seqByParent[parentId]
-    seqByParent[parentId] = idx + 1
-    return {
-      id: r.id,
-      name: r.name || '未分类',
-      icon: r.icon || 'more',
-      color: shadeColor(r.parent_color || r.color || '#1989FA', idx),
-      parentName: r.parent_name || '未分类',
-      amount: Number(r.amt) || 0,
-      count: Number(r.cnt) || 0
-    }
-  })
+  // 按调色板顺序取色：每块颜色都不同
+  return rows.map((r, i) => ({
+    id: r.id,
+    name: r.name || '未分类',
+    icon: r.icon || 'more',
+    color: PIE_PALETTE[i % PIE_PALETTE.length],
+    parentName: r.parent_name || '未分类',
+    amount: Number(r.amt) || 0,
+    count: Number(r.cnt) || 0
+  }))
 }
 
 /**
- * 由基色派生出同色系的深浅色（用于同组内区分）
- * @param {string} hex 基色，如 '#1989FA'
- * @param {number} idx 序号
- * @returns {string} 十六进制颜色
+ * 饼图调色板
+ *
+ * ★ 每两种颜色都要差得开 ★
+ *   相邻两块如果只是「同一个色相的不同深浅」，
+ *   肉眼几乎分不开，饼图就白画了。
+ *   这组是 Material 500 色阶里挑出来的 10 个**色相分散**的颜色，
+ *   任意两块之间的 RGB 距离都 >= 77，一眼能分出边界。
+ *
+ *   （之前那版混进了深绿/绿、深蓝/蓝、浅橙/粉、洋红/粉这些近似色，
+ *    看上去「颜色没区分」就是这个原因。）
  */
-export function shadeColor(hex, idx) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''))
-  if (!m) return '#1989FA'
-  if (!idx) return `#${m[1]}`
-
-  const num = parseInt(m[1], 16)
-  let r = (num >> 16) & 255
-  let g = (num >> 8) & 255
-  let b = num & 255
-
-  // 每往后一个，亮度降 12%，最低降到 45%
-  const factor = Math.max(0.45, 1 - idx * 0.12)
-  r = Math.round(r * factor)
-  g = Math.round(g * factor)
-  b = Math.round(b * factor)
-
-  const to2 = (v) => v.toString(16).padStart(2, '0')
-  return `#${to2(r)}${to2(g)}${to2(b)}`
-}
+export const PIE_PALETTE = [
+  '#1E88E5', // 蓝
+  '#FB8C00', // 橙
+  '#43A047', // 绿
+  '#E53935', // 红
+  '#8E24AA', // 紫
+  '#F06292', // 粉
+  '#6D4C41', // 棕
+  '#9E9D24', // 黄绿
+  '#26A69A', // 青
+  '#5C6BC0'  // 靛
+]
 
 /** 二级分类明细（点开一级分类时用） */
 export async function getSubCategoryStats(parentId, monthKey, type = 'expense') {
@@ -568,13 +563,16 @@ export async function getAccountTypeStatsRange(range, type = 'expense') {
     }))
 }
 
-/** 账户类别配色（饼图用） */
+/**
+ * 账户类别配色（饼图用）
+ * 取自 PIE_PALETTE 的前几个色位，和分类统计的饼图是同一套视觉语言。
+ */
 const ACCOUNT_TYPE_COLORS = {
-  online: '#1989FA',
-  credit: '#EE0A24',
-  debit: '#07C160',
-  cash: '#FF976A',
-  prepaid: '#7D5FFF'
+  online: PIE_PALETTE[0],   // 蓝
+  credit: PIE_PALETTE[3],   // 红
+  debit: PIE_PALETTE[2],    // 绿
+  cash: PIE_PALETTE[1],     // 橙
+  prepaid: PIE_PALETTE[4]   // 紫
 }
 
 /* ------------------------------------------------------- 标签（项目）统计 */
