@@ -236,6 +236,17 @@ console.log('=== SVG 源码生成 ===')
   check('命中时只画 1 个点', (svgActive.match(/<circle/g) || []).length, 1)
   check('命中时有竖线辅助', svgActive.includes('stroke-opacity="0.35"'), true)
 
+  // onlyActive：叠在底图上的那张，只画命中点和竖线，不画折线
+  const svgOverlay = buildSvgSource({
+    coords: c, linePath: d, areaPath: '', markers: m,
+    color: '#07C160', zeroY: null, width: 300, height: 100,
+    activeIndex: 1, onlyActive: true
+  })
+  check('叠加图只有 1 个点', (svgOverlay.match(/<circle/g) || []).length, 1)
+  check('叠加图有竖线', svgOverlay.includes('stroke-opacity="0.35"'), true)
+  check('叠加图不重复画折线', (svgOverlay.match(/<path/g) || []).length, 0)
+  check('叠加图不画填充', svgOverlay.includes('linearGradient'), false)
+
   // data URI
   const uri = svgToDataUri(svg)
   check('data URI 前缀', uri.startsWith('data:image/svg+xml;charset=utf-8,'), true)

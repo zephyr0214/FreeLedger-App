@@ -212,6 +212,8 @@ export function formatChartDay(day) {
  * @param {number} opts.width viewBox 宽
  * @param {number} opts.height viewBox 高
  * @param {string} opts.bgColor 背景色（数据点的空心填充）
+ * @param {boolean} opts.onlyActive 只画命中的点和辅助线，不画折线和填充
+ *   （叠在底图上用，避免每次触摸都重画整张图导致闪烁）
  * @returns {string} SVG 源码
  */
 export function buildSvgSource(opts = {}) {
@@ -219,7 +221,7 @@ export function buildSvgSource(opts = {}) {
     coords = [], linePath = '', areaPath = '', markers = [],
     color = '#07C160', zeroY = null,
     width = 300, height = 100, bgColor = '#FFFFFF',
-    activeIndex = -1
+    activeIndex = -1, onlyActive = false
   } = opts
 
   if (!linePath) return ''
@@ -249,11 +251,13 @@ export function buildSvgSource(opts = {}) {
     )
   }
 
-  // 折线
-  parts.push(
-    `<path d="${linePath}" fill="none" stroke="${color}" ` +
-    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
-  )
+  // 折线（onlyActive 时不画，叠在底图上）
+  if (!onlyActive) {
+    parts.push(
+      `<path d="${linePath}" fill="none" stroke="${color}" ` +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+    )
+  }
 
   // 数据点：默认不显示，只画当前触摸命中的那个
   if (activeIndex >= 0 && markers[activeIndex]) {

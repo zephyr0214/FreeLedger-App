@@ -17,35 +17,48 @@
       -->
       <!--
         触摸层：盖在图上，捕捉触摸位置。
-        ★ 不能用 touchmove.prevent ★
-          图表在 scroll-view 里，prevent 会让整个图表区域都不能滚动页面，
-          用户想上下滑看下面的账户列表时卡住。
-          改成不 prevent，让纵向滑动正常滚页面；
-          横向滑动由 touchmove 事件自己处理（uni-app 的 touchmove
-          在 scroll-view 里仍会触发，只是可能被滚动打断）。
+
+        ★ 触摸事件绑在**外层** .slc-body 上，不绑在 .slc-touch 里 ★
+          绑在里面的话，触摸落在 image / 气泡这些子元素上时，
+          事件不会冒泡到处理器，手指按在图上（image 铺满整个区域）
+          反而没反应 —— 这就是之前「一直只显示第一个点」的原因。
+          绑在外层，落在任何子元素上都能收到。
+
+        ★ touchmove 不用 prevent ★
+          图表在 scroll-view 里，prevent 会让整个图表区域都不能滚页面。
       -->
       <view
-        class="slc-touch"
-        @touchstart.stop="onTouchStart"
+        class="slc-body"
+        @touchstart="onTouchStart"
         @touchmove="onTouchMove"
         @touchend="onTouchEnd"
         @touchcancel="onTouchEnd"
       >
-        <image
-          v-if="chartSrc"
-          class="slc-img"
-          :src="chartSrc"
-          mode="scaleToFill"
-        />
+        <view class="slc-touch">
+          <image
+            v-if="chartSrc"
+            class="slc-img"
+            :src="chartSrc"
+            mode="scaleToFill"
+          />
 
-        <!-- 触摸提示气泡：显示该点的日期和金额 -->
-        <view
-          v-if="activeIndex >= 0"
-          class="slc-tip"
-          :style="tipStyle"
-        >
-          <text class="slc-tip-day">{{ activeDay }}</text>
-          <text class="slc-tip-amount">{{ activeAmount }}</text>
+          <!-- 叠加图：只画当前命中的点和辅助竖线 -->
+          <image
+            v-if="activeSrc"
+            class="slc-img slc-img-active"
+            :src="activeSrc"
+            mode="scaleToFill"
+          />
+
+          <!-- 触摸提示气泡：显示该点的日期和金额 -->
+          <view
+            v-if="activeIndex >= 0"
+            class="slc-tip"
+            :style="tipStyle"
+          >
+            <text class="slc-tip-day">{{ activeDay }}</text>
+            <text class="slc-tip-amount">{{ activeAmount }}</text>
+          </view>
         </view>
       </view>
 
@@ -134,21 +147,42 @@ export default {
     const markers = computed(() => calcMarkers(coords.value, props.color))
 
     /**
-     * 整张图的 data URI。
-     * <image> 只能加载位图或 data URI，
-     * 但 data:image/svg+xml 在 App 端（WebView）是可以渲染的。
+     * 底层图（折线 + 填充 + 0 基线）的 data URI。
+     *
+     * ★ 分成两张图 ★
+     *   底层图不随触摸变化，命中点画在另一张叠加图上。
+     *   如果合成一张，每次触摸都要重新生成 data URI 让 image 换 src，
+     *   会闪一下，而且换 src 的瞬间触摸坐标会错位（手指没动，选中的点却跳了）。
      */
     const chartSrc = computed(() => {
       const svg = buildSvgSource({
         coords: coords.value,
         linePath: linePath.value,
         areaPath: props.fill ? areaPath.value : '',
-        markers: markers.value,
+        markers: [],
         color: props.color,
         zeroY: zeroY.value,
         width: vbWidth,
         height: vbHeight,
-        activeIndex: activeIndex.value
+        activeIndex: -1
+      })
+      return svgToDataUri(svg)
+    })
+
+    /** 叠加图：只画当前命中的那个点和辅助竖线 */
+    const activeSrc = computed(() => {
+      if (activeIndex.value < 0) return ''
+      const svg = buildSvgSource({
+        coords: coords.value,
+        linePath: linePath.value,
+        areaPath: '',
+        markers: markers.value,
+        color: props.color,
+        zeroY: null,
+        width: vbWidth,
+        height: vbHeight,
+        activeIndex: activeIndex.value,
+        onlyActive: true
       })
       return svgToDataUri(svg)
     })
@@ -194,6 +228,11 @@ export default {
      * 用 uni.createSelectorQuery 量一次并缓存 —— 异步查询在 touch 回调里
      * 等它回来会慢一拍，指针跟手会不准。
      * 首次触摸前先量好（onMounted + 首次 touchstart 兜底量一次）。
+     *
+     * ★ 量的是 .slc-touch（真正画图的那块）★
+     *   触摸事件绑在 .slc-body 上，坐标是相对 .slc-body 的，
+     *   而图的横向范围是 .slc-touch 的，两者宽度一致，
+     *   但 left 可能有细微差别 —— 两个都算一遍，取落在范围内的。
      */
     const chartRect = ref(null)
 
@@ -211,10 +250,10 @@ export default {
     /**
      * 触摸位置 -> viewBox 坐标
      *
-     * 触摸事件里 touch.x 有两种含义：
-     *   - 相对**目标元素**（App 端大多数情况是这样）
-     *   - 相对**页面**（部分平台/滚动后）
-     * 两种都试一遍：哪个换算出来的坐标落在 [0, vbWidth] 内就用哪个。
+     * touch.x 的含义在不同平台不一样：
+     *   - 相对**目标元素**（App 端大多数情况）
+     *   - 相对**页面**（部分平台 / 滚动后）
+     * 两种都算一遍，取落在图表范围内的那个。
      */
     function touchToChartX(touch) {
       const c = coords.value
@@ -225,11 +264,11 @@ export default {
         try { return uni.getSystemInfoSync().windowWidth || 375 } catch (e) { return 375 }
       })()
 
-      // 候选 1：touch.x 已经是相对元素的
-      // 候选 2：touch.x 是相对页面的，要减去元素左边界
       const candidates = []
       if (rect && rect.width) {
+        // 相对元素
         candidates.push((touch.x / rect.width) * vbWidth)
+        // 相对页面
         candidates.push(((touch.x - rect.left) / rect.width) * vbWidth)
       } else {
         // 量不到容器：按「窗口宽度减去页面左右各 32rpx 的内边距」估算
@@ -240,9 +279,10 @@ export default {
 
       // 选一个落在图表范围内的
       for (const x of candidates) {
-        if (x >= -vbWidth * 0.1 && x <= vbWidth * 1.1) return x
+        if (x >= 0 && x <= vbWidth) return x
       }
-      return candidates[0]
+      // 都不在范围内就夹一下
+      return Math.max(0, Math.min(vbWidth, candidates[0]))
     }
 
     function onTouchStart(e) {
@@ -284,7 +324,7 @@ export default {
 
     return {
       vbWidth, vbHeight, hasData, bounds, coords, zeroY,
-      linePath, areaPath, markers, chartSrc,
+      linePath, areaPath, markers, chartSrc, activeSrc,
       activeIndex, activeDay, activeAmount, tipStyle,
       onTouchStart, onTouchMove, onTouchEnd,
       axisFirst, axisMid, axisLast
@@ -322,6 +362,15 @@ export default {
   top: 0;
   width: 100%;
   height: 100%;
+  /* ★ 不接收触摸 ★
+     image 铺满整个图表区域，会把 touch 事件吃掉，
+     导致手指按在图上没反应。触摸交给外层 .slc-body 处理。 */
+  pointer-events: none;
+}
+
+/* 叠加图：命中点和辅助线，盖在底图上面 */
+.slc-img-active {
+  z-index: 1;
 }
 
 /* 触摸提示气泡 */

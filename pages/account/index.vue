@@ -11,9 +11,11 @@
     <scroll-view class="page-scroll" scroll-y>
       <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
-        <!-- 总资产：只显示金额 -->
-        <text class="asset-label">总资产</text>
-        <MoneyText :cents="accountStore.totalAssets" :size="76" :weight="600" color="var(--app-text)" />
+        <!-- 总资产：标题和金额并在一行，更紧凑 -->
+        <view class="asset-row">
+          <text class="asset-label">总资产</text>
+          <MoneyText :cents="accountStore.totalAssets" :size="52" :weight="600" color="var(--app-text)" />
+        </view>
 
         <!-- 资产趋势：每次资产变化打一个点 -->
         <view class="asset-trend">
@@ -62,14 +64,19 @@
           <!--
             右滑显示「设为默认」：
             用 wd-swipe-action 的 right 插槽。
-            原来那个常驻的「设默认」小字太挤，去掉了。
-            每行用 v-model 单独控制开合状态，点完「设为默认」要收起来。
+            ★ 用组件自己的 @click 事件，不用插槽内容的 @click ★
+               插槽内容所在的容器上已经绑了 @click="onClick('right')"，
+               它会先把滑动关掉再冒泡；
+               自己的 @click.stop 虽然能拦住冒泡，
+               但在真机上事件顺序不稳（先关滑动 -> 按钮消失 -> 处理器还没跑）。
+               组件的 @click 事件在关闭之后才 emit，是它设计的用法。
           -->
           <wd-swipe-action
             v-for="acc in group.accounts"
             :key="acc.id"
             v-model="swipeStates[acc.id]"
             class="acc-swipe"
+            @click="onSwipeClick(acc, $event)"
           >
             <view class="acc-item" @click="goDetail(acc.id)">
               <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
@@ -109,7 +116,6 @@
               <view
                 class="swipe-default"
                 :style="{ backgroundColor: acc.id === defaultAccountId ? 'var(--app-text-3)' : primaryColor }"
-                @click.stop="setDefault(acc)"
               >
                 <text class="swipe-default-text">
                   {{ acc.id === defaultAccountId ? '已默认' : '设为默认' }}
@@ -227,9 +233,6 @@ export default {
      * 不收的话它一直露在那儿，用户会以为还能再点什么。
      */
     async function setDefault(acc) {
-      // 无论成功与否都先收起
-      closeSwipe(acc.id)
-
       if (acc.id === defaultAccountId.value) {
         uni.showToast({ title: '已经是默认账户了', icon: 'none' })
         return
@@ -238,11 +241,17 @@ export default {
       uni.showToast({ title: `已设为默认：${acc.name}`, icon: 'none' })
     }
 
-    /** 收起某个账户的右滑按钮 */
-    function closeSwipe(id) {
-      if (swipeStates.value[id] !== undefined) {
-        swipeStates.value[id] = 'close'
-      }
+    /**
+     * wd-swipe-action 的 click 事件
+     *
+     * 组件在关闭滑动之后才 emit 这个事件，
+     * 事件参数是 { value: 'left' | 'right' | 'inside' }。
+     * 只有点到了右边的操作区（'right'）才算「点了设为默认」。
+     */
+    function onSwipeClick(acc, event) {
+      const position = event && event.value
+      if (position !== 'right') return
+      setDefault(acc)
     }
 
     function goAddAccount() {
@@ -278,7 +287,7 @@ export default {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints, swipeStates,
       primaryColor, pageStyle, defaultAccountId,
-      switchRange, formatGroupSum, formatAmount, setDefault, closeSwipe,
+      switchRange, formatGroupSum, formatAmount, setDefault, onSwipeClick,
       goAddAccount, goDetail, goSettings
     }
   }
@@ -313,8 +322,14 @@ export default {
 .asset-label {
   font-size: 26rpx;
   color: var(--app-text-2);
-  display: block;
-  margin-bottom: 12rpx;
+  flex-shrink: 0;
+}
+
+/* 标题和金额并排 */
+.asset-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
 }
 
 /* 趋势区：与总资产同面板，用一条细分割线隔开 */
