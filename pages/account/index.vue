@@ -9,66 +9,32 @@
     </AppHeader>
 
     <scroll-view class="page-scroll" scroll-y>
-      <!-- 总资产 -->
+      <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
+        <!-- 总资产：只显示金额 -->
         <text class="asset-label">总资产</text>
         <MoneyText :cents="accountStore.totalAssets" :size="76" :weight="600" color="var(--app-text)" />
 
-        <view class="asset-meta">
-          <view class="meta-item">
-            <text class="meta-label">总负债</text>
-            <MoneyText :cents="accountStore.totalDebt" :size="28" color="var(--app-text-2)" />
-          </view>
-          <view class="meta-divider" />
-          <view class="meta-item">
-            <text class="meta-label">较上月</text>
-            <text class="meta-value" :style="{ color: assetChange >= 0 ? 'var(--app-success)' : 'var(--app-danger)' }">
-              {{ changeLabel }}
-            </text>
-          </view>
-        </view>
-      </view>
-
-      <!-- 趋势图 -->
-      <view class="trend-card">
-        <view class="trend-head">
-          <text class="trend-title">资产趋势</text>
-          <view class="trend-tabs">
-            <text
-              v-for="r in ranges"
-              :key="r.months"
-              class="trend-tab"
-              :class="{ active: trendRange === r.months }"
-              @click="switchRange(r.months)"
-            >{{ r.label }}</text>
-          </view>
-        </view>
-
-        <view v-if="trendPoints.length < 2" class="trend-empty">
-          <text class="trend-empty-text">数据积累中，连续记录几天就能看到趋势</text>
-        </view>
-
-        <view v-else class="trend-chart">
-          <!-- 简易 SVG 折线：App 端 canvas 首绘易白屏，折线用 CSS 绘制更稳 -->
-          <view class="chart-canvas">
-            <view
-              v-for="(pt, i) in trendPoints"
-              :key="i"
-              class="chart-bar-wrap"
-            >
-              <view
-                class="chart-bar"
-                :style="{
-                  height: pt.heightPct + '%',
-                  backgroundColor: i === trendPoints.length - 1 ? primaryColor : 'var(--app-line)'
-                }"
-              />
+        <!-- 资产趋势：每次资产变化打一个点 -->
+        <view class="asset-trend">
+          <view class="trend-head">
+            <text class="trend-title">资产趋势</text>
+            <view class="trend-tabs">
+              <text
+                v-for="r in ranges"
+                :key="r.months"
+                class="trend-tab"
+                :class="{ active: trendRange === r.months }"
+                @click="switchRange(r.months)"
+              >{{ r.label }}</text>
             </view>
           </view>
-          <view class="chart-axis">
-            <text class="axis-label">{{ trendLabels.first }}</text>
-            <text class="axis-label">{{ trendLabels.last }}</text>
-          </view>
+
+          <SmoothLineChart
+            :points="trendPoints"
+            :color="primaryColor"
+            :height="200"
+          />
         </view>
       </view>
 
@@ -153,13 +119,14 @@ import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import SmoothLineChart from '@/components/SmoothLineChart.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { getAssetTrend } from '@/api/account.js'
+import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState },
+  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -180,23 +147,28 @@ export default {
     /** 当前默认账户 id */
     const defaultAccountId = computed(() => settingStore.settings.defaultAccountId || '')
 
+    /**
+     * 折线图的数据点。
+     *
+     * ★ 补 0 ★
+     *   用户要求「没数据的时刻就记为 0 来画图」——
+     *   否则两个变化点之间会连成一条直线，
+     *   看起来像「这段时间资产没动过」，与事实不符。
+     */
+    const trendPoints = computed(() =>
+      fillChangePoints(trendData.value, trendRange.value * 31)
+    )
 
-    /** 较上月变化：取趋势最后两个点 */
-    const assetChange = computed(() => {
-      const pts = trendData.value
-      if (pts.length < 2) return 0
-      return pts[pts.length - 1].total - pts[pts.length - 2].total
-    })
-
-    const changeLabel = computed(() => {
-      if (trendData.value.length < 2) return '—'
-      const v = assetChange.value
-      const sign = v >= 0 ? '+' : ''
-      return `${sign}${(v / 100).toFixed(2)}`
-    })
+    async function loadTrend() {
+      try {
+        trendData.value = await getAssetChangePoints(trendRange.value)
+      } catch (e) {
+        trendData.value = []
+      }
+    }
 
     /** 归一化为百分比柱高 */
-    const trendPoints = computed(() => {
+    const trendBars = computed(() => {
       const pts = trendData.value
       if (pts.length === 0) return []
 
@@ -211,27 +183,6 @@ export default {
         heightPct: Math.round(((p.total - min) / range) * 70 + 25)
       }))
     })
-
-    const trendLabels = computed(() => {
-      const pts = trendData.value
-      if (pts.length === 0) return { first: '', last: '' }
-      const fmt = (d) => {
-        const [, m, day] = d.split('-')
-        return `${Number(m)}/${Number(day)}`
-      }
-      return {
-        first: fmt(pts[0].day),
-        last: fmt(pts[pts.length - 1].day)
-      }
-    })
-
-    async function loadTrend() {
-      try {
-        trendData.value = await getAssetTrend(trendRange.value)
-      } catch (e) {
-        trendData.value = []
-      }
-    }
 
     function switchRange(months) {
       trendRange.value = months
@@ -281,9 +232,8 @@ export default {
 
     return {
       settingStore, accountStore,
-      trendRange, ranges, trendData, trendPoints, trendLabels,
+      trendRange, ranges, trendData, trendPoints,
       primaryColor, pageStyle, defaultAccountId,
-      assetChange, changeLabel,
       switchRange, formatGroupSum, setDefault,
       goAddAccount, goDetail, goSettings
     }
@@ -307,11 +257,11 @@ export default {
   color: var(--app-primary);
 }
 
-/* 总资产卡 */
+/* 总资产卡（总资产金额 + 趋势折线，同一个面板） */
 .asset-card {
   background: linear-gradient(135deg, var(--app-primary-light), var(--app-card));
   border-radius: 24rpx;
-  padding: 36rpx 32rpx;
+  padding: 36rpx 32rpx 28rpx;
   margin-top: 8rpx;
   box-shadow: var(--app-shadow);
 }
@@ -323,56 +273,24 @@ export default {
   margin-bottom: 12rpx;
 }
 
-.asset-meta {
-  display: flex;
-  align-items: center;
+/* 趋势区：与总资产同面板，用一条细分割线隔开 */
+.asset-trend {
   margin-top: 28rpx;
   padding-top: 24rpx;
   border-top: 1rpx solid var(--app-line);
-}
-
-.meta-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.meta-label {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
-.meta-value {
-  font-size: 28rpx;
-  font-weight: 500;
-}
-
-.meta-divider {
-  width: 1rpx;
-  height: 48rpx;
-  background-color: var(--app-line);
-}
-
-/* 趋势卡 */
-.trend-card {
-  margin-top: 24rpx;
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 28rpx;
 }
 
 .trend-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24rpx;
+  margin-bottom: 16rpx;
 }
 
 .trend-title {
-  font-size: 28rpx;
+  font-size: 26rpx;
   font-weight: 600;
-  color: var(--app-text);
+  color: var(--app-text-2);
 }
 
 .trend-tabs {
@@ -390,52 +308,6 @@ export default {
 .trend-tab.active {
   background-color: var(--app-primary-light);
   color: var(--app-primary);
-}
-
-.trend-empty {
-  padding: 40rpx 0;
-  text-align: center;
-}
-
-.trend-empty-text {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.trend-chart {
-  padding-top: 8rpx;
-}
-
-.chart-canvas {
-  display: flex;
-  align-items: flex-end;
-  height: 180rpx;
-  gap: 4rpx;
-}
-
-.chart-bar-wrap {
-  flex: 1;
-  height: 100%;
-  display: flex;
-  align-items: flex-end;
-}
-
-.chart-bar {
-  width: 100%;
-  border-radius: 4rpx 4rpx 0 0;
-  min-height: 4rpx;
-  transition: height 0.3s ease;
-}
-
-.chart-axis {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 12rpx;
-}
-
-.axis-label {
-  font-size: 20rpx;
-  color: var(--app-text-3);
 }
 
 /* 分组 */

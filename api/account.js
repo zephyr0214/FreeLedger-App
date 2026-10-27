@@ -307,7 +307,12 @@ export async function writeAllTodaySnapshots() {
   return list.length
 }
 
-/** 总资产趋势：按天聚合所有账户快照 */
+/**
+ * 总资产趋势：按天聚合所有账户快照
+ *
+ * @deprecated 旧接口：按天一个点，柱子图用。
+ *   新的「资产变化点」趋势请用 getAssetChangePoints()。
+ */
 export async function getAssetTrend(months = 6) {
   const days = months * 31
   // 日期边界在 JS 里算好再传参，不依赖 SQLite 的 date('now') 时区行为
@@ -324,6 +329,109 @@ export async function getAssetTrend(months = 6) {
     [fromDay]
   )
   return rows.map((r) => ({ day: r.day, total: Number(r.total) || 0 }))
+}
+
+/**
+ * 资产变化点趋势。
+ *
+ * ★ 与 getAssetTrend 的区别 ★
+ *   getAssetTrend 是「每天一个点」（资产没变的天也占一个点）。
+ *   这里要的是「**每次资产变化打一个点**」：
+ *   只有当天的总资产和前一天不一样时，才记一个点。
+ *
+ * 口径与 getTotalAssets 对齐：
+ *   只算 include_in_total=1 的账户、排除已归档的。
+ *   account_snapshot 表里可能还留着已归档账户的历史快照，
+ *   所以聚合时要按账户过滤，不能直接 SUM 全部。
+ *
+ * @param {number} months 回看多少个月
+ * @returns {Promise<Array<{day:string, total:number, delta:number}>>}
+ *   delta = 与上一个点相比的变化额（第一个点为 0）
+ */
+export async function getAssetChangePoints(months = 6) {
+  const from = new Date()
+  from.setDate(from.getDate() - months * 31)
+  const fromDay = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
+
+  // 每天的总资产（只算计入总资产的账户）
+  const rows = await query(
+    `SELECT s.day AS day, SUM(s.balance_cents) AS total
+     FROM account_snapshot s
+     JOIN account a ON a.id = s.account_id
+     WHERE s.day >= ?
+       AND a.deleted_at IS NULL
+       AND a.archived = 0
+       AND a.include_in_total = 1
+     GROUP BY s.day
+     ORDER BY s.day ASC`,
+    [fromDay]
+  )
+
+  if (rows.length === 0) return []
+
+  const daily = rows.map((r) => ({
+    day: r.day,
+    total: Number(r.total) || 0
+  }))
+
+  // 只保留「与前一天不同」的点 = 资产发生变化时打点
+  const points = []
+  let prev = null
+  for (const d of daily) {
+    if (prev === null || d.total !== prev) {
+      points.push({
+        day: d.day,
+        total: d.total,
+        delta: prev === null ? 0 : d.total - prev
+      })
+      prev = d.total
+    }
+  }
+
+  return points
+}
+/**
+ * 把变化点补成连续的时间序列（缺失的天记为 0）。
+ *
+ * 用户要求：「没数据的时刻就记为 0 来画图」。
+ * 没有这一步，折线会在两个点之间直接连一条直线，
+ * 看起来像「这段时间资产没动过」，与事实不符。
+ *
+ * @param {Array<{day:string,total:number,delta:number}>} points
+ * @param {number} days 补齐的天数
+ * @returns {Array<{day:string,total:number,delta:number}>}
+ */
+export function fillChangePoints(points = [], days = 0) {
+  if (points.length === 0) return []
+
+  // 以最后一个点为终点往前推 days 天
+  const last = points[points.length - 1]
+  const endDate = parseDayKeyLocal(last.day)
+  const startDate = new Date(endDate.getTime())
+  startDate.setDate(startDate.getDate() - days + 1)
+
+  // 建立 day -> point 的索引
+  const map = {}
+  for (const p of points) map[p.day] = p
+
+  const out = []
+  const cur = new Date(startDate.getTime())
+  while (cur.getTime() <= endDate.getTime()) {
+    const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+    if (map[key]) {
+      out.push(map[key])
+    } else {
+      out.push({ day: key, total: 0, delta: 0 })
+    }
+    cur.setDate(cur.getDate() + 1)
+  }
+  return out
+}
+
+/** YYYY-MM-DD -> 本地 Date（不依赖 SQLite） */
+function parseDayKeyLocal(dayKey) {
+  const [y, m, d] = String(dayKey).split('-').map(Number)
+  return new Date(y || 1970, (m || 1) - 1, d || 1)
 }
 
 async function nextSort() {
