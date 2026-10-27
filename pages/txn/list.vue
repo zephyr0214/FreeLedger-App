@@ -11,11 +11,6 @@
       </view>
     </view>
 
-    <!-- 时间范围选择：年 / 月 / 日 三级联动 -->
-    <view class="month-bar">
-      <DateRangePicker v-model="dateRange" mode="inline" @range-change="onDateChange" />
-    </view>
-
     <view class="summary-bar">
       <text class="summary-text">
         {{ rangeLabel }} · 共 {{ summary.count }} 笔
@@ -26,6 +21,12 @@
         <text class="summary-label" style="margin-left: 16rpx">收入</text>
         <MoneyText :cents="summary.income" :size="26" color="var(--app-success)" />
       </view>
+    </view>
+
+    <!-- 时间范围选择：年 / 月 / 日 三级联动下拉
+         放在汇总条下面，下拉面板展开时不会被汇总条压住 -->
+    <view class="month-bar">
+      <DateRangePicker v-model="dateRange" @range-change="onDateChange" />
     </view>
 
     <scroll-view
@@ -581,11 +582,11 @@ export default {
 
 /* 时间范围选择 */
 .month-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 40rpx;
-  padding: 12rpx 0;
+  flex-shrink: 0;
+  position: relative;
+  /* 高于下方的 scroll-view，下拉面板才不会被列表盖住 */
+  z-index: 30;
+  padding: 0 32rpx 12rpx;
 }
 
 /* 汇总 */

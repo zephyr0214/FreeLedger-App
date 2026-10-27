@@ -106,6 +106,47 @@ export function selectionLabel(sel = {}) {
   return `${y}年${m}月${d}日`
 }
 
+/**
+ * 三级联动下拉的级联修正
+ *
+ * 规则（0 表示「全部」）：
+ *   选年 = 0      → 月、日清零（全部年 = 不限时间）
+ *   选月 = 0      → 日清零（全部月 = 整年）
+ *   选到具体月但年为空 → 年补成今年
+ *   日超出当月天数 → 下调到当月最后一天（不会变成 0）
+ *
+ * @param {{year:number,month:number,day:number}} sel
+ * @param {'year'|'month'|'day'} changed 刚刚被改动的那一列
+ * @returns {{year:number,month:number,day:number}} 修正后的选择
+ */
+export function cascadeSelection(sel = {}, changed = 'day') {
+  let year = Number(sel.year) || 0
+  let month = Number(sel.month) || 0
+  let day = Number(sel.day) || 0
+
+  if (changed === 'year' && !year) {
+    month = 0
+    day = 0
+  }
+  if (changed === 'month') {
+    if (!month) {
+      day = 0
+    } else {
+      if (!year) year = new Date().getFullYear()
+    }
+  }
+
+  // 日越界下调（年或月没选时不处理，日只能是 0）
+  if (year && month) {
+    const last = new Date(year, month, 0).getDate()
+    if (day > last) day = last
+  } else {
+    day = 0
+  }
+
+  return { year, month, day }
+}
+
 /** 某月的第一天与最后一天 */
 export function monthRange(monthKey) {
   const [y, m] = String(monthKey).split('-').map(Number)

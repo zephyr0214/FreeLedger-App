@@ -143,8 +143,6 @@
       <view class="bottom-space" />
     </scroll-view>
 
-      <!-- tabBar 上方分割线：原生 tabBar 的 borderStyle 只有 black/white，做不出浅灰 -->
-      <view class="tabbar-divider" />
 
   </view>
 </template>

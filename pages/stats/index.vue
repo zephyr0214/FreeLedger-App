@@ -2,12 +2,12 @@
   <view class="app-page" :style="pageStyle">
     <AppHeader @avatar-click="goSettings" />
 
-    <scroll-view class="page-scroll" scroll-y>
-      <!-- 时间范围选择：年 / 月 / 日 三级联动 -->
-      <view class="range-picker-bar">
-        <DateRangePicker v-model="dateRange" mode="inline" @range-change="onRangeChange" />
-      </view>
+    <!-- 时间范围选择：年 / 月 / 日 三级联动下拉 -->
+    <view class="range-picker-bar">
+      <DateRangePicker v-model="dateRange" @range-change="onRangeChange" />
+    </view>
 
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 收支摘要 -->
       <view class="ov-summary">
         <view class="ov-item">
@@ -265,8 +265,6 @@
       <view class="bottom-space" />
     </scroll-view>
 
-      <!-- tabBar 上方分割线：原生 tabBar 的 borderStyle 只有 black/white，做不出浅灰 -->
-      <view class="tabbar-divider" />
 
   </view>
 </template>
@@ -499,10 +497,11 @@ export default {
 
 /* 时间范围选择 */
 .range-picker-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8rpx 0 20rpx;
+  flex-shrink: 0;
+  position: relative;
+  /* 高于下方的 scroll-view，下拉面板才不会被内容盖住 */
+  z-index: 30;
+  padding: 8rpx 32rpx 20rpx;
 }
 
 /* 收支摘要 */

@@ -11,7 +11,8 @@
  */
 
 import {
-  selectionToRange, defaultSelection, selectionFromDayKey, selectionLabel
+  selectionToRange, defaultSelection, selectionFromDayKey, selectionLabel,
+  cascadeSelection
 } from '../utils/date.js'
 
 let pass = 0
@@ -105,8 +106,48 @@ const orig = selectionToRange({ year: 2026, month: 3, day: 15 })
 const round = selectionToRange(selectionFromDayKey(orig.startDay))
 check('dayKey 往返一致', round, orig)
 
+console.log('=== 级联修正 ===')
+
+// 选年=0（全部年）→ 月、日清零
+check('选全部年 -> 清空月日', cascadeSelection({ year: 0, month: 3, day: 15 }, 'year'), {
+  year: 0, month: 0, day: 0
+})
+// 选年=2026，保留原来的月
+check('选具体年 -> 保留月', cascadeSelection({ year: 2026, month: 3, day: 15 }, 'year'), {
+  year: 2026, month: 3, day: 15
+})
+
+// 选月=0（全部月）→ 日清零
+check('选全部月 -> 清空日', cascadeSelection({ year: 2026, month: 0, day: 15 }, 'month'), {
+  year: 2026, month: 0, day: 0
+})
+// 选到具体月但年为空 → 年补今年
+check('选月补年', cascadeSelection({ year: 0, month: 3, day: 0 }, 'month'), {
+  year: new Date().getFullYear(), month: 3, day: 0
+})
+
+// 日越界下调
+check('31号选到2月 -> 28', cascadeSelection({ year: 2026, month: 2, day: 31 }, 'day'), {
+  year: 2026, month: 2, day: 28
+})
+check('31号选到闰年2月 -> 29', cascadeSelection({ year: 2024, month: 2, day: 31 }, 'day'), {
+  year: 2024, month: 2, day: 29
+})
+check('31号选到4月 -> 30', cascadeSelection({ year: 2026, month: 4, day: 31 }, 'day'), {
+  year: 2026, month: 4, day: 30
+})
+// 年或月没选时日只能是 0
+check('没有年月 -> 日清零', cascadeSelection({ year: 0, month: 0, day: 15 }, 'day'), {
+  year: 0, month: 0, day: 0
+})
+// 正常值不动
+check('正常值不变', cascadeSelection({ year: 2026, month: 3, day: 15 }, 'day'), {
+  year: 2026, month: 3, day: 15
+})
+
 console.log('=== 展示文案 ===')
 
+// selectionLabel：区间级文案
 check('文案 全部年', selectionLabel({ year: 0, month: 0, day: 0 }), '全部年')
 check('文案 全部月', selectionLabel({ year: 2026, month: 0, day: 0 }), '2026年')
 check('文案 全部日', selectionLabel({ year: 2026, month: 3, day: 0 }), '2026年3月')

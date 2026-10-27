@@ -250,8 +250,6 @@
         <view class="bottom-space" />
       </scroll-view>
 
-      <!-- tabBar 上方分割线：原生 tabBar 的 borderStyle 只有 black/white，做不出浅灰 -->
-      <view class="tabbar-divider" />
 
 
       <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 1 秒 → 手动记账面板
