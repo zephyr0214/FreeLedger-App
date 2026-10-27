@@ -13,7 +13,8 @@
 
 import {
   calcBounds, calcCoords, calcZeroY, calcLinePath, calcAreaPath,
-  calcMarkers, formatChartDay, buildSvgSource, svgToDataUri
+  calcMarkers, formatChartDay, buildSvgSource, svgToDataUri,
+  findNearestIndex, calcSmoothPath
 } from '../utils/chart.js'
 
 let pass = 0
@@ -82,12 +83,24 @@ console.log('=== 坐标与路径 ===')
 
   const d = calcLinePath(c)
   check('路径以 M 开头', d.startsWith('M '), true)
-  check('路径含贝塞尔 C', d.includes(' C '), true)
-  check('路径是 2 段曲线', (d.match(/ C /g) || []).length, 2)
+  check('路径用直线 L', d.includes(' L '), true)
+  check('路径不含贝塞尔 C', d.includes(' C '), false)
+  check('路径是 2 段直线', (d.match(/ L /g) || []).length, 2)
 
   const area = calcAreaPath(c, d, 100)
   check('填充路径以 M 开头', area.startsWith('M '), true)
   check('填充路径以 Z 结尾', area.trim().endsWith('Z'), true)
+}
+
+{
+  // 平滑曲线函数还留着（用户要求直线，但保留以便切回）
+  const c = calcCoords([
+    { day: '2026-10-20', total: 0 },
+    { day: '2026-10-21', total: 1000 },
+    { day: '2026-10-22', total: 2000 }
+  ], OPTS)
+  const smooth = calcSmoothPath(c)
+  check('平滑路径含贝塞尔 C', smooth.includes(' C '), true)
 }
 
 {
@@ -97,8 +110,32 @@ console.log('=== 坐标与路径 ===')
     { day: '2026-10-21', total: 1000 }
   ], OPTS)
   const d = calcLinePath(c)
-  check('2 个点用直线', d.includes(' C '), false)
-  check('2 个点用 L', d.includes(' L '), true)
+  check('2 个点用直线', d.includes(' L '), true)
+  check('2 个点不含贝塞尔', d.includes(' C '), false)
+}
+
+console.log('=== 触摸找最近点 ===')
+
+{
+  const coords = [
+    { x: 0, y: 50 },
+    { x: 100, y: 40 },
+    { x: 200, y: 30 },
+    { x: 300, y: 20 }
+  ]
+  check('正好在第1个点', findNearestIndex(0, coords), 0)
+  check('正好在第2个点', findNearestIndex(100, coords), 1)
+  check('正好在第4个点', findNearestIndex(300, coords), 3)
+  check('靠近第2个点', findNearestIndex(110, coords), 1)
+  check('靠近第3个点', findNearestIndex(190, coords), 2)
+  // 正好在两个点中间（150）-> 取距离相同时先遇到的那个
+  check('中点取先遇到的那个', findNearestIndex(150, coords), 1)
+  // 超出范围
+  check('超出右边', findNearestIndex(999, coords), 3)
+  check('超出左边', findNearestIndex(-50, coords), 0)
+  // 空 / 单点
+  check('空坐标 -> -1', findNearestIndex(100, []), -1)
+  check('单点 -> 0', findNearestIndex(100, [{ x: 50, y: 10 }]), 0)
 }
 
 {
@@ -187,7 +224,17 @@ console.log('=== SVG 源码生成 ===')
   check('含填充 path', svg.includes('fill="url(#g)"'), true)
   check('含主题色', svg.includes('stroke="#07C160"'), true)
   check('不含 0 基线', svg.includes('stroke-dasharray'), false)
-  check('3 个数据点', (svg.match(/<circle/g) || []).length, 3)
+  // ★ 数据点默认不显示（用户要求）
+  check('默认不画数据点', svg.includes('<circle'), false)
+
+  // 触摸命中某个点时才画那一个点
+  const svgActive = buildSvgSource({
+    coords: c, linePath: d, areaPath: area, markers: m,
+    color: '#07C160', zeroY: null, width: 300, height: 100,
+    activeIndex: 1
+  })
+  check('命中时只画 1 个点', (svgActive.match(/<circle/g) || []).length, 1)
+  check('命中时有竖线辅助', svgActive.includes('stroke-opacity="0.35"'), true)
 
   // data URI
   const uri = svgToDataUri(svg)

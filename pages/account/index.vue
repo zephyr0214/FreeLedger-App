@@ -34,6 +34,7 @@
             :points="trendPoints"
             :color="primaryColor"
             :height="200"
+            :format-amount="formatAmount"
           />
         </view>
       </view>
@@ -58,51 +59,62 @@
         </view>
 
         <view class="acc-list">
-          <view
+          <!--
+            右滑显示「设为默认」：
+            用 wd-swipe-action 的 right 插槽。
+            原来那个常驻的「设默认」小字太挤，去掉了。
+          -->
+          <wd-swipe-action
             v-for="acc in group.accounts"
             :key="acc.id"
-            class="acc-item"
-            @click="goDetail(acc.id)"
+            class="acc-swipe"
           >
-            <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
-              <text class="acc-icon-text" :style="{ color: acc.color || primaryColor }">
-                {{ acc.name.slice(0, 1) }}
-              </text>
-            </view>
-
-            <view class="acc-info">
-              <view class="acc-name-row">
-                <text class="acc-name">{{ acc.name }}</text>
-                <text v-if="acc.card_tail" class="acc-tail">*{{ acc.card_tail }}</text>
-                <view v-if="acc.id === defaultAccountId" class="default-badge">
-                  <text class="default-badge-text">默认</text>
-                </view>
+            <view class="acc-item" @click="goDetail(acc.id)">
+              <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
+                <text class="acc-icon-text" :style="{ color: acc.color || primaryColor }">
+                  {{ acc.name.slice(0, 1) }}
+                </text>
               </view>
-              <text class="acc-type">{{ acc.typeName }}</text>
+
+              <view class="acc-info">
+                <view class="acc-name-row">
+                  <text class="acc-name">{{ acc.name }}</text>
+                  <text v-if="acc.card_tail" class="acc-tail">*{{ acc.card_tail }}</text>
+                  <view v-if="acc.id === defaultAccountId" class="default-badge">
+                    <text class="default-badge-text">默认</text>
+                  </view>
+                </view>
+                <text class="acc-type">{{ acc.typeName }}</text>
+              </view>
+
+              <view class="acc-right">
+                <MoneyText
+                  :cents="acc.balance_cents"
+                  :size="32"
+                  :weight="500"
+                  :color="acc.balance_cents < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
+                />
+                <text v-if="acc.isCredit && acc.credit_limit_cents" class="acc-limit">
+                  额度 {{ (acc.credit_limit_cents / 100).toFixed(0) }}
+                </text>
+              </view>
+
+              <text class="acc-arrow">›</text>
             </view>
 
-            <view class="acc-right">
-              <MoneyText
-                :cents="acc.balance_cents"
-                :size="32"
-                :weight="500"
-                :color="acc.balance_cents < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
-              />
-              <text v-if="acc.isCredit && acc.credit_limit_cents" class="acc-limit">
-                额度 {{ (acc.credit_limit_cents / 100).toFixed(0) }}
-              </text>
-            </view>
-
-            <!-- 设为默认账户 -->
-            <view class="acc-set-default" @click.stop="setDefault(acc)">
-              <text
-                class="set-default-text"
-                :style="{ color: acc.id === defaultAccountId ? 'var(--app-text-3)' : 'var(--app-primary)' }"
-              >{{ acc.id === defaultAccountId ? '已默认' : '设默认' }}</text>
-            </view>
-
-            <text class="acc-arrow">›</text>
-          </view>
+            <!-- 右滑操作区 -->
+            <template #right>
+              <view
+                class="swipe-default"
+                :style="{ backgroundColor: acc.id === defaultAccountId ? 'var(--app-text-3)' : primaryColor }"
+                @click.stop="setDefault(acc)"
+              >
+                <text class="swipe-default-text">
+                  {{ acc.id === defaultAccountId ? '已默认' : '设为默认' }}
+                </text>
+              </view>
+            </template>
+          </wd-swipe-action>
         </view>
       </view>
 
@@ -194,6 +206,11 @@ export default {
       return formatCents(sum, { symbol: settingStore.currencySymbol })
     }
 
+    /** 折线图触摸气泡里的金额（与页面其它地方保持一致） */
+    function formatAmount(cents) {
+      return formatCents(cents, { symbol: settingStore.currencySymbol })
+    }
+
     /** 设为默认账户 —— AI 记账和手动记账都会优先用它 */
     async function setDefault(acc) {
       if (acc.id === defaultAccountId.value) return
@@ -234,7 +251,7 @@ export default {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints,
       primaryColor, pageStyle, defaultAccountId,
-      switchRange, formatGroupSum, setDefault,
+      switchRange, formatGroupSum, formatAmount, setDefault,
       goAddAccount, goDetail, goSettings
     }
   }
@@ -340,16 +357,36 @@ export default {
   overflow: hidden;
 }
 
+/* 右滑容器：每一行独立包一层 */
+.acc-swipe {
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.acc-swipe:last-child {
+  border-bottom: none;
+}
+
 .acc-item {
   display: flex;
   align-items: center;
   gap: 20rpx;
   padding: 26rpx 28rpx;
-  border-bottom: 1rpx solid var(--app-line);
+  background-color: var(--app-card);
 }
 
-.acc-item:last-child {
-  border-bottom: none;
+/* 右滑操作区：「设为默认」 */
+.swipe-default {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200rpx;
+  height: 100%;
+}
+
+.swipe-default-text {
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 500;
 }
 
 .acc-icon {
@@ -429,15 +466,6 @@ export default {
   font-size: 18rpx;
   color: var(--app-primary);
   line-height: 1;
-}
-
-.acc-set-default {
-  padding: 8rpx 12rpx;
-  flex-shrink: 0;
-}
-
-.set-default-text {
-  font-size: 21rpx;
 }
 
 .empty-wrap {

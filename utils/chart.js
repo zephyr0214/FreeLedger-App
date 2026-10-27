@@ -76,17 +76,35 @@ export function calcZeroY(bounds, opts = {}) {
 }
 
 /**
- * 平滑曲线路径（Catmull-Rom 转三次贝塞尔）
+ * 折线路径（直线，不用贝塞尔曲线）
  *
- * 对相邻点 P1、P2，控制点取：
- *   C1 = P1 + (P2 - P0) / 6
- *   C2 = P2 - (P3 - P1) / 6
- * 端点处用相邻点兜底，保证曲线不甩出去。
+ * ★ 为什么改成直线 ★
+ *   用户要求「不要圆滑的折线图了，就直线折线图就行」。
+ *   直线的好处是每个数据点的位置一眼能对上，
+ *   不会因为平滑插值而「看起来」在两个点之间多出了波动。
  *
  * @param {Array<{x:number,y:number}>} coords
  * @returns {string} SVG path 的 d 属性
  */
 export function calcLinePath(coords = []) {
+  if (!coords || coords.length < 2) return ''
+  let d = `M ${coords[0].x} ${coords[0].y}`
+  for (let i = 1; i < coords.length; i++) {
+    d += ` L ${coords[i].x} ${coords[i].y}`
+  }
+  return d
+}
+
+/**
+ * 平滑曲线路径（Catmull-Rom 转三次贝塞尔）
+ *
+ * 保留着不用：之前版本用过，用户反馈要直线。
+ * 要是以后想切回平滑曲线，直接换 calcLinePath 的实现即可。
+ *
+ * @param {Array<{x:number,y:number}>} coords
+ * @returns {string} SVG path 的 d 属性
+ */
+export function calcSmoothPath(coords = []) {
   if (!coords || coords.length < 2) return ''
   if (coords.length === 2) {
     return `M ${coords[0].x} ${coords[0].y} L ${coords[1].x} ${coords[1].y}`
@@ -108,6 +126,32 @@ export function calcLinePath(coords = []) {
     d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`
   }
   return d
+}
+
+/**
+ * 根据触摸位置找到最近的数据点
+ *
+ * 用户要求：「点要做到不显示出来，但是手触碰上去会显示日期和金额」。
+ * 所以数据点默认隐藏，触摸时才在最近的那个点显示气泡。
+ *
+ * @param {number} touchX 触摸点的 x 坐标（与 coords 同一坐标系）
+ * @param {Array<{x:number}>} coords
+ * @returns {number} 命中的点下标；没有命中返回 -1
+ */
+export function findNearestIndex(touchX, coords = []) {
+  if (!coords || coords.length === 0) return -1
+  if (coords.length === 1) return 0
+
+  let best = 0
+  let bestDist = Infinity
+  for (let i = 0; i < coords.length; i++) {
+    const dist = Math.abs(coords[i].x - touchX)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+    }
+  }
+  return best
 }
 
 /**
@@ -162,6 +206,7 @@ export function formatChartDay(day) {
  * @param {string} opts.linePath 折线路径
  * @param {string} opts.areaPath 填充路径
  * @param {Array} opts.markers 数据点
+ * @param {number} opts.activeIndex 当前触摸命中的点下标（-1 表示不显示任何点）
  * @param {string} opts.color 主题色
  * @param {number} opts.zeroY 0 基线的 y（null 表示不画）
  * @param {number} opts.width viewBox 宽
@@ -173,7 +218,8 @@ export function buildSvgSource(opts = {}) {
   const {
     coords = [], linePath = '', areaPath = '', markers = [],
     color = '#07C160', zeroY = null,
-    width = 300, height = 100, bgColor = '#FFFFFF'
+    width = 300, height = 100, bgColor = '#FFFFFF',
+    activeIndex = -1
   } = opts
 
   if (!linePath) return ''
@@ -209,11 +255,17 @@ export function buildSvgSource(opts = {}) {
     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
   )
 
-  // 数据点
-  for (const m of markers) {
+  // 数据点：默认不显示，只画当前触摸命中的那个
+  if (activeIndex >= 0 && markers[activeIndex]) {
+    const m = markers[activeIndex]
     parts.push(
       `<circle cx="${m.x}" cy="${m.y}" r="${m.r}" ` +
-      `fill="${m.fill}" stroke="${color}" stroke-width="1.5"/>`
+      `fill="${color}" stroke="${color}" stroke-width="1.5"/>`
+    )
+    // 命中点画一条竖线，方便对齐看
+    parts.push(
+      `<line x1="${m.x}" y1="${m.y}" x2="${m.x}" y2="${height}" ` +
+      `stroke="${color}" stroke-width="1" stroke-opacity="0.35"/>`
     )
   }
 

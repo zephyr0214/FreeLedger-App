@@ -53,6 +53,14 @@ export const ICON_MAP = {
   invest:   '💹',   // 投资
   refund:   '↩️',   // 退款
   bonus:    '🎊',   // 奖金
+  card:     '💳',   // 储蓄卡
+  wallet:   '👛',   // 现金
+  prepaid:  '🎫',   // 充值卡
+  alipay:   '🅰️',   // 支付宝
+  wechat:   '💬',   // 微信
+  creditcard: '💳', // 信用卡
+  huabei:   '🌸',   // 花呗
+  invest:   '💹',   // 投资
   // 兜底
   more:     '📦'    // 其他
 }

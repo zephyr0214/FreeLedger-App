@@ -11,25 +11,62 @@ import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 import { toDayKey } from '../utils/date.js'
 
+/**
+ * 账户类型
+ *
+ * ★ 分五类 ★
+ *   网络支付：支付宝、微信等零钱账户
+ *   信用卡  ：可以透支的信用账户（花呗算这里）
+ *   储蓄卡  ：银行的储蓄账户
+ *   现金    ：手里的现金
+ *   充值卡  ：公交卡、饭卡等预付卡
+ *
+ * isCredit = 会欠款的账户（信用卡）。
+ * 只有这类账户才显示「信用额度」设置项。
+ *
+ * group 是**展示分组**，账户页按它分类呈现；
+ * category 是更细的类型（选类型时用）。
+ */
 export const ACCOUNT_TYPES = [
-  { key: 'cash',       name: '现金',     icon: 'wallet',      isCredit: false, group: 'fund' },
-  { key: 'debit',      name: '储蓄卡',   icon: 'card',        isCredit: false, group: 'fund' },
-  { key: 'alipay',     name: '支付宝',   icon: 'alipay',      isCredit: false, group: 'fund' },
-  { key: 'wechat',     name: '微信',     icon: 'wechat',      isCredit: false, group: 'fund' },
-  { key: 'credit',     name: '信用卡',   icon: 'creditcard',  isCredit: true,  group: 'credit' },
-  { key: 'huabei',     name: '花呗',     icon: 'huabei',      isCredit: true,  group: 'credit' },
-  { key: 'invest',     name: '投资',     icon: 'chart',       isCredit: false, group: 'invest' },
-  { key: 'loan',       name: '借入',     icon: 'arrowdown',   isCredit: true,  group: 'debt' },
-  { key: 'receivable', name: '应收',     icon: 'arrowup',     isCredit: false, group: 'debt' },
-  { key: 'other',      name: '其他',     icon: 'more',        isCredit: false, group: 'other' }
+  // ---- 网络支付
+  { key: 'alipay',  name: '支付宝',   icon: 'alipay',     isCredit: false, group: 'online',  category: '网络支付' },
+  { key: 'wechat',  name: '微信',     icon: 'wechat',     isCredit: false, group: 'online',  category: '网络支付' },
+  // ---- 信用卡
+  { key: 'credit',  name: '信用卡',   icon: 'creditcard', isCredit: true,  group: 'credit',  category: '信用卡' },
+  { key: 'huabei',  name: '花呗',     icon: 'huabei',     isCredit: true,  group: 'credit',  category: '信用卡' },
+  // ---- 储蓄卡
+  { key: 'debit',   name: '储蓄卡',   icon: 'card',       isCredit: false, group: 'debit',   category: '储蓄卡' },
+  // ---- 现金
+  { key: 'cash',    name: '现金',     icon: 'wallet',     isCredit: false, group: 'cash',    category: '现金' },
+  // ---- 充值卡
+  { key: 'prepaid', name: '充值卡',   icon: 'prepaid',    isCredit: false, group: 'prepaid', category: '充值卡' },
+  // ---- 其它（投资 / 借贷 / 其它，单独归类，不混进上面五类）
+  { key: 'invest',     name: '投资', icon: 'invest',   isCredit: false, group: 'other', category: '投资' },
+  { key: 'loan',       name: '借入', icon: 'arrowdown', isCredit: true,  group: 'other', category: '借入' },
+  { key: 'receivable', name: '应收', icon: 'arrowup',   isCredit: false, group: 'other', category: '应收' },
+  { key: 'other',      name: '其他', icon: 'more',      isCredit: false, group: 'other', category: '其他' }
 ]
 
+/**
+ * 账户页的展示分组（按用户要求的五类 + 其它）
+ */
 export const ACCOUNT_GROUPS = [
-  { key: 'fund',   name: '资金账户' },
-  { key: 'credit', name: '信用账户' },
-  { key: 'invest', name: '投资账户' },
-  { key: 'debt',   name: '债权债务' },
-  { key: 'other',  name: '其他' }
+  { key: 'online',  name: '网络支付' },
+  { key: 'credit',  name: '信用卡' },
+  { key: 'debit',   name: '储蓄卡' },
+  { key: 'cash',    name: '现金' },
+  { key: 'prepaid', name: '充值卡' },
+  { key: 'other',   name: '其它' }
+]
+
+/** 账户类型选择页用的分类（按 category 归并，同一类的类型排在一起） */
+export const ACCOUNT_CATEGORIES = [
+  { key: '网络支付', types: ['alipay', 'wechat'] },
+  { key: '信用卡',   types: ['credit', 'huabei'] },
+  { key: '储蓄卡',   types: ['debit'] },
+  { key: '现金',     types: ['cash'] },
+  { key: '充值卡',   types: ['prepaid'] },
+  { key: '其它',     types: ['invest', 'loan', 'receivable', 'other'] }
 ]
 
 export function getTypeMeta(type) {
@@ -67,6 +104,8 @@ function normalizeAccount(row) {
     typeName: meta.name,
     typeIcon: meta.icon,
     group: meta.group,
+    /** 展示分类：网络支付 / 信用卡 / 储蓄卡 / 现金 / 充值卡 / 其它 */
+    category: meta.category || '其它',
     isCredit: meta.isCredit
   }
 }

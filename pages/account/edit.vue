@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <view class="nav-bar" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="nav-inner">
@@ -24,18 +24,22 @@
 
         <view class="form-row form-row-column">
           <text class="form-label">账户类型</text>
-          <view class="type-grid">
-            <view
-              v-for="t in ACCOUNT_TYPES"
-              :key="t.key"
-              class="type-cell"
-              :class="{ active: form.type === t.key }"
-              @click="form.type = t.key"
-            >
-              <text
-                class="type-cell-text"
-                :style="{ color: form.type === t.key ? primaryColor : 'var(--app-text-2)' }"
-              >{{ t.name }}</text>
+          <!-- 按分类分组展示：网络支付 / 信用卡 / 储蓄卡 / 现金 / 充值卡 -->
+          <view v-for="cat in accountCategories" :key="cat.key" class="type-section">
+            <text class="type-section-title">{{ cat.key }}</text>
+            <view class="type-grid">
+              <view
+                v-for="t in cat.types"
+                :key="t.key"
+                class="type-cell"
+                :class="{ active: form.type === t.key }"
+                @click="form.type = t.key"
+              >
+                <text
+                  class="type-cell-text"
+                  :style="{ color: form.type === t.key ? primaryColor : 'var(--app-text-2)' }"
+                >{{ t.name }}</text>
+              </view>
             </view>
           </view>
         </view>
@@ -135,7 +139,7 @@ import { ref, reactive, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { ACCOUNT_TYPES, isCreditType } from '@/api/account.js'
+import { ACCOUNT_TYPES, ACCOUNT_CATEGORIES, isCreditType } from '@/api/account.js'
 import { yuanToCents } from '@/utils/money.js'
 
 export default {
@@ -158,6 +162,17 @@ export default {
       repay_day: 20,
       card_tail: ''
     })
+
+    /**
+     * 账户类型按分类分组展示：
+     * 网络支付 / 信用卡 / 储蓄卡 / 现金 / 充值卡 / 其它
+     */
+    const accountCategories = computed(() => ACCOUNT_CATEGORIES.map((cat) => ({
+      key: cat.key,
+      types: cat.types
+        .map((k) => ACCOUNT_TYPES.find((t) => t.key === k))
+        .filter(Boolean)
+    })).filter((cat) => cat.types.length > 0))
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -263,7 +278,7 @@ export default {
     })
 
     return {
-      ACCOUNT_TYPES,
+      ACCOUNT_TYPES, accountCategories,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
       isCredit, dayRange,
       onToggleInclude, onSave, onDelete, goBack, settingStore
@@ -360,6 +375,19 @@ export default {
 .form-picker {
   font-size: 28rpx;
   color: var(--app-text-2);
+}
+
+/* 账户类型：按分类分组 */
+.type-section {
+  width: 100%;
+  margin-bottom: 18rpx;
+}
+
+.type-section-title {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  display: block;
+  margin-bottom: 10rpx;
 }
 
 .type-grid {
