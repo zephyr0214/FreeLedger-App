@@ -30,13 +30,19 @@
         </view>
       </view>
 
-      <!-- 右侧：⌫ / - / + / 完成（完成占两行） -->
+      <!--
+        右侧：⌫ / - / + / 完成（完成占最后两行）
+        ★「完成」键不能加 kb-side-key ★
+          kb-side-key 带 height:92rpx + flex-shrink:0，
+          如果「完成」也带这个 class，它的 flex:1 会被 height 压制成 92rpx，
+          同时右侧列比左侧矮一整行，布局就错位了。
+      -->
       <view class="kb-side">
         <view
           v-for="(k, i) in sideKeys"
           :key="i"
-          class="kb-key kb-side-key"
-          :class="{ 'kb-finish': k === '完成' }"
+          class="kb-key"
+          :class="k === '完成' ? (disabled ? 'kb-finish is-disabled' : 'kb-finish') : 'kb-side-key'"
           hover-class="kb-key-hover"
           @click="onKeyPress(k)"
         >
@@ -118,6 +124,7 @@ export default {
 
     function onKeyPress(k) {
       if (!k) return   // 空白占位键
+      console.log('[kb] key =', k)
       if (k === '完成') {
         onFinish()
         return
@@ -219,13 +226,26 @@ export default {
     }
 
     function onFinish() {
-      if (props.disabled || !props.modelValue) return
+      console.log('[kb] onFinish, modelValue =', JSON.stringify(props.modelValue), 'disabled =', props.disabled)
+      // ★ 不要静默 return ★
+      //   之前 disabled 时直接 return，用户点了「完成」毫无反应，
+      //   也不知道为什么。改成给出提示。
+      if (!props.modelValue) {
+        uni.showToast({ title: '请先输入金额', icon: 'none' })
+        return
+      }
+      if (props.disabled) {
+        uni.showToast({ title: '请先输入金额', icon: 'none' })
+        return
+      }
       const v = props.modelValue
       if (hasUnmatchedParen(v)) {
         emit('finish', -1)   // -1 表示括号不匹配
         return
       }
-      emit('finish', evaluate(v))
+      const result = evaluate(v)
+      console.log('[kb] emit finish, value =', result)
+      emit('finish', result)
     }
 
     return {
@@ -282,7 +302,7 @@ export default {
   height: 92rpx;
 }
 
-/* 右侧普通键：与左侧同高 */
+/* 右侧普通键（⌫ - +）：与左侧同高 */
 .kb-side-key {
   height: 92rpx;
   flex-shrink: 0;
@@ -296,11 +316,25 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 完成：唯一有别于其他键的样式，占右侧剩余的两行高度 */
+/**
+ * 完成：唯一有别于其他键的样式。
+ * 高度由 flex:1 撑满右侧剩余空间（正好两行），
+ * 不能设 height —— 那样 flex:1 会失效。
+ */
 .kb-finish {
   background-color: var(--app-primary);
   flex: 1;
   min-height: 0;
+  flex-shrink: 1;
+}
+
+/* 金额没填时「完成」键置灰，让用户知道它现在不可用 */
+.kb-finish.is-disabled {
+  background-color: var(--app-line);
+}
+
+.kb-finish.is-disabled .kb-finish-text {
+  color: var(--app-text-3);
 }
 
 .kb-finish-text {

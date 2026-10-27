@@ -636,6 +636,7 @@ export default {
      * 键盘已经把算式求好值传过来了（value），-1 表示括号不匹配。
      */
     function onFinish(value) {
+      console.log('[panel] onFinish, value =', value, 'amountRaw =', JSON.stringify(form.amountRaw), 'category =', form.category_id, 'account =', form.account_id)
       if (value === -1) {
         uni.showToast({ title: '括号没有闭合', icon: 'none' })
         return
