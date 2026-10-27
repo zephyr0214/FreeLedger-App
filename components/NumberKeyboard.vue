@@ -3,11 +3,11 @@
     <!--
       4 列 x 5 行 = 20 个键
       ┌────┬────┬────┬────┐
-      │ 1  │ 2  │ 3  │ ⌫  │  退格
-      │ 4  │ 5  │ 6  │ 7  │  7 键便于快速输入
-      │ 8  │ 9  │ 0  │ .  │  小数点
-      │ +  │ -  │ ×  │ ÷  │  四则运算
-      │ =  │ C  │ (  │ )  │  清除/括号/完成
+      │ C  │ ÷  │ ×  │ ⌫  │
+      │ 1  │ 2  │ 3  │ -  │
+      │ 4  │ 5  │ 6  │ +  │
+      │ 7  │ 8  │ 9  │ =  │
+      │ () │ 0  │ .  │完成│
       └────┴────┴────┴────┘
     -->
     <view class="kb-grid">
@@ -45,13 +45,21 @@ export default {
     const settingStore = useSettingStore()
     const primaryColor = computed(() => settingStore.primaryColor)
 
-    /** 4x5 键位表 */
+    /**
+     * 4x5 键位表（按行排列，每行 4 个）
+     *
+     *   C   ÷   ×   ⌫
+     *   1   2   3   -
+     *   4   5   6   +
+     *   7   8   9   =
+     *   ()  0   .   完成
+     */
     const keys = [
-      '1', '2', '3', '⌫',
-      '4', '5', '6', '7',
-      '8', '9', '0', '.',
-      '+', '-', '×', '÷',
-      '=', 'C', '(', '完成'
+      'C', '÷', '×', '⌫',
+      '1', '2', '3', '-',
+      '4', '5', '6', '+',
+      '7', '8', '9', '=',
+      '()', '0', '.', '完成'
     ]
 
     const OPERATORS = ['+', '-', '×', '÷']
@@ -62,7 +70,7 @@ export default {
       if (isOperator(k)) return 'kb-op'
       if (k === '⌫') return 'kb-backspace'
       if (k === 'C') return 'kb-clear'
-      if (k === '(' || k === ')') return 'kb-bracket'
+      if (k === '()') return 'kb-bracket'
       return ''
     }
 
@@ -108,8 +116,8 @@ export default {
         emit('update:modelValue', '')
         return
       }
-      if (k === '(' || k === ')') {
-        onParen(k)
+      if (k === '()') {
+        onSmartParen()
         return
       }
       if (isOperator(k)) {
@@ -122,15 +130,18 @@ export default {
     function onKey(k) {
       let v = props.modelValue || ''
 
+      // 段边界：运算符和括号都算，"(3" 是一个独立的数字段
+      const segOf = (s) => s.split(/[+\-×÷()]/).pop()
+
       if (k === '.') {
         // 当前段已有小数点则忽略
-        const seg = v.split(/[+\-×÷]/).pop()
+        const seg = segOf(v)
         if (seg && seg.includes('.')) return
         if (!seg) v += '0'
         v += '.'
       } else {
         // 限制整数部分长度，防止溢出
-        const seg = v.split(/[+\-×÷]/).pop()
+        const seg = segOf(v)
         if (seg && seg.replace('.', '').length >= 9) return
         // 前导 0 处理
         if (seg === '0') v = v.slice(0, -1)
@@ -153,21 +164,38 @@ export default {
       }
     }
 
-    function onParen(ch) {
+    /**
+     * 智能括号键。
+     * 一个键同时管左右括号：
+     *   - 当前没有未闭合的左括号 → 补 '('
+     *   - 已有未闭合的左括号      → 补 ')'
+     * 这样用户不用判断该按哪个括号。
+     */
+    function onSmartParen() {
       const v = props.modelValue || ''
-      if (ch === '(') {
-        // 前面是数字或右括号时，先补一个乘号（隐式乘法）
-        const last = v.slice(-1)
-        if (v && /[0-9.)]/.test(last)) {
-          emit('update:modelValue', v + '×(')
-        } else {
-          emit('update:modelValue', v + '(')
-        }
-      } else {
-        // 右括号不能放在运算符后面
+
+      // 统计未闭合的左括号数
+      let depth = 0
+      for (const c of v) {
+        if (c === '(') depth++
+        else if (c === ')') depth--
+      }
+
+      if (depth > 0) {
+        // 有未闭合的左括号 → 补右括号
         const last = v.slice(-1)
         if (!v || /[+\-×÷(]/.test(last)) return
         emit('update:modelValue', v + ')')
+        return
+      }
+
+      // 没有未闭合的左括号 → 补左括号
+      const last = v.slice(-1)
+      if (v && /[0-9.)]/.test(last)) {
+        // 前面是数字或右括号时补乘号（隐式乘法）
+        emit('update:modelValue', v + '×(')
+      } else {
+        emit('update:modelValue', v + '(')
       }
     }
 
@@ -188,7 +216,7 @@ export default {
 
     return {
       keys, primaryColor, kbKeyClass, kbTextClass,
-      onKeyPress, onKey, onOp, onParen, onBackspace, onFinish, evaluate
+      onKeyPress, onKey, onOp, onSmartParen, onBackspace, onFinish, evaluate
     }
   }
 }
@@ -244,25 +272,26 @@ export default {
   color: var(--app-text-2);
 }
 
-/* 清除 */
+/* 清除 C */
 .kb-clear {
   background-color: var(--app-card-2);
 }
 
 .kb-clear-text {
   font-size: 30rpx;
-  color: var(--app-text-3);
-  font-weight: 500;
+  color: var(--app-danger);
+  font-weight: 600;
 }
 
-/* 括号 */
+/* 智能括号 () */
 .kb-bracket {
   background-color: var(--app-card-2);
 }
 
 .kb-bracket .kb-key-text {
-  font-size: 32rpx;
-  color: var(--app-text-3);
+  font-size: 28rpx;
+  color: var(--app-text-2);
+  font-weight: 500;
 }
 
 /* 完成 */
