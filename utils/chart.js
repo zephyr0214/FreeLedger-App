@@ -129,6 +129,33 @@ export function calcSmoothPath(coords = []) {
 }
 
 /**
+ * 把触摸位置换算成 viewBox 坐标
+ *
+ * ★ 用 clientX（相对视口）★
+ *   clientX 是相对视口的坐标，boundingClientRect 返回的 left 也是视口坐标，
+ *   两者相减就是元素内的位置 —— 跨平台都成立。
+ *   而 touch.x 是相对「事件目标元素」的，
+ *   事件落在哪个子元素上就相对哪个，不可靠
+ *   （踩过的坑：手指按在图上的 <image> 时，touch.x 相对的是 image，
+ *    算出来永远是 0，于是「一直只显示第一个点」）。
+ *
+ * @param {number} clientX 触摸点的视口坐标
+ * @param {number} rectLeft 容器左边界（视口坐标）
+ * @param {number} rectWidth 容器宽度
+ * @param {number} vbWidth viewBox 宽度
+ * @returns {number} viewBox 坐标（已夹在 0~vbWidth）
+ */
+export function clientXToChartX(clientX, rectLeft, rectWidth, vbWidth = 300) {
+  if (typeof clientX !== 'number' || !Number.isFinite(clientX)) return 0
+  if (!rectWidth || rectWidth <= 0) return 0
+
+  const rel = clientX - rectLeft
+  const x = (rel / rectWidth) * vbWidth
+  if (!Number.isFinite(x)) return 0
+  return Math.max(0, Math.min(vbWidth, x))
+}
+
+/**
  * 根据触摸位置找到最近的数据点
  *
  * 用户要求：「点要做到不显示出来，但是手触碰上去会显示日期和金额」。

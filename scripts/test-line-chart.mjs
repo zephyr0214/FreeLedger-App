@@ -14,7 +14,7 @@
 import {
   calcBounds, calcCoords, calcZeroY, calcLinePath, calcAreaPath,
   calcMarkers, formatChartDay, buildSvgSource, svgToDataUri,
-  findNearestIndex, calcSmoothPath
+  findNearestIndex, calcSmoothPath, clientXToChartX
 } from '../utils/chart.js'
 
 let pass = 0
@@ -136,6 +136,27 @@ console.log('=== 触摸找最近点 ===')
   // 空 / 单点
   check('空坐标 -> -1', findNearestIndex(100, []), -1)
   check('单点 -> 0', findNearestIndex(100, [{ x: 50, y: 10 }]), 0)
+}
+
+console.log('=== clientX 换算 ===')
+
+{
+  // 容器左边 30px、宽 300px，viewBox 宽 300
+  // 手指按在容器最左边 -> viewBox 0
+  check('最左边 -> 0', clientXToChartX(30, 30, 300, 300), 0)
+  // 按在容器中间 -> viewBox 150
+  check('中间 -> 150', clientXToChartX(180, 30, 300, 300), 150)
+  // 按在最右边 -> viewBox 300
+  check('最右边 -> 300', clientXToChartX(330, 30, 300, 300), 300)
+  // 超出左边要夹到 0
+  check('超出左边夹到 0', clientXToChartX(0, 30, 300, 300), 0)
+  // 超出右边要夹到 300
+  check('超出右边夹到 300', clientXToChartX(999, 30, 300, 300), 300)
+  // 容器宽 600 但 viewBox 300 -> 一半宽对应一半坐标
+  check('容器是 viewBox 的两倍宽', clientXToChartX(330, 30, 600, 300), 150)
+  // 非法输入
+  check('clientX 不是数字 -> 0', clientXToChartX(undefined, 30, 300, 300), 0)
+  check('容器宽为 0 -> 0', clientXToChartX(100, 30, 0, 300), 0)
 }
 
 {

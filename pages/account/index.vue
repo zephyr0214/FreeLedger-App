@@ -11,11 +11,8 @@
     <scroll-view class="page-scroll" scroll-y>
       <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
-        <!-- 总资产：标题和金额并在一行，更紧凑 -->
-        <view class="asset-row">
-          <text class="asset-label">总资产</text>
-          <MoneyText :cents="accountStore.totalAssets" :size="52" :weight="600" color="var(--app-text)" />
-        </view>
+        <!-- 总资产：只显示金额 -->
+        <MoneyText :cents="accountStore.totalAssets" :size="56" :weight="600" color="var(--app-text)" />
 
         <!-- 资产趋势：每次资产变化打一个点 -->
         <view class="asset-trend">
@@ -317,19 +314,6 @@ export default {
   padding: 36rpx 32rpx 28rpx;
   margin-top: 8rpx;
   box-shadow: var(--app-shadow);
-}
-
-.asset-label {
-  font-size: 26rpx;
-  color: var(--app-text-2);
-  flex-shrink: 0;
-}
-
-/* 标题和金额并排 */
-.asset-row {
-  display: flex;
-  align-items: baseline;
-  gap: 16rpx;
 }
 
 /* 趋势区：与总资产同面板，用一条细分割线隔开 */
