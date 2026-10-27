@@ -131,7 +131,8 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { ACCOUNT_TYPES, isCreditType } from '@/api/account.js'
@@ -246,19 +247,17 @@ export default {
       uni.navigateBack()
     }
 
-    onMounted(async () => {
+    // 用 onLoad(options) 取参数，比 getCurrentPages().options 可靠
+    onLoad(async (options) => {
+      editId.value = (options && options.id) || ''
+      isEdit.value = !!editId.value
+
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load()
-
-      const pages = getCurrentPages()
-      const page = pages[pages.length - 1]
-      editId.value = (page && page.options && page.options.id) || ''
-      isEdit.value = !!editId.value
 
       if (isEdit.value) {
         await loadExisting()
       } else {
-        // 新增时给个合理默认名
         form.name = ''
       }
     })

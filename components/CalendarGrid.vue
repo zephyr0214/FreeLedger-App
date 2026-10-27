@@ -37,40 +37,39 @@
             }"
           >{{ cell.day }}</text>
 
-          <!-- 支出额 -->
+          <!-- 支出额（负号，显示在上方） -->
           <text
             v-if="cell.dayData && cell.dayData.expense > 0"
-            class="day-amount"
+            class="day-amount day-expense"
             :style="{
-              color: heatLevel(cell.dayData.expense) >= 3 ? 'rgba(255,255,255,0.9)' : 'var(--app-text-2)'
+              color: heatLevel(cell.dayData.expense) >= 3 ? 'rgba(255,255,255,0.92)' : 'var(--app-text-2)'
             }"
-          >{{ formatAmount(cell.dayData.expense) }}</text>
+          >-{{ formatAmount(cell.dayData.expense) }}</text>
 
-          <!-- 收入圆点 -->
-          <view
+          <!-- 收入额（正号，显示在下方） -->
+          <text
             v-if="cell.dayData && cell.dayData.income > 0"
-            class="income-dot"
-            :style="{ backgroundColor: heatLevel(cell.dayData.expense) >= 3 ? '#ffffff' : 'var(--app-success)' }"
-          />
+            class="day-amount day-income"
+            :style="{
+              color: heatLevel(cell.dayData.expense) >= 3 ? 'rgba(255,255,255,0.92)' : 'var(--app-success)'
+            }"
+          >+{{ formatAmount(cell.dayData.income) }}</text>
         </view>
       </view>
     </view>
 
     <!-- 图例 -->
     <view class="legend">
-      <text class="legend-label">低</text>
+      <text class="legend-label">支出少</text>
       <view
         v-for="(lv, i) in 4"
         :key="i"
         class="legend-box"
         :style="{ backgroundColor: heatColorByLevel(i + 1) }"
       />
-      <text class="legend-label">高</text>
+      <text class="legend-label">多</text>
       <view class="legend-spacer" />
-      <view class="legend-item">
-        <view class="legend-dot" />
-        <text class="legend-label">有收入</text>
-      </view>
+      <text class="legend-hint">上 -支出 / 下 +收入</text>
     </view>
   </view>
 </template>
@@ -258,7 +257,9 @@ export default {
   align-items: center;
   justify-content: center;
   position: relative;
-  gap: 2rpx;
+  /* 日期在上，支出金额在中，收入金额在下 */
+  gap: 0;
+  padding: 2rpx 0;
 }
 
 .day-cell.is-today .day-inner {
@@ -276,19 +277,26 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
+/* 金额行：16rpx 在窄屏上也要能挤下「-1.2k」，
+   所以用固定行高 + 紧凑字距，不用 gap 撑开 */
 .day-amount {
-  font-size: 16rpx;
-  line-height: 1.1;
+  font-size: 15rpx;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5rpx;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
-.income-dot {
-  position: absolute;
-  right: 6rpx;
-  bottom: 6rpx;
-  width: 6rpx;
-  height: 6rpx;
-  border-radius: 50%;
+/* 支出在上 */
+.day-expense {
+  opacity: 0.85;
+}
+
+/* 收入在下 */
+.day-income {
+  font-weight: 500;
 }
 
 .legend {
@@ -315,16 +323,8 @@ export default {
   flex: 1;
 }
 
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-}
-
-.legend-dot {
-  width: 8rpx;
-  height: 8rpx;
-  border-radius: 50%;
-  background-color: var(--app-success);
+.legend-hint {
+  font-size: 19rpx;
+  color: var(--app-text-3);
 }
 </style>

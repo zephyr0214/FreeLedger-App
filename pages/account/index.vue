@@ -108,6 +108,9 @@
               <view class="acc-name-row">
                 <text class="acc-name">{{ acc.name }}</text>
                 <text v-if="acc.card_tail" class="acc-tail">*{{ acc.card_tail }}</text>
+                <view v-if="acc.id === defaultAccountId" class="default-badge">
+                  <text class="default-badge-text">默认</text>
+                </view>
               </view>
               <text class="acc-type">{{ acc.typeName }}</text>
             </view>
@@ -122,6 +125,14 @@
               <text v-if="acc.isCredit && acc.credit_limit_cents" class="acc-limit">
                 额度 {{ (acc.credit_limit_cents / 100).toFixed(0) }}
               </text>
+            </view>
+
+            <!-- 设为默认账户 -->
+            <view class="acc-set-default" @click.stop="setDefault(acc)">
+              <text
+                class="set-default-text"
+                :style="{ color: acc.id === defaultAccountId ? 'var(--app-text-3)' : 'var(--app-primary)' }"
+              >{{ acc.id === defaultAccountId ? '已默认' : '设默认' }}</text>
             </view>
 
             <text class="acc-arrow">›</text>
@@ -163,6 +174,9 @@ export default {
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
+
+    /** 当前默认账户 id */
+    const defaultAccountId = computed(() => settingStore.settings.defaultAccountId || '')
 
 
     /** 较上月变化：取趋势最后两个点 */
@@ -227,6 +241,13 @@ export default {
       return formatCents(sum, { symbol: settingStore.currencySymbol })
     }
 
+    /** 设为默认账户 —— AI 记账和手动记账都会优先用它 */
+    async function setDefault(acc) {
+      if (acc.id === defaultAccountId.value) return
+      await settingStore.update({ defaultAccountId: acc.id })
+      uni.showToast({ title: `已设为默认：${acc.name}`, icon: 'none' })
+    }
+
     function goAddAccount() {
       uni.navigateTo({ url: '/pages/account/edit' })
     }
@@ -256,9 +277,9 @@ export default {
     return {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints, trendLabels,
-      primaryColor, pageStyle,
+      primaryColor, pageStyle, defaultAccountId,
       assetChange, changeLabel,
-      switchRange, formatGroupSum,
+      switchRange, formatGroupSum, setDefault,
       goAddAccount, goDetail, goSettings
     }
   }
@@ -515,6 +536,31 @@ export default {
 .acc-arrow {
   font-size: 32rpx;
   color: var(--app-text-3);
+}
+
+/* 默认账户标记 */
+.default-badge {
+  padding: 0 10rpx;
+  height: 30rpx;
+  border-radius: 8rpx;
+  background-color: var(--app-primary-light);
+  display: flex;
+  align-items: center;
+}
+
+.default-badge-text {
+  font-size: 18rpx;
+  color: var(--app-primary);
+  line-height: 1;
+}
+
+.acc-set-default {
+  padding: 8rpx 12rpx;
+  flex-shrink: 0;
+}
+
+.set-default-text {
+  font-size: 21rpx;
 }
 
 .empty-wrap {

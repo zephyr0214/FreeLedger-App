@@ -17,6 +17,9 @@
     <block v-else>
       <AppHeader @avatar-click="goSettings">
         <template #right>
+          <view class="header-btn" @click="goAiChat">
+            <text class="header-btn-text">AI 助手</text>
+          </view>
           <view class="header-btn" @click="goAllTxn">
             <text class="header-btn-text">全部</text>
           </view>
@@ -61,23 +64,7 @@
           </view>
         </view>
 
-        <!-- ③ AI 洞察 -->
-        <view class="ai-card" @click="goAiChat">
-          <view class="ai-head">
-            <text class="ai-badge">AI</text>
-            <text class="ai-title">本月洞察</text>
-            <text class="ai-refresh" @click.stop="refreshInsight">
-              {{ insightLoading ? '分析中…' : '刷新' }}
-            </text>
-          </view>
-          <text v-if="insightLoading" class="ai-text ai-loading">正在分析本月消费…</text>
-          <text v-else-if="insight" class="ai-text">{{ insight }}</text>
-          <text v-else class="ai-text ai-empty" @click.stop="refreshInsight">
-            点击生成本月消费洞察 ›
-          </text>
-        </view>
-
-        <!-- ④ 最近交易 -->
+        <!-- ③ 最近交易 -->
         <view class="section">
           <view class="section-head">
             <text class="section-title">
@@ -180,19 +167,20 @@
         <view class="bottom-space" />
       </scroll-view>
 
-      <!-- ⑦ 悬浮按钮 -->
+      <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 → 手动记账面板 -->
       <FabButton
-        @tap="openPanel"
+        :hidden="showQuickAdd"
+        @tap="openQuickAdd"
         @hold-start="onHoldStart"
         @hold-end="onHoldEnd"
         @hold-cancel="onHoldCancel"
       />
 
-      <!-- 记账面板 -->
-      <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
+      <!-- AI 智能记账输入条（替代原速记层） -->
+      <QuickAddBar v-model="showQuickAdd" @saved="onSaved" />
 
-      <!-- 速记输入层 -->
-      <QuickInput v-model="showQuick" @expand="onExpandFromQuick" @saved="onSaved" />
+      <!-- 记账面板（长按或展开时打开） -->
+      <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
 
       <!-- 当日明细 -->
       <wd-action-sheet
@@ -214,18 +202,17 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FabButton from '@/components/FabButton.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
-import QuickInput from '@/components/QuickInput.vue'
+import QuickAddBar from '@/components/QuickAddBar.vue'
 import CalendarGrid from '@/components/CalendarGrid.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getBudgetUsage } from '@/api/stats.js'
-import { getInsight } from '@/api/ai.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, FabButton, TxnPanel, QuickInput, CalendarGrid },
+  components: { AppHeader, MoneyText, EmptyState, FabButton, TxnPanel, QuickAddBar, CalendarGrid },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -233,11 +220,9 @@ export default {
 
     const refreshing = ref(false)
     const showPanel = ref(false)
-    const showQuick = ref(false)
+    const showQuickAdd = ref(false)
     const panelPreset = ref(null)
     const budget = ref(null)
-    const insight = ref('')
-    const insightLoading = ref(false)
     const selectedDay = ref('')
     const showDayDetail = ref(false)
     const dayActions = ref([])
@@ -287,22 +272,6 @@ export default {
       }
     }
 
-    /* ------------------------------------------------------ AI 洞察 */
-
-    async function refreshInsight() {
-      if (insightLoading.value) return
-      insightLoading.value = true
-      try {
-        const res = await getInsight(txnStore.currentMonth)
-        insight.value = res.text
-      } catch (e) {
-        insight.value = ''
-        uni.showToast({ title: e.message, icon: 'none' })
-      } finally {
-        insightLoading.value = false
-      }
-    }
-
     /* ------------------------------------------------------ 月历 */
 
     function shiftCalMonth(delta) {
@@ -349,35 +318,23 @@ export default {
 
     /* ------------------------------------------------------ 交互 */
 
-    function openPanel() {
+    /** 单击 + → 弹出 AI 输入条 */
+    function openQuickAdd() {
+      showQuickAdd.value = true
+    }
+
+    /** 长按 + → 打开手动记账面板（触觉反馈在 FabButton 内） */
+    function onHoldStart() {}
+
+    function onHoldEnd() {
       panelPreset.value = null
       showPanel.value = true
     }
 
-    /** 长按 → 速记；松手后拉起输入层（不需要持续按住） */
-    function onHoldStart() {
-      // 触觉反馈已在 FabButton 内触发
-    }
-
-    function onHoldEnd() {
-      showQuick.value = true
-    }
-
-    function onHoldCancel() {
-      // 取消不处理
-    }
-
-    function onExpandFromQuick(preset) {
-      panelPreset.value = preset
-      showPanel.value = true
-    }
+    function onHoldCancel() {}
 
     function onSaved() {
       loadAll(true)
-      if (insight.value) {
-        // 数据变了，洞察需要重算
-        insight.value = ''
-      }
     }
 
     /* ------------------------------------------------------ 展示辅助 */
@@ -434,8 +391,7 @@ export default {
     }
 
     function goAiChat() {
-      // AI 对话页暂未单独实现，先触发洞察刷新
-      refreshInsight()
+      uni.navigateTo({ url: '/pages/ai/chat' })
     }
 
     /* ------------------------------------------------------ 生命周期 */
@@ -458,12 +414,12 @@ export default {
 
     return {
       settingStore, accountStore, txnStore,
-      refreshing, showPanel, showQuick, panelPreset,
-      budget, insight, insightLoading, selectedDay,
+      refreshing, showPanel, panelPreset,
+      budget, selectedDay, showQuickAdd,
       showDayDetail, dayActions, dayDetailTitle,
       primaryColor, pageStyle, hasAccounts, overview, monthLabel, calendarTitle,
-      onRefresh, refreshInsight, shiftCalMonth, onDayClick, onDayTxnSelect,
-      openPanel, onHoldStart, onHoldEnd, onHoldCancel, onExpandFromQuick, onSaved,
+      onRefresh, shiftCalMonth, onDayClick, onDayTxnSelect,
+      openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel, onSaved,
       iconChar, txnTitle, txnSub, dayLabel,
       goAddAccount, goSettings, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
@@ -541,56 +497,6 @@ export default {
   width: 1rpx;
   height: 48rpx;
   background-color: var(--app-line);
-}
-
-/* AI 卡 */
-.ai-card {
-  margin-top: 24rpx;
-  background: linear-gradient(135deg, var(--app-primary-light), var(--app-card));
-  border-radius: 20rpx;
-  padding: 24rpx 28rpx;
-  border: 1rpx solid var(--app-line);
-}
-
-.ai-head {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
-}
-
-.ai-badge {
-  font-size: 20rpx;
-  font-weight: 600;
-  color: #ffffff;
-  background-color: var(--app-primary);
-  padding: 2rpx 12rpx;
-  border-radius: 8rpx;
-}
-
-.ai-title {
-  font-size: 24rpx;
-  color: var(--app-text-2);
-  flex: 1;
-}
-
-.ai-refresh {
-  font-size: 22rpx;
-  color: var(--app-primary);
-}
-
-.ai-text {
-  font-size: 27rpx;
-  color: var(--app-text);
-  line-height: 1.6;
-}
-
-.ai-loading {
-  color: var(--app-text-3);
-}
-
-.ai-empty {
-  color: var(--app-primary);
 }
 
 /* 区块 */

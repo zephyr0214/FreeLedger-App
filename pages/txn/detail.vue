@@ -105,8 +105,8 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { ref, computed } from 'vue'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -206,11 +206,15 @@ export default {
       uni.navigateBack()
     }
 
-    onMounted(() => {
-      // 从页面参数取 id
-      const pages = getCurrentPages()
-      const page = pages[pages.length - 1]
-      txnId.value = (page && page.options && page.options.id) || ''
+    /**
+     * ★ 必须用 onLoad(options) 取路由参数 ★
+     *   之前用 onMounted + getCurrentPages()[last].options，
+     *   在 uni-app 里 options 未必已挂到页面栈对象上，
+     *   结果拿到空字符串 → 提示「缺少交易 ID」。
+     *   onLoad 的 options 是框架直接给的，最可靠。
+     */
+    onLoad((options) => {
+      txnId.value = (options && options.id) || ''
       if (!txnId.value) {
         loadingText.value = '缺少交易 ID'
         return

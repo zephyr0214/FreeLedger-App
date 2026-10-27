@@ -124,8 +124,8 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { ref, computed } from 'vue'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -222,13 +222,11 @@ export default {
       uni.navigateBack()
     }
 
-    onMounted(async () => {
+    // 用 onLoad(options) 取参数，比 getCurrentPages().options 可靠
+    onLoad(async (options) => {
+      accountId.value = (options && options.id) || ''
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load()
-
-      const pages = getCurrentPages()
-      const page = pages[pages.length - 1]
-      accountId.value = (page && page.options && page.options.id) || ''
       if (accountId.value) await load()
     })
 

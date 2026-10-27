@@ -1,5 +1,6 @@
 <template>
   <view
+    v-if="!hidden"
     class="fab-wrap"
     :class="{ pressing }"
     :style="wrapStyle"
@@ -17,7 +18,7 @@
 
     <!-- 长按提示 -->
     <view v-if="pressing" class="fab-hint">
-      <text class="hint-text">松手开始速记</text>
+      <text class="hint-text">松手打开记账面板</text>
     </view>
   </view>
 </template>
@@ -32,9 +33,11 @@ const HOLD_MS = 260
 export default {
   name: 'FabButton',
   props: {
-    /** 距底部距离，默认避开 tabBar */
-    bottom: { type: String, default: 'calc(env(safe-area-inset-bottom) + 140rpx)' },
-    right: { type: String, default: '40rpx' }
+    /** 距底部距离，默认避开 tabBar 并贴近底部 */
+    bottom: { type: String, default: 'calc(env(safe-area-inset-bottom) + 40rpx)' },
+    right: { type: String, default: '36rpx' },
+    /** 是否隐藏（输入条展开时隐藏） */
+    hidden: { type: Boolean, default: false }
   },
   emits: ['tap', 'hold-start', 'hold-end', 'hold-cancel'],
   setup(props, { emit }) {

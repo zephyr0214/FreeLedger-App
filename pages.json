@@ -124,6 +124,13 @@
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "欢迎"
 			}
+		},
+		{
+			"path": "pages/ai/chat",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "AI 助手"
+			}
 		}
 	],
 	"globalStyle": {
