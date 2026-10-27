@@ -388,14 +388,10 @@ export default {
     }
 
     function switchType(key) {
+      // 分类的切换逻辑统一交给 watch(form.type) 处理，避免两处逻辑打架
       form.type = key
-      if (key === 'transfer') {
-        form.category_id = ''
-      } else {
+      if (key !== 'transfer') {
         form.to_account_id = ''
-        // 切换收支时若当前分类不属于该类型，清空
-        const valid = categoryList.value.some((c) => c.id === form.category_id)
-        if (!valid) form.category_id = ''
       }
     }
 
@@ -480,9 +476,18 @@ export default {
       form.tag_ids = []
       form.occurred_day = toDayKey()
       form.to_account_id = ''
-      form.category_id = ''
       form.account_id = settingStore.settings.defaultAccountId || (accountStore.list[0] || {}).id || ''
+      // 默认选中第一个分类：这样用户输完金额直接按「完成」就能记一笔，
+      // 不用先去点分类（之前不选分类就存不了，是「完成没反应」的真正原因）
+      form.category_id = defaultCategoryId.value || ''
     }
+
+    /** 当前类型下的默认分类（第一个一级分类） */
+    const defaultCategoryId = computed(() => {
+      const type = form.type === 'income' ? 'income' : 'expense'
+      const list = categories.value.filter((c) => c.type === type && !c.isParent)
+      return list.length > 0 ? list[0].id : ''
+    })
 
     /** 用已有交易填充 */
     function fillFromTxn(txn) {
@@ -501,7 +506,8 @@ export default {
       form.amountRaw = p.amount_cents ? String(p.amount_cents / 100) : ''
       form.account_id = p.account_id || (accountStore.list[0] || {}).id || ''
       form.to_account_id = p.to_account_id || ''
-      form.category_id = p.category_id || ''
+      // 预置没给分类时用默认分类，保证「完成」键能直接用
+      form.category_id = p.category_id || defaultCategoryId.value || ''
       form.occurred_day = p.occurred_day || toDayKey()
       form.note = p.note || ''
       form.tag_ids = Array.isArray(p.tag_ids) ? [...p.tag_ids] : []
@@ -571,6 +577,7 @@ export default {
         }
         emit('saved')
         visible.value = false
+        showTabBar()
       } catch (e) {
         uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
       }
@@ -578,6 +585,28 @@ export default {
 
     function onClose() {
       visible.value = false
+      showTabBar()
+    }
+
+    /* ------------------------------------------------------ tabBar 显隐 */
+
+    /**
+     * 打开记账面板时隐藏原生 tabBar。
+     *
+     * 原因：adjustResize 下键盘弹出会把 tabBar 顶到键盘上方，
+     * 而记账面板是全屏弹层，底栏露在外面既突兀又可能被键盘压住。
+     * 面板关闭（取消或保存成功）时恢复。
+     */
+    function hideTabBar() {
+      try {
+        uni.hideTabBar({ animation: false })
+      } catch (e) {}
+    }
+
+    function showTabBar() {
+      try {
+        uni.showTabBar({ animation: false })
+      } catch (e) {}
     }
 
     /* ------------------------------------------------------ 生命周期 */
@@ -585,7 +614,13 @@ export default {
     watch(
       () => props.modelValue,
       async (open) => {
-        if (!open) return
+        if (!open) {
+          // 面板关闭：恢复 tabBar
+          showTabBar()
+          return
+        }
+        // 面板打开：隐藏 tabBar，避免它被键盘顶起或与面板重叠
+        hideTabBar()
         await accountStore.load()
         await loadOptions()
 
@@ -599,11 +634,20 @@ export default {
       }
     )
 
-    // 类型变化时自动选第一个分类，减少一次点击
+    /**
+     * 类型变化时重选分类。
+     * 不只是「为空时选」—— 收支切换后原来的分类属于旧类型，
+     * 必须换成新类型的第一个分类，否则保存时会报「请选择分类」。
+     */
     watch(
       () => form.type,
       () => {
-        if (form.type !== 'transfer' && !form.category_id && categoryList.value.length > 0) {
+        if (form.type === 'transfer') {
+          form.category_id = ''
+          return
+        }
+        const valid = categoryList.value.some((c) => c.id === form.category_id)
+        if (!valid && categoryList.value.length > 0) {
           form.category_id = categoryList.value[0].id
         }
       }

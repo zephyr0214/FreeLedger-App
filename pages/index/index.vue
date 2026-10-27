@@ -99,15 +99,15 @@
           >
             <view class="ov-budget">
               <view class="ov-budget-head">
-                <text class="ov-budget-name">总预算</text>
-                <view class="ov-budget-head-right">
-                  <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                    日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}
-                  </text>
+                <view class="ov-budget-title">
+                  <text class="ov-budget-name">总预算</text>
                   <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
                     {{ totalBudget.percent }}%
                   </text>
                 </view>
+                <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
+                  日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}
+                </text>
               </view>
               <view class="ov-budget-bar">
                 <view
@@ -127,15 +127,15 @@
 
             <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
               <view class="ov-budget-head">
-                <text class="ov-budget-name">{{ b.name }}</text>
-                <view class="ov-budget-head-right">
-                  <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                    日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(0) }}
-                  </text>
+                <view class="ov-budget-title">
+                  <text class="ov-budget-name">{{ b.name }}</text>
                   <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
                     {{ b.percent }}%
                   </text>
                 </view>
+                <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
+                  日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(0) }}
+                </text>
               </view>
               <view class="ov-budget-bar">
                 <view
@@ -767,18 +767,19 @@ export default {
   justify-content: space-between;
 }
 
+/* 左侧：名称 + 百分比 */
+.ov-budget-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+}
+
 .ov-budget-name {
   font-size: 24rpx;
   color: var(--app-text-2);
 }
 
-/* 右侧：剩余日均预算 + 百分比 */
-.ov-budget-head-right {
-  display: flex;
-  align-items: baseline;
-  gap: 16rpx;
-}
-
+/* 右侧：剩余日均预算 */
 .ov-budget-daily {
   font-size: 21rpx;
   color: var(--app-text-3);
