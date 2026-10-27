@@ -42,22 +42,28 @@
           <view class="ov-top">
             <view class="ov-top-item">
               <text class="ov-top-label">本月支出</text>
-              <MoneyText
-                :cents="overview.monthExpense"
-                :size="36"
-                :weight="600"
-                color="var(--app-text)"
-              />
+              <view class="ov-top-amount ov-top-amount-exp">
+                <text class="ov-top-sign">-</text>
+                <MoneyText
+                  :cents="overview.monthExpense"
+                  :size="44"
+                  :weight="600"
+                  color="var(--app-danger)"
+                />
+              </view>
             </view>
             <view class="ov-top-divider" />
             <view class="ov-top-item">
               <text class="ov-top-label">本月收入</text>
-              <MoneyText
-                :cents="overview.monthIncome"
-                :size="36"
-                :weight="600"
-                color="var(--app-text)"
-              />
+              <view class="ov-top-amount ov-top-amount-inc">
+                <text class="ov-top-sign">+</text>
+                <MoneyText
+                  :cents="overview.monthIncome"
+                  :size="44"
+                  :weight="600"
+                  color="var(--app-success)"
+                />
+              </view>
             </view>
           </view>
           <!-- 中间：三个关键数字 -->
@@ -272,7 +278,7 @@
 
 <script>
 import { ref, computed, onMounted } from 'vue'
-import { onShow, onPullDownRefresh } from '@dcloudio/uni-app'
+import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -539,21 +545,6 @@ export default {
       settingStore.syncSystemTheme()
     })
 
-    /**
-     * 页面级下拉刷新。
-     * scroll-view 的 refresher 在 App 端支持不可靠，
-     * 改用页面级的 onPullDownRefresh（需 pages.json 里开 enablePullDownRefresh）。
-     */
-    onPullDownRefresh(async () => {
-      try {
-        await loadAll(true)
-      } finally {
-        try {
-          uni.stopPullDownRefresh()
-        } catch (e) {}
-      }
-    })
-
     return {
       settingStore, accountStore, txnStore,
       showPanel, panelPreset,
@@ -654,6 +645,27 @@ export default {
 .ov-top-label {
   font-size: 24rpx;
   color: var(--app-text-2);
+}
+
+/* 金额行：正负号 + 金额 */
+.ov-top-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 2rpx;
+}
+
+.ov-top-sign {
+  font-size: 40rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ov-top-amount-exp .ov-top-sign {
+  color: var(--app-danger);
+}
+
+.ov-top-amount-inc .ov-top-sign {
+  color: var(--app-success);
 }
 
 .ov-top-divider {

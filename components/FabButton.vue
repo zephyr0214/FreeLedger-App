@@ -29,9 +29,9 @@ import { useSettingStore } from '@/stores/setting.js'
 
 /**
  * 长按触发时长（ms）
- * 1 秒：按住不动就自动打开手动记账面板，不用等松手。
+ * 300ms：快速按住就自动打开手动记账面板，不用等松手。
  */
-const HOLD_MS = 1000
+const HOLD_MS = 300
 
 export default {
   name: 'FabButton',
@@ -110,7 +110,7 @@ export default {
       pressing.value = true
       progress.value = 0
 
-      // 3 秒后自动打开，不需要等用户松手
+      // 300ms 后自动打开，不需要等用户松手
       timer = setTimeout(() => {
         longFired = true
         try {
@@ -137,7 +137,7 @@ export default {
       const wasLong = longFired || delta >= HOLD_MS
 
       if (wasLong) {
-        // 已经在 3 秒时自动触发过了，这里不重复
+        // 到达阈值时已经自动触发过了，这里不重复
         if (!longFired) {
           emit('hold-end')
         }
