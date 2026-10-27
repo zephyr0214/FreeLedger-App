@@ -51,19 +51,18 @@
       </view>
 
       <!--
-        分类：分两行，每行独立横向滑动
-        外层按行分组（每行 5 个），每行一个 scroll-view，
-        这样两行互不影响，各自可以向右滑看更多分类。
+        分类：排成两行，两行作为一个整体可以向右滑动
+        外层 scroll-view 横向滚动，内层是纵向 flex 容器装着两行，
+        每行是横向 flex。滑动时两行同步移动，分类多也不会挤成多行。
       -->
-      <view v-if="form.type !== 'transfer'" class="cat-rows">
-        <scroll-view
-          v-for="(row, ri) in categoryRows"
-          :key="ri"
-          class="cat-scroll"
-          scroll-x
-          :show-scrollbar="false"
-        >
-          <view class="cat-list">
+      <scroll-view
+        v-if="form.type !== 'transfer'"
+        class="cat-scroll"
+        scroll-x
+        :show-scrollbar="false"
+      >
+        <view class="cat-list">
+          <view v-for="(row, ri) in categoryRows" :key="ri" class="cat-row">
             <view
               v-for="cat in row"
               :key="cat.id"
@@ -89,8 +88,8 @@
               >{{ cat.name }}</text>
             </view>
           </view>
-        </scroll-view>
-      </view>
+        </view>
+      </scroll-view>
 
       <!-- 表单行 -->
       <view class="form-rows">
@@ -278,24 +277,18 @@ export default {
     })
 
     /**
-     * 分类按每行 6 个分组，渲染成两行。
-     * 每行是一个独立的横向 scroll-view，行与行互不影响，
-     * 分类多的时候每行都能各自向右滑。
+     * 分类分成两行。
      *
-     * 6 个的宽度 = 6×108 + 5×8 = 688rpx，
-     * 正好等于 750rpx 设计稿的视口宽（减去左右 32rpx 内边距），
-     * 所以常规情况下不用滑动，分类超过 12 个才需要右滑。
+     * 每行放 CATS_PER_ROW 个，剩余的继续排在第二行（第二行会更长，
+     * 可以向右滑动看到）。两行作为一个整体一起滑动。
      */
     const CATS_PER_ROW = 6
 
     const categoryRows = computed(() => {
       const list = categoryList.value
-      const rows = []
-      for (let i = 0; i < list.length; i += CATS_PER_ROW) {
-        rows.push(list.slice(i, i + CATS_PER_ROW))
-      }
-      // 至少保留一行，避免空容器
-      return rows.length > 0 ? rows : [[]]
+      const row1 = list.slice(0, CATS_PER_ROW)
+      const row2 = list.slice(CATS_PER_ROW)
+      return [row1, row2]
     })
 
     /**
@@ -796,21 +789,37 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 分类：两行，每行独立横向滑动 */
-.cat-rows {
-  padding: 16rpx 0 20rpx;
-}
-
+/* 分类：整体排成两行，容器可向右滑动 */
 .cat-scroll {
   width: 100%;
   white-space: nowrap;
-  /* 每行左右留白 */
-  padding: 0 32rpx;
+  padding: 16rpx 0 20rpx;
 }
 
+/* 分类：两行，整体可向右滑动 */
+.cat-scroll {
+  width: 100%;
+  white-space: nowrap;
+  padding: 16rpx 0 20rpx;
+}
+
+/**
+ * 纵向容器装两行。
+ * 宽度不设死 —— 由最宽的那一行决定（第二行可能更长），
+ * 于是两行作为一个整体比视口宽时可以横向滑动。
+ */
 .cat-list {
   display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  padding: 0 32rpx;
+  width: max-content;
+}
+
+.cat-row {
+  display: flex;
   gap: 8rpx;
+  flex-shrink: 0;
 }
 
 .cat-item {
