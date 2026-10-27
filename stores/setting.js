@@ -11,7 +11,8 @@ import { defineStore } from 'pinia'
 import { getAllSettings, setSettings } from '@/api/settings.js'
 import {
   THEME_PRESETS, THEME_MODE, resolveDark, buildCssVars, buildWotThemeVars,
-  applyTabBarTheme, applyNavigationBarTheme, isSystemDark, getPreset
+  buildWotCssVars, wotThemeClass, applyTabBarTheme, refreshTabBarTheme,
+  applyNavigationBarTheme, isSystemDark, getPreset
 } from '@/utils/theme.js'
 
 export const useSettingStore = defineStore('setting', {
@@ -33,7 +34,13 @@ export const useSettingStore = defineStore('setting', {
       lastExportAt: 0
     },
     isDark: false,
-    systemDark: false
+    systemDark: false,
+    /**
+     * 主题刚变过时置位：下次 tabBar 刷新要用「强制」模式冲缓存。
+     * 部分 Android ROM 会缓存 tabBar 的图标与配色，
+     * 只传新值不立刻重绘，需要先刷一遍默认色再刷目标色。
+     */
+    tabBarThemeDirty: false
   }),
 
   getters: {
@@ -47,6 +54,14 @@ export const useSettingStore = defineStore('setting', {
     },
     wotThemeVars(state) {
       return buildWotThemeVars(state.settings.themePreset)
+    },
+    /**
+     * 组件库深色模式需要的 class。
+     * 库的深色样式是 `.wot-theme-dark .wd-button {...}` 这种后代选择器，
+     * 必须有祖先带这个类才生效，所以要加到页面根节点上。
+     */
+    wotClass(state) {
+      return wotThemeClass(state.isDark)
     },
     preset(state) {
       return getPreset(state.settings.themePreset)
@@ -74,9 +89,13 @@ export const useSettingStore = defineStore('setting', {
       this.settings = { ...this.settings, ...s }
       this.loaded = true
       this.applyTheme()
+      // 首屏刷一次 tabBar：pages.json 里写死的是绿色浅色，
+      // 用户可能存的是别的配色。
+      // 此时还没有 tabBar 实例，调用会失败并被忽略；
+      // 真正生效的是各 tab 页 onShow 里的那次。
+      this.refreshTabBar()
       return this.settings
     },
-
     /** 重新读取系统深浅色（onShow 兜底） */
     syncSystemTheme() {
       const sys = isSystemDark()
@@ -84,6 +103,8 @@ export const useSettingStore = defineStore('setting', {
         this.systemDark = sys
         if (this.settings.themeMode === THEME_MODE.SYSTEM) {
           this.applyTheme()
+          // 系统深浅色变了，tabBar 也要跟着刷
+          this.markTabBarThemeDirty()
         }
       }
     },
@@ -91,29 +112,57 @@ export const useSettingStore = defineStore('setting', {
     applyTheme() {
       this.systemDark = isSystemDark()
       this.isDark = resolveDark(this.settings.themeMode)
-      applyTabBarTheme(this.settings.themePreset, this.isDark)
       applyNavigationBarTheme(this.isDark)
+    },
+
+    /**
+     * 重刷原生 tabBar 的配色与图标。
+     *
+     * ★ 只能由「有 tabBar 的页面」调用 ★
+     *   主题设置页是 navigateTo 过去的子页面，没有 tabBar 实例，
+     *   uni.setTabBarStyle / setTabBarItem 在那里是无效的
+     *   （App 端这两个接口只对 tabBar 页面生效）——
+     *   这正是「切换主题后 tabBar 不变」的原因。
+     *   所以 4 个 tab 页的 onShow 都要调这个方法。
+     */
+    refreshTabBar() {
+      // tabBarThemeDirty 表示「主题刚变过，需要冲一下缓存」。
+      // 由 setThemeMode / setThemePreset 设置，这里消费掉。
+      const force = this.tabBarThemeDirty
+      this.tabBarThemeDirty = false
+      refreshTabBarTheme(this.settings.themePreset, this.isDark, force)
+    },
+
+    /** 标记主题变了：下次 tabBar 刷新时用「强制」模式冲缓存 */
+    markTabBarThemeDirty() {
+      this.tabBarThemeDirty = true
     },
 
     async setThemeMode(mode) {
       this.settings.themeMode = mode
-      await setSettings({ themeMode: mode })
+      // ★ 先更新 UI，再写库 ★
+      //   写库是异步的，放在前面会让主题切换慢一拍。
       this.applyTheme()
+      // 标记 tabBar 需要「强制」刷新
+      this.markTabBarThemeDirty()
+      await setSettings({ themeMode: mode })
     },
 
     async setThemePreset(key) {
       this.settings.themePreset = key
-      await setSettings({ themePreset: key })
       this.applyTheme()
+      this.markTabBarThemeDirty()
+      await setSettings({ themePreset: key })
     },
 
     async update(patch) {
       this.settings = { ...this.settings, ...patch }
-      await setSettings(patch)
       // 主题相关的设置需要立即生效
       if ('themeMode' in patch || 'themePreset' in patch) {
         this.applyTheme()
+        this.markTabBarThemeDirty()
       }
+      await setSettings(patch)
     },
 
     async setAi(patch) {

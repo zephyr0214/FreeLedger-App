@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="主题外观" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
@@ -152,7 +152,7 @@ export default {
     return {
       presets, modes, themeMode, themePreset, privacyMode,
       primaryColor, pageStyle,
-      setMode, setPreset, onPrivacyChange, goBack
+      setMode, setPreset, onPrivacyChange, goBack, settingStore
     }
   }
 }

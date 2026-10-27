@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="预算管理" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
@@ -327,7 +327,7 @@ export default {
       showCatPicker, primaryColor, pageStyle,
       totalBudget, categoryBudgets, availableCategories, categoryActions, editorTitle,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
-      onCategorySelect, saveBudget, removeBudget, goBack
+      onCategorySelect, saveBudget, removeBudget, goBack, settingStore
     }
   }
 }

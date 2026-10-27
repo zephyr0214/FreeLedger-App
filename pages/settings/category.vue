@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="分类管理" @back="goBack" />
 
     <!-- 类型切换 -->

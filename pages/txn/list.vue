@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <!-- 自定义导航 -->
     <view class="nav-bar" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="nav-inner">
@@ -116,6 +116,12 @@
       custom-style="width: 78vw; height: 100vh; background-color: var(--app-bg);"
     >
       <view class="filter-panel">
+        <!-- 状态栏占位：全面屏的摄像头/刘海会挡住标题。
+             Android 上 env(safe-area-inset-top) 通常是 0，
+             必须用 JS 读到的 statusBarHeight 补。
+             （和 AppHeader / PageNav 同一套做法） -->
+        <view class="filter-status-bar" :style="{ height: statusBarHeight + 'px' }" />
+
         <view class="filter-head">
           <text class="filter-title">筛选</text>
           <text class="filter-reset" @click="resetFilter">重置</text>
@@ -250,9 +256,17 @@
         </scroll-view>
 
         <view class="filter-actions">
-          <wd-button size="large" type="primary" custom-class="filter-apply" @click="applyFilter">
-            应用筛选
-          </wd-button>
+          <!-- 自绘按钮而不是 wd-button：
+               wd-button type="primary" 的颜色来自库变量
+               （--wot-color-theme），不跟我们的主题色走。
+               这里直接用 primaryColor，保证与全 App 主题一致。 -->
+          <view
+            class="filter-apply"
+            :style="{ backgroundColor: primaryColor }"
+            @click="applyFilter"
+          >
+            <text class="filter-apply-text">应用筛选</text>
+          </view>
         </view>
       </view>
     </wd-popup>
@@ -774,6 +788,12 @@ export default {
   flex-direction: column;
 }
 
+/* 状态栏占位：避让全面屏的摄像头/刘海 */
+.filter-status-bar {
+  flex-shrink: 0;
+  width: 100%;
+}
+
 .filter-head {
   display: flex;
   align-items: center;
@@ -863,10 +883,30 @@ export default {
 }
 
 .filter-actions {
+  flex-shrink: 0;
   padding: 20rpx 28rpx calc(env(safe-area-inset-bottom) + 20rpx);
 }
 
+/* 应用筛选按钮：背景色由 primaryColor 内联指定，跟随主题色
+   尺寸对齐库的 wd-button size="large"（44px 高 / 8px 圆角） */
 .filter-apply {
   width: 100%;
+  height: 88rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+
+.filter-apply:active {
+  opacity: 0.8;
+}
+
+.filter-apply-text {
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 500;
 }
 </style>

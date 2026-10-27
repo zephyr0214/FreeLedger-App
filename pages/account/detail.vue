@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <view class="nav-bar" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="nav-inner">
         <text class="nav-back" @click="goBack">‹</text>

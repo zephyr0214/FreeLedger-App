@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader :show-date="false" @avatar-click="goProfile" />
 
     <scroll-view class="page-scroll" scroll-y>
@@ -193,6 +193,9 @@ export default {
         await loadStats()
       }
       settingStore.syncSystemTheme()
+      // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
+      // 主题设置页改完主题后要靠这里把颜色刷回来
+      settingStore.refreshTabBar()
     })
 
     return {

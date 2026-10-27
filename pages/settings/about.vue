@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="关于" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
@@ -126,7 +126,7 @@ export default {
       uni.navigateBack()
     }
 
-    return { primaryColor, pageStyle, onDiagnose, goBack }
+    return { settingStore, primaryColor, pageStyle, onDiagnose, goBack }
   }
 }
 </script>

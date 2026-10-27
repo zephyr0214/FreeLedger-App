@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <!-- 复用导航头 -->
     <PageNav title="个人信息" @back="goBack">
       <template #right>
@@ -181,7 +181,7 @@ export default {
 
     return {
       form, primaryColor, pageStyle, dayRange,
-      pickAvatar, onSave, goBack
+      pickAvatar, onSave, goBack, settingStore
     }
   }
 }

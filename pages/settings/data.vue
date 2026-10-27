@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="数据管理" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
@@ -473,7 +473,7 @@ export default {
       onExport, onImport, onRestoreBackup,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
-      formatBackupTime, goBack
+      formatBackupTime, goBack, settingStore
     }
   }
 }

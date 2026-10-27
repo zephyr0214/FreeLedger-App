@@ -47,6 +47,15 @@ export function resolveDark(mode) {
 /**
  * 生成注入到页面的 CSS 变量字符串。
  * 自研组件只使用这些变量，不写死色值。
+ *
+ * ★ 同时注入组件库（wot-design-uni）的变量 ★
+ *   库的按钮、弹层等组件颜色全部来自 CSS 变量
+ *   （见 node_modules/wot-design-uni/components/common/abstracts/variable.scss）：
+ *     --wot-color-theme                主色
+ *     --wot-dark-background / --wot-dark-color...  深色模式的一整套
+ *   项目里没有渲染 <wd-config-provider>（App.vue 的 template 在 App 端不渲染），
+ *   所以改成把变量直接注入到 .app-page 的 style 上，
+ *   库的组件就会跟着主题色和深浅色走。
  */
 export function buildCssVars(presetKey, dark) {
   const p = getPreset(presetKey)
@@ -86,9 +95,64 @@ export function buildCssVars(presetKey, dark) {
         '--app-shadow': '0 2rpx 16rpx rgba(0,0,0,0.06)'
       }
 
+  // ---- 组件库（wot-design-uni）的变量 ----
+  Object.assign(vars, buildWotCssVars(presetKey, dark))
+
   return Object.entries(vars)
     .map(([k, v]) => `${k}:${v}`)
     .join(';')
+}
+
+/**
+ * 组件库用的 CSS 变量。
+ *
+ * 主色：--wot-color-theme 是库的根变量，按钮、开关、单选等都从它派生。
+ * 深色：库的深色样式是靠祖先上的 .wot-theme-dark 类切换的
+ *       （见 wd-button/index.scss 等），所以除了颜色变量，
+ *       还要给页面根节点加这个类 —— 见 utils/theme.js 的 wotThemeClass。
+ *       这里同时把深色变量也注入，避免个别组件不认类名时颜色不对。
+ */
+export function buildWotCssVars(presetKey, dark) {
+  const p = getPreset(presetKey)
+  const vars = {
+    '--wot-color-theme': p.primary,
+    '--wot-color-primary': p.primary,
+    '--wot-button-primary-bg-color': p.primary,
+    '--wot-switch-checked-bg-color': p.primary,
+    '--wot-checkbox-checked-color': p.primary,
+    '--wot-radio-checked-color': p.primary,
+    '--wot-slider-active-bg-color': p.primary,
+    '--wot-tag-primary-color': p.primary,
+    '--wot-pager-indicator-active-color': p.primary,
+    '--wot-tabbar-item-active-color': p.primary
+  }
+
+  if (dark) {
+    Object.assign(vars, {
+      '--wot-dark-background': '#0D0D0F',
+      '--wot-dark-background2': '#1C1C1E',
+      '--wot-dark-background3': '#141414',
+      '--wot-dark-background4': '#2C2C2E',
+      '--wot-dark-background5': '#3A3A3C',
+      '--wot-dark-background6': '#380e08',
+      '--wot-dark-background7': '#707070',
+      '--wot-dark-color': '#FFFFFF',
+      '--wot-dark-color2': '#f2270c',
+      '--wot-dark-color3': 'rgba(232, 230, 227, 0.8)',
+      '--wot-dark-color-gray': '#A1A1A6'
+    })
+  }
+
+  return vars
+}
+
+/**
+ * 组件库深色模式需要的 class。
+ * 库的深色样式是 `.wot-theme-dark .wd-button { ... }` 这种后代选择器，
+ * 必须有一个祖先带这个类才生效。
+ */
+export function wotThemeClass(dark) {
+  return dark ? 'wot-theme-dark' : 'wot-theme-light'
 }
 
 /** 组件库主题变量（只覆盖主色，其余用默认） */
@@ -115,6 +179,12 @@ const TABBAR_ITEMS = [
  *   setTabBarStyle 只能改文字颜色和背景，改不了图标。
  *   而 PNG 图标的颜色是烤死在像素里的，所以每套主题色各生成了一份选中态图标，
  *   这里通过 setTabBarItem 逐个替换 iconPath / selectedIconPath。
+ *
+ * ★ 必须在「有 tabBar 的页面」调用 ★
+ *   主题设置页是 navigateTo 过去的子页面，没有 tabBar 实例，
+ *   在那里调 setTabBarStyle / setTabBarItem 是无效的
+ *   （App 端这两个接口只对 tabBar 页面生效，其它页面静默失败）。
+ *   所以这里只由 4 个 tab 页的 onShow 驱动（见 stores/setting.js 的 refreshTabBar）。
  *
  * 前提：static/tabbar/ 下需要有 {name}.png、{name}-dark.png、
  *       {name}-active-{preset}.png（由 scripts/gen-tabbar-icons.py 生成）
@@ -146,6 +216,36 @@ export function applyTabBarTheme(presetKey, dark) {
       // tabBar 尚未创建时（如首屏加载前）会失败，忽略即可
     }
   }
+}
+
+/**
+ * 重刷 tabBar。
+ *
+ * @param {string} presetKey 主题色预设
+ * @param {boolean} dark 是否深色
+ * @param {boolean} force 是否需要「冲缓存」
+ *   部分 Android ROM 会缓存 tabBar 的图标与配色，
+ *   即使 setTabBarStyle 传了新值也不立刻重绘。
+ *   先刷一遍「默认色」再刷目标色可以把缓存冲掉。
+ *   但只有主题**刚变了**时才需要这么做 ——
+ *   否则每次 onShow 都会闪一下默认色（先白后目标色，很难看）。
+ *   所以由调用方（store）判断「变了没有」，把结果传进来。
+ */
+export function refreshTabBarTheme(presetKey, dark, force = false) {
+  if (force) {
+    // 先用默认值冲一次缓存
+    try {
+      uni.setTabBarStyle({
+        color: '#969799',
+        selectedColor: '#07C160',
+        backgroundColor: '#FFFFFF',
+        borderStyle: 'white'
+      })
+    } catch (e) {}
+  }
+
+  // 再刷目标值
+  applyTabBarTheme(presetKey, dark)
 }
 
 /** 状态栏与导航栏文字颜色 */

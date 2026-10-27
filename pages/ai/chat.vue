@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="AI 助手" @back="goBack">
       <template #right>
         <text class="nav-clear" @click="clearHistory">清空</text>

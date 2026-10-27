@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <view class="nav-bar" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="nav-inner">
         <text class="nav-back" @click="goBack">‹</text>
@@ -266,7 +266,7 @@ export default {
       ACCOUNT_TYPES,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
       isCredit, dayRange,
-      onToggleInclude, onSave, onDelete, goBack
+      onToggleInclude, onSave, onDelete, goBack, settingStore
     }
   }
 }

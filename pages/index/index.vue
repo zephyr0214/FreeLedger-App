@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page" :style="pageStyle">
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <!-- 首次使用引导 -->
     <block v-if="settingStore.loaded && !hasAccounts">
       <AppHeader />
@@ -557,6 +557,9 @@ export default {
         loadAll(true)
       }
       settingStore.syncSystemTheme()
+      // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
+      // 主题设置页改完主题后要靠这里把颜色刷回来
+      settingStore.refreshTabBar()
       // 回到顶部，悬浮按钮重新出现
       fabHidden.value = false
     })

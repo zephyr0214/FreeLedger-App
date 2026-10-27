@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="AI 大模型" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
@@ -233,7 +233,7 @@ export default {
     return {
       showKey, testing, timeoutSec, form,
       primaryColor, pageStyle,
-      onTest, onSave, clearCache, goBack
+      onTest, onSave, clearCache, goBack, settingStore
     }
   }
 }

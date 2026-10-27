@@ -1,5 +1,5 @@
-<template>
-  <view class="app-page" :style="pageStyle">
+﻿<template>
+  <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <view class="guide-page">
       <!-- 进度点 -->
       <view class="step-dots">
@@ -203,7 +203,7 @@ export default {
     return {
       step, steps, selectedPreset, accountName, initialBalance, submitting,
       primaryColor, pageStyle, accountPresets, defaultAccountName,
-      nextStep, prevStep
+      nextStep, prevStep, settingStore
     }
   }
 }
