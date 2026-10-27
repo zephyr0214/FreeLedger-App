@@ -51,46 +51,50 @@
       </view>
 
       <!--
-        分类：排成两行，两行作为一个整体可以向右滑动
-        外层 scroll-view 横向滚动，内层是纵向 flex 容器装着两行，
-        每行是横向 flex。滑动时两行同步移动，分类多也不会挤成多行。
+        分类：固定两行，每行 6 个，共 12 个位置
+        第 12 个位置是「更多」按钮（有超出分类时显示），
+        点它弹出完整分类面板。
       -->
-      <scroll-view
-        v-if="form.type !== 'transfer'"
-        class="cat-scroll"
-        :style="catScrollStyle"
-        scroll-x
-        :show-scrollbar="false"
-      >
-        <view class="cat-list" :style="catListStyle">
-          <view v-for="(row, ri) in categoryRows" :key="ri" class="cat-row">
+      <view v-if="form.type !== 'transfer'" class="cat-rows">
+        <view v-for="(row, ri) in categoryRows" :key="ri" class="cat-row">
+          <view
+            v-for="cat in row"
+            :key="cat.id"
+            class="cat-item"
+            :class="{ active: form.category_id === cat.id }"
+            @click="pickCategory(cat)"
+          >
             <view
-              v-for="cat in row"
-              :key="cat.id"
-              class="cat-item"
-              :class="{ active: form.category_id === cat.id }"
-              @click="pickCategory(cat)"
+              class="cat-icon-wrap"
+              :style="{
+                backgroundColor: form.category_id === cat.id
+                  ? (cat.color || primaryColor)
+                  : 'var(--app-card-2)'
+              }"
             >
-              <view
-                class="cat-icon-wrap"
-                :style="{
-                  backgroundColor: form.category_id === cat.id
-                    ? (cat.color || primaryColor)
-                    : 'var(--app-card-2)'
-                }"
-              >
-                <text class="cat-icon-text">{{ iconChar(cat) }}</text>
-              </view>
-              <text
-                class="cat-name"
-                :style="{
-                  color: form.category_id === cat.id ? 'var(--app-text)' : 'var(--app-text-2)'
-                }"
-              >{{ cat.name }}</text>
+              <text class="cat-icon-text">{{ iconChar(cat) }}</text>
             </view>
+            <text
+              class="cat-name"
+              :style="{
+                color: form.category_id === cat.id ? 'var(--app-text)' : 'var(--app-text-2)'
+              }"
+            >{{ cat.name }}</text>
+          </view>
+
+          <!-- 第 12 个位置：更多 -->
+          <view
+            v-if="ri === 1 && moreRowItems.length > 0"
+            class="cat-item cat-more"
+            @click="openMoreCategories"
+          >
+            <view class="cat-icon-wrap cat-more-wrap">
+              <text class="cat-more-dots">···</text>
+            </view>
+            <text class="cat-name">更多</text>
           </view>
         </view>
-      </scroll-view>
+      </view>
 
       <!-- 表单行 -->
       <view class="form-rows">
@@ -197,6 +201,50 @@
       @select="onTagSelect"
     />
 
+    <!-- 更多分类：网格面板 -->
+    <wd-popup
+      v-model="showMoreCategories"
+      position="bottom"
+      :safe-area-inset-bottom="true"
+      custom-style="background-color: var(--app-card); border-radius: 28rpx 28rpx 0 0;"
+    >
+      <view class="more-sheet">
+        <view class="more-sheet-head">
+          <text class="more-sheet-title">选择分类</text>
+          <text class="more-sheet-close" @click="showMoreCategories = false">关闭</text>
+        </view>
+
+        <scroll-view class="more-sheet-scroll" scroll-y>
+          <view class="more-grid">
+            <view
+              v-for="cat in allCategoryItems"
+              :key="cat.id"
+              class="more-item"
+              :class="{ active: form.category_id === cat.id }"
+              @click="pickCategoryFromMore(cat)"
+            >
+              <view
+                class="more-icon-wrap"
+                :style="{
+                  backgroundColor: form.category_id === cat.id
+                    ? (cat.color || primaryColor)
+                    : 'var(--app-card-2)'
+                }"
+              >
+                <text class="more-icon-text">{{ iconChar(cat) }}</text>
+              </view>
+              <text
+                class="more-name"
+                :style="{
+                  color: form.category_id === cat.id ? 'var(--app-text)' : 'var(--app-text-2)'
+                }"
+              >{{ cat.name }}</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+    </wd-popup>
+
     <!-- 日期选择：wd-calendar 无 visible 属性，需 ref.open() -->
     <wd-calendar
       ref="calendarRef"
@@ -266,6 +314,8 @@ export default {
     const showAccountPicker = ref(false)
     const showToAccountPicker = ref(false)
     const showTagPicker = ref(false)
+    /** 「更多分类」面板 */
+    const showMoreCategories = ref(false)
     const calendarRef = ref(null)
     const calendarValue = ref(Date.now())
     const maxDate = ref(Date.now())
@@ -278,70 +328,46 @@ export default {
     })
 
     /**
-     * 分类分成两行，每行装全部分类的一半。
+     * 分类固定两行，每行 6 个位置（最多 12 个）。
      *
-     * 例：32 个分类 → 每行 16 个，但视口只显示 6 个的宽度，
-     * 向右滑动可以依次看到后面的分类。
+     * 规则：
+     *   - 分类 ≤ 11 个：全部直接显示，不需要「更多」
+     *   - 分类 > 11 个：前 11 个直接显示，第 12 个位置是「更多」按钮，
+     *     点它弹出完整分类面板选其余的
      */
+    const CAT_SLOTS = 12
+    const PER_ROW = 6
+    /** 「更多」按钮占掉一个位置，实际直接显示的分类上限 */
+    const DIRECT_MAX = 11
+
     const categoryRows = computed(() => {
       const list = categoryList.value
-      if (list.length === 0) return [[], []]
-      // 奇数个时多出来的给第一行
-      const half = Math.ceil(list.length / 2)
-      return [list.slice(0, half), list.slice(half)]
+      const hasMore = list.length > DIRECT_MAX
+      const direct = hasMore ? list.slice(0, DIRECT_MAX) : list.slice(0, CAT_SLOTS)
+
+      const row1 = direct.slice(0, PER_ROW)
+      const row2 = direct.slice(PER_ROW, PER_ROW * 2)
+      return [row1, row2]
     })
 
-    /**
-     * 一屏能显示几个分类（视口宽度决定的可见数量）。
-     * 用来算 scroll-view 的可视宽度，超出的靠横向滑动。
-     */
-    const VISIBLE_PER_ROW = 6
-
-    /**
-     * 分类容器的显式宽度。
-     *
-     * 不用 width: max-content —— 它在 flex column 容器上计算不可靠，
-     * 实测会把两行横向排开（右滑时只剩第二行）。
-     * 这里自己算：容器宽 = 最宽那一行的宽度 + 左右内边距，
-     * 换算成 px 绑到 style 上。
-     */
-    const catListStyle = computed(() => {
-      const rows = categoryRows.value
-      const maxCount = rows.reduce((m, r) => Math.max(m, r.length), 0)
-      if (maxCount === 0) return {}
-
-      const rpx = rpxRatio()
-      const itemW = 108 * rpx
-      const gap = 8 * rpx
-      const padX = 32 * rpx
-      const rowW = maxCount * itemW + Math.max(maxCount - 1, 0) * gap
-      return { width: `${Math.ceil(rowW + padX * 2)}px` }
+    /** 「更多」面板里要显示的分类（第 12 个位置之后的） */
+    const moreRowItems = computed(() => {
+      const list = categoryList.value
+      return list.length > DIRECT_MAX ? list.slice(DIRECT_MAX) : []
     })
 
-    /**
-     * scroll-view 的可视宽度：一屏能放下 VISIBLE_PER_ROW 个分类。
-     * 超出部分的分类靠横向滑动查看。
-     */
-    const catScrollStyle = computed(() => {
-      const rows = categoryRows.value
-      const maxCount = rows.reduce((m, r) => Math.max(m, r.length), 0)
-      if (maxCount <= VISIBLE_PER_ROW) return {}
+    /** 「更多」面板显示的全部分类（含前 11 个，方便在面板里切换） */
+    const allCategoryItems = computed(() => categoryList.value)
 
-      const rpx = rpxRatio()
-      const itemW = 108 * rpx
-      const gap = 8 * rpx
-      const padX = 32 * rpx
-      const visibleW = VISIBLE_PER_ROW * itemW + (VISIBLE_PER_ROW - 1) * gap
-      return { width: `${Math.ceil(visibleW + padX * 2)}px` }
-    })
+    /** 打开「更多」分类面板 */
+    function openMoreCategories() {
+      showMoreCategories.value = true
+    }
 
-    /** 1rpx 等于多少 px：750rpx 对应屏幕宽 */
-    function rpxRatio() {
-      try {
-        const info = uni.getSystemInfoSync()
-        if (info.windowWidth) return info.windowWidth / 750
-      } catch (e) {}
-      return 1
+    /** 从「更多」面板里选一个分类 */
+    function pickCategoryFromMore(cat) {
+      form.category_id = cat.id
+      showMoreCategories.value = false
     }
 
     /**
@@ -728,7 +754,9 @@ export default {
 
     return {
       visible, types, form, primaryColor, currencySymbol,
-      categoryList, categoryRows, catListStyle, catScrollStyle, amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
+      categoryList, categoryRows, moreRowItems, allCategoryItems,
+      showMoreCategories, openMoreCategories, pickCategoryFromMore,
+      amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
@@ -842,25 +870,12 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 分类：整体排成两行，容器可向右滑动 */
-.cat-scroll {
-  width: 100%;
-  white-space: nowrap;
-  padding: 16rpx 0 20rpx;
-}
-
-/**
- * 纵向容器装两行。
- *
- * 宽度由 JS 显式算好后通过 :style 绑定（见 catListStyle），
- * 不用 width: max-content —— 在 flex column 容器上
- * max-content 的计算结果不可靠，会把两行横向排开。
- */
-.cat-list {
+/* 分类：固定两行，每行 6 个位置 */
+.cat-rows {
   display: flex;
   flex-direction: column;
   gap: 16rpx;
-  padding: 0 32rpx;
+  padding: 16rpx 32rpx 20rpx;
 }
 
 .cat-row {
@@ -898,6 +913,87 @@ export default {
   font-size: 22rpx;
   text-align: center;
   transition: color 0.2s;
+}
+
+/* 「更多」按钮 */
+.cat-more-wrap {
+  background-color: var(--app-card-2);
+  border: 2rpx dashed var(--app-line);
+}
+
+.cat-more-dots {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--app-text-3);
+  line-height: 1;
+  letter-spacing: 2rpx;
+}
+
+/* 更多分类面板 */
+.more-sheet {
+  background-color: var(--app-card);
+  padding-bottom: env(safe-area-inset-bottom);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.more-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 32rpx 20rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.more-sheet-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.more-sheet-close {
+  font-size: 28rpx;
+  color: var(--app-text-3);
+}
+
+.more-sheet-scroll {
+  max-height: 54vh;
+}
+
+.more-grid {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 16rpx 32rpx 24rpx;
+}
+
+.more-item {
+  width: 20%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 0;
+}
+
+.more-icon-wrap {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.more-icon-text {
+  font-size: 30rpx;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.more-name {
+  font-size: 22rpx;
+  text-align: center;
 }
 
 .form-rows {

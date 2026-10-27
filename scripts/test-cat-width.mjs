@@ -1,100 +1,73 @@
 /**
- * 分类两行布局验证
+ * 分类固定两行 + 「更多」按钮的分配规则验证
  *
  *   node scripts/test-cat-width.mjs
  *
- * 布局规则：
- *   - 所有分类平分到两行（32 个 → 每行 16 个）
- *   - scroll-view 可视宽度只够显示 VISIBLE_PER_ROW 个（6 个）
- *   - 容器宽度 = 一行的实际数量，超过可视宽度才能右滑
+ * 规则：
+ *   - 固定两行，每行 6 个位置（最多 12 个）
+ *   - 分类 ≤ 11 个：全部直接显示，不需要「更多」
+ *   - 分类 > 11 个：前 11 个直接显示，第 12 个位置是「更多」
  */
 
-const WINDOWS = [
-  { name: 'iPhone SE', width: 320 },
-  { name: 'iPhone 13', width: 375 },
-  { name: 'iPhone 15 Pro Max', width: 430 },
-  { name: 'Android 常见', width: 393 }
-]
+const CAT_SLOTS = 12
+const PER_ROW = 6
+const DIRECT_MAX = 11
 
-const VISIBLE_PER_ROW = 6
-const ITEM_RPX = 108
-const GAP_RPX = 8
-const PAD_RPX = 32
-
-/** 分类平分到两行，返回每行的数量 */
+/** 按规则分配，返回每行实际显示的项数（最后一项可能是「更多」占位） */
 function splitRows(catCount) {
   if (catCount === 0) return [0, 0]
-  const half = Math.ceil(catCount / 2)
-  return [half, catCount - half]
-}
 
-function calc(catCount, windowWidth) {
-  const rpx = windowWidth / 750
-  const itemW = ITEM_RPX * rpx
-  const gap = GAP_RPX * rpx
-  const padX = PAD_RPX * rpx
+  const hasMore = catCount > DIRECT_MAX
+  const direct = hasMore ? DIRECT_MAX : Math.min(catCount, CAT_SLOTS)
 
-  const rows = splitRows(catCount)
-  const maxCount = Math.max(rows[0], rows[1])
-  if (maxCount === 0) {
-    return { rows, container: 0, viewport: windowWidth, visible: 0, scrollable: false }
-  }
+  let row1 = Math.min(direct, PER_ROW)
+  let row2 = Math.max(direct - PER_ROW, 0)
 
-  // 容器宽 = 一行的实际数量
-  const rowW = maxCount * itemW + Math.max(maxCount - 1, 0) * gap
-  const container = Math.ceil(rowW + padX * 2)
+  // 「更多」占第 12 个位置（第 2 行第 6 位）
+  if (hasMore) row2 += 1
 
-  // 可视宽 = 只显示 VISIBLE_PER_ROW 个
-  const visibleW = VISIBLE_PER_ROW * itemW + (VISIBLE_PER_ROW - 1) * gap
-  const viewport = Math.min(Math.ceil(visibleW + padX * 2), windowWidth)
-
-  return {
-    rows,
-    container,
-    viewport,
-    visible: Math.min(VISIBLE_PER_ROW, maxCount),
-    scrollable: container > viewport
-  }
+  return [row1, row2]
 }
 
 let fail = 0
 
-for (const w of WINDOWS) {
-  console.log(`\n=== ${w.name} (${w.width}px) ===`)
-  for (const n of [0, 3, 9, 12, 16, 20, 32, 50]) {
-    const r = calc(n, w.width)
-    if (n === 0) {
-      console.log('   0 个 -> 空')
-      continue
-    }
-    const perRow = `${r.rows[0]}+${r.rows[1]}`
-    console.log(
-      `  ${String(n).padStart(2)} 个 -> 每行 ${perRow.padEnd(7)} ` +
-      `容器 ${String(r.container).padStart(4)}px  视口 ${String(r.viewport).padStart(4)}px  ` +
-      `可见 ${r.visible}  ${r.scrollable ? '可右滑' : '不需滑'}`
-    )
+console.log('=== 分配规则 ===')
+for (const n of [0, 1, 5, 6, 9, 10, 11, 12, 15, 32, 50]) {
+  const [r1, r2] = splitRows(n)
+  const direct = n <= DIRECT_MAX ? n : DIRECT_MAX
+  const more = n > DIRECT_MAX
+  const hasMoreSlot = more && r2 > (direct - PER_ROW)
 
-    // 断言 1：恒为两行
-    if (r.rows.length !== 2) {
-      console.log('    ✗ 不是两行')
-      fail++
-    }
-    // 断言 2：视口最多显示 6 个
-    if (r.visible > VISIBLE_PER_ROW) {
-      console.log(`    ✗ 视口显示了 ${r.visible} 个，超过 ${VISIBLE_PER_ROW}`)
-      fail++
-    }
-    // 断言 3：容器必须能装下所有分类
-    const perRowMax = Math.max(r.rows[0], r.rows[1])
-    if (perRowMax * 2 < n) {
-      console.log('    ✗ 装不下所有分类')
-      fail++
-    }
-    // 断言 4：超过可见数就必须能滑
-    if (n > VISIBLE_PER_ROW * 2 && !r.scrollable) {
-      console.log('    ✗ 分类多于可见数但不能滑动')
-      fail++
-    }
+  console.log(
+    `  ${String(n).padStart(2)} 个 -> 第1行 ${r1} 个, 第2行 ${r2} 个` +
+    `  (直接显示 ${direct}, ${more ? '有更多按钮' : '无更多按钮'})`
+  )
+
+  // 断言 1：恒为两行结构（第二行可能为空）
+  if (r1 > PER_ROW || r2 > PER_ROW) {
+    console.log('    ✗ 单行超过 6 个')
+    fail++
+  }
+  // 断言 2：直接显示的数量正确
+  const shown = r1 + r2 - (hasMoreSlot ? 1 : 0)
+  if (shown !== direct) {
+    console.log(`    ✗ 实际显示 ${shown} 个，应为 ${direct} 个`)
+    fail++
+  }
+  // 断言 3：总位置不超过 12
+  if (r1 + r2 > CAT_SLOTS) {
+    console.log('    ✗ 总位置超过 12')
+    fail++
+  }
+  // 断言 4：超出时必须有「更多」按钮
+  if (n > DIRECT_MAX && !hasMoreSlot) {
+    console.log('    ✗ 分类超量但没有「更多」按钮')
+    fail++
+  }
+  // 断言 5：未超量时不能有「更多」按钮
+  if (n <= DIRECT_MAX && hasMoreSlot) {
+    console.log('    ✗ 分类未超量却出现「更多」按钮')
+    fail++
   }
 }
 
