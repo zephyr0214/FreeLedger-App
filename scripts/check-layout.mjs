@@ -101,6 +101,62 @@ for (const file of files) {
   }
 }
 
+/* ---------------------------------- 4. z-index 不得高于库弹层默认层级 */
+
+// wot-design-uni 的弹层默认 z-index：
+//   wd-popup / wd-action-sheet = 10
+//   wd-calendar / wd-datetime-picker = 15
+// 页面里自绘的浮层（如下拉面板）如果用了比这些更大的 z-index，
+// 就会浮到弹层上面去（踩过的坑：日期下拉面板浮在筛选面板上）。
+const LIBRARY_MODAL_Z = 15
+// 自绘浮层允许的最大 z-index（要盖住页面内容，但不能盖住库弹层）
+const CUSTOM_LAYER_MAX = 9
+
+/**
+ * 允许使用高层级的自绘浮层。
+ * 这些都是「整屏覆盖」型的组件，与库弹层互斥出现：
+ *   - FabButton    悬浮按钮，打开记账面板 / 速记条时会隐藏
+ *   - QuickAddBar  速记输入条，打开时悬浮按钮会隐藏
+ *   - TxnPanel     记账面板，只在首页出现
+ */
+const HIGH_LAYER_ALLOWLIST = [
+  { file: 'components/FabButton.vue', reason: '悬浮按钮，与弹层互斥' },
+  { file: 'components/QuickAddBar.vue', reason: '速记输入条，与弹层互斥' }
+]
+
+for (const file of files) {
+  if (!file.endsWith('.vue')) continue
+  const code = readFileSync(file, 'utf-8')
+  const rel = relative(ROOT, file).replace(/\\/g, '/')
+
+  const allowed = HIGH_LAYER_ALLOWLIST.find((a) => rel.endsWith(a.file))
+
+  // 找出所有 z-index: N
+  const re = /z-index:\s*(\d+)/g
+  let m
+  while ((m = re.exec(code)) !== null) {
+    const z = Number(m[1])
+    if (z <= CUSTOM_LAYER_MAX) continue
+
+    const lineStart = code.lastIndexOf('\n', m.index) + 1
+    const lineEnd = code.indexOf('\n', m.index)
+    const line = code.slice(lineStart, lineEnd === -1 ? code.length : lineEnd)
+    const lineNo = code.slice(0, m.index).split('\n').length
+
+    // 明确标注为「库弹层」的 z-index 是允许的
+    if (/弹层|popup|modal|filter-panel|筛选/i.test(line)) continue
+
+    // 白名单组件：整文件放行（它们是整屏覆盖型，与库弹层互斥）
+    if (allowed) continue
+
+    errors.push(
+      `${rel}:${lineNo} z-index: ${z} 高于库弹层默认层级（${LIBRARY_MODAL_Z}）—— ` +
+      `自绘浮层会盖在 wd-popup 等弹层上面。页面内浮层建议用 1~${CUSTOM_LAYER_MAX}；` +
+      `确实需要整屏覆盖请加进 HIGH_LAYER_ALLOWLIST 并写清理由`
+    )
+  }
+}
+
 /* ------------------------------------------------------------ 输出 */
 
 if (errors.length === 0 && warnings.length === 0) {

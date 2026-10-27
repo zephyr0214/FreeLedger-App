@@ -499,8 +499,12 @@ export default {
 .range-picker-bar {
   flex-shrink: 0;
   position: relative;
-  /* 高于下方的 scroll-view，下拉面板才不会被内容盖住 */
-  z-index: 30;
+  /*
+   * 层级 5：
+   *   高于下方的 scroll-view（无 z-index）——下拉面板才不会被内容盖住；
+   *   低于库弹层（wd-popup 等默认 10）——弹层打开时不会浮在上面。
+   */
+  z-index: 5;
   padding: 8rpx 32rpx 20rpx;
 }
 

@@ -5,7 +5,7 @@
       <view class="nav-inner">
         <text class="nav-back" @click="goBack">‹</text>
         <text class="nav-title">全部交易</text>
-        <text class="nav-filter" @click="showFilter = true">
+        <text class="nav-filter" @click="openFilter">
           筛选<text v-if="filterCount > 0" class="filter-dot">{{ filterCount }}</text>
         </text>
       </view>
@@ -26,7 +26,7 @@
     <!-- 时间范围选择：年 / 月 / 日 三级联动下拉
          放在汇总条下面，下拉面板展开时不会被汇总条压住 -->
     <view class="month-bar">
-      <DateRangePicker v-model="dateRange" @range-change="onDateChange" />
+      <DateRangePicker ref="datePickerRef" v-model="dateRange" @range-change="onDateChange" />
     </view>
 
     <scroll-view
@@ -107,9 +107,12 @@
     </scroll-view>
 
     <!-- 筛选面板 -->
+    <!-- z-index 100：明确高于日期选择器（5）与其它库弹层（10~15），
+         避免下拉面板浮到筛选面板上面 -->
     <wd-popup
       v-model="showFilter"
       position="right"
+      :z-index="100"
       custom-style="width: 78vw; height: 100vh; background-color: var(--app-bg);"
     >
       <view class="filter-panel">
@@ -291,6 +294,8 @@ export default {
     const hasMore = ref(true)
     const loading = ref(false)
     const showFilter = ref(false)
+    /** 日期选择器实例（打开筛选时要先收起它的下拉） */
+    const datePickerRef = ref(null)
 
     const categories = ref([])
     const tags = ref([])
@@ -443,6 +448,20 @@ export default {
       loadFirstPage()
     }
 
+    /**
+     * 打开筛选面板
+     *
+     * 先把日期选择器的下拉收起来：
+     *   否则下拉面板和它的遮罩会留在屏幕上，
+     *   看起来像是浮在筛选面板上面。
+     */
+    function openFilter() {
+      if (datePickerRef.value && typeof datePickerRef.value.collapse === 'function') {
+        datePickerRef.value.collapse()
+      }
+      showFilter.value = true
+    }
+
     /* ------------------------------------------------------ 交互 */
 
     function iconChar(txn) {
@@ -524,10 +543,10 @@ export default {
 
     return {
       settingStore, accountStore, statusBarHeight,
-      dateRange, list, summary, hasMore, loading, showFilter,
+      dateRange, datePickerRef, list, summary, hasMore, loading, showFilter,
       filter, appliedFilter, typeOptions, categories, tags,
       primaryColor, pageStyle, rangeLabel, parentCategories, filterCount, groups,
-      loadMore, applyFilter, resetFilter, onDateChange,
+      loadMore, applyFilter, resetFilter, onDateChange, openFilter,
       iconChar, txnTitle, txnSub, timeLabel, goDetail, goBack, onLongPress
     }
   }
@@ -584,8 +603,12 @@ export default {
 .month-bar {
   flex-shrink: 0;
   position: relative;
-  /* 高于下方的 scroll-view，下拉面板才不会被列表盖住 */
-  z-index: 30;
+  /*
+   * 层级 5：
+   *   高于下方的 scroll-view（无 z-index）——下拉面板才不会被列表盖住；
+   *   低于 wd-popup 筛选面板（z-index 10）——筛选打开时下拉面板不会浮在上面。
+   */
+  z-index: 5;
   padding: 0 32rpx 12rpx;
 }
 

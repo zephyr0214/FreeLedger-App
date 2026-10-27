@@ -190,9 +190,17 @@ export default {
       { immediate: true, deep: true }
     )
 
+    /**
+     * 收起下拉（不改变选中值）
+     * 父组件在打开其它弹层时调用，避免下拉面板和遮罩留在屏幕上
+     */
+    function collapse() {
+      activeKey.value = ''
+    }
+
     return {
       local, activeKey, cols, activeOptions, activeValue,
-      toggle, close, pick
+      toggle, close, collapse, pick
     }
   }
 }
@@ -201,15 +209,27 @@ export default {
 <style scoped>
 .drp {
   position: relative;
-  /* 组件整体高于下方内容，遮罩才盖得住 */
-  z-index: 30;
+  /*
+   * 组件整体的层级。
+   *
+   * ★ 必须在库弹层之下 ★
+   *   wot-design-uni 的弹层默认层级：
+   *     wd-popup / wd-action-sheet = 10
+   *     wd-calendar / wd-datetime-picker = 15
+   *   这里用 5，保证「筛选面板」这类弹层打开时，
+   *   下拉面板和遮罩不会浮到弹层上面去。
+   *
+   *   同时它要高于页面里的 scroll-view（无 z-index，等同 auto），
+   *   5 刚好卡在中间。
+   */
+  z-index: 5;
 }
 
 /* 三个下拉框 */
 .drp-bar {
   position: relative;
   /* 高于遮罩：展开时仍能点到别的列切换 */
-  z-index: 102;
+  z-index: 3;
   display: flex;
   align-items: center;
   background-color: var(--app-card);
@@ -258,7 +278,7 @@ export default {
   right: 0;
   top: 0;
   bottom: 0;
-  z-index: 100;
+  z-index: 1;
 }
 
 /* 下拉面板：贴在下拉框下方 */
@@ -267,7 +287,7 @@ export default {
   left: 0;
   right: 0;
   top: 100%;
-  z-index: 101;
+  z-index: 2;
   margin-top: 8rpx;
   background-color: var(--app-card);
   border-radius: 16rpx;
