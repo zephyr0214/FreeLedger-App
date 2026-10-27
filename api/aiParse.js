@@ -218,9 +218,30 @@ export function validateItem(raw, ctx) {
         toAccountName = hit.name
       }
     }
+
+    // ★ 模型漏了 toAccount（或 account）时，用原句自己找一遍 ★
+    //   「微信转给支付宝200元」这类句式模型偶尔只给一半。
+    const hint = [raw.note, ctx.hintText].filter(Boolean).join(' ')
+    if (hint) {
+      const dir = parseTransferDirection(hint, ctx.accounts)
+      if (dir.from && dir.to) {
+        if (!accountId) {
+          accountId = dir.from.id
+          accountName = dir.from.name
+        }
+        if (!toAccountId) {
+          toAccountId = dir.to.id
+          toAccountName = dir.to.name
+        }
+      }
+    }
+
     // 转账必须有目标账户，且不能与来源相同
     if (!toAccountId) {
       return { ok: false, reason: '转账缺少目标账户' }
+    }
+    if (accountId && accountId === toAccountId) {
+      return { ok: false, reason: '转出与转入账户不能相同' }
     }
   }
 
@@ -268,6 +289,78 @@ export function validateItem(raw, ctx) {
  *     2. 匹配时**优先命中二级分类**，同名时二级优先。
  *     3. 模型只给了一级分类时，用「备注/原句」里的关键词在它的二级里再猜一次。
  */
+
+/**
+ * 从原句里解析转账方向
+ *
+ * 模型有时会漏掉 toAccount 字段（尤其句式复杂时）。
+ * 这里用规则从原句里再找一遍：
+ *   「A转给B」「A转到B」「从A转B」「A转B」「A给B」
+ *
+ * @param {string} text 用户原句
+ * @param {Array} accounts 可选账户
+ * @returns {{from:object|null, to:object|null}}
+ */
+export function parseTransferDirection(text, accounts = []) {
+  const t = String(text || '')
+  const list = accounts || []
+  if (!t || list.length === 0) return { from: null, to: null }
+
+  // 「从X转…」/「X转给Y」这类句式
+  const patterns = [
+    /从\s*(.+?)\s*转(?:给|到|入)/,
+    /(.+?)\s*转(?:给|到|入)\s*(.+)/,
+    /(.+?)\s*转\s*(.+)/,
+    /(.+?)\s*给\s*(.+)/
+  ]
+
+  for (const re of patterns) {
+    const m = t.match(re)
+    if (!m) continue
+
+    const a = findAccountInText(m[1], list)
+    const b = findAccountInText(m[2], list)
+
+    // 「从X转Y」：X 是转出方，Y 是转入方
+    if (a && b && a.id !== b.id) {
+      return { from: a, to: b }
+    }
+    // 「X转给Y」：X 是转出方，Y 是转入方
+    if (a && b && a.id !== b.id) {
+      return { from: a, to: b }
+    }
+  }
+
+  // 退一步：句子里出现两个不同账户名，猜第一个是转出、第二个是转入
+  const hits = []
+  for (const acc of list) {
+    if (acc.name && t.indexOf(acc.name) !== -1) hits.push(acc)
+  }
+  if (hits.length >= 2) {
+    return { from: hits[0], to: hits[1] }
+  }
+
+  return { from: null, to: null }
+}
+
+/**
+ * 在一段文字里找出账户名
+ * 优先匹配更长的名字（避免「微信」抢在「微信零钱」前面命中）
+ * @returns {object|null}
+ */
+function findAccountInText(text, accounts = []) {
+  const t = String(text || '')
+  if (!t) return null
+
+  let best = null
+  for (const acc of accounts || []) {
+    const name = String(acc.name || '')
+    if (!name) continue
+    if (t.indexOf(name) === -1) continue
+    if (!best || name.length > String(best.name).length) best = acc
+  }
+  return best
+}
 
 /**
  * 构造给模型看的分类候选
@@ -473,8 +566,15 @@ export async function parseMessageToTransactions(text, ctx) {
    - 不要只填一级（如「餐饮」）。若列表里只有一级分类没有二级，才填一级。
    - 选不到就给 null，不要编造分类名。
 7. account 必须从给定的账户名列表里选，选不到就给 null。
-8. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
-9. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
+8. **转账（transfer）必须同时给出转出账户 account 和转入账户 toAccount**。
+   - 例：「微信转给支付宝200元」→ account="微信"，toAccount="支付宝"
+   - 例：「从支付宝转到招商卡」→ account="支付宝"，toAccount="招商卡"
+   - 两个字段都必须从账户名列表里选，不要编造。
+   - 只有在句子明确表达了「A 转给 B」「A 转到 B」「从 A 转 B」这类方向时才用 transfer；
+     如果只有一个账户出现，那是收支不是转账。
+   - 转账不需要 category，给 null 即可。
+9. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
+10. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
@@ -486,7 +586,10 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
 用户消息：${message}
 
 请输出 JSON 数组，每个元素格式：
-{"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "date": "2026-10-27", "note": "午饭"}`
+{"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "note": "午饭"}
+
+转账的格式：
+{"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "note": "转给支付宝"}`
 
   const reply = await chat(
     [
