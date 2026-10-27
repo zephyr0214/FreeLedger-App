@@ -44,6 +44,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
+import { combineDayTime } from '@/utils/date.js'
 
 export default {
   name: 'QuickAddBar',
@@ -239,6 +240,10 @@ export default {
               to_account_id: item.to_account_id,
               category_id: item.category_id,
               occurred_day: item.occurred_day,
+              // ★ 模型识别出时刻就用它，否则由 store 按「此刻」处理
+              occurred_at: item.occurred_time
+                ? combineDayTime(item.occurred_day, item.occurred_time)
+                : undefined,
               note: item.note || pendingText,
               tag_ids: item.tag_ids,
               source: 'quick',

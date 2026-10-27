@@ -156,12 +156,64 @@ const MIGRATIONS = [
   {
     version: 1,
     up: applySchemaV1
+  },
+  {
+    // ★ 修复历史记录的「12:00」★
+    //   旧逻辑只要传了日期就把时刻写死成当天中午，
+    //   所以历史数据 occurred_at 全部落在 12:00:00。
+    //   这里按 created_at（记录真正被创建的时刻）回填：
+    //   只有 occurred_day 等于「记录创建那天」的才回填，
+    //   「补记昨天」这类本来就该是过去时刻的不动。
+    //   ★ 时区换算放在 JS 里做 ★
+    //     SQLite 的 strftime 按 UTC 算，直接在 SQL 里换本地日期会差一天。
+    version: 2,
+    up: fixNoonTimestamps
   }
-  // {
-  //   version: 2,
-  //   up: async () => { await execute('ALTER TABLE txn ADD COLUMN attachment TEXT') }
-  // }
 ]
+
+/**
+ * 回填历史记录的时刻（12:00 -> 实际创建时刻）
+ *
+ * 条件：occurred_at 落在当天 12:00（±1 分钟，容忍时钟漂移）
+ *       且 occurred_day 等于 created_at 的本地日期
+ */
+async function fixNoonTimestamps() {
+  const rows = await query(
+    `SELECT id, occurred_at, occurred_day, created_at FROM txn WHERE deleted_at IS NULL`
+  ).catch(() => [])
+
+  let fixed = 0
+  for (const r of rows) {
+    const occ = Number(r.occurred_at) || 0
+    const created = Number(r.created_at) || 0
+    if (!occ || !created) continue
+
+    const occDate = new Date(occ)
+    // 只处理「看起来就是 12:00」的记录
+    if (occDate.getHours() !== 12 || occDate.getMinutes() > 1) continue
+
+    // created_at 的本地日期必须和 occurred_day 一致
+    const c = new Date(created)
+    const cDay = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}-${String(c.getDate()).padStart(2, '0')}`
+    if (cDay !== r.occurred_day) continue
+
+    // 回填成创建时刻（保留 occurred_at 当天，时分秒用 created_at 的）
+    const fixedTs = new Date(
+      occDate.getFullYear(), occDate.getMonth(), occDate.getDate(),
+      c.getHours(), c.getMinutes(), c.getSeconds(), 0
+    ).getTime()
+
+    await execute(
+      'UPDATE txn SET occurred_at = ? WHERE id = ?',
+      [fixedTs, r.id]
+    )
+    fixed++
+  }
+
+  if (fixed > 0) {
+    console.log(`[db] 已回填 ${fixed} 条历史记录的时刻`)
+  }
+}
 
 async function migrate() {
   const current = await readUserVersion()

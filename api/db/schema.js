@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export const SCHEMA_V1 = [
   // ---------------------------------------------------------------- 账户

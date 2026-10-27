@@ -200,6 +200,44 @@ export async function getDailyTotals(monthKey) {
 /* ------------------------------------------------------------------ 写入 */
 
 /**
+ * 决定一笔交易的实际发生时刻
+ *
+ * ★ 为什么不再用 T12:00:00 ★
+ *   之前只传日期时写死当天 12:00，结果所有记录的时间都显示「12:00」，
+ *   看不出哪笔先哪笔后。现在改成：
+ *   - 传了 occurred_at      → 用它（精确到分）
+ *   - 只传 occurred_day     → 当天的**当前时刻**（今天记就是此刻）
+ *   - 两者都没传            → 此刻
+ *
+ * 只有当 occurred_day 是过去的日子时，才没有「当前时刻」可言，
+ * 这时取当天 12:00 作为中性值（不会因为时区/夏令时偏移到前后一天）。
+ *
+ * @param {object} input
+ * @param {number} fallbackMs 兜底时刻
+ * @returns {Date}
+ */
+export function resolveOccurredTime(input = {}, fallbackMs = Date.now()) {
+  if (input.occurred_at !== undefined && input.occurred_at !== null && input.occurred_at !== '') {
+    const t = Number(input.occurred_at)
+    if (Number.isFinite(t) && t > 0) return new Date(t)
+  }
+
+  if (input.occurred_day) {
+    const day = String(input.occurred_day).slice(0, 10)
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    if (day === today) {
+      // 今天 → 用此刻，保留时分
+      return new Date(now.getTime())
+    }
+    // 过去/未来的日期 → 当天中午
+    return new Date(`${day}T12:00:00`)
+  }
+
+  return new Date(fallbackMs)
+}
+
+/**
  * 新增交易
  * @param {object} input
  *   type, amount_cents, account_id, to_account_id, category_id, note,
@@ -210,9 +248,11 @@ export async function createTransaction(input) {
 
   const id = input.id || prefixedId('txn')
   const now = Date.now()
-  const keys = input.occurred_at
-    ? makeDateKeys(new Date(Number(input.occurred_at)))
-    : makeDateKeys(input.occurred_day ? new Date(`${input.occurred_day}T12:00:00`) : new Date())
+  // ★ 时间：优先用用户给的时刻 ★
+  //   occurred_at  > 精确到时分（手动/AI 记账都走这条）
+  //   occurred_day > 只有日期时，取当天的**当前时刻**（不是固定 12:00）
+  //   都没有       > 用此刻
+  const keys = makeDateKeys(resolveOccurredTime(input, now))
 
   const amount = Math.abs(Math.round(Number(input.amount_cents) || 0))
 
@@ -270,11 +310,16 @@ export async function updateTransaction(id, patch) {
   validate(merged)
 
   const amount = Math.abs(Math.round(Number(merged.amount_cents) || 0))
-  const occurredAt = patch.occurred_at !== undefined
-    ? Number(patch.occurred_at)
-    : (patch.occurred_day !== undefined
-        ? new Date(`${patch.occurred_day}T12:00:00`).getTime()
-        : existing.occurred_at)
+  // ★ 改了日期就重算时刻：只有日期时按 resolveOccurredTime 的规则取
+  const occurredAt = (patch.occurred_at !== undefined || patch.occurred_day !== undefined)
+    ? resolveOccurredTime(
+        {
+          occurred_at: patch.occurred_at,
+          occurred_day: patch.occurred_day !== undefined ? patch.occurred_day : existing.occurred_day
+        },
+        existing.occurred_at
+      ).getTime()
+    : existing.occurred_at
   const keys = makeDateKeys(new Date(occurredAt))
   const now = Date.now()
 

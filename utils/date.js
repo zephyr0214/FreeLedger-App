@@ -199,6 +199,38 @@ export function formatTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 当前时刻的 HH:mm */
+export function currentTimeText(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * 日期 + HH:mm -> 时间戳
+ *
+ * ★ 为什么不是 new Date('2026-10-27') ★
+ *   不带时间的日期字符串会被按 **UTC** 解析，
+ *   在东八区会变成当天 08:00，看起来「时间自己变了」。
+ *   这里显式按本地时间构造。
+ *
+ * @param {string} dayKey YYYY-MM-DD
+ * @param {string} timeText HH:mm
+ * @returns {number} 毫秒时间戳
+ */
+export function combineDayTime(dayKey, timeText) {
+  const [y, m, d] = String(dayKey || '').split('-').map(Number)
+  const [hh, mm] = String(timeText || '00:00').split(':').map(Number)
+  return new Date(
+    y || 1970,
+    (m || 1) - 1,
+    d || 1,
+    Number.isFinite(hh) ? hh : 0,
+    Number.isFinite(mm) ? mm : 0,
+    0,
+    0
+  ).getTime()
+}
+
 /** 按月计算的扣款日：若当月没有该日（如 31 号在 2 月），回退到当月最后一天 */
 export function clampDayOfMonth(year, month, day) {
   const last = new Date(year, month, 0).getDate()

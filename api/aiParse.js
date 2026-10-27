@@ -156,6 +156,51 @@ export function toDayKey(v, baseDate) {
 }
 
 /**
+ * 解析模型给的时刻
+ *
+ * 模型可能给 "HH:mm"、"晚上8点"、"8:30" 这类。
+ * 没给就返回 null（调用方按「此刻」处理）。
+ *
+ * @param {*} v
+ * @returns {string|null} 'HH:mm'
+ */
+export function toTimeText(v) {
+  if (v === null || v === undefined) return null
+  const s = String(v).trim()
+  if (!s) return null
+
+  // 「晚上8点」「下午3点半」「8点」
+  const cn = s.match(/^(早上|上午|中午|下午|傍晚|晚上|夜里|凌晨)?\s*(\d{1,2})\s*[点:：]\s*(半|\d{1,2})?\s*分?$/)
+  if (cn) {
+    let hh = Number(cn[2])
+    // 「点半」= 30 分
+    const mm = cn[3] === '半' ? 30 : (cn[3] !== undefined ? Number(cn[3]) : 0)
+    const period = cn[1] || ''
+    if (hh > 23 || mm > 59) return null
+    // 12 点制转 24 小时制
+    if (period === '下午' || period === '傍晚' || period === '晚上' || period === '夜里') {
+      if (hh < 12) hh += 12
+    } else if (period === '凌晨') {
+      if (hh === 12) hh = 0
+    } else if (period === '中午') {
+      if (hh < 12) hh += 12
+    }
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  }
+
+  // 「08:30」「8:30」
+  const hm = s.match(/^(\d{1,2})\s*[:：]\s*(\d{1,2})$/)
+  if (hm) {
+    const hh = Number(hm[1])
+    const mm = Number(hm[2])
+    if (hh > 23 || mm > 59) return null
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  }
+
+  return null
+}
+
+/**
  * 校验并归一化单条记录
  * 导出供单测
  * @returns {{ok: boolean, item?: object, reason?: string}}
@@ -179,6 +224,25 @@ export function validateItem(raw, ctx) {
 
   // 日期
   const occurredDay = toDayKey(raw.date !== undefined ? raw.date : raw.dayOffset, ctx.baseDate)
+
+  // 时刻：模型没给就留空，落库时按「此刻」处理
+  let occurredTime = null
+  const rawTime = raw.time !== undefined ? raw.time : raw.timeText
+  if (rawTime !== undefined && rawTime !== null) {
+    occurredTime = toTimeText(rawTime)
+  }
+  // 模型没给 time 字段时，试着从原句里捞「晚上8点」这类说法
+  if (!occurredTime) {
+    const hint = [raw.note, ctx.hintText].filter(Boolean).join(' ')
+    const m = hint.match(/(早上|上午|中午|下午|傍晚|晚上|夜里|凌晨)?\s*\d{1,2}\s*[点:：]\s*(半|\d{1,2})?\s*分?/)
+    if (m) {
+      const guess = toTimeText(m[0])
+      if (guess) {
+        // 只在原句里明确出现「点/:」时才采信
+        occurredTime = guess
+      }
+    }
+  }
 
   // 分类：按名称或 id 匹配，优先二级分类
   let categoryId = null
@@ -269,6 +333,7 @@ export function validateItem(raw, ctx) {
       to_account_id: toAccountId,
       to_account_name: toAccountName,
       occurred_day: occurredDay,
+      occurred_time: occurredTime,
       tag_ids: tagIds,
       note,
       // 标记：分类/账户是模型给的还是我们兜底的
@@ -574,7 +639,9 @@ export async function parseMessageToTransactions(text, ctx) {
      如果只有一个账户出现，那是收支不是转账。
    - 转账不需要 category，给 null 即可。
 9. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
-10. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
+10. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
+    没提时间就给 null（系统会自动记成当前时刻）。
+11. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
@@ -586,10 +653,10 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
 用户消息：${message}
 
 请输出 JSON 数组，每个元素格式：
-{"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "note": "午饭"}
+{"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
 
 转账的格式：
-{"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "note": "转给支付宝"}`
+{"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "time": null, "note": "转给支付宝"}`
 
   const reply = await chat(
     [

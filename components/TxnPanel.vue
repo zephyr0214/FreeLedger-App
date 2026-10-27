@@ -119,7 +119,7 @@
           </view>
         </view>
 
-        <!-- 日期 -->
+        <!-- 日期 + 时间 -->
         <view class="form-row">
           <text class="row-label">日期</text>
           <view class="row-value row-value-right">
@@ -138,6 +138,12 @@
             <view class="day-chip" @click="openCalendar">
               <text class="day-chip-text" style="color: var(--app-text-2)">
                 {{ isQuickDay ? '选择' : shortDate }}
+              </text>
+            </view>
+            <!-- 时间：点开选时/分 -->
+            <view class="day-chip time-chip" @click="openTimePicker">
+              <text class="day-chip-text time-chip-text">
+                {{ form.occurred_time }}
               </text>
             </view>
           </view>
@@ -255,6 +261,15 @@
       :with-cell="false"
       @confirm="onCalendarConfirm"
     />
+
+    <!-- 时间选择：type="time" 的 modelValue 是 'HH:mm' 字符串 -->
+    <wd-datetime-picker
+      ref="timePickerRef"
+      v-model="timePickerValue"
+      type="time"
+      title="选择时间"
+      @confirm="onTimeConfirm"
+    />
   </wd-popup>
 </template>
 
@@ -267,7 +282,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
-import { toDayKey, shiftDay, formatDayHeader } from '@/utils/date.js'
+import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combineDayTime } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage } from '@/utils/categorySort.js'
@@ -309,6 +324,8 @@ export default {
       to_account_id: '',
       category_id: '',
       occurred_day: toDayKey(),
+      /** 发生时刻（当天 HH:mm），默认当前时间 */
+      occurred_time: currentTimeText(),
       note: '',
       tag_ids: []
     })
@@ -325,6 +342,9 @@ export default {
     const calendarRef = ref(null)
     const calendarValue = ref(Date.now())
     const maxDate = ref(Date.now())
+    /** 时间选择器（wd-datetime-picker，type=time，值是 'HH:mm' 字符串） */
+    const timePickerRef = ref(null)
+    const timePickerValue = ref(currentTimeText())
 
     /* ------------------------------------------------------ 计算属性 */
 
@@ -576,6 +596,19 @@ export default {
       form.occurred_day = toDayKey(d)
     }
 
+    /** 打开时间选择器 */
+    function openTimePicker() {
+      timePickerValue.value = form.occurred_time
+      if (timePickerRef.value && typeof timePickerRef.value.open === 'function') {
+        timePickerRef.value.open()
+      }
+    }
+
+    /** 确认时间 */
+    function onTimeConfirm({ value }) {
+      form.occurred_time = value || currentTimeText()
+    }
+
     async function loadOptions() {
       const [cats, tgs, counts] = await Promise.all([
         listCategories(),
@@ -595,6 +628,8 @@ export default {
       form.note = ''
       form.tag_ids = []
       form.occurred_day = toDayKey()
+      // 新记录默认是「此刻」
+      form.occurred_time = currentTimeText()
       form.to_account_id = ''
       form.account_id = settingStore.settings.defaultAccountId || (accountStore.list[0] || {}).id || ''
       // 默认选中第一个分类：这样用户输完金额直接按「完成」就能记一笔，
@@ -617,6 +652,8 @@ export default {
       form.to_account_id = txn.to_account_id || ''
       form.category_id = txn.category_id || ''
       form.occurred_day = txn.occurred_day
+      // 编辑时保留原来的时刻
+      form.occurred_time = formatTime(txn.occurred_at)
       form.note = txn.note || ''
       form.tag_ids = Array.isArray(txn.tag_ids) ? [...txn.tag_ids] : []
     }
@@ -629,6 +666,7 @@ export default {
       // 预置没给分类时用默认分类，保证「完成」键能直接用
       form.category_id = p.category_id || defaultCategoryId.value || ''
       form.occurred_day = p.occurred_day || toDayKey()
+      form.occurred_time = p.occurred_time || currentTimeText()
       form.note = p.note || ''
       form.tag_ids = Array.isArray(p.tag_ids) ? [...p.tag_ids] : []
     }
@@ -681,6 +719,8 @@ export default {
         to_account_id: form.type === 'transfer' ? form.to_account_id : null,
         category_id: form.type === 'transfer' ? null : form.category_id,
         occurred_day: form.occurred_day,
+        // ★ 带上具体时刻，不再固定 12:00 ★
+        occurred_at: combineDayTime(form.occurred_day, form.occurred_time),
         note: form.note.trim(),
         tag_ids: form.tag_ids,
         source: 'manual'
@@ -782,6 +822,7 @@ export default {
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
+      timePickerRef, timePickerValue, openTimePicker, onTimeConfirm,
       iconChar, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
       onAccountSelect, onToAccountSelect, onTagSelect, removeTag,
@@ -1079,6 +1120,17 @@ export default {
 
 .day-chip-text {
   font-size: 24rpx;
+}
+
+/* 时间：和日期区分开，用等宽数字，一眼看出是时刻 */
+.time-chip {
+  padding: 8rpx 16rpx;
+}
+
+.time-chip-text {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .note-input {
