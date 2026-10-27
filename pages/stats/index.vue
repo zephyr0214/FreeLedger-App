@@ -482,7 +482,7 @@ export default {
       categoryStats, accountStats, tagStats, dailyTrend, averages,
       topExpenses, budgets, untagged, overview,
       analysis, analysisLoading,
-      primaryColor, pageStyle, scrollHeight, monthLabel,
+      primaryColor, pageStyle, monthLabel,
       categoryTotal, donutStyle,
       barHeight, catPercent, shortDay,
       loadAll, refreshAnalysis, switchRange, shiftMonthHandle, switchStatType,

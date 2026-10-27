@@ -256,7 +256,7 @@ export default {
     return {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints, trendLabels,
-      primaryColor, pageStyle, scrollHeight,
+      primaryColor, pageStyle,
       assetChange, changeLabel,
       switchRange, formatGroupSum,
       goAddAccount, goDetail, goSettings
