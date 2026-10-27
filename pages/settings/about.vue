@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <PageNav title="关于" @back="goBack" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <view class="logo-area">
         <view class="logo-box" :style="{ backgroundColor: primaryColor }">
           <text class="logo-text">记</text>
@@ -113,10 +113,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
-    })
 
     async function onDiagnose() {
       try {
@@ -130,7 +126,7 @@ export default {
       uni.navigateBack()
     }
 
-    return { primaryColor, pageStyle, scrollHeight, onDiagnose, goBack }
+    return { primaryColor, pageStyle, onDiagnose, goBack }
   }
 }
 </script>
@@ -242,7 +238,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

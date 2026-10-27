@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <AppHeader :show-date="false" @avatar-click="goProfile" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 个人信息卡 -->
       <view class="profile-card" @click="goProfile">
         <view class="profile-avatar" :style="{ backgroundColor: primaryColor }">
@@ -83,10 +83,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 60 - 50}px`
-    })
 
     const menuGroups = computed(() => [
       {
@@ -187,7 +183,7 @@ export default {
 
     return {
       settingStore, accountStore, stats, exportHint,
-      primaryColor, pageStyle, scrollHeight, menuGroups, themeLabel, aiLabel,
+      primaryColor, pageStyle, menuGroups, themeLabel, aiLabel,
       onMenuClick, goProfile
     }
   }
@@ -354,7 +350,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

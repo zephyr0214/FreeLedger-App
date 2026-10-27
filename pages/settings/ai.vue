@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <PageNav title="AI 大模型" @back="goBack" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <view class="hint-card">
         <text class="hint-text">
           账本本身完全离线。这里的配置只用于「AI 洞察 / 消费分析 / 速记兜底」，
@@ -153,10 +153,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
-    })
 
     async function onTest() {
       if (!form.apiKey) {
@@ -236,7 +232,7 @@ export default {
 
     return {
       showKey, testing, timeoutSec, form,
-      primaryColor, pageStyle, scrollHeight,
+      primaryColor, pageStyle,
       onTest, onSave, clearCache, goBack
     }
   }
@@ -397,7 +393,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

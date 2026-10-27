@@ -8,7 +8,7 @@
       </view>
     </view>
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <view v-for="group in groups" :key="group.title" class="menu-group">
         <text class="menu-title">{{ group.title }}</text>
         <view class="menu-list">
@@ -44,10 +44,6 @@ export default {
     const statusBarHeight = uni.getSystemInfoSync().statusBarHeight || 20
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - statusBarHeight - 44}px`
-    })
 
     const groups = computed(() => [
       {
@@ -152,7 +148,7 @@ export default {
     })
 
     return {
-      statusBarHeight, pageStyle, scrollHeight, groups,
+      statusBarHeight, pageStyle, groups,
       defaultAccountName, themeLabel, aiLabel,
       onClick, goBack
     }
@@ -163,6 +159,7 @@ export default {
 <style scoped>
 .nav-bar {
   background-color: var(--app-bg);
+  flex-shrink: 0;
 }
 
 .nav-inner {
@@ -246,7 +243,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

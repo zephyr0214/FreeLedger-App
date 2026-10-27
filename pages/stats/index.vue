@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <AppHeader @avatar-click="goSettings" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 时间维度切换 -->
       <view class="range-bar">
         <view
@@ -334,10 +334,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 60 - 50}px`
-    })
 
     const monthLabel = computed(() => {
       const [y, m] = currentMonth.value.split('-')
@@ -966,7 +962,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

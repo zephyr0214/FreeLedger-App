@@ -7,7 +7,7 @@
       </template>
     </PageNav>
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 头像 -->
       <view class="avatar-section">
         <view class="avatar-wrap" @click="pickAvatar">
@@ -100,10 +100,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
-    })
 
     const dayRange = Array.from({ length: 28 }, (_, i) => `${i + 1}`)
 
@@ -184,7 +180,7 @@ export default {
     })
 
     return {
-      form, primaryColor, pageStyle, scrollHeight, dayRange,
+      form, primaryColor, pageStyle, dayRange,
       pickAvatar, onSave, goBack
     }
   }
@@ -300,7 +296,4 @@ export default {
   line-height: 1.6;
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

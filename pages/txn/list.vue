@@ -33,7 +33,6 @@
     <scroll-view
       class="list-scroll"
       scroll-y
-      :style="{ height: listHeight }"
       @scrolltolower="loadMore"
     >
       <view v-if="groups.length === 0" class="empty-wrap">
@@ -323,10 +322,6 @@ export default {
       return `${y}年${Number(m)}月`
     })
 
-    const listHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - statusBarHeight - 44 - 50 - 44 - 50}px`
-    })
 
     const parentCategories = computed(() =>
       categories.value.filter((c) => c.isParent && c.type !== 'income')
@@ -507,7 +502,7 @@ export default {
       settingStore, accountStore, statusBarHeight,
       currentMonth, list, summary, hasMore, loading, showFilter,
       filter, appliedFilter, typeOptions, categories, tags,
-      primaryColor, pageStyle, monthLabel, listHeight, parentCategories, filterCount, groups,
+      primaryColor, pageStyle, monthLabel, parentCategories, filterCount, groups,
       loadMore, applyFilter, resetFilter, shiftMonthHandle,
       iconChar, txnTitle, txnSub, timeLabel, goDetail, goBack, onLongPress
     }
@@ -519,6 +514,7 @@ export default {
 /* 导航 */
 .nav-bar {
   background-color: var(--app-bg);
+  flex-shrink: 0;
 }
 
 .nav-inner {
@@ -734,10 +730,6 @@ export default {
 .load-text {
   font-size: 22rpx;
   color: var(--app-text-3);
-}
-
-.bottom-space {
-  height: 60rpx;
 }
 
 /* 筛选面板 */

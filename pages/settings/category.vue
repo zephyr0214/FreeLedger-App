@@ -23,7 +23,7 @@
       </view>
     </view>
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <view v-if="tree.length === 0" class="empty-wrap">
         <EmptyState emoji="📂" title="还没有分类" action-text="新建分类" @action="openCreate(null)" />
       </view>
@@ -169,10 +169,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44 - 56}px`
-    })
 
     async function load() {
       tree.value = await listCategoryTree(activeType.value, true)
@@ -278,7 +274,7 @@ export default {
       settingStore, activeType, tree, expandedIds,
       showEditor, editingId, editorForm, types, colors,
       iconOptions, iconEmoji,
-      primaryColor, pageStyle, scrollHeight,
+      primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit,
       onSaveCategory, onDelete, goBack
     }
@@ -439,10 +435,6 @@ export default {
   background-color: var(--app-card);
   border-radius: 20rpx;
   margin-top: 16rpx;
-}
-
-.bottom-space {
-  height: 60rpx;
 }
 
 /* 编辑器 */

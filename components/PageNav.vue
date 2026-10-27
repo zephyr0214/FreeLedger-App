@@ -1,5 +1,8 @@
 <template>
   <view class="nav-container">
+    <!-- 状态栏占位：Android 上 env(safe-area-inset-top) 通常为 0，
+         必须用 JS 读到的 statusBarHeight 补，否则标题会被状态栏压住 -->
+    <view :style="{ height: statusBarHeight + 'px' }" />
     <view class="nav-bar">
       <view class="nav-inner">
         <text class="nav-back" @click="onBack">‹</text>
@@ -32,9 +35,14 @@ export default {
 </script>
 
 <style scoped>
+.nav-container {
+  flex-shrink: 0;
+  background-color: var(--app-bg);
+}
+
 .nav-bar {
   background-color: var(--app-bg);
-  padding-top: env(safe-area-inset-top);
+  flex-shrink: 0;
 }
 
 .nav-inner {

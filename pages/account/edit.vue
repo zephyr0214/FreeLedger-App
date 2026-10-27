@@ -8,7 +8,7 @@
       </view>
     </view>
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 名称与类型 -->
       <view class="form-card">
         <view class="form-row">
@@ -162,10 +162,6 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
     const isCredit = computed(() => isCreditType(form.type))
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - statusBarHeight - 44}px`
-    })
 
     const dayRange = Array.from({ length: 31 }, (_, i) => `${i + 1}`)
 
@@ -269,7 +265,7 @@ export default {
 
     return {
       ACCOUNT_TYPES,
-      statusBarHeight, isEdit, form, primaryColor, pageStyle, scrollHeight,
+      statusBarHeight, isEdit, form, primaryColor, pageStyle,
       isCredit, dayRange,
       onToggleInclude, onSave, onDelete, goBack
     }
@@ -280,6 +276,7 @@ export default {
 <style scoped>
 .nav-bar {
   background-color: var(--app-bg);
+  flex-shrink: 0;
 }
 
 .nav-inner {
@@ -407,7 +404,4 @@ export default {
   border-color: #ee0a24 !important;
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

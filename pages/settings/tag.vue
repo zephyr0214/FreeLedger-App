@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <PageNav title="标签管理" @back="goBack" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <view class="hint-card">
         <text class="hint-text">
           标签就是「项目」。一笔交易可以打多个标签，比如「2026装修」「日本旅行」，
@@ -108,10 +108,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
-    })
 
     async function load() {
       const list = await listTags()
@@ -190,7 +186,7 @@ export default {
 
     return {
       settingStore, tags, showEditor, editingId, form, colors,
-      primaryColor, pageStyle, scrollHeight,
+      primaryColor, pageStyle,
       openCreate, openEdit, onSave, onDelete, goBack
     }
   }
@@ -265,10 +261,6 @@ export default {
 
 .add-wrap {
   margin-top: 32rpx;
-}
-
-.bottom-space {
-  height: 60rpx;
 }
 
 /* 编辑器 */

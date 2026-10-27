@@ -26,7 +26,6 @@
       <scroll-view
         class="page-scroll"
         scroll-y
-        :style="{ height: scrollHeight }"
         :refresher-enabled="true"
         :refresher-triggered="refreshing"
         @refresherrefresh="onRefresh"
@@ -261,12 +260,6 @@ export default {
       return `${y}年${Number(m)}月`
     })
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      const headerH = (info.statusBarHeight || 20) + 60
-      const tabH = 50
-      return `${info.windowHeight - headerH - tabH}px`
-    })
 
     /* ------------------------------------------------------ 数据加载 */
 
@@ -468,7 +461,7 @@ export default {
       refreshing, showPanel, showQuick, panelPreset,
       budget, insight, insightLoading, selectedDay,
       showDayDetail, dayActions, dayDetailTitle,
-      primaryColor, pageStyle, hasAccounts, overview, monthLabel, calendarTitle, scrollHeight,
+      primaryColor, pageStyle, hasAccounts, overview, monthLabel, calendarTitle,
       onRefresh, refreshInsight, shiftCalMonth, onDayClick, onDayTxnSelect,
       openPanel, onHoldStart, onHoldEnd, onHoldCancel, onExpandFromQuick, onSaved,
       iconChar, txnTitle, txnSub, dayLabel,
@@ -763,7 +756,4 @@ export default {
   color: var(--app-text-2);
 }
 
-.bottom-space {
-  height: 200rpx;
-}
 </style>

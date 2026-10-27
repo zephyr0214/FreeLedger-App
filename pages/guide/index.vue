@@ -211,7 +211,7 @@ export default {
 
 <style scoped>
 .guide-page {
-  min-height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding: calc(env(safe-area-inset-top) + 40rpx) 48rpx calc(env(safe-area-inset-bottom) + 40rpx);
@@ -392,6 +392,7 @@ export default {
   display: flex;
   gap: 20rpx;
   padding-top: 40rpx;
+  flex-shrink: 0;
 }
 
 .btn-back {

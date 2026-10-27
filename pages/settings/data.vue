@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <PageNav title="数据管理" @back="goBack" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 数据概况 -->
       <view class="stat-card">
         <view class="stat-item">
@@ -197,10 +197,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
-    })
 
     const autoBackupOn = computed(() => autoBackupEnabled.value)
 
@@ -473,7 +469,7 @@ export default {
 
     return {
       counts, autoBackupOn, backupList, showBackups, exportFiles,
-      primaryColor, pageStyle, scrollHeight,
+      primaryColor, pageStyle,
       onExport, onImport, onRestoreBackup,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
@@ -609,10 +605,6 @@ export default {
   font-size: 22rpx;
   color: var(--app-text-3);
   line-height: 1.7;
-}
-
-.bottom-space {
-  height: 60rpx;
 }
 
 /* 备份面板 */

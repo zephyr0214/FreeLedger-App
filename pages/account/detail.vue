@@ -8,7 +8,7 @@
       </view>
     </view>
 
-    <scroll-view v-if="account" class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view v-if="account" class="page-scroll" scroll-y>
       <!-- 余额头 -->
       <view class="balance-card">
         <view class="bal-head">
@@ -149,10 +149,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - statusBarHeight - 44}px`
-    })
 
     const usedPercent = computed(() => {
       if (!account.value || !account.value.credit_limit_cents) return 0
@@ -246,7 +242,7 @@ export default {
 
     return {
       settingStore, statusBarHeight, account, txnList, monthStats,
-      primaryColor, pageStyle, scrollHeight, usedPercent, repayCountdown,
+      primaryColor, pageStyle, usedPercent, repayCountdown,
       iconChar, txnTitle, txnAmount, shortDay,
       goEdit, goTxnDetail, goAllTxn, goBack
     }
@@ -257,6 +253,7 @@ export default {
 <style scoped>
 .nav-bar {
   background-color: var(--app-bg);
+  flex-shrink: 0;
 }
 
 .nav-inner {
@@ -512,7 +509,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

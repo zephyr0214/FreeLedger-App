@@ -85,6 +85,8 @@ export default {
   background-color: var(--app-bg);
   padding-left: 32rpx;
   padding-right: 32rpx;
+  /* 父级是 flex column，固定头部不被压缩 */
+  flex-shrink: 0;
 }
 
 .header-inner {

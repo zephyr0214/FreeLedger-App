@@ -8,7 +8,7 @@
       </template>
     </AppHeader>
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 总资产 -->
       <view class="asset-card">
         <text class="asset-label">总资产</text>
@@ -164,10 +164,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 60 - 50}px`
-    })
 
     /** 较上月变化：取趋势最后两个点 */
     const assetChange = computed(() => {
@@ -527,7 +523,4 @@ export default {
   border-radius: 20rpx;
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

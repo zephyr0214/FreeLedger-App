@@ -2,7 +2,7 @@
   <view class="app-page" :style="pageStyle">
     <PageNav title="主题外观" @back="goBack" />
 
-    <scroll-view class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view class="page-scroll" scroll-y>
       <!-- 深浅模式 -->
       <view class="section">
         <text class="section-title">深浅模式</text>
@@ -131,10 +131,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - (info.statusBarHeight || 20) - 44}px`
-    })
 
     async function setMode(key) {
       await settingStore.setThemeMode(key)
@@ -155,7 +151,7 @@ export default {
 
     return {
       presets, modes, themeMode, themePreset, privacyMode,
-      primaryColor, pageStyle, scrollHeight,
+      primaryColor, pageStyle,
       setMode, setPreset, onPrivacyChange, goBack
     }
   }
@@ -409,7 +405,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>

@@ -121,6 +121,8 @@ page {
   font-size: 28rpx;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* 高度由视口决定，页面内部用 flex 分配，不再靠 JS 算 */
+  height: 100%;
 }
 
 view, text, scroll-view, image {
@@ -135,11 +137,50 @@ view, text, scroll-view, image {
   box-shadow: var(--app-shadow, 0 2rpx 16rpx rgba(0, 0, 0, 0.06));
 }
 
-/* 通用页面容器 */
+/**
+ * 通用页面容器
+ *
+ * ★ 高度必须用 flex 而不是 min-height:100vh ★
+ *   之前用 min-height + padding-bottom，会出现两个问题：
+ *     1. tabBar 页面的 100vh 已经包含了 tabBar 区域，再叠 padding 就多出空白
+ *     2. scroll-view 没有父级 flex 约束，高度只能靠 JS 猜，必然算不准
+ *
+ *   现在：.app-page 撑满 page，纵向 flex；scroll-view 用 flex:1 吃满剩余空间。
+ *   高度完全由渲染引擎计算，顶部状态栏、底部 tabBar、安全区都不用我们管。
+ */
 .app-page {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* 注意：这里不要加 transform / filter / perspective，
+     它们会让 position:fixed 的子元素（如悬浮按钮）改为相对本容器定位 */
+  position: relative;
   background-color: var(--app-bg, #f7f8fa);
-  padding-bottom: calc(env(safe-area-inset-bottom) + 40rpx);
+  /* 纵向裁剪交给 scroll-view，本层不裁剪，避免 fixed 悬浮按钮被切 */
+  overflow: visible;
+}
+
+/* 页面内的滚动区：自动占满 header / 导航之外的剩余高度 */
+.app-page > .page-scroll,
+.app-page > .list-scroll {
+  flex: 1;
+  height: 0;         /* 关键：让 flex:1 生效，否则内容会把容器撑高 */
+  overflow: hidden;
+}
+
+/* 非滚动内容区（如引导页、全屏弹层） */
+.app-page > .flex-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+/**
+ * 滚动内容末尾的留白。
+ * 放在全局是因为 16 个页面都要用，且必须叠加安全区，
+ * 否则最后一条内容会被 tabBar 或底部手势条压住。
+ */
+.bottom-space {
+  height: calc(env(safe-area-inset-bottom) + 40rpx);
 }
 
 /* 文本工具类 */

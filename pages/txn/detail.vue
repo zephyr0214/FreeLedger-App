@@ -8,7 +8,7 @@
       </view>
     </view>
 
-    <scroll-view v-if="txn" class="page-scroll" scroll-y :style="{ height: scrollHeight }">
+    <scroll-view v-if="txn" class="page-scroll" scroll-y>
       <!-- 金额头 -->
       <view class="detail-head">
         <view class="head-icon" :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }">
@@ -131,10 +131,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const scrollHeight = computed(() => {
-      const info = uni.getSystemInfoSync()
-      return `${info.windowHeight - statusBarHeight - 44}px`
-    })
 
     const typeLabel = computed(() => {
       if (!txn.value) return ''
@@ -228,7 +224,7 @@ export default {
 
     return {
       settingStore, statusBarHeight, txn, tags, showPanel, loadingText,
-      primaryColor, pageStyle, scrollHeight, typeLabel, sourceLabel, iconChar,
+      primaryColor, pageStyle, typeLabel, sourceLabel, iconChar,
       dayLabel, timeLabel,
       onEdit, onSaved, onDelete, goBack
     }
@@ -239,6 +235,7 @@ export default {
 <style scoped>
 .nav-bar {
   background-color: var(--app-bg);
+  flex-shrink: 0;
 }
 
 .nav-inner {
@@ -392,7 +389,4 @@ export default {
   color: var(--app-text-3);
 }
 
-.bottom-space {
-  height: 60rpx;
-}
 </style>
