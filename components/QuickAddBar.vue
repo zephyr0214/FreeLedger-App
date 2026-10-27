@@ -1,5 +1,10 @@
 <template>
-  <view v-if="visible" class="quick-add-mask" @click="onMaskClick">
+  <view
+    v-if="visible"
+    class="quick-add-mask"
+    @click="onMaskClick"
+    @touchmove.stop.prevent="noop"
+  >
     <view class="quick-add-bar" :style="barStyle" @click.stop>
       <!-- 左侧：输入框 -->
       <input
@@ -221,6 +226,9 @@ export default {
       close()
     }
 
+    /** 阻止遮罩上的滑动穿透到页面 */
+    function noop() {}
+
     function close() {
       visible.value = false
       draft.value = ''
@@ -263,7 +271,7 @@ export default {
     return {
       visible, draft, submitting, autoFocus, inputRef,
       primaryColor, canSend, barStyle,
-      submit, close, onMaskClick
+      submit, close, onMaskClick, noop
     }
   }
 }

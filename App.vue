@@ -121,7 +121,18 @@ page {
   font-size: 28rpx;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  /* 高度由视口决定，页面内部用 flex 分配，不再靠 JS 算 */
+  /**
+   * 页面高度撑满可用区域。
+   *
+   * 软键盘「整页上移」的根治办法是两个配置叠加：
+   *   1. pages.json → globalStyle.app-plus.softinputMode = "adjustResize"
+   *      （uni-app 默认是 adjustPan，会把整个 webview 上推）
+   *   2. 输入框 adjust-position="false"
+   *      禁止框架把页面滚动到输入框可见
+   *
+   * 这两项关掉后，页面本身不会动；只有 QuickAddBar 这个 position:fixed
+   * 的输入条根据键盘高度主动上移，视觉上就是「输入条浮起来，页面不动」。
+   */
   height: 100%;
 }
 

@@ -139,7 +139,8 @@
 		"navigationBarBackgroundColor": "#FFFFFF",
 		"backgroundColor": "#F7F8FA",
 		"app-plus": {
-			"background": "#F7F8FA"
+			"background": "#F7F8FA",
+			"softinputMode": "adjustResize"
 		}
 	},
 	"tabBar": {
