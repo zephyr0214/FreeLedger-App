@@ -130,7 +130,13 @@ async function readUserVersion() {
 }
 
 async function writeUserVersion(v) {
-  await call('executeSql', { name: DB_NAME, sql: `PRAGMA user_version = ${Number(v)}` })
+  try {
+    await call('executeSql', { name: DB_NAME, sql: `PRAGMA user_version = ${Number(v)}` })
+  } catch (e) {
+    // ★ 写版本号失败不能挡住开库 ★
+    //   最坏结果是下次启动再跑一遍迁移（迁移都是幂等的）。
+    console.warn('[db] write user_version failed:', e && e.message)
+  }
 }
 
 /** 执行建表与索引 —— 幂等，用 IF NOT EXISTS */
@@ -176,11 +182,25 @@ const MIGRATIONS = [
  *
  * 条件：occurred_at 落在当天 12:00（±1 分钟，容忍时钟漂移）
  *       且 occurred_day 等于 created_at 的本地日期
+ *
+ * ★ 这里必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，
+ *   那样会等自己（opening 那个 Promise 还没 resolve），直接死锁。
+ *   v1 的 applySchemaV1 也是这么绕过 openDb 的。
  */
 async function fixNoonTimestamps() {
-  const rows = await query(
-    `SELECT id, occurred_at, occurred_day, created_at FROM txn WHERE deleted_at IS NULL`
-  ).catch(() => [])
+  let rows = []
+  try {
+    rows = await call('selectSql', {
+      name: DB_NAME,
+      sql: 'SELECT id, occurred_at, occurred_day, created_at FROM txn WHERE deleted_at IS NULL'
+    })
+  } catch (e) {
+    console.warn('[db] migration v2 skip:', e.message)
+    return
+  }
+  if (!Array.isArray(rows)) rows = []
 
   let fixed = 0
   for (const r of rows) {
@@ -203,11 +223,15 @@ async function fixNoonTimestamps() {
       c.getHours(), c.getMinutes(), c.getSeconds(), 0
     ).getTime()
 
-    await execute(
-      'UPDATE txn SET occurred_at = ? WHERE id = ?',
-      [fixedTs, r.id]
-    )
-    fixed++
+    try {
+      await call('executeSql', {
+        name: DB_NAME,
+        sql: bindParams('UPDATE txn SET occurred_at = ? WHERE id = ?', [fixedTs, r.id])
+      })
+      fixed++
+    } catch (e) {
+      console.warn('[db] migration v2 update failed:', e.message)
+    }
   }
 
   if (fixed > 0) {
@@ -222,7 +246,15 @@ async function migrate() {
   for (const m of MIGRATIONS) {
     if (m.version <= current) continue
     console.log(`[db] migrating -> v${m.version}`)
-    await m.up()
+    try {
+      await m.up()
+    } catch (e) {
+      // ★ 迁移失败不能挡住数据库打开 ★
+      //   迁移只是「锦上添花」（建表 / 回填时刻），
+      //   万一失败也必须让 App 能正常用，
+      //   否则整个 App 会因为一个迁移卡在打不开库。
+      console.error(`[db] migration v${m.version} failed:`, e && e.message)
+    }
     await writeUserVersion(m.version)
   }
 }
