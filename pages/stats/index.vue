@@ -3,52 +3,30 @@
     <AppHeader @avatar-click="goSettings" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <!-- 时间维度切换 -->
-      <view class="range-bar">
-        <view
-          v-for="r in ranges"
-          :key="r.key"
-          class="range-item"
-          :class="{ active: activeRange === r.key }"
-          @click="switchRange(r.key)"
-        >
-          <text
-            class="range-text"
-            :style="{ color: activeRange === r.key ? primaryColor : 'var(--app-text-2)' }"
-          >{{ r.label }}</text>
-          <view
-            v-if="activeRange === r.key"
-            class="range-bar-indicator"
-            :style="{ backgroundColor: primaryColor }"
-          />
-        </view>
-      </view>
-
-      <view class="month-nav">
-        <text class="nav-arrow" @click="shiftMonthHandle(-1)">‹</text>
-        <text class="month-text">{{ monthLabel }}</text>
-        <text class="nav-arrow" @click="shiftMonthHandle(1)">›</text>
+      <!-- 时间范围选择：年 / 月 / 日 三级联动 -->
+      <view class="range-picker-bar">
+        <DateRangePicker v-model="dateRange" mode="inline" @range-change="onRangeChange" />
       </view>
 
       <!-- 收支摘要 -->
       <view class="ov-summary">
         <view class="ov-item">
           <text class="ov-label">支出</text>
-          <MoneyText :cents="overview.monthExpense" :size="34" :weight="600" color="var(--app-text)" />
+          <MoneyText :cents="overview.expense" :size="34" :weight="600" color="var(--app-text)" />
         </view>
         <view class="ov-line" />
         <view class="ov-item">
           <text class="ov-label">收入</text>
-          <MoneyText :cents="overview.monthIncome" :size="34" :weight="600" color="var(--app-text)" />
+          <MoneyText :cents="overview.income" :size="34" :weight="600" color="var(--app-text)" />
         </view>
         <view class="ov-line" />
         <view class="ov-item">
           <text class="ov-label">结余</text>
           <MoneyText
-            :cents="overview.monthBalance"
+            :cents="overview.balance"
             :size="34"
             :weight="600"
-            :color="overview.monthBalance >= 0 ? 'var(--app-success)' : 'var(--app-danger)'"
+            :color="overview.balance >= 0 ? 'var(--app-success)' : 'var(--app-danger)'"
           />
         </view>
       </view>
@@ -67,7 +45,7 @@
         <text v-if="analysisLoading" class="ai-text ai-loading">正在分析…</text>
         <text v-else-if="analysis" class="ai-text">{{ analysis }}</text>
         <text v-else class="ai-text ai-empty" @click="refreshAnalysis">
-          点击生成本月消费分析 ›
+          点击生成{{ rangeLabel }}消费分析 ›
         </text>
       </view>
 
@@ -90,7 +68,7 @@
         </view>
 
         <view v-if="categoryStats.length === 0" class="card-empty">
-          <text class="empty-text">本月暂无数据</text>
+          <text class="empty-text">{{ rangeLabel }}暂无数据</text>
         </view>
 
         <view v-else>
@@ -167,17 +145,17 @@
         </view>
       </view>
 
-      <!-- ⑤ 日趋势 -->
+      <!-- ⑤ 趋势 -->
       <view class="card">
         <view class="card-head">
-          <text class="card-title">日趋势</text>
-          <text class="card-sub">每日支出</text>
+          <text class="card-title">{{ trendTitle }}</text>
+          <text class="card-sub">{{ trendSubtitle }}</text>
         </view>
         <view class="daily-chart">
           <view class="daily-bars">
             <view
-              v-for="d in dailyTrend"
-              :key="d.day"
+              v-for="(d, i) in dailyTrend"
+              :key="i"
               class="daily-bar-wrap"
             >
               <view
@@ -190,9 +168,8 @@
             </view>
           </view>
           <view class="daily-axis">
-            <text class="axis-text">1</text>
-            <text class="axis-text">{{ Math.ceil(dailyTrend.length / 2) }}</text>
-            <text class="axis-text">{{ dailyTrend.length }}</text>
+            <text class="axis-text">{{ dailyTrend.length ? dailyTrend[0].label + trendUnit : '—' }}</text>
+            <text class="axis-text">{{ dailyTrend.length ? dailyTrend[dailyTrend.length - 1].label + trendUnit : '—' }}</text>
           </view>
         </view>
       </view>
@@ -287,6 +264,10 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+      <!-- tabBar 上方分割线：原生 tabBar 的 borderStyle 只有 black/white，做不出浅灰 -->
+      <view class="tabbar-divider" />
+
   </view>
 </template>
 
@@ -295,21 +276,25 @@ import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
+import DateRangePicker from '@/components/DateRangePicker.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
-  getOverview, getCategoryStats, getAccountStats, getTagStats,
-  getDailyTrend, getAverages, getTopExpenses, getBudgetUsage, getUntaggedAmount
+  getOverviewRange, getCategoryStatsRange, getAccountStatsRange, getTagStatsRange,
+  getDailyTrendRange, getAveragesRange, getTopExpensesRange, getBudgetUsageRange,
+  getUntaggedAmountRange
 } from '@/api/stats.js'
-import { getAnalysis } from '@/api/ai.js'
-import { toMonthKey, shiftMonth } from '@/utils/date.js'
+import { getAnalysisRange } from '@/api/ai.js'
+import {
+  selectionToRange, defaultSelection, selectionLabel
+} from '@/utils/date.js'
 
 export default {
-  components: { AppHeader, MoneyText },
+  components: { AppHeader, MoneyText, DateRangePicker },
   setup() {
     const settingStore = useSettingStore()
 
-    const activeRange = ref('month')
-    const currentMonth = ref(toMonthKey())
+    /** 三级联动选择：year / month / day，0 表示「全部」 */
+    const dateRange = ref(defaultSelection())
     const statType = ref('expense')
 
     const categoryStats = ref([])
@@ -320,24 +305,44 @@ export default {
     const topExpenses = ref([])
     const budgets = ref([])
     const untagged = ref(0)
-    const overview = ref({ monthExpense: 0, monthIncome: 0 })
+    const overview = ref({ expense: 0, income: 0, balance: 0 })
 
     const analysis = ref('')
     const analysisLoading = ref(false)
 
-    const ranges = [
-      { key: 'week', label: '周' },
-      { key: 'month', label: '月' },
-      { key: 'year', label: '年' }
-    ]
-
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
+    /** 当前选择对应的查询区间 */
+    const range = computed(() => selectionToRange(dateRange.value))
 
-    const monthLabel = computed(() => {
-      const [y, m] = currentMonth.value.split('-')
-      return `${y}年${Number(m)}月`
+    /** 当前选择的展示文案 */
+    const rangeLabel = computed(() => selectionLabel(dateRange.value))
+
+    /** 趋势图标题：按天还是按月 */
+    const trendTitle = computed(() => {
+      const sel = dateRange.value
+      if (!sel.year) return '月趋势'
+      if (!sel.month) return '月趋势'
+      if (!sel.day) return '日趋势'
+      return '当日支出'
+    })
+
+    /** 趋势图副标题 */
+    const trendSubtitle = computed(() => {
+      const sel = dateRange.value
+      if (!sel.year) return '每月支出'
+      if (!sel.month) return '每月支出'
+      if (!sel.day) return '每日支出'
+      return '当天支出'
+    })
+
+    /** 趋势图坐标轴单位 */
+    const trendUnit = computed(() => {
+      const sel = dateRange.value
+      if (!sel.year) return '月'
+      if (!sel.month) return '月'
+      return '日'
     })
 
     const categoryTotal = computed(() =>
@@ -393,18 +398,18 @@ export default {
     /* ------------------------------------------------------ 加载 */
 
     async function loadAll() {
-      const mk = currentMonth.value
+      const r = range.value
       try {
         const [ov, cats, accs, tgs, daily, avg, top, buds, untag] = await Promise.all([
-          getOverview(mk),
-          getCategoryStats(mk, statType.value),
-          getAccountStats(mk, statType.value),
-          getTagStats(mk, statType.value),
-          getDailyTrend(mk),
-          getAverages(mk),
-          getTopExpenses(mk, 10),
-          getBudgetUsage(mk),
-          getUntaggedAmount(mk)
+          getOverviewRange(r),
+          getCategoryStatsRange(r, statType.value),
+          getAccountStatsRange(r, statType.value),
+          getTagStatsRange(r, statType.value),
+          getDailyTrendRange(r),
+          getAveragesRange(r),
+          getTopExpensesRange(r, 10),
+          getBudgetUsageRange(r),
+          getUntaggedAmountRange(r)
         ])
 
         overview.value = ov
@@ -426,7 +431,7 @@ export default {
       if (analysisLoading.value) return
       analysisLoading.value = true
       try {
-        const res = await getAnalysis(currentMonth.value)
+        const res = await getAnalysisRange(range.value, rangeLabel.value)
         analysis.value = res.text
       } catch (e) {
         analysis.value = ''
@@ -436,14 +441,9 @@ export default {
       }
     }
 
-    function switchRange(key) {
-      activeRange.value = key
-      // 周/年视图暂按当前月数据展示，后续可扩展为真实区间
-      loadAll()
-    }
-
-    function shiftMonthHandle(delta) {
-      currentMonth.value = shiftMonth(currentMonth.value, delta)
+    /** 三级联动选择变化：重新拉全部统计 */
+    function onRangeChange(sel) {
+      dateRange.value = { ...sel }
       analysis.value = ''
       loadAll()
     }
@@ -478,14 +478,14 @@ export default {
 
     return {
       settingStore,
-      activeRange, currentMonth, statType, ranges,
+      dateRange, statType,
       categoryStats, accountStats, tagStats, dailyTrend, averages,
       topExpenses, budgets, untagged, overview,
       analysis, analysisLoading,
-      primaryColor, pageStyle, monthLabel,
+      primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
       categoryTotal, donutStyle,
       barHeight, catPercent, shortDay,
-      loadAll, refreshAnalysis, switchRange, shiftMonthHandle, switchStatType,
+      loadAll, refreshAnalysis, onRangeChange, switchStatType,
       goTxnDetail, goBudget, goSettings
     }
   }
@@ -497,51 +497,12 @@ export default {
   padding: 0 32rpx;
 }
 
-/* 时间维度 */
-.range-bar {
-  display: flex;
-  gap: 40rpx;
-  padding: 8rpx 4rpx 0;
-}
-
-.range-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-  padding-bottom: 12rpx;
-}
-
-.range-text {
-  font-size: 30rpx;
-  font-weight: 500;
-}
-
-.range-bar-indicator {
-  position: absolute;
-  bottom: 0;
-  width: 36rpx;
-  height: 4rpx;
-  border-radius: 2rpx;
-}
-
-.month-nav {
+/* 时间范围选择 */
+.range-picker-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 32rpx;
-  padding: 20rpx 0 8rpx;
-}
-
-.nav-arrow {
-  font-size: 36rpx;
-  color: var(--app-text-2);
-  padding: 0 20rpx;
-}
-
-.month-text {
-  font-size: 26rpx;
-  color: var(--app-text-2);
+  padding: 8rpx 0 20rpx;
 }
 
 /* 收支摘要 */

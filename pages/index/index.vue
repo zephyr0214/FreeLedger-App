@@ -99,12 +99,7 @@
           >
             <view class="ov-budget">
               <view class="ov-budget-head">
-                <view class="ov-budget-title">
-                  <text class="ov-budget-name">总预算</text>
-                  <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
-                    {{ totalBudget.percent }}%
-                  </text>
-                </view>
+                <text class="ov-budget-name">总预算</text>
                 <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
                   日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}
                 </text>
@@ -119,20 +114,20 @@
                 />
               </view>
               <view class="ov-budget-foot">
-                <MoneyText :cents="totalBudget.used" :size="20" color="var(--app-text-3)" />
-                <text class="ov-budget-slash">/</text>
-                <MoneyText :cents="totalBudget.limit" :size="20" color="var(--app-text-3)" />
+                <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
+                  {{ totalBudget.percent }}%
+                </text>
+                <view class="ov-budget-amount">
+                  <MoneyText :cents="totalBudget.used" :size="20" color="var(--app-text-3)" />
+                  <text class="ov-budget-slash">/</text>
+                  <MoneyText :cents="totalBudget.limit" :size="20" color="var(--app-text-3)" />
+                </view>
               </view>
             </view>
 
             <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
               <view class="ov-budget-head">
-                <view class="ov-budget-title">
-                  <text class="ov-budget-name">{{ b.name }}</text>
-                  <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
-                    {{ b.percent }}%
-                  </text>
-                </view>
+                <text class="ov-budget-name">{{ b.name }}</text>
                 <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
                   日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(0) }}
                 </text>
@@ -147,9 +142,14 @@
                 />
               </view>
               <view class="ov-budget-foot">
-                <MoneyText :cents="b.used" :size="20" color="var(--app-text-3)" />
-                <text class="ov-budget-slash">/</text>
-                <MoneyText :cents="b.limit" :size="20" color="var(--app-text-3)" />
+                <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
+                  {{ b.percent }}%
+                </text>
+                <view class="ov-budget-amount">
+                  <MoneyText :cents="b.used" :size="20" color="var(--app-text-3)" />
+                  <text class="ov-budget-slash">/</text>
+                  <MoneyText :cents="b.limit" :size="20" color="var(--app-text-3)" />
+                </view>
               </view>
             </view>
           </view>
@@ -250,6 +250,10 @@
         <view class="bottom-space" />
       </scroll-view>
 
+      <!-- tabBar 上方分割线：原生 tabBar 的 borderStyle 只有 black/white，做不出浅灰 -->
+      <view class="tabbar-divider" />
+
+
       <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 1 秒 → 手动记账面板
            打开记账面板时按钮隐藏，关闭面板后恢复；滑到底部也隐藏 -->
       <FabButton
@@ -270,15 +274,6 @@
 
       <!-- 记账面板（长按或展开时打开） -->
       <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
-
-      <!-- 当日明细 -->
-      <wd-action-sheet
-        v-model="showDayDetail"
-        :actions="dayActions"
-        :title="dayDetailTitle"
-        cancel-text="关闭"
-        @select="onDayTxnSelect"
-      />
     </block>
   </view>
 </template>
@@ -315,9 +310,6 @@ export default {
     const parsingText = ref('')
     const panelPreset = ref(null)
     const selectedDay = ref('')
-    const showDayDetail = ref(false)
-    const dayActions = ref([])
-    const dayDetailTitle = ref('')
 
     /** 预算列表（总预算 + 各分类预算） */
     const budgets = ref([])
@@ -455,35 +447,10 @@ export default {
       }).catch(() => {})
     }
 
-    async function onDayClick(dayKey) {
+    /** 点击月历某一天 → 跳到「全部交易」页并定位到当天 */
+    function onDayClick(dayKey) {
       selectedDay.value = dayKey
-      const data = txnStore.dayData(dayKey)
-      if (!data || data.count === 0) {
-        uni.showToast({ title: '这天没有记录', icon: 'none' })
-        return
-      }
-
-      // 加载该日交易
-      const list = await txnStore.list({ startDay: dayKey, endDay: dayKey, limit: 50 })
-      dayDetailTitle.value = formatDayHeader(dayKey)
-      dayActions.value = list.map((t) => ({
-        name: `${txnTitle(t)}  ¥${(t.amount_cents / 100).toFixed(2)}`,
-        subname: t.note || ''
-      }))
-      showDayDetail.value = true
-
-      // 暂存列表，选中后跳详情
-      dayTxnCache = list
-    }
-
-    let dayTxnCache = []
-
-    function onDayTxnSelect({ index }) {
-      const txn = dayTxnCache[index]
-      if (txn) {
-        uni.navigateTo({ url: `/pages/txn/detail?id=${txn.id}` })
-      }
-      showDayDetail.value = false
+      uni.navigateTo({ url: `/pages/txn/list?day=${dayKey}` })
     }
 
     /* ------------------------------------------------------ 交互 */
@@ -600,10 +567,9 @@ export default {
       settingStore, accountStore, txnStore,
       showPanel, panelPreset,
       selectedDay, showQuickAdd, parsing, parsingText,
-      showDayDetail, dayActions, dayDetailTitle,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
       totalBudget, categoryBudgets, budgetRemaining, recentGroups, fabHidden,
-      shiftCalMonth, onDayClick, onDayTxnSelect, onScroll,
+      shiftCalMonth, onDayClick, onScroll,
       openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub,
@@ -767,13 +733,7 @@ export default {
   justify-content: space-between;
 }
 
-/* 左侧：名称 + 百分比 */
-.ov-budget-title {
-  display: flex;
-  align-items: baseline;
-  gap: 12rpx;
-}
-
+/* 左侧：名称 */
 .ov-budget-name {
   font-size: 24rpx;
   color: var(--app-text-2);
@@ -803,7 +763,14 @@ export default {
   transition: width 0.35s ease;
 }
 
+/* 进度条下方一行：左百分比，右金额 */
 .ov-budget-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ov-budget-amount {
   display: flex;
   align-items: center;
   gap: 6rpx;

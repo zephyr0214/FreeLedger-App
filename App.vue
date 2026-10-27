@@ -179,6 +179,28 @@ view, text, scroll-view, image {
   overflow: hidden;
 }
 
+/**
+ * tabBar 上方的分割线。
+ *
+ * 为什么不用原生 tabBar 的 borderStyle：
+ *   它只支持 black / white 两档，做不出「浅灰」，
+ *   深色主题下 black 又太重。
+ *   所以自绘一条 1rpx 的线，贴在原生 tabBar 的顶边。
+ *
+ * 位置：原生 tabBar 高度 50px（不含安全区），
+ *      分割线用 bottom: 50px + 安全区 正好落在 tabBar 上沿。
+ */
+.tabbar-divider {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(50px + env(safe-area-inset-bottom));
+  height: 1rpx;
+  background-color: var(--app-line, #ebedf0);
+  z-index: 90;
+  pointer-events: none;
+}
+
 /* 非滚动内容区（如引导页、全屏弹层） */
 .app-page > .flex-fill {
   flex: 1;

@@ -52,6 +52,60 @@ export function parseDayKey(dayKey) {
   return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0)
 }
 
+/**
+ * 三级选择（年/月/日）-> 查询区间
+ *
+ * 约定（0 表示「全部」）：
+ *   year=0                 → 全部年：不限时间
+ *   year>0, month=0        → 全部月：整年
+ *   year>0, month>0, day=0 → 全部日：整月
+ *   day>0                  → 具体某一天
+ *
+ * @param {{year:number,month:number,day:number}} sel
+ * @returns {{startDay:string, endDay:string, monthKey:string}}
+ *   startDay/endDay 为 '' 表示不限；monthKey 为 '' 表示不按月聚合
+ */
+export function selectionToRange(sel = {}) {
+  const y = Number(sel.year) || 0
+  const m = Number(sel.month) || 0
+  const d = Number(sel.day) || 0
+  if (!y) return { startDay: '', endDay: '', monthKey: '' }
+  if (!m) return { startDay: `${y}-01-01`, endDay: `${y}-12-31`, monthKey: '' }
+
+  const ym = `${y}-${String(m).padStart(2, '0')}`
+  const lastDay = new Date(y, m, 0).getDate()
+  if (d > 0) {
+    const day = Math.min(d, lastDay)
+    const dk = `${ym}-${String(day).padStart(2, '0')}`
+    return { startDay: dk, endDay: dk, monthKey: ym }
+  }
+  return { startDay: `${ym}-01`, endDay: `${ym}-${String(lastDay).padStart(2, '0')}`, monthKey: ym }
+}
+
+/** 三级选择的默认态：当前年、当前月、全部日（即当月） */
+export function defaultSelection() {
+  const now = new Date()
+  return { year: now.getFullYear(), month: now.getMonth() + 1, day: 0 }
+}
+
+/** YYYY-MM-DD -> 三级选择 */
+export function selectionFromDayKey(dayKey) {
+  const [y, m, d] = String(dayKey || '').split('-').map(Number)
+  if (!y || !m) return defaultSelection()
+  return { year: y, month: m, day: d || 0 }
+}
+
+/** 三级选择的展示文案（与 DateRangePicker 的 label 保持一致） */
+export function selectionLabel(sel = {}) {
+  const y = Number(sel.year) || 0
+  const m = Number(sel.month) || 0
+  const d = Number(sel.day) || 0
+  if (!y) return '全部年'
+  if (!m) return `${y}年`
+  if (!d) return `${y}年${m}月`
+  return `${y}年${m}月${d}日`
+}
+
 /** 某月的第一天与最后一天 */
 export function monthRange(monthKey) {
   const [y, m] = String(monthKey).split('-').map(Number)

@@ -11,16 +11,14 @@
       </view>
     </view>
 
-    <!-- 月份切换 + 汇总 -->
+    <!-- 时间范围选择：年 / 月 / 日 三级联动 -->
     <view class="month-bar">
-      <text class="month-arrow" @click="shiftMonthHandle(-1)">‹</text>
-      <text class="month-label">{{ monthLabel }}</text>
-      <text class="month-arrow" @click="shiftMonthHandle(1)">›</text>
+      <DateRangePicker v-model="dateRange" mode="inline" @range-change="onDateChange" />
     </view>
 
     <view class="summary-bar">
       <text class="summary-text">
-        共 {{ summary.count }} 笔
+        {{ rangeLabel }} · 共 {{ summary.count }} 笔
       </text>
       <view class="summary-right">
         <text class="summary-label">支出</text>
@@ -39,7 +37,7 @@
         <EmptyState
           emoji="🔍"
           title="没有符合条件的交易"
-          :desc="filterCount > 0 ? '试试调整筛选条件' : '这个月还没有记账'"
+          :desc="filterCount > 0 ? '试试调整筛选条件' : `${rangeLabel}还没有记账`"
         />
       </view>
 
@@ -259,23 +257,24 @@
 
 <script>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onLoad } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import DateRangePicker from '@/components/DateRangePicker.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { listTransactions, sumTransactions, deleteTransaction } from '@/api/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
-import { toMonthKey, shiftMonth, formatDayHeader, formatTime } from '@/utils/date.js'
+import { formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
 
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState },
+  components: { MoneyText, EmptyState, DateRangePicker },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -283,7 +282,8 @@ export default {
 
     const statusBarHeight = uni.getSystemInfoSync().statusBarHeight || 20
 
-    const currentMonth = ref(toMonthKey())
+    /** 三级联动选择：year / month / day，0 表示「全部」 */
+    const dateRange = ref(defaultSelection())
     const list = ref([])
     const summary = ref({ count: 0, expense: 0, income: 0, transfer: 0 })
     const offset = ref(0)
@@ -317,9 +317,12 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    const monthLabel = computed(() => {
-      const [y, m] = currentMonth.value.split('-')
-      return `${y}年${Number(m)}月`
+    const rangeLabel = computed(() => {
+      const sel = dateRange.value
+      if (!sel.year) return '全部年'
+      if (!sel.month) return `${sel.year}年`
+      if (!sel.day) return `${sel.year}年${sel.month}月`
+      return `${sel.year}年${sel.month}月${sel.day}日`
     })
 
 
@@ -357,10 +360,18 @@ export default {
     /* ------------------------------------------------------ 查询 */
 
     function buildQuery() {
+      const sel = dateRange.value
+      const r = selectionToRange(sel)
       const q = {
-        monthKey: currentMonth.value,
         limit: PAGE_SIZE,
         offset: offset.value
+      }
+      // 整月用 month_key（走 idx_txn_month_type），其余用 occurred_day 区间
+      if (sel.year && sel.month && !sel.day) {
+        q.monthKey = r.monthKey
+      } else {
+        if (r.startDay) q.startDay = r.startDay
+        if (r.endDay) q.endDay = r.endDay
       }
       if (appliedFilter.type !== 'all') q.type = appliedFilter.type
       if (appliedFilter.accountId) q.accountId = appliedFilter.accountId
@@ -425,8 +436,9 @@ export default {
       })
     }
 
-    function shiftMonthHandle(delta) {
-      currentMonth.value = shiftMonth(currentMonth.value, delta)
+    /** 三级联动选择变化：重新查询 */
+    function onDateChange(sel) {
+      dateRange.value = { ...sel }
       loadFirstPage()
     }
 
@@ -494,16 +506,27 @@ export default {
       await loadFirstPage()
     })
 
+    /**
+     * 深链：从首页月历点某一天进来时带 ?day=YYYY-MM-DD
+     * 没有 day 参数则显示当月（全部日）
+     */
+    onLoad((options) => {
+      const day = options && options.day
+      if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        dateRange.value = selectionFromDayKey(day)
+      }
+    })
+
     onShow(() => {
       settingStore.syncSystemTheme()
     })
 
     return {
       settingStore, accountStore, statusBarHeight,
-      currentMonth, list, summary, hasMore, loading, showFilter,
+      dateRange, list, summary, hasMore, loading, showFilter,
       filter, appliedFilter, typeOptions, categories, tags,
-      primaryColor, pageStyle, monthLabel, parentCategories, filterCount, groups,
-      loadMore, applyFilter, resetFilter, shiftMonthHandle,
+      primaryColor, pageStyle, rangeLabel, parentCategories, filterCount, groups,
+      loadMore, applyFilter, resetFilter, onDateChange,
       iconChar, txnTitle, txnSub, timeLabel, goDetail, goBack, onLongPress
     }
   }
@@ -556,25 +579,13 @@ export default {
   margin-left: 4rpx;
 }
 
-/* 月份 */
+/* 时间范围选择 */
 .month-bar {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 40rpx;
   padding: 12rpx 0;
-}
-
-.month-arrow {
-  font-size: 36rpx;
-  color: var(--app-text-2);
-  padding: 0 20rpx;
-}
-
-.month-label {
-  font-size: 28rpx;
-  color: var(--app-text);
-  font-weight: 500;
 }
 
 /* 汇总 */
