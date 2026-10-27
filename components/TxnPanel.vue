@@ -163,7 +163,7 @@
       <NumberKeyboard
         v-model="form.amountRaw"
         :finish-text="form.type === 'transfer' ? '转账' : '保存'"
-        :disabled="!canSave"
+        :disabled="!amountFilled"
         @finish="onFinish"
       />
     </view>
@@ -183,47 +183,13 @@
       @select="onToAccountSelect"
     />
 
-    <!-- 标签选择：多选弹层（action-sheet 不支持勾选状态） -->
-    <wd-popup
+    <!-- 标签选择：单选，与账户用同一个 action-sheet -->
+    <wd-action-sheet
       v-model="showTagPicker"
-      position="bottom"
-      :safe-area-inset-bottom="true"
-      custom-style="background-color: var(--app-card); border-radius: 28rpx 28rpx 0 0;"
-    >
-      <view class="tag-sheet">
-        <view class="tag-sheet-head">
-          <text class="tag-sheet-title">选择标签</text>
-          <text class="tag-sheet-done" @click="showTagPicker = false">完成</text>
-        </view>
-
-        <view v-if="tags.length === 0" class="tag-sheet-empty">
-          <text class="tag-sheet-empty-text">还没有标签，请到「设置 → 标签管理」创建</text>
-        </view>
-
-        <scroll-view v-else class="tag-sheet-scroll" scroll-y>
-          <view
-            v-for="tag in tags"
-            :key="tag.id"
-            class="tag-sheet-item"
-            @click="toggleTag(tag.id)"
-          >
-            <view
-              class="tag-check"
-              :style="{
-                backgroundColor: form.tag_ids.includes(tag.id) ? primaryColor : 'transparent',
-                borderColor: form.tag_ids.includes(tag.id) ? primaryColor : 'var(--app-line)'
-              }"
-            >
-              <text
-                v-if="form.tag_ids.includes(tag.id)"
-                class="tag-check-mark"
-              >✓</text>
-            </view>
-            <text class="tag-sheet-name">{{ tag.name }}</text>
-          </view>
-        </scroll-view>
-      </view>
-    </wd-popup>
+      :actions="tagActions"
+      cancel-text="取消"
+      @select="onTagSelect"
+    />
 
     <!-- 日期选择：wd-calendar 无 visible 属性，需 ref.open() -->
     <wd-calendar
@@ -335,9 +301,18 @@ export default {
       return (cents / 100).toFixed(2)
     })
 
-    const canSave = computed(() => {
+    /**
+     * 金额是否已填。
+     * 只看金额 —— 「完成」键的可点性不能依赖分类/账户是否已选，
+     * 否则用户还没选分类就按不了完成，陷入死循环。
+     */
+    const amountFilled = computed(() => {
       const cents = evaluateAmount(form.amountRaw)
-      if (!cents || cents <= 0) return false
+      return cents > 0
+    })
+
+    const canSave = computed(() => {
+      if (!amountFilled.value) return false
       if (!form.account_id) return false
       if (form.type === 'transfer') {
         return !!form.to_account_id && form.to_account_id !== form.account_id
@@ -373,11 +348,16 @@ export default {
       }))
     )
 
+    /** 标签选项（单选，与账户的 action-actions 同一格式） */
+    const tagActions = computed(() =>
+      tags.value.map((t) => ({ name: t.name, color: t.color }))
+    )
+
     const selectedTags = computed(() =>
       tags.value.filter((t) => form.tag_ids.includes(t.id))
     )
 
-    /** 已选标签的名字，逗号分隔 */
+    /** 已选标签的名字 */
     const selectedTagNames = computed(() =>
       selectedTags.value.map((t) => t.name).join('、')
     )
@@ -463,13 +443,11 @@ export default {
       showToAccountPicker.value = false
     }
 
-    /** 标签多选：点一下切换选中状态，弹层不关闭 */
-    function toggleTag(id) {
-      if (form.tag_ids.includes(id)) {
-        form.tag_ids = form.tag_ids.filter((t) => t !== id)
-      } else {
-        form.tag_ids = [...form.tag_ids, id]
-      }
+    /** 标签单选：选中即替换，弹层自动关闭 */
+    function onTagSelect({ index }) {
+      const tag = tags.value[index]
+      if (!tag) return
+      form.tag_ids = [tag.id]
     }
 
     function removeTag(id) {
@@ -546,11 +524,28 @@ export default {
     }
 
     async function onSave() {
-      if (!canSave.value) {
-        uni.showToast({ title: '请补全信息', icon: 'none' })
+      // 逐项提示缺什么，而不是笼统的「请补全信息」
+      if (!amountFilled.value) {
+        uni.showToast({ title: '请输入金额', icon: 'none' })
         return
       }
-
+      if (!form.account_id) {
+        uni.showToast({ title: '请选择账户', icon: 'none' })
+        return
+      }
+      if (form.type === 'transfer') {
+        if (!form.to_account_id) {
+          uni.showToast({ title: '请选择转入账户', icon: 'none' })
+          return
+        }
+        if (form.to_account_id === form.account_id) {
+          uni.showToast({ title: '转入账户不能与转出相同', icon: 'none' })
+          return
+        }
+      } else if (!form.category_id) {
+        uni.showToast({ title: '请选择分类', icon: 'none' })
+        return
+      }
       const cents = evaluateAmount(form.amountRaw)
       const payload = {
         type: form.type,
@@ -616,13 +611,13 @@ export default {
 
     return {
       visible, types, form, primaryColor, currencySymbol,
-      categoryList, amountDisplay, isRawInput, computedPreview, canSave,
-      currentAccountName, toAccountName, accountActions, toAccountActions,
+      categoryList, amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
+      currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
       iconChar, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
-      onAccountSelect, onToAccountSelect, toggleTag, removeTag,
+      onAccountSelect, onToAccountSelect, onTagSelect, removeTag,
       onCalendarConfirm, onSave, onClose
     }
   }
@@ -833,84 +828,6 @@ export default {
 
 .day-chip-text {
   font-size: 24rpx;
-}
-
-/* 标签多选弹层 */
-.tag-sheet {
-  background-color: var(--app-card);
-  padding-bottom: env(safe-area-inset-bottom);
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.tag-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx 32rpx 20rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.tag-sheet-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.tag-sheet-done {
-  font-size: 28rpx;
-  color: var(--app-primary);
-  font-weight: 500;
-}
-
-.tag-sheet-scroll {
-  max-height: 50vh;
-}
-
-.tag-sheet-item {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  padding: 26rpx 32rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.tag-sheet-item:last-child {
-  border-bottom: none;
-}
-
-.tag-check {
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 50%;
-  border: 2rpx solid;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.tag-check-mark {
-  color: #ffffff;
-  font-size: 24rpx;
-  line-height: 1;
-}
-
-.tag-sheet-name {
-  font-size: 28rpx;
-  color: var(--app-text);
-  flex: 1;
-}
-
-.tag-sheet-empty {
-  padding: 60rpx 32rpx;
-  text-align: center;
-}
-
-.tag-sheet-empty-text {
-  font-size: 25rpx;
-  color: var(--app-text-3);
 }
 
 .note-input {

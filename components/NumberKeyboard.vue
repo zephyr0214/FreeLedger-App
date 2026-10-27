@@ -6,25 +6,45 @@
       │ C  │ ÷  │ ×  │ ⌫  │
       │ 1  │ 2  │ 3  │ -  │
       │ 4  │ 5  │ 6  │ +  │
-      │ 7  │ 8  │ 9  │完成│
-      │ () │ 0  │ .  │    │
+      │ 7  │ 8  │ 9  │    │
+      │ () │ 0  │ .  │完成│
       └────┴────┴────┴────┘
+                                  「完成」键占第 4、5 两行。
 
-      「完成」键同时承担求值和保存：
-        - 输入是算式（如 12+8）→ 先算出结果再保存
-        - 输入是单个数字 → 直接保存
-      所有键（除「完成」）样式完全一致：白底、深灰字。
+      ★ 为什么不用 CSS Grid ★
+        uni-app 官方说明：App 端是系统 webview 渲染，较老的 Android/iOS
+        不支持完整 CSS Grid，只保证 flex（见 uniapp.dcloud.net.cn/matter）。
+        所以这里用 flex 实现：左边 3 列 + 右边 1 列（该列底部是跨两行的完成键）。
     -->
-    <view class="kb-grid">
-      <view
-        v-for="(k, i) in keys"
-        :key="i"
-        class="kb-key"
-        :class="kbKeyClass(k)"
-        hover-class="kb-key-hover"
-        @click="onKeyPress(k)"
-      >
-        <text v-if="k" class="kb-key-text" :class="kbTextClass(k)">{{ k }}</text>
+    <view class="kb-wrap">
+      <!-- 左侧：3 列 x 5 行 -->
+      <view class="kb-main">
+        <view
+          v-for="(k, i) in mainKeys"
+          :key="i"
+          class="kb-key"
+          hover-class="kb-key-hover"
+          @click="onKeyPress(k)"
+        >
+          <text class="kb-key-text kb-plain-text">{{ k }}</text>
+        </view>
+      </view>
+
+      <!-- 右侧：⌫ / - / + / 完成（完成占两行） -->
+      <view class="kb-side">
+        <view
+          v-for="(k, i) in sideKeys"
+          :key="i"
+          class="kb-key kb-side-key"
+          :class="{ 'kb-finish': k === '完成' }"
+          hover-class="kb-key-hover"
+          @click="onKeyPress(k)"
+        >
+          <text
+            class="kb-key-text"
+            :class="k === '完成' ? 'kb-finish-text' : 'kb-plain-text'"
+          >{{ k }}</text>
+        </view>
       </view>
     </view>
   </view>
@@ -51,38 +71,29 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
 
     /**
-     * 4x5 键位表（按行排列，每行 4 个）
+     * 键位分左右两区。
+     *
+     * 左侧 3 列 x 5 行 = 15 键
+     * 右侧 1 列 = ⌫ / - / + / 完成（完成占两行）
      *
      *   C   ÷   ×   ⌫
      *   1   2   3   -
      *   4   5   6   +
-     *   7   8   9   完成
-     *   ()  0   .   (空)
-     *
-     * 没有单独的 = 键：「完成」键按下时会先把算式算出结果再保存。
+     *   7   8   9   完成   ← 完成占第 4、5 两行
+     *   ()  0   .
      */
-    const keys = [
-      'C', '÷', '×', '⌫',
-      '1', '2', '3', '-',
-      '4', '5', '6', '+',
-      '7', '8', '9', '完成',
-      '()', '0', '.', ''
+    const mainKeys = [
+      'C', '÷', '×',
+      '1', '2', '3',
+      '4', '5', '6',
+      '7', '8', '9',
+      '()', '0', '.'
     ]
+
+    const sideKeys = ['⌫', '-', '+', '完成']
 
     const OPERATORS = ['+', '-', '×', '÷']
     const isOperator = (k) => OPERATORS.includes(k)
-
-    function kbKeyClass(k) {
-      if (k === '完成') return 'kb-finish'
-      if (k === '') return 'kb-blank'
-      // 除「完成」外，所有键样式完全一致
-      return 'kb-plain'
-    }
-
-    function kbTextClass(k) {
-      if (k === '完成') return 'kb-finish-text'
-      return 'kb-plain-text'
-    }
 
     /**
      * 求值：直接复用 utils/money.js 的 evaluateAmount（返回「分」），
@@ -218,7 +229,7 @@ export default {
     }
 
     return {
-      keys, primaryColor, kbKeyClass, kbTextClass,
+      mainKeys, sideKeys, primaryColor,
       onKeyPress, onKey, onOp, onSmartParen, onBackspace, onFinish, evaluate
     }
   }
@@ -231,16 +242,29 @@ export default {
   padding: 8rpx;
 }
 
-/* 4 列固定网格 */
-.kb-grid {
+/* 整体：左边 3 列 + 右边 1 列 */
+.kb-wrap {
+  display: flex;
+  gap: 8rpx;
+}
+
+/* 左侧主区：3 列 x 5 行 */
+.kb-main {
+  flex: 3;
   display: flex;
   flex-wrap: wrap;
   gap: 8rpx;
 }
 
+/* 右侧列：⌫ / - / + / 完成 */
+.kb-side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
 .kb-key {
-  width: calc((100% - 24rpx) / 4);
-  height: 92rpx;
   background-color: var(--app-card);
   border-radius: 12rpx;
   display: flex;
@@ -252,6 +276,18 @@ export default {
   background-color: var(--app-line);
 }
 
+/* 左侧普通键：宽 = 1/3，固定行高 */
+.kb-main .kb-key {
+  width: calc((100% - 16rpx) / 3);
+  height: 92rpx;
+}
+
+/* 右侧普通键：与左侧同高 */
+.kb-side-key {
+  height: 92rpx;
+  flex-shrink: 0;
+}
+
 /* 普通键：除「完成」外全部统一为白底深灰字 */
 .kb-plain-text {
   font-size: 36rpx;
@@ -260,14 +296,11 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 空白占位 */
-.kb-blank {
-  background-color: transparent;
-}
-
-/* 完成：唯一有别于其他键的样式 */
+/* 完成：唯一有别于其他键的样式，占右侧剩余的两行高度 */
 .kb-finish {
   background-color: var(--app-primary);
+  flex: 1;
+  min-height: 0;
 }
 
 .kb-finish-text {
