@@ -26,6 +26,7 @@
       <scroll-view
         class="page-scroll"
         scroll-y
+        @scroll="onScroll"
       >
         <!-- ② 本月概览 -->
         <view class="overview-card">
@@ -250,9 +251,9 @@
       </scroll-view>
 
       <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 1 秒 → 手动记账面板
-           打开记账面板时按钮隐藏，关闭面板后恢复 -->
+           打开记账面板时按钮隐藏，关闭面板后恢复；滑到底部也隐藏 -->
       <FabButton
-        :hidden="showQuickAdd || showPanel"
+        :hidden="showQuickAdd || showPanel || fabHidden"
         @single-press="openQuickAdd"
         @hold-start="onHoldStart"
         @hold-end="onHoldEnd"
@@ -283,7 +284,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, getCurrentInstance } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -320,6 +321,9 @@ export default {
 
     /** 预算列表（总预算 + 各分类预算） */
     const budgets = ref([])
+
+    /** 滑到底部时隐藏悬浮按钮，避免遮挡最后一条内容 */
+    const fabHidden = ref(false)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -384,6 +388,43 @@ export default {
       return `${y}年${Number(m)}月`
     })
 
+    /* ------------------------------------------------------ 滚动监听 */
+
+    /**
+     * 滚到底部时隐藏悬浮按钮。
+     *
+     * scroll 事件只给 scrollTop / scrollHeight / deltaY，
+     * 没有容器高度，所以要先量一次 scroll-view 的实际高度。
+     */
+    const scrollViewHeight = ref(0)
+
+    function measureScrollView() {
+      try {
+        uni.createSelectorQuery()
+          .in(getCurrentInstance())
+          .select('.page-scroll')
+          .boundingClientRect((rect) => {
+            if (rect && rect.height) {
+              scrollViewHeight.value = rect.height
+            }
+          })
+          .exec()
+      } catch (e) {}
+    }
+
+    function onScroll(e) {
+      const detail = e.detail || {}
+      const scrollTop = detail.scrollTop || 0
+      const scrollHeight = detail.scrollHeight || 0
+      if (!scrollHeight || !scrollViewHeight.value) return
+
+      // 距离底部还剩多少
+      const remain = scrollHeight - scrollTop - scrollViewHeight.value
+      const atBottom = remain <= 120
+      if (atBottom !== fabHidden.value) {
+        fabHidden.value = atBottom
+      }
+    }
 
     /* ------------------------------------------------------ 数据加载 */
 
@@ -536,6 +577,8 @@ export default {
     /* ------------------------------------------------------ 生命周期 */
 
     onMounted(() => {
+      // 量一次滚动容器高度，供 onScroll 判断是否到底
+      measureScrollView()
       if (!settingStore.loaded) {
         settingStore.load().then(() => loadAll())
       } else {
@@ -549,6 +592,8 @@ export default {
         loadAll(true)
       }
       settingStore.syncSystemTheme()
+      // 回到顶部，悬浮按钮重新出现
+      fabHidden.value = false
     })
 
     return {
@@ -557,8 +602,8 @@ export default {
       selectedDay, showQuickAdd, parsing, parsingText,
       showDayDetail, dayActions, dayDetailTitle,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
-      totalBudget, categoryBudgets, budgetRemaining, recentGroups,
-      shiftCalMonth, onDayClick, onDayTxnSelect,
+      totalBudget, categoryBudgets, budgetRemaining, recentGroups, fabHidden,
+      shiftCalMonth, onDayClick, onDayTxnSelect, onScroll,
       openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub,

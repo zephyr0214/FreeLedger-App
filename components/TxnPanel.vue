@@ -33,16 +33,21 @@
         <text class="panel-cancel" @click="onClose">取消</text>
       </view>
 
-      <!-- 金额 -->
+      <!-- 金额：实时显示输入内容（算式或数字），点「完成」才结算 -->
       <view class="amount-area">
         <text class="amount-label">{{ form.type === 'transfer' ? '转账金额' : '金额' }}</text>
         <view class="amount-row">
           <text class="amount-symbol" :style="{ color: primaryColor }">{{ currencySymbol }}</text>
           <text
             class="amount-value"
+            :class="{ 'is-raw': isRawInput }"
             :style="{ color: form.amountRaw ? 'var(--app-text)' : 'var(--app-text-3)' }"
-          >{{ displayAmount || '0.00' }}</text>
+          >{{ amountDisplay || '0.00' }}</text>
         </view>
+        <!-- 算式时提示会算成多少 -->
+        <text v-if="isRawInput" class="amount-preview">
+          = {{ computedPreview }}
+        </text>
       </view>
 
       <!-- 分类横向滚动（转账时隐藏） -->
@@ -128,25 +133,16 @@
           </view>
         </view>
 
-        <!-- 标签：单行横向滚动，不换行 -->
-        <view class="form-row form-row-wrap">
+        <!-- 标签：与账户一致，点击弹出选择 -->
+        <view class="form-row" @click="openTagPicker">
           <text class="row-label">标签</text>
-          <scroll-view class="tag-scroll" scroll-x :show-scrollbar="false">
-            <view class="tag-area">
-              <view
-                v-for="tag in selectedTags"
-                :key="tag.id"
-                class="tag-chip"
-                :style="{ backgroundColor: (tag.color || primaryColor) + '22', borderColor: tag.color || primaryColor }"
-              >
-                <text class="tag-chip-text" :style="{ color: tag.color || primaryColor }">{{ tag.name }}</text>
-                <text class="tag-chip-x" @click.stop="removeTag(tag.id)">×</text>
-              </view>
-              <view class="tag-add" @click="openTagPicker">
-                <text class="tag-add-text">+ 添加</text>
-              </view>
-            </view>
-          </scroll-view>
+          <view class="row-value">
+            <text
+              class="row-text"
+              :style="{ color: selectedTags.length ? 'var(--app-text)' : 'var(--app-text-3)' }"
+            >{{ selectedTagNames || '请选择' }}</text>
+            <text class="row-arrow">›</text>
+          </view>
         </view>
 
         <!-- 备注 -->
@@ -187,13 +183,47 @@
       @select="onToAccountSelect"
     />
 
-    <!-- 标签选择 -->
-    <wd-action-sheet
+    <!-- 标签选择：多选弹层（action-sheet 不支持勾选状态） -->
+    <wd-popup
       v-model="showTagPicker"
-      :actions="tagActions"
-      cancel-text="取消"
-      @select="onTagSelect"
-    />
+      position="bottom"
+      :safe-area-inset-bottom="true"
+      custom-style="background-color: var(--app-card); border-radius: 28rpx 28rpx 0 0;"
+    >
+      <view class="tag-sheet">
+        <view class="tag-sheet-head">
+          <text class="tag-sheet-title">选择标签</text>
+          <text class="tag-sheet-done" @click="showTagPicker = false">完成</text>
+        </view>
+
+        <view v-if="tags.length === 0" class="tag-sheet-empty">
+          <text class="tag-sheet-empty-text">还没有标签，请到「设置 → 标签管理」创建</text>
+        </view>
+
+        <scroll-view v-else class="tag-sheet-scroll" scroll-y>
+          <view
+            v-for="tag in tags"
+            :key="tag.id"
+            class="tag-sheet-item"
+            @click="toggleTag(tag.id)"
+          >
+            <view
+              class="tag-check"
+              :style="{
+                backgroundColor: form.tag_ids.includes(tag.id) ? primaryColor : 'transparent',
+                borderColor: form.tag_ids.includes(tag.id) ? primaryColor : 'var(--app-line)'
+              }"
+            >
+              <text
+                v-if="form.tag_ids.includes(tag.id)"
+                class="tag-check-mark"
+              >✓</text>
+            </view>
+            <text class="tag-sheet-name">{{ tag.name }}</text>
+          </view>
+        </scroll-view>
+      </view>
+    </wd-popup>
 
     <!-- 日期选择：wd-calendar 无 visible 属性，需 ref.open() -->
     <wd-calendar
@@ -275,11 +305,34 @@ export default {
       return categories.value.filter((c) => c.type === type && !c.isParent)
     })
 
-    const displayAmount = computed(() => {
-      // 数字键盘支持 12+8 这类表达式，必须用 evaluateAmount 而不是 parseAmountInput
-      const n = evaluateAmount(form.amountRaw)
-      if (!n) return ''
-      return (n / 100).toFixed(2)
+    /**
+     * 金额行显示的内容。
+     * 需求：输入过程中显示「整个运算式」，点「完成」才算出结果。
+     *   - 输入 "12"      → 显示 12
+     *   - 输入 "12+8"    → 显示 12+8（下面提示 = 20）
+     */
+    const amountDisplay = computed(() => {
+      const raw = (form.amountRaw || '').trim()
+      if (!raw) return ''
+      // 单个数字时补两位小数显示更整齐；算式则原样显示
+      if (!/[+\-×÷()]/.test(raw)) {
+        const n = Number(raw)
+        if (Number.isFinite(n)) return n.toFixed(2)
+      }
+      return raw
+    })
+
+    /** 当前是否是算式（含运算符或括号） */
+    const isRawInput = computed(() => {
+      const raw = (form.amountRaw || '').trim()
+      return /[+\-×÷()]/.test(raw)
+    })
+
+    /** 算式的计算结果预览 */
+    const computedPreview = computed(() => {
+      const cents = evaluateAmount(form.amountRaw)
+      if (!cents) return '0.00'
+      return (cents / 100).toFixed(2)
     })
 
     const canSave = computed(() => {
@@ -320,12 +373,13 @@ export default {
       }))
     )
 
-    const tagActions = computed(() =>
-      tags.value.map((t) => ({ name: t.name, color: t.color }))
-    )
-
     const selectedTags = computed(() =>
       tags.value.filter((t) => form.tag_ids.includes(t.id))
+    )
+
+    /** 已选标签的名字，逗号分隔 */
+    const selectedTagNames = computed(() =>
+      selectedTags.value.map((t) => t.name).join('、')
     )
 
     const quickDays = computed(() => [
@@ -409,13 +463,13 @@ export default {
       showToAccountPicker.value = false
     }
 
-    function onTagSelect({ index }) {
-      const tag = tags.value[index]
-      if (!tag) return
-      if (!form.tag_ids.includes(tag.id)) {
-        form.tag_ids.push(tag.id)
+    /** 标签多选：点一下切换选中状态，弹层不关闭 */
+    function toggleTag(id) {
+      if (form.tag_ids.includes(id)) {
+        form.tag_ids = form.tag_ids.filter((t) => t !== id)
+      } else {
+        form.tag_ids = [...form.tag_ids, id]
       }
-      showTagPicker.value = false
     }
 
     function removeTag(id) {
@@ -562,13 +616,13 @@ export default {
 
     return {
       visible, types, form, primaryColor, currencySymbol,
-      categoryList, displayAmount, canSave,
-      currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
-      selectedTags, quickDays, isQuickDay, shortDate,
+      categoryList, amountDisplay, isRawInput, computedPreview, canSave,
+      currentAccountName, toAccountName, accountActions, toAccountActions,
+      selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
       iconChar, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
-      onAccountSelect, onToAccountSelect, onTagSelect, removeTag,
+      onAccountSelect, onToAccountSelect, toggleTag, removeTag,
       onCalendarConfirm, onSave, onClose
     }
   }
@@ -635,8 +689,8 @@ export default {
 .amount-area {
   padding: 32rpx 32rpx 16rpx;
   display: flex;
-  align-items: baseline;
-  gap: 16rpx;
+  flex-direction: column;
+  gap: 4rpx;
 }
 
 .amount-label {
@@ -661,6 +715,19 @@ export default {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
+}
+
+/* 算式输入时：字号略小，用等宽字体对齐运算符 */
+.amount-value.is-raw {
+  font-size: 48rpx;
+  letter-spacing: 1rpx;
+}
+
+/* 算式结果预览 */
+.amount-preview {
+  font-size: 26rpx;
+  color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .cat-scroll {
@@ -768,50 +835,81 @@ export default {
   font-size: 24rpx;
 }
 
-/* 标签：单行横向滚动，不换行 */
-.tag-scroll {
-  width: 100%;
-  white-space: nowrap;
-}
-
-.tag-area {
+/* 标签多选弹层 */
+.tag-sheet {
+  background-color: var(--app-card);
+  padding-bottom: env(safe-area-inset-bottom);
+  max-height: 70vh;
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 12rpx;
-  padding-right: 24rpx;
+  flex-direction: column;
 }
 
-.tag-chip {
+.tag-sheet-head {
   display: flex;
   align-items: center;
-  gap: 8rpx;
-  padding: 8rpx 16rpx;
-  border-radius: 20rpx;
-  border: 1rpx solid;
+  justify-content: space-between;
+  padding: 28rpx 32rpx 20rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.tag-sheet-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.tag-sheet-done {
+  font-size: 28rpx;
+  color: var(--app-primary);
+  font-weight: 500;
+}
+
+.tag-sheet-scroll {
+  max-height: 50vh;
+}
+
+.tag-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 26rpx 32rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.tag-sheet-item:last-child {
+  border-bottom: none;
+}
+
+.tag-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 2rpx solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  white-space: nowrap;
 }
 
-.tag-chip-text {
+.tag-check-mark {
+  color: #ffffff;
   font-size: 24rpx;
+  line-height: 1;
 }
 
-.tag-chip-x {
-  font-size: 26rpx;
-  color: var(--app-text-3);
+.tag-sheet-name {
+  font-size: 28rpx;
+  color: var(--app-text);
+  flex: 1;
 }
 
-.tag-add {
-  padding: 8rpx 20rpx;
-  border-radius: 20rpx;
-  border: 1rpx dashed var(--app-line);
-  flex-shrink: 0;
-  white-space: nowrap;
+.tag-sheet-empty {
+  padding: 60rpx 32rpx;
+  text-align: center;
 }
 
-.tag-add-text {
-  font-size: 24rpx;
+.tag-sheet-empty-text {
+  font-size: 25rpx;
   color: var(--app-text-3);
 }
 

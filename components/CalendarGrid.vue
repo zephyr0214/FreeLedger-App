@@ -68,8 +68,6 @@
         :style="{ backgroundColor: heatColorByLevel(i + 1) }"
       />
       <text class="legend-label">多</text>
-      <view class="legend-spacer" />
-      <text class="legend-hint">上 -支出 / 下 +收入</text>
     </view>
   </view>
 </template>
@@ -338,14 +336,5 @@ export default {
   width: 20rpx;
   height: 20rpx;
   border-radius: 4rpx;
-}
-
-.legend-spacer {
-  flex: 1;
-}
-
-.legend-hint {
-  font-size: 19rpx;
-  color: var(--app-text-3);
 }
 </style>

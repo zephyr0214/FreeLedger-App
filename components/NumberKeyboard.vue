@@ -1,25 +1,30 @@
 <template>
   <view class="num-keyboard">
     <!--
-      4 列 x 5 行 = 20 个键
+      4 列 x 5 行
       ┌────┬────┬────┬────┐
       │ C  │ ÷  │ ×  │ ⌫  │
       │ 1  │ 2  │ 3  │ -  │
       │ 4  │ 5  │ 6  │ +  │
-      │ 7  │ 8  │ 9  │ =  │
-      │ () │ 0  │ .  │完成│
+      │ 7  │ 8  │ 9  │完成│
+      │ () │ 0  │ .  │    │
       └────┴────┴────┴────┘
+
+      「完成」键同时承担求值和保存：
+        - 输入是算式（如 12+8）→ 先算出结果再保存
+        - 输入是单个数字 → 直接保存
+      所有键（除「完成」）样式完全一致：白底、深灰字。
     -->
     <view class="kb-grid">
       <view
-        v-for="k in keys"
-        :key="k"
+        v-for="(k, i) in keys"
+        :key="i"
         class="kb-key"
         :class="kbKeyClass(k)"
         hover-class="kb-key-hover"
         @click="onKeyPress(k)"
       >
-        <text class="kb-key-text" :class="kbTextClass(k)">{{ k }}</text>
+        <text v-if="k" class="kb-key-text" :class="kbTextClass(k)">{{ k }}</text>
       </view>
     </view>
   </view>
@@ -51,15 +56,17 @@ export default {
      *   C   ÷   ×   ⌫
      *   1   2   3   -
      *   4   5   6   +
-     *   7   8   9   =
-     *   ()  0   .   完成
+     *   7   8   9   完成
+     *   ()  0   .   (空)
+     *
+     * 没有单独的 = 键：「完成」键按下时会先把算式算出结果再保存。
      */
     const keys = [
       'C', '÷', '×', '⌫',
       '1', '2', '3', '-',
       '4', '5', '6', '+',
-      '7', '8', '9', '=',
-      '()', '0', '.', '完成'
+      '7', '8', '9', '完成',
+      '()', '0', '.', ''
     ]
 
     const OPERATORS = ['+', '-', '×', '÷']
@@ -67,19 +74,14 @@ export default {
 
     function kbKeyClass(k) {
       if (k === '完成') return 'kb-finish'
-      if (isOperator(k)) return 'kb-op'
-      if (k === '⌫') return 'kb-backspace'
-      if (k === 'C') return 'kb-clear'
-      if (k === '()') return 'kb-bracket'
-      return ''
+      if (k === '') return 'kb-blank'
+      // 除「完成」外，所有键样式完全一致
+      return 'kb-plain'
     }
 
     function kbTextClass(k) {
       if (k === '完成') return 'kb-finish-text'
-      if (isOperator(k)) return 'kb-op-text'
-      if (k === '⌫') return 'kb-backspace-text'
-      if (k === 'C') return 'kb-clear-text'
-      return ''
+      return 'kb-plain-text'
     }
 
     /**
@@ -104,6 +106,7 @@ export default {
     }
 
     function onKeyPress(k) {
+      if (!k) return   // 空白占位键
       if (k === '完成') {
         onFinish()
         return
@@ -249,52 +252,20 @@ export default {
   background-color: var(--app-line);
 }
 
-.kb-key-text {
-  font-size: 38rpx;
-  color: var(--app-text);
+/* 普通键：除「完成」外全部统一为白底深灰字 */
+.kb-plain-text {
+  font-size: 36rpx;
+  color: var(--app-text-2);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-/* 运算符 */
-.kb-op {
-  background-color: var(--app-card-2);
+/* 空白占位 */
+.kb-blank {
+  background-color: transparent;
 }
 
-.kb-op-text {
-  font-size: 34rpx;
-  color: var(--app-text-2);
-}
-
-/* 退格 */
-.kb-backspace-text {
-  font-size: 32rpx;
-  color: var(--app-text-2);
-}
-
-/* 清除 C */
-.kb-clear {
-  background-color: var(--app-card-2);
-}
-
-.kb-clear-text {
-  font-size: 30rpx;
-  color: var(--app-danger);
-  font-weight: 600;
-}
-
-/* 智能括号 () */
-.kb-bracket {
-  background-color: var(--app-card-2);
-}
-
-.kb-bracket .kb-key-text {
-  font-size: 28rpx;
-  color: var(--app-text-2);
-  font-weight: 500;
-}
-
-/* 完成 */
+/* 完成：唯一有别于其他键的样式 */
 .kb-finish {
   background-color: var(--app-primary);
 }
