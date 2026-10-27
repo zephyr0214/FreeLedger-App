@@ -50,7 +50,7 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false }
   },
-  emits: ['update:modelValue', 'saved'],
+  emits: ['update:modelValue', 'saved', 'parsing-start', 'parsing-end'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -90,17 +90,20 @@ export default {
     /**
      * 输入条位置。
      *
-     * ★ 不要自己加键盘高度 ★
-     *   页面已配置 softinputMode=adjustResize，键盘弹出时整个 webview
-     *   （连同原生 tabBar）会被压缩到键盘上沿之上。
-     *   如果这里再用 bottom = 键盘高度，就会「webview 已经抬一次 +
-     *   输入条又抬一次」，表现为输入条飞到屏幕中间。
+     * 键盘模式是 adjustPan（见 pages.json）：
+     *   - 窗口高度不变，所以在原生 tabBar 不会被顶起来
+     *   - 但 webview 内容会被系统整体平移，需要我们自己把页面「按住」
      *
-     *   所以固定贴在 webview 底部即可，键盘出现时它会自然落在键盘上方。
+     * 因此这里用 bottom = 键盘高度，让输入条浮到键盘上沿；
+     * 同时页面根节点在键盘弹出时做反向 translateY 补偿（见 App.vue 的
+     * handleKeyboardShift），保证用户看到的画面不发生整体位移。
      */
-    const barStyle = computed(() => ({
-      bottom: 'calc(env(safe-area-inset-bottom) + 20rpx)'
-    }))
+    const barStyle = computed(() => {
+      const bottom = keyboardHeight.value > 0
+        ? keyboardHeight.value + 'px'
+        : 'calc(env(safe-area-inset-bottom) + 20rpx)'
+      return { bottom }
+    })
 
     /* ------------------------------------------------------ 键盘 */
 
@@ -109,11 +112,10 @@ export default {
     /**
      * 进入/退出输入态时切换原生 tabBar 的显隐。
      *
-     * 为什么要隐藏 tabBar：
-     *   adjustResize 会让 webview 收缩到键盘上沿，原生 tabBar 作为
-     *   webview 的一部分也会被顶到键盘上方，和输入条挤在一起。
-     *   输入时把 tabBar 藏起来，视觉上就是一个干净的输入条贴键盘，
-     *   退出时再显示，tabBar 自然回到底部。
+     * 为什么必须隐藏：
+     *   adjustPan 会把整个 webview（含原生 tabBar）整体上推。
+     *   tabBar 藏起来后就不会跟着移动；输入条由我们按键盘高度自己定位，
+     *   视觉上就是「底栏消失，输入框贴键盘浮出」。
      */
     function hideTabBar() {
       try {
@@ -184,6 +186,13 @@ export default {
 
       submitting.value = true
 
+      // 通知首页在最近交易顶部插入「正在解析」占位行
+      emit('parsing-start', { text: text.length > 18 ? text.slice(0, 18) + '…' : text })
+
+      // 解析期间先收起输入态，让用户能看到列表里的占位行
+      const pendingText = text
+      close()
+
       try {
         const [categories, tags] = await Promise.all([listCategories(), listTags()])
         await accountStore.load()
@@ -195,7 +204,7 @@ export default {
         const defaultAccountId =
           settingStore.settings.defaultAccountId || accountStore.list[0].id
 
-        const result = await parseMessageToTransactions(text, {
+        const result = await parseMessageToTransactions(pendingText, {
           categories,
           accounts: accountStore.list,
           tags,
@@ -216,18 +225,16 @@ export default {
               to_account_id: item.to_account_id,
               category_id: item.category_id,
               occurred_day: item.occurred_day,
-              note: item.note || text,
+              note: item.note || pendingText,
               tag_ids: item.tag_ids,
               source: 'quick',
-              raw_text: text
+              raw_text: pendingText
             })
             saved++
           } catch (e) {
             failures.push(e.message)
           }
         }
-
-        draft.value = ''
 
         if (saved > 0) {
           const summary = result.items
@@ -243,7 +250,6 @@ export default {
           })
 
           emit('saved')
-          close()
         }
 
         // 部分失败或校验警告要告知用户
@@ -265,6 +271,8 @@ export default {
         })
       } finally {
         submitting.value = false
+        // 无论成功失败都要结束占位行动效
+        emit('parsing-end')
       }
     }
 

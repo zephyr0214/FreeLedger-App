@@ -73,11 +73,33 @@
             <text class="section-more" @click="goAllTxn">查看全部 ›</text>
           </view>
 
-          <view v-if="txnStore.displayList.length === 0" class="section-empty">
+          <!-- 空状态：但解析中时不要显示，否则占位行和空状态打架 -->
+          <view
+            v-if="txnStore.displayList.length === 0 && !parsing"
+            class="section-empty"
+          >
             <EmptyState emoji="📝" title="还没有记账" desc="点击右下角 + 记一笔" compact />
           </view>
 
           <view v-else class="txn-list">
+            <!-- 正在解析的占位行：让用户立刻看到"已提交，在处理" -->
+            <view v-if="parsing" class="txn-item parsing-item">
+              <view class="txn-icon parsing-icon" :style="{ backgroundColor: primaryColor + '22' }">
+                <view class="parsing-dot" :style="{ backgroundColor: primaryColor }" />
+              </view>
+              <view class="txn-info">
+                <text class="txn-name parsing-name">{{ parsingText || '正在解析…' }}</text>
+                <text class="txn-sub">AI 正在识别时间、分类和金额</text>
+              </view>
+              <view class="txn-amount">
+                <view class="parsing-bars">
+                  <view class="pbar" :style="{ backgroundColor: primaryColor }" />
+                  <view class="pbar" :style="{ backgroundColor: primaryColor }" />
+                  <view class="pbar" :style="{ backgroundColor: primaryColor }" />
+                </view>
+              </view>
+            </view>
+
             <view
               v-for="txn in txnStore.displayList"
               :key="txn.id"
@@ -177,7 +199,12 @@
       />
 
       <!-- AI 智能记账输入条（替代原速记层） -->
-      <QuickAddBar v-model="showQuickAdd" @saved="onSaved" />
+      <QuickAddBar
+        v-model="showQuickAdd"
+        @saved="onSaved"
+        @parsing-start="onParsingStart"
+        @parsing-end="onParsingEnd"
+      />
 
       <!-- 记账面板（长按或展开时打开） -->
       <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
@@ -221,6 +248,10 @@ export default {
     const refreshing = ref(false)
     const showPanel = ref(false)
     const showQuickAdd = ref(false)
+
+    /** 正在 AI 解析中：在最近交易顶部插入一条占位行 */
+    const parsing = ref(false)
+    const parsingText = ref('')
     const panelPreset = ref(null)
     const budget = ref(null)
     const selectedDay = ref('')
@@ -333,7 +364,24 @@ export default {
 
     function onHoldCancel() {}
 
+    /**
+     * QuickAddBar 开始请求 AI 时触发。
+     * 在最近交易顶部插入「正在解析」占位行，让用户立刻看到反馈，
+     * 而不是盯着一个没反应的输入框等几秒。
+     */
+    function onParsingStart(payload) {
+      parsingText.value = (payload && payload.text) || ''
+      parsing.value = true
+    }
+
+    function onParsingEnd() {
+      parsing.value = false
+      parsingText.value = ''
+    }
+
     function onSaved() {
+      parsing.value = false
+      parsingText.value = ''
       loadAll(true)
     }
 
@@ -415,11 +463,12 @@ export default {
     return {
       settingStore, accountStore, txnStore,
       refreshing, showPanel, panelPreset,
-      budget, selectedDay, showQuickAdd,
+      budget, selectedDay, showQuickAdd, parsing, parsingText,
       showDayDetail, dayActions, dayDetailTitle,
       primaryColor, pageStyle, hasAccounts, overview, monthLabel, calendarTitle,
       onRefresh, shiftCalMonth, onDayClick, onDayTxnSelect,
-      openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel, onSaved,
+      openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel,
+      onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub, dayLabel,
       goAddAccount, goSettings, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
@@ -592,6 +641,74 @@ export default {
 .txn-day {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/* ============ 正在解析占位行 ============ */
+.parsing-item {
+  /* 轻微高亮，与真实记录区分 */
+  background-color: var(--app-primary-light);
+}
+
+.parsing-icon {
+  position: relative;
+}
+
+/* 呼吸中的圆点 */
+.parsing-dot {
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+  animation: parsing-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes parsing-pulse {
+  0%, 100% {
+    transform: scale(0.6);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.parsing-name {
+  /* 文字做微弱的明暗流动，暗示"处理中" */
+  animation: parsing-fade 1.4s ease-in-out infinite;
+}
+
+@keyframes parsing-fade {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* 三根跳动的竖条 */
+.parsing-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6rpx;
+  height: 32rpx;
+}
+
+.pbar {
+  width: 8rpx;
+  border-radius: 4rpx;
+  animation: parsing-bar 0.9s ease-in-out infinite;
+}
+
+.pbar:nth-child(1) {
+  animation-delay: 0s;
+}
+.pbar:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.pbar:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes parsing-bar {
+  0%, 100% { height: 10rpx; opacity: 0.45; }
+  50%      { height: 30rpx; opacity: 1; }
 }
 
 /* 预算 */

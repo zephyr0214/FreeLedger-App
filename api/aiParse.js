@@ -332,7 +332,8 @@ export async function parseMessageToTransactions(text, ctx) {
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    { maxTokens: 1200, temperature: 0 }
+    // 记账解析不需要推理过程，关掉深度思考能把响应从数秒压到 1~2 秒
+    { maxTokens: 1200, temperature: 0, disableThinking: true }
   )
 
   // ---- 提取 JSON

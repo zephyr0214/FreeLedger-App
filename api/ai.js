@@ -38,6 +38,24 @@ export async function chat(messages, opt = {}) {
   }
   if (opt.maxTokens) body.max_tokens = opt.maxTokens
 
+  /**
+   * 关闭「深度思考」以降低延迟。
+   *
+   * 各家参数名不统一，这里一次性把常见的都带上：
+   *   - DeepSeek / 多数 OpenAI 兼容网关：thinking: { type: 'disabled' }
+   *   - 部分厂商：enable_thinking: false
+   *   - 部分厂商：reasoning: { enabled: false }
+   * 不认识的字段会被服务端忽略，不会报错。
+   *
+   * 另外：如果用户自己把模型名填成 deepseek-reasoner 这类推理模型，
+   * 那是模型本身的行为，参数关不掉 —— 这种情况在设置页给了提示。
+   */
+  if (opt.disableThinking !== false) {
+    body.thinking = { type: 'disabled' }
+    body.enable_thinking = false
+    body.reasoning = { enabled: false }
+  }
+
   return new Promise((resolve, reject) => {
     let settled = false
     const timer = setTimeout(() => {
