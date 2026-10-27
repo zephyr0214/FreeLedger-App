@@ -285,8 +285,14 @@ export default {
       activeIndex.value = findNearestIndex(touchToChartX(t), coords.value)
     }
 
+    /**
+     * 松手就隐藏。
+     *
+     * 用户要求「手按上才显示，手松开就不显示」——
+     * 提示气泡只在手指按住时出现，一抬手指就没了。
+     */
     function onTouchEnd() {
-      // 松手后保留选中状态（用户要求「触碰上去会显示日期和金额」）
+      activeIndex.value = -1
     }
 
     // 挂载后量一次容器尺寸（触摸换算要用）
