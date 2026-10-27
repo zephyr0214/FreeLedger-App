@@ -79,6 +79,27 @@ export default {
     /** close() 重入锁 */
     let closing = false
 
+    /**
+     * 聚焦兜底定时器。
+     * ★ 必须保存并在关闭时清掉 ★
+     *   原先这两个 setTimeout 没被引用，close() 时无法取消。
+     *   组件已经关闭销毁后，定时器仍会执行 autoFocus=false→true，
+     *   把下一次打开时的聚焦状态打乱，表现为「第二次起键盘不弹」。
+     */
+    let focusTimer1 = null
+    let focusTimer2 = null
+
+    function clearFocusTimers() {
+      if (focusTimer1) {
+        clearTimeout(focusTimer1)
+        focusTimer1 = null
+      }
+      if (focusTimer2) {
+        clearTimeout(focusTimer2)
+        focusTimer2 = null
+      }
+    }
+
     const visible = computed({
       get: () => props.modelValue,
       set: (v) => emit('update:modelValue', v)
@@ -88,22 +109,20 @@ export default {
     const canSend = computed(() => draft.value.trim().length > 0 && !submitting.value)
 
     /**
-     * 输入条位置。
+     * 输入条位置：贴在 webview 底部。
      *
-     * 键盘模式是 adjustPan（见 pages.json）：
-     *   - 窗口高度不变，所以在原生 tabBar 不会被顶起来
-     *   - 但 webview 内容会被系统整体平移，需要我们自己把页面「按住」
+     * ★ 键盘高度不能叠加 ★
+     *   softinputMode = adjustResize 时，webview 会收缩到键盘上沿，
+     *   此时 position:fixed 的 bottom:0 天然就贴在键盘上沿。
+     *   若 bottom 再写成键盘高度，等于又抬一次 ——
+     *   表现为「输入框飞到屏幕中间」或「离键盘一大段距离」。
      *
-     * 因此这里用 bottom = 键盘高度，让输入条浮到键盘上沿；
-     * 同时页面根节点在键盘弹出时做反向 translateY 补偿（见 App.vue 的
-     * handleKeyboardShift），保证用户看到的画面不发生整体位移。
+     *   所以这里只加安全区，键盘高度一律不参与定位。
+     *   （keyboardHeight 仅用于判断键盘是否被系统收起。）
      */
-    const barStyle = computed(() => {
-      const bottom = keyboardHeight.value > 0
-        ? keyboardHeight.value + 'px'
-        : 'calc(env(safe-area-inset-bottom) + 20rpx)'
-      return { bottom }
-    })
+    const barStyle = computed(() => ({
+      bottom: 'calc(env(safe-area-inset-bottom) + 20rpx)'
+    }))
 
     /* ------------------------------------------------------ 键盘 */
 
@@ -300,6 +319,7 @@ export default {
       keyboardHeight.value = 0
       maskEnabled.value = false
       keyboardEverShown = false
+      clearFocusTimers()
       if (maskTimer) {
         clearTimeout(maskTimer)
         maskTimer = null
@@ -309,10 +329,15 @@ export default {
       // 恢复 tabBar，否则退出输入态后底栏一直不见了
       showTabBar()
 
-      // 等这一轮事件循环结束再解锁
+      /**
+       * 解锁要快。
+       * 这里只是防止 hideKeyboard 触发的回调递归，用不着等 50ms。
+       * 等太久会让用户紧接着的下一次点击被这个锁挡住，
+       * 表现为「第二次点 + 没反应」。
+       */
       setTimeout(() => {
         closing = false
-      }, 50)
+      }, 0)
     }
 
     /* ------------------------------------------------------ 生命周期 */
@@ -322,6 +347,7 @@ export default {
       async (open) => {
         if (!open) {
           unbindKeyboard()
+          clearFocusTimers()
           showTabBar()
           return
         }
@@ -346,14 +372,21 @@ export default {
         /**
          * 显式聚焦。
          * 只靠 :focus="autoFocus" 在 v-if 首次渲染时经常不生效
-         * （组件挂载与属性求值时序问题），表现为「输入条出来了但键盘不弹」。
-         * 先置 true 触发一次，再延时兜底一次，两者都不贵。
+         * （组件挂载与属性求值时序问题），所以补一次「先 false 再 true」，
+         * 强制 Vue 检测到属性变化从而触发聚焦。
+         *
+         * 两个定时器都存进变量，close() 时必须清掉 —— 否则它们会在
+         * 组件销毁后继续跑，污染下一次打开的状态。
          */
         autoFocus.value = true
-        setTimeout(() => {
+
+        clearFocusTimers()
+        focusTimer1 = setTimeout(() => {
+          focusTimer1 = null
           if (!visible.value) return
           autoFocus.value = false
-          setTimeout(() => {
+          focusTimer2 = setTimeout(() => {
+            focusTimer2 = null
             if (visible.value) autoFocus.value = true
           }, 60)
         }, 220)

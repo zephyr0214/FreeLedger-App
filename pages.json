@@ -140,7 +140,7 @@
 		"backgroundColor": "#F7F8FA",
 		"app-plus": {
 			"background": "#F7F8FA",
-			"softinputMode": "adjustPan"
+			"softinputMode": "adjustResize"
 		}
 	},
 	"tabBar": {
