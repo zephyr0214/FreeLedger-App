@@ -1,9 +1,12 @@
 /**
- * 分类容器宽度计算验证
+ * 分类两行布局验证
  *
  *   node scripts/test-cat-width.mjs
  *
- * 验证 375px 宽屏下，各种分类数量对应的容器宽度与是否需要滑动。
+ * 布局规则：
+ *   - 所有分类平分到两行（32 个 → 每行 16 个）
+ *   - scroll-view 可视宽度只够显示 VISIBLE_PER_ROW 个（6 个）
+ *   - 容器宽度 = 一行的实际数量，超过可视宽度才能右滑
  */
 
 const WINDOWS = [
@@ -13,51 +16,83 @@ const WINDOWS = [
   { name: 'Android 常见', width: 393 }
 ]
 
-const CATS_PER_ROW = 5
+const VISIBLE_PER_ROW = 6
 const ITEM_RPX = 108
 const GAP_RPX = 8
 const PAD_RPX = 32
 
-function calcWidth(catCount, windowWidth) {
+/** 分类平分到两行，返回每行的数量 */
+function splitRows(catCount) {
+  if (catCount === 0) return [0, 0]
+  const half = Math.ceil(catCount / 2)
+  return [half, catCount - half]
+}
+
+function calc(catCount, windowWidth) {
   const rpx = windowWidth / 750
   const itemW = ITEM_RPX * rpx
   const gap = GAP_RPX * rpx
   const padX = PAD_RPX * rpx
 
-  const row1 = Math.min(catCount, CATS_PER_ROW)
-  const row2 = Math.max(catCount - CATS_PER_ROW, 0)
-  const maxCount = Math.max(row1, row2)
-  if (maxCount === 0) return 0
+  const rows = splitRows(catCount)
+  const maxCount = Math.max(rows[0], rows[1])
+  if (maxCount === 0) {
+    return { rows, container: 0, viewport: windowWidth, visible: 0, scrollable: false }
+  }
 
+  // 容器宽 = 一行的实际数量
   const rowW = maxCount * itemW + Math.max(maxCount - 1, 0) * gap
-  return Math.ceil(rowW + padX * 2)
+  const container = Math.ceil(rowW + padX * 2)
+
+  // 可视宽 = 只显示 VISIBLE_PER_ROW 个
+  const visibleW = VISIBLE_PER_ROW * itemW + (VISIBLE_PER_ROW - 1) * gap
+  const viewport = Math.min(Math.ceil(visibleW + padX * 2), windowWidth)
+
+  return {
+    rows,
+    container,
+    viewport,
+    visible: Math.min(VISIBLE_PER_ROW, maxCount),
+    scrollable: container > viewport
+  }
 }
 
 let fail = 0
 
 for (const w of WINDOWS) {
   console.log(`\n=== ${w.name} (${w.width}px) ===`)
-  for (const n of [0, 3, 5, 6, 9, 12, 15, 20, 30]) {
-    const total = calcWidth(n, w.width)
-    if (total === 0) {
-      console.log(`  ${String(n).padStart(2)} 个 -> 无宽度`)
+  for (const n of [0, 3, 9, 12, 16, 20, 32, 50]) {
+    const r = calc(n, w.width)
+    if (n === 0) {
+      console.log('   0 个 -> 空')
       continue
     }
-    const scrollable = total > w.width
-    const rows = n > CATS_PER_ROW ? 2 : (n > 0 ? 1 : 0)
+    const perRow = `${r.rows[0]}+${r.rows[1]}`
     console.log(
-      `  ${String(n).padStart(2)} 个 -> 容器 ${String(total).padStart(4)}px  ` +
-      `${rows} 行  ${scrollable ? '可右滑' : '不需要滑'}`
+      `  ${String(n).padStart(2)} 个 -> 每行 ${perRow.padEnd(7)} ` +
+      `容器 ${String(r.container).padStart(4)}px  视口 ${String(r.viewport).padStart(4)}px  ` +
+      `可见 ${r.visible}  ${r.scrollable ? '可右滑' : '不需滑'}`
     )
 
-    // 断言：行数不超过 2
-    if (rows > 2) {
-      console.log(`    ✗ 行数超过 2`)
+    // 断言 1：恒为两行
+    if (r.rows.length !== 2) {
+      console.log('    ✗ 不是两行')
       fail++
     }
-    // 断言：能放下所有分类（第 2 行可无限长）
-    if (n > 0 && rows === 0) {
-      console.log(`    ✗ 有分类但算出 0 行`)
+    // 断言 2：视口最多显示 6 个
+    if (r.visible > VISIBLE_PER_ROW) {
+      console.log(`    ✗ 视口显示了 ${r.visible} 个，超过 ${VISIBLE_PER_ROW}`)
+      fail++
+    }
+    // 断言 3：容器必须能装下所有分类
+    const perRowMax = Math.max(r.rows[0], r.rows[1])
+    if (perRowMax * 2 < n) {
+      console.log('    ✗ 装不下所有分类')
+      fail++
+    }
+    // 断言 4：超过可见数就必须能滑
+    if (n > VISIBLE_PER_ROW * 2 && !r.scrollable) {
+      console.log('    ✗ 分类多于可见数但不能滑动')
       fail++
     }
   }

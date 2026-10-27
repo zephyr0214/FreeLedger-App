@@ -58,6 +58,7 @@
       <scroll-view
         v-if="form.type !== 'transfer'"
         class="cat-scroll"
+        :style="catScrollStyle"
         scroll-x
         :show-scrollbar="false"
       >
@@ -277,20 +278,24 @@ export default {
     })
 
     /**
-     * 分类分成两行。
+     * 分类分成两行，每行装全部分类的一半。
      *
-     * 每行放 5 个：iPhone 13 上正好一屏显示 5×2 = 10 个，
-     * 常见的 9 个支出分类刚好两行显示完，不用滑动。
-     * 分类超过 10 个时，第二行会变长，可以向右滑动查看。
+     * 例：32 个分类 → 每行 16 个，但视口只显示 6 个的宽度，
+     * 向右滑动可以依次看到后面的分类。
      */
-    const CATS_PER_ROW = 5
-
     const categoryRows = computed(() => {
       const list = categoryList.value
-      const row1 = list.slice(0, CATS_PER_ROW)
-      const row2 = list.slice(CATS_PER_ROW)
-      return [row1, row2]
+      if (list.length === 0) return [[], []]
+      // 奇数个时多出来的给第一行
+      const half = Math.ceil(list.length / 2)
+      return [list.slice(0, half), list.slice(half)]
     })
+
+    /**
+     * 一屏能显示几个分类（视口宽度决定的可见数量）。
+     * 用来算 scroll-view 的可视宽度，超出的靠横向滑动。
+     */
+    const VISIBLE_PER_ROW = 6
 
     /**
      * 分类容器的显式宽度。
@@ -305,19 +310,39 @@ export default {
       const maxCount = rows.reduce((m, r) => Math.max(m, r.length), 0)
       if (maxCount === 0) return {}
 
-      // 1rpx 等于多少 px：750rpx 对应屏幕宽
-      let rpx = 1
-      try {
-        const info = uni.getSystemInfoSync()
-        if (info.windowWidth) rpx = info.windowWidth / 750
-      } catch (e) {}
-
+      const rpx = rpxRatio()
       const itemW = 108 * rpx
       const gap = 8 * rpx
       const padX = 32 * rpx
       const rowW = maxCount * itemW + Math.max(maxCount - 1, 0) * gap
       return { width: `${Math.ceil(rowW + padX * 2)}px` }
     })
+
+    /**
+     * scroll-view 的可视宽度：一屏能放下 VISIBLE_PER_ROW 个分类。
+     * 超出部分的分类靠横向滑动查看。
+     */
+    const catScrollStyle = computed(() => {
+      const rows = categoryRows.value
+      const maxCount = rows.reduce((m, r) => Math.max(m, r.length), 0)
+      if (maxCount <= VISIBLE_PER_ROW) return {}
+
+      const rpx = rpxRatio()
+      const itemW = 108 * rpx
+      const gap = 8 * rpx
+      const padX = 32 * rpx
+      const visibleW = VISIBLE_PER_ROW * itemW + (VISIBLE_PER_ROW - 1) * gap
+      return { width: `${Math.ceil(visibleW + padX * 2)}px` }
+    })
+
+    /** 1rpx 等于多少 px：750rpx 对应屏幕宽 */
+    function rpxRatio() {
+      try {
+        const info = uni.getSystemInfoSync()
+        if (info.windowWidth) return info.windowWidth / 750
+      } catch (e) {}
+      return 1
+    }
 
     /**
      * 金额行显示的内容。
@@ -703,7 +728,7 @@ export default {
 
     return {
       visible, types, form, primaryColor, currencySymbol,
-      categoryList, categoryRows, catListStyle, amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
+      categoryList, categoryRows, catListStyle, catScrollStyle, amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
