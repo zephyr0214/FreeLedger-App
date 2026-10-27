@@ -96,7 +96,7 @@
         </view>
       </view>
 
-      <!-- ② 账户统计：按账户 / 按账户类别，两个饼图 -->
+      <!-- ② 账户统计（按账户） -->
       <view class="card">
         <view class="card-head">
           <text class="card-title">账户统计</text>
@@ -119,8 +119,6 @@
         </view>
 
         <view v-else>
-          <!-- 按账户 -->
-          <text class="pie-title">按账户</text>
           <view class="donut-wrap">
             <view class="donut" :style="accountDonutStyle">
               <view class="donut-hole">
@@ -137,28 +135,46 @@
               <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
             </view>
           </view>
+        </view>
+      </view>
 
-          <!-- 按账户类别 -->
-          <text class="pie-title">按账户类别</text>
-          <view v-if="accountTypeStats.length === 0" class="card-empty">
-            <text class="empty-text">暂无数据</text>
+      <!-- ③ 账户类别统计 -->
+      <view class="card">
+        <view class="card-head">
+          <text class="card-title">账户类别统计</text>
+          <view class="type-toggle">
+            <text
+              class="type-tag"
+              :class="{ active: statType === 'expense' }"
+              @click="switchStatType('expense')"
+            >支出</text>
+            <text
+              class="type-tag"
+              :class="{ active: statType === 'income' }"
+              @click="switchStatType('income')"
+            >收入</text>
           </view>
-          <view v-else>
-            <view class="donut-wrap">
-              <view class="donut" :style="accountTypeDonutStyle">
-                <view class="donut-hole">
-                  <text class="donut-label">合计</text>
-                  <MoneyText :cents="accountTypeTotal" :size="30" :weight="600" color="var(--app-text)" />
-                </view>
+        </view>
+
+        <view v-if="accountTypeStats.length === 0" class="card-empty">
+          <text class="empty-text">{{ rangeLabel }}暂无数据</text>
+        </view>
+
+        <view v-else>
+          <view class="donut-wrap">
+            <view class="donut" :style="accountTypeDonutStyle">
+              <view class="donut-hole">
+                <text class="donut-label">合计</text>
+                <MoneyText :cents="accountTypeTotal" :size="30" :weight="600" color="var(--app-text)" />
               </view>
             </view>
-            <view class="rank-list">
-              <view v-for="t in accountTypeStats" :key="t.key" class="rank-item">
-                <view class="rank-dot" :style="{ backgroundColor: t.color }" />
-                <text class="rank-name">{{ t.name }}</text>
-                <text class="rank-pct">{{ piePercent(t.amount, accountTypeTotal) }}%</text>
-                <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
-              </view>
+          </view>
+          <view class="rank-list">
+            <view v-for="t in accountTypeStats" :key="t.key" class="rank-item">
+              <view class="rank-dot" :style="{ backgroundColor: t.color }" />
+              <text class="rank-name">{{ t.name }}</text>
+              <text class="rank-pct">{{ piePercent(t.amount, accountTypeTotal) }}%</text>
+              <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
             </view>
           </view>
         </view>
@@ -226,13 +242,13 @@
               <text class="cat-avg-hint">{{ c.count }} 笔</text>
             </view>
             <view class="cat-avg-values">
-              <view class="cat-avg-value">
+              <view class="cat-avg-row">
                 <text class="cat-avg-label">笔均</text>
-                <MoneyText :cents="c.avgPerTxn" :size="24" color="var(--app-text)" />
+                <MoneyText :cents="c.avgPerTxn" :size="26" color="var(--app-text)" />
               </view>
-              <view class="cat-avg-value">
+              <view class="cat-avg-row">
                 <text class="cat-avg-label">日均</text>
-                <MoneyText :cents="c.avgPerDay" :size="24" color="var(--app-text-2)" />
+                <MoneyText :cents="c.avgPerDay" :size="26" color="var(--app-text-2)" />
               </view>
             </view>
           </view>
@@ -777,6 +793,7 @@ export default {
 /* 各分类平均：名称 + 笔均/日均 */
 .cat-avg-item {
   gap: 14rpx;
+  align-items: center;
 }
 
 .cat-avg-name {
@@ -792,22 +809,24 @@ export default {
   color: var(--app-text-3);
 }
 
+/* 笔均、日均：上下两行 */
 .cat-avg-values {
-  display: flex;
-  align-items: center;
-  gap: 24rpx;
-  flex-shrink: 0;
-}
-
-.cat-avg-value {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2rpx;
+  gap: 12rpx;
+  flex-shrink: 0;
+}
+
+/* 每一行：标签和金额在同一行上对齐 */
+.cat-avg-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
 }
 
 .cat-avg-label {
-  font-size: 19rpx;
+  font-size: 20rpx;
   color: var(--app-text-3);
 }
 
