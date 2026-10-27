@@ -21,15 +21,26 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
 
-/** uni-app / 浏览器原生事件名，组件自定义事件不要用这些 */
+/**
+ * uni-app / 浏览器原生事件名，组件自定义事件不要用这些。
+ *
+ * ★ finish 也在列表里 ★
+ *   finish 是 HTML 规范中的表单事件（<form> 的 finish）。
+ *   踩过的坑：NumberKeyboard 用 emits: ['finish']，父组件写 @finish，
+ *   模板编译把 @finish 当成原生事件透传到根节点（wd-popup），
+ *   组件 emit('finish') 父组件收不到 —— 表现为「点完成毫无反应」，
+ *   控制台报 Property "onFinish" was accessed during render but is not defined。
+ *   改名为 submit-amount 后正常。
+ */
 const RESERVED_EVENTS = new Set([
   'tap', 'longtap', 'longpress', 'click', 'dblclick',
   'touchstart', 'touchmove', 'touchend', 'touchcancel',
-  'input', 'change', 'focus', 'blur', 'submit', 'reset',
+  'input', 'change', 'focus', 'blur', 'submit', 'reset', 'finish',
   'scroll', 'scrolltoupper', 'scrolltolower',
   'load', 'error', 'open', 'close',
   'confirm', 'cancel', 'play', 'pause', 'ended',
-  'resize', 'keydown', 'keyup'
+  'resize', 'keydown', 'keyup',
+  'select', 'invalid', 'toggle', 'beforeinput', 'compositionstart'
 ])
 
 let errors = []

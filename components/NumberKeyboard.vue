@@ -71,7 +71,16 @@ export default {
     /** 禁用完成 */
     disabled: { type: Boolean, default: false }
   },
-  emits: ['update:modelValue', 'finish'],
+  /**
+   * ★ 事件名不能叫 finish ★
+   *   finish 是 HTML 原生事件名（表单的 submit）。
+   *   uni-app 模板编译时 @finish 会被当作原生事件，
+   *   透传到根节点（wd-popup），组件 emit('finish') 时父组件收不到。
+   *   表现为「点完成毫无反应」，且控制台报
+   *   Property "onFinish" was accessed during render but is not defined on instance.
+   *   改用 submit-amount 这种不冲突的名字。
+   */
+  emits: ['update:modelValue', 'submit-amount'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -240,12 +249,12 @@ export default {
       }
       const v = props.modelValue
       if (hasUnmatchedParen(v)) {
-        emit('finish', -1)   // -1 表示括号不匹配
+        emit('submit-amount', -1)   // -1 表示括号不匹配
         return
       }
       const result = evaluate(v)
-      console.log('[kb] emit finish, value =', result)
-      emit('finish', result)
+      console.log('[kb] emit submit-amount, value =', result)
+      emit('submit-amount', result)
     }
 
     return {

@@ -169,12 +169,14 @@
         </view>
       </view>
 
-      <!-- 数字键盘：4x5，支持 + - × ÷ 和括号 -->
+      <!-- 数字键盘：4x5，支持 + - × ÷ 和括号
+           事件名用 submit-amount 而不是 finish：
+           finish 是 HTML 原生事件名，@finish 会被透传出去导致父组件收不到 -->
       <NumberKeyboard
         v-model="form.amountRaw"
         :finish-text="form.type === 'transfer' ? '转账' : '保存'"
         :disabled="!amountFilled"
-        @finish="onFinish"
+        @submit-amount="onFinish"
       />
     </view>
 
