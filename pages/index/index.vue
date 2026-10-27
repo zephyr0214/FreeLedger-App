@@ -17,11 +17,8 @@
     <block v-else>
       <AppHeader @avatar-click="goSettings">
         <template #right>
-          <view class="header-btn" @click="goAiChat">
-            <text class="header-btn-text">AI 助手</text>
-          </view>
-          <view class="header-btn" @click="goAllTxn">
-            <text class="header-btn-text">全部</text>
+          <view class="ai-btn" @click="goAiChat">
+            <text class="ai-btn-text">AI 助手</text>
           </view>
         </template>
       </AppHeader>
@@ -35,47 +32,121 @@
       >
         <!-- ② 本月概览 -->
         <view class="overview-card">
-          <view class="ov-head">
-            <text class="ov-label">本月结余</text>
-            <text class="ov-month">{{ monthLabel }}</text>
+          <!-- 上方：并联显示本月支出 / 本月收入 -->
+          <view class="ov-top">
+            <view class="ov-top-item">
+              <text class="ov-top-label">本月支出</text>
+              <MoneyText
+                :cents="overview.monthExpense"
+                :size="36"
+                :weight="600"
+                color="var(--app-text)"
+              />
+            </view>
+            <view class="ov-top-divider" />
+            <view class="ov-top-item">
+              <text class="ov-top-label">本月收入</text>
+              <MoneyText
+                :cents="overview.monthIncome"
+                :size="36"
+                :weight="600"
+                color="var(--app-text)"
+              />
+            </view>
           </view>
-          <MoneyText
-            :cents="overview.monthBalance"
-            :size="72"
-            :weight="600"
-            :sign="false"
-            :color="overview.monthBalance >= 0 ? 'var(--app-text)' : 'var(--app-danger)'"
-          />
+
+          <!-- 中间：三个关键数字 -->
           <view class="ov-split">
             <view class="ov-item">
-              <text class="ov-item-label">支出</text>
-              <MoneyText :cents="overview.monthExpense" :size="32" :weight="500" color="var(--app-text)" />
-            </view>
-            <view class="ov-divider" />
-            <view class="ov-item">
-              <text class="ov-item-label">收入</text>
-              <MoneyText :cents="overview.monthIncome" :size="32" :weight="500" color="var(--app-text)" />
-            </view>
-            <view class="ov-divider" />
-            <view class="ov-item">
               <text class="ov-item-label">今日支出</text>
-              <MoneyText :cents="overview.todayExpense" :size="32" :weight="500" color="var(--app-text)" />
+              <MoneyText :cents="overview.todayExpense" :size="30" :weight="500" color="var(--app-text)" />
+            </view>
+            <view class="ov-divider" />
+            <view class="ov-item">
+              <text class="ov-item-label">本月结余</text>
+              <MoneyText
+                :cents="overview.monthBalance"
+                :size="30"
+                :weight="500"
+                :color="overview.monthBalance >= 0 ? 'var(--app-text)' : 'var(--app-danger)'"
+              />
+            </view>
+            <view class="ov-divider" />
+            <view class="ov-item">
+              <text class="ov-item-label">预算剩余</text>
+              <MoneyText
+                :cents="budgetRemaining"
+                :size="30"
+                :weight="500"
+                :color="budgetRemaining < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
+              />
+            </view>
+          </view>
+
+          <!-- 下方：预算进度条（总预算 + 分类预算） -->
+          <view
+            v-if="totalBudget || categoryBudgets.length > 0"
+            class="ov-budgets"
+            @click="goBudget"
+          >
+            <view class="ov-budget">
+              <view class="ov-budget-head">
+                <text class="ov-budget-name">总预算</text>
+                <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
+                  {{ totalBudget.percent }}%
+                </text>
+              </view>
+              <view class="ov-budget-bar">
+                <view
+                  class="ov-budget-fill"
+                  :style="{
+                    width: Math.min(totalBudget.percent, 100) + '%',
+                    backgroundColor: totalBudget.over ? 'var(--app-danger)' : primaryColor
+                  }"
+                />
+              </view>
+              <view class="ov-budget-foot">
+                <MoneyText :cents="totalBudget.used" :size="20" color="var(--app-text-3)" />
+                <text class="ov-budget-slash">/</text>
+                <MoneyText :cents="totalBudget.limit" :size="20" color="var(--app-text-3)" />
+              </view>
+            </view>
+
+            <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
+              <view class="ov-budget-head">
+                <text class="ov-budget-name">{{ b.name }}</text>
+                <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
+                  {{ b.percent }}%
+                </text>
+              </view>
+              <view class="ov-budget-bar">
+                <view
+                  class="ov-budget-fill"
+                  :style="{
+                    width: Math.min(b.percent, 100) + '%',
+                    backgroundColor: b.over ? 'var(--app-danger)' : primaryColor
+                  }"
+                />
+              </view>
+              <view class="ov-budget-foot">
+                <MoneyText :cents="b.used" :size="20" color="var(--app-text-3)" />
+                <text class="ov-budget-slash">/</text>
+                <MoneyText :cents="b.limit" :size="20" color="var(--app-text-3)" />
+              </view>
             </view>
           </view>
         </view>
 
-        <!-- ③ 最近交易 -->
+        <!-- ③ 最近收支 -->
         <view class="section">
           <view class="section-head">
-            <text class="section-title">
-              {{ txnStore.isTodayEmpty ? '最近交易' : '今日交易' }}
-            </text>
+            <text class="section-title">最近收支</text>
             <text class="section-more" @click="goAllTxn">查看全部 ›</text>
           </view>
 
           <!-- 空状态：但解析中时不要显示，否则占位行和空状态打架 -->
           <view
-            v-if="txnStore.displayList.length === 0 && !parsing"
+            v-if="recentGroups.length === 0 && !parsing"
             class="section-empty"
           >
             <EmptyState emoji="📝" title="还没有记账" desc="点击右下角 + 记一笔" compact />
@@ -100,12 +171,22 @@
               </view>
             </view>
 
-            <view
-              v-for="txn in txnStore.displayList"
-              :key="txn.id"
-              class="txn-item"
-              @click="goTxnDetail(txn.id)"
-            >
+            <!-- 按日期分组的最近 5 条 -->
+            <block v-for="group in recentGroups" :key="group.day">
+              <view class="recent-day-head">
+                <text class="recent-day-title">{{ group.title }}</text>
+                <text class="recent-day-sum">
+                  <text v-if="group.expense > 0" class="recent-day-exp">支出 {{ (group.expense / 100).toFixed(2) }}</text>
+                  <text v-if="group.income > 0" class="recent-day-inc">收入 {{ (group.income / 100).toFixed(2) }}</text>
+                </text>
+              </view>
+
+              <view
+                v-for="txn in group.list"
+                :key="txn.id"
+                class="txn-item"
+                @click="goTxnDetail(txn.id)"
+              >
               <view
                 class="txn-icon"
                 :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
@@ -129,47 +210,13 @@
                   :sign="false"
                   :color="txn.type === 'expense' ? 'var(--app-text)' : (txn.type === 'income' ? 'var(--app-success)' : 'var(--app-text-2)')"
                 />
-                <text v-if="txnStore.isTodayEmpty" class="txn-day">{{ dayLabel(txn.occurred_day) }}</text>
               </view>
-            </view>
+              </view>
+            </block>
           </view>
         </view>
 
-        <!-- ⑤ 预算 -->
-        <view v-if="budget" class="section">
-          <view class="section-head">
-            <text class="section-title">本月预算</text>
-            <text class="section-more" @click="goBudget">设置 ›</text>
-          </view>
-          <view class="budget-card" @click="goBudget">
-            <view class="budget-top">
-              <view class="budget-left">
-                <MoneyText :cents="budget.used" :size="40" :weight="600" color="var(--app-text)" />
-                <text class="budget-limit">/ {{ (budget.limit / 100).toFixed(0) }}</text>
-              </view>
-              <text
-                class="budget-pct"
-                :style="{ color: budget.over ? 'var(--app-danger)' : primaryColor }"
-              >{{ budget.percent }}%</text>
-            </view>
-            <view class="budget-bar">
-              <view
-                class="budget-fill"
-                :style="{
-                  width: Math.min(budget.percent, 100) + '%',
-                  backgroundColor: budget.over ? 'var(--app-danger)' : primaryColor
-                }"
-              />
-            </view>
-            <text class="budget-tip">
-              {{ budget.over
-                ? `已超支 ¥${((budget.used - budget.limit) / 100).toFixed(2)}`
-                : `剩余 ¥${(budget.remaining / 100).toFixed(2)} · 日均可用 ¥${(budget.dailyAvailable / 100).toFixed(0)}` }}
-            </text>
-          </view>
-        </view>
-
-        <!-- ⑥ 月历 -->
+        <!-- ④ 月历 -->
         <view class="section">
           <view class="section-head">
             <text class="section-title">{{ calendarTitle }}</text>
@@ -253,11 +300,13 @@ export default {
     const parsing = ref(false)
     const parsingText = ref('')
     const panelPreset = ref(null)
-    const budget = ref(null)
     const selectedDay = ref('')
     const showDayDetail = ref(false)
     const dayActions = ref([])
     const dayDetailTitle = ref('')
+
+    /** 预算列表（总预算 + 各分类预算） */
+    const budgets = ref([])
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -265,6 +314,52 @@ export default {
     const hasAccounts = computed(() => accountStore.hasAccounts)
 
     const overview = computed(() => txnStore.overview)
+
+    /** 总预算（scope=total） */
+    const totalBudget = computed(
+      () => budgets.value.find((b) => b.scope === 'total') || null
+    )
+
+    /** 分类预算（没有则为空数组，概览卡里不显示） */
+    const categoryBudgets = computed(
+      () => budgets.value.filter((b) => b.scope === 'category')
+    )
+
+    /** 预算剩余：优先用总预算，没有总预算就用分类预算合计 */
+    const budgetRemaining = computed(() => {
+      if (totalBudget.value) return totalBudget.value.remaining
+      if (categoryBudgets.value.length > 0) {
+        return categoryBudgets.value.reduce((acc, b) => acc + b.remaining, 0)
+      }
+      return 0
+    })
+
+    /**
+     * 最近收支：近 5 条，按日期分组。
+     * 数据源统一走 txnStore.recentList（最近 5 笔），
+     * 不再优先显示今天的 —— 「最近收支」顾名思义就是最近的 5 条。
+     */
+    const recentGroups = computed(() => {
+      const list = txnStore.recentList || []
+      const groups = []
+      for (const txn of list) {
+        let g = groups.find((x) => x.day === txn.occurred_day)
+        if (!g) {
+          g = {
+            day: txn.occurred_day,
+            title: formatDayHeader(txn.occurred_day),
+            list: [],
+            expense: 0,
+            income: 0
+          }
+          groups.push(g)
+        }
+        g.list.push(txn)
+        if (txn.type === 'expense') g.expense += txn.amount_cents
+        if (txn.type === 'income') g.income += txn.amount_cents
+      }
+      return groups
+    })
 
     const monthLabel = computed(() => {
       const [, m] = txnStore.currentMonth.split('-')
@@ -287,10 +382,9 @@ export default {
 
       // 预算
       try {
-        const list = await getBudgetUsage(txnStore.currentMonth)
-        budget.value = list.find((b) => b.scope === 'total') || list[0] || null
+        budgets.value = await getBudgetUsage(txnStore.currentMonth)
       } catch (e) {
-        budget.value = null
+        budgets.value = []
       }
     }
 
@@ -312,7 +406,7 @@ export default {
       })
       // 同步预算
       getBudgetUsage(next).then((list) => {
-        budget.value = list.find((b) => b.scope === 'total') || list[0] || null
+        budgets.value = list
       }).catch(() => {})
     }
 
@@ -409,13 +503,6 @@ export default {
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
-    function dayLabel(dayKey) {
-      const rel = relativeDayLabel(dayKey)
-      if (rel) return rel
-      const [, m, d] = dayKey.split('-')
-      return `${Number(m)}/${Number(d)}`
-    }
-
     /* ------------------------------------------------------ 路由 */
 
     function goAddAccount() {
@@ -435,7 +522,7 @@ export default {
     }
 
     function goBudget() {
-      uni.navigateTo({ url: '/pages/settings/index' })
+      uni.navigateTo({ url: '/pages/settings/budget' })
     }
 
     function goAiChat() {
@@ -463,13 +550,14 @@ export default {
     return {
       settingStore, accountStore, txnStore,
       refreshing, showPanel, panelPreset,
-      budget, selectedDay, showQuickAdd, parsing, parsingText,
+      selectedDay, showQuickAdd, parsing, parsingText,
       showDayDetail, dayActions, dayDetailTitle,
-      primaryColor, pageStyle, hasAccounts, overview, monthLabel, calendarTitle,
+      primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
+      totalBudget, categoryBudgets, budgetRemaining, recentGroups,
       onRefresh, shiftCalMonth, onDayClick, onDayTxnSelect,
       openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
-      iconChar, txnTitle, txnSub, dayLabel,
+      iconChar, txnTitle, txnSub,
       goAddAccount, goSettings, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }
@@ -481,59 +569,70 @@ export default {
   padding: 0 32rpx;
 }
 
-.header-btn {
+/* AI 助手按钮：与账户页的「+ 添加账户」同一套样式，文字用主题色 */
+.ai-btn {
   padding: 8rpx 20rpx;
   border-radius: 20rpx;
   background-color: var(--app-card);
 }
 
-.header-btn-text {
+.ai-btn-text {
   font-size: 24rpx;
-  color: var(--app-text-2);
+  color: var(--app-primary);
 }
 
 .guide-area {
   padding-top: 120rpx;
 }
 
-/* 概览卡 */
+/* 概览卡：与账户页总资产卡同款渐变底色 */
 .overview-card {
-  background-color: var(--app-card);
+  background: linear-gradient(135deg, var(--app-primary-light), var(--app-card));
   border-radius: 24rpx;
-  padding: 36rpx 32rpx;
+  padding: 32rpx 32rpx 28rpx;
   margin-top: 8rpx;
   box-shadow: var(--app-shadow);
 }
 
-.ov-head {
+/* 上方并联：本月支出 / 本月收入 */
+.ov-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12rpx;
+  padding-bottom: 24rpx;
+  border-bottom: 1rpx solid var(--app-line);
 }
 
-.ov-label {
-  font-size: 26rpx;
+.ov-top-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.ov-top-label {
+  font-size: 24rpx;
   color: var(--app-text-2);
 }
 
-.ov-month {
-  font-size: 24rpx;
-  color: var(--app-text-3);
+.ov-top-divider {
+  width: 1rpx;
+  height: 52rpx;
+  background-color: var(--app-line);
+  margin: 0 24rpx;
 }
 
+/* 中间三个：今日支出 / 本月结余 / 预算剩余 */
 .ov-split {
   display: flex;
   align-items: center;
-  margin-top: 28rpx;
-  padding-top: 24rpx;
-  border-top: 1rpx solid var(--app-line);
+  margin-top: 24rpx;
 }
 
 .ov-item {
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 6rpx;
 }
 
@@ -546,6 +645,92 @@ export default {
   width: 1rpx;
   height: 48rpx;
   background-color: var(--app-line);
+}
+
+/* 下方预算进度条 */
+.ov-budgets {
+  margin-top: 24rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid var(--app-line);
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.ov-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.ov-budget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ov-budget-name {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+}
+
+.ov-budget-pct {
+  font-size: 22rpx;
+  font-weight: 500;
+}
+
+.ov-budget-bar {
+  height: 10rpx;
+  background-color: var(--app-card-2);
+  border-radius: 5rpx;
+  overflow: hidden;
+}
+
+.ov-budget-fill {
+  height: 100%;
+  border-radius: 5rpx;
+  transition: width 0.35s ease;
+}
+
+.ov-budget-foot {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
+
+.ov-budget-slash {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+}
+
+/* 最近收支的日期分组头 */
+.recent-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 28rpx 8rpx;
+  background-color: var(--app-card);
+}
+
+.recent-day-title {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-weight: 500;
+}
+
+.recent-day-sum {
+  display: flex;
+  gap: 16rpx;
+}
+
+.recent-day-exp {
+  font-size: 21rpx;
+  color: var(--app-text-3);
+}
+
+.recent-day-inc {
+  font-size: 21rpx;
+  color: var(--app-success);
 }
 
 /* 区块 */
@@ -709,56 +894,6 @@ export default {
 @keyframes parsing-bar {
   0%, 100% { height: 10rpx; opacity: 0.45; }
   50%      { height: 30rpx; opacity: 1; }
-}
-
-/* 预算 */
-.budget-card {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 28rpx;
-}
-
-.budget-top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 16rpx;
-}
-
-.budget-left {
-  display: flex;
-  align-items: baseline;
-  gap: 8rpx;
-}
-
-.budget-limit {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.budget-pct {
-  font-size: 28rpx;
-  font-weight: 600;
-}
-
-.budget-bar {
-  height: 12rpx;
-  background-color: var(--app-card-2);
-  border-radius: 6rpx;
-  overflow: hidden;
-}
-
-.budget-fill {
-  height: 100%;
-  border-radius: 6rpx;
-  transition: width 0.35s ease;
-}
-
-.budget-tip {
-  display: block;
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  margin-top: 12rpx;
 }
 
 /* 月历导航 */

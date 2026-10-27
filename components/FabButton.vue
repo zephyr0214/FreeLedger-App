@@ -16,9 +16,9 @@
       <text class="fab-icon" :class="{ rotated: pressing }">+</text>
     </view>
 
-    <!-- 长按提示 -->
-    <view v-if="pressing" class="fab-hint">
-      <text class="hint-text">松手打开记账面板</text>
+    <!-- 长按进度环：达到 3 秒时自动打开记账面板 -->
+    <view v-if="pressing" class="fab-ring">
+      <view class="fab-ring-inner" :style="ringStyle" />
     </view>
   </view>
 </template>
@@ -28,14 +28,10 @@ import { ref, computed } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 
 /**
- * 长按阈值（ms）
- *
- * ★ 不能设太短 ★
- *   原来 260ms —— 普通人一次点击的按压时长常见 200~350ms，
- *   稍慢一点就被判成长按，于是「单击没反应」（实际打开了记账面板）。
- *   400ms 是移动端长按的常见阈值（微信、支付宝都在 400~500ms）。
+ * 长按触发时长（ms）
+ * 3 秒：按住不动就自动打开手动记账面板，不用等松手。
  */
-const HOLD_MS = 400
+const HOLD_MS = 3000
 
 export default {
   name: 'FabButton',
@@ -57,10 +53,12 @@ export default {
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const pressing = ref(false)
+    const progress = ref(0)
 
     let startTs = 0
     let longFired = false
     let timer = null
+    let rafTimer = null
     let startX = 0
     let startY = 0
 
@@ -71,10 +69,33 @@ export default {
       right: props.right
     }))
 
+    /** 进度环的描边比例 */
+    const ringStyle = computed(() => ({
+      background: `conic-gradient(${primaryColor.value} ${progress.value * 360}deg, transparent ${progress.value * 360}deg)`
+    }))
+
     function clearTimer() {
       if (timer) {
         clearTimeout(timer)
         timer = null
+      }
+    }
+
+    function clearRaf() {
+      if (rafTimer) {
+        cancelAnimationFrame(rafTimer)
+        rafTimer = null
+      }
+      progress.value = 0
+    }
+
+    /** 进度环逐帧推进 */
+    function tick() {
+      if (!pressing.value) return
+      const elapsed = Date.now() - startTs
+      progress.value = Math.min(elapsed / HOLD_MS, 1)
+      if (progress.value < 1) {
+        rafTimer = requestAnimationFrame(tick)
       }
     }
 
@@ -86,60 +107,77 @@ export default {
       }
       startTs = Date.now()
       longFired = false
+      pressing.value = true
+      progress.value = 0
 
+      // 3 秒后自动打开，不需要等用户松手
       timer = setTimeout(() => {
         longFired = true
-        pressing.value = true
-        // 触觉反馈：告知已进入速记态
         try {
           uni.vibrateShort({ type: 'medium' })
         } catch (err) {}
         emit('hold-start')
+        emit('hold-end')
+        // 面板已弹出，这里直接复位，不再等待 touchend
+        pressing.value = false
+        clearRaf()
+        clearTimer()
       }, HOLD_MS)
+
+      // 进度环动画
+      if (typeof requestAnimationFrame === 'function') {
+        rafTimer = requestAnimationFrame(tick)
+      }
     }
 
     function onTouchEnd(e) {
       clearTimer()
+      clearRaf()
       const delta = Date.now() - startTs
       const wasLong = longFired || delta >= HOLD_MS
 
       if (wasLong) {
-        pressing.value = false
-        emit('hold-end')
+        // 已经在 3 秒时自动触发过了，这里不重复
+        if (!longFired) {
+          emit('hold-end')
+        }
       } else {
         emit('single-press')
       }
       longFired = false
+      pressing.value = false
     }
 
     function onTouchCancel() {
       clearTimer()
+      clearRaf()
       if (longFired) {
-        pressing.value = false
         longFired = false
         emit('hold-cancel')
       }
+      pressing.value = false
     }
 
     function onTouchMove(e) {
       const t = e.touches && e.touches[0]
       if (!t) return
 
-      // 长按期间手指大幅移动 → 视为取消，避免误触
+      // 手指明显移动 → 取消长按
       const dx = Math.abs(t.clientX - startX)
       const dy = Math.abs(t.clientY - startY)
       if (dx > 30 || dy > 30) {
         clearTimer()
+        clearRaf()
         if (longFired) {
-          pressing.value = false
           longFired = false
           emit('hold-cancel')
         }
+        pressing.value = false
       }
     }
 
     return {
-      pressing, primaryColor, wrapStyle,
+      pressing, progress, primaryColor, wrapStyle, ringStyle,
       onTouchStart, onTouchEnd, onTouchCancel, onTouchMove
     }
   }
@@ -164,10 +202,12 @@ export default {
   justify-content: center;
   box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.18);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
+  position: relative;
+  z-index: 2;
 }
 
 .fab-wrap.pressing .fab-btn {
-  transform: scale(1.12);
+  transform: scale(1.08);
   box-shadow: 0 12rpx 32rpx rgba(0, 0, 0, 0.24);
 }
 
@@ -184,17 +224,22 @@ export default {
   transform: rotate(45deg);
 }
 
-.fab-hint {
+/* 长按进度环：绕着按钮画一圈，走满即打开面板 */
+.fab-ring {
   position: absolute;
-  bottom: 128rpx;
-  background-color: rgba(0, 0, 0, 0.78);
-  padding: 10rpx 24rpx;
-  border-radius: 24rpx;
-  white-space: nowrap;
+  top: 0;
+  left: 0;
+  width: 112rpx;
+  height: 112rpx;
+  z-index: 1;
+  pointer-events: none;
 }
 
-.hint-text {
-  color: #ffffff;
-  font-size: 22rpx;
+.fab-ring-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 62rpx, #000 64rpx);
+  mask: radial-gradient(circle, transparent 62rpx, #000 64rpx);
 }
 </style>

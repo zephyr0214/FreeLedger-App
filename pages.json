@@ -126,6 +126,13 @@
 			}
 		},
 		{
+			"path": "pages/settings/budget",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "预算管理"
+			}
+		},
+		{
 			"path": "pages/ai/chat",
 			"style": {
 				"navigationStyle": "custom",

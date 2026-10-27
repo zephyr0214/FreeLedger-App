@@ -79,6 +79,7 @@ export default {
 
     const stats = ref({ txnCount: 0, accountCount: 0, dayCount: 0 })
     const exportHint = ref('')
+    const budgetCount = ref(0)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -90,7 +91,8 @@ export default {
         items: [
           { key: 'category', icon: '📂', name: '分类管理' },
           { key: 'tag', icon: '🏷️', name: '标签管理' },
-          { key: 'account', icon: '💳', name: '账户管理', value: `${stats.value.accountCount} 个` }
+          { key: 'account', icon: '💳', name: '账户管理', value: `${stats.value.accountCount} 个` },
+          { key: 'budget', icon: '🎯', name: '预算管理', value: budgetLabel.value }
         ]
       },
       {
@@ -123,17 +125,26 @@ export default {
       return settingStore.settings.ai && settingStore.settings.ai.apiKey ? '已配置' : '未配置'
     })
 
+    /** 预算管理入口的副标题：已设几个预算 */
+    const budgetLabel = computed(() => {
+      const n = budgetCount.value
+      if (n === 0) return '未设置'
+      return `${n} 项`
+    })
+
     async function loadStats() {
       try {
         const txnRow = await queryOne('SELECT COUNT(*) AS c FROM txn WHERE deleted_at IS NULL')
         const dayRow = await queryOne(
           'SELECT COUNT(DISTINCT occurred_day) AS c FROM txn WHERE deleted_at IS NULL'
         )
+        const budgetRow = await queryOne('SELECT COUNT(*) AS c FROM budget')
         stats.value = {
           txnCount: Number(txnRow ? txnRow.c : 0),
           accountCount: accountStore.list.length,
           dayCount: Number(dayRow ? dayRow.c : 0)
         }
+        budgetCount.value = Number(budgetRow ? budgetRow.c : 0)
 
         const days = await daysSinceLastExport()
         if (days === Infinity) exportHint.value = '从未导出'
@@ -149,6 +160,7 @@ export default {
         category: '/pages/settings/category',
         tag: '/pages/settings/tag',
         account: '/pages/account/index',
+        budget: '/pages/settings/budget',
         theme: '/pages/settings/theme',
         ai: '/pages/settings/ai',
         data: '/pages/settings/data',
@@ -182,7 +194,7 @@ export default {
     })
 
     return {
-      settingStore, accountStore, stats, exportHint,
+      settingStore, accountStore, stats, exportHint, budgetCount, budgetLabel,
       primaryColor, pageStyle, menuGroups, themeLabel, aiLabel,
       onMenuClick, goProfile
     }

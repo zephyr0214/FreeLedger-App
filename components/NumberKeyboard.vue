@@ -1,62 +1,24 @@
 <template>
   <view class="num-keyboard">
-    <!-- 第一行：运算符 -->
-    <view class="kb-row kb-ops">
-      <view
-        v-for="op in ops"
-        :key="op"
-        class="kb-key kb-op"
-        hover-class="kb-key-hover"
-        @click="onOp(op)"
-      >
-        <text class="kb-op-text">{{ op }}</text>
-      </view>
-    </view>
-
-    <!-- 数字区 3x4 -->
+    <!--
+      4 列 x 4 行 = 16 个键
+      ┌────┬────┬────┬────┐
+      │ 1  │ 2  │ 3  │ ⌫  │  退格
+      │ 4  │ 5  │ 6  │ 7  │
+      │ 8  │ 9  │ 0  │ .  │  小数点
+      │ +  │ -  │ =  │完成 │  运算符 + 确认
+      └────┴────┴────┴────┘
+    -->
     <view class="kb-grid">
       <view
-        v-for="k in digits"
+        v-for="k in keys"
         :key="k"
         class="kb-key"
-        :class="{ 'kb-key-zero': k === '0' }"
+        :class="kbKeyClass(k)"
         hover-class="kb-key-hover"
-        @click="onKey(k)"
+        @click="onKeyPress(k)"
       >
-        <text class="kb-key-text">{{ k }}</text>
-      </view>
-
-      <!-- 退格 -->
-      <view class="kb-key" hover-class="kb-key-hover" @click="onBackspace">
-        <text class="kb-key-text kb-backspace">⌫</text>
-      </view>
-
-      <!-- 小数点 -->
-      <view class="kb-key" hover-class="kb-key-hover" @click="onKey('.')">
-        <text class="kb-key-text">.</text>
-      </view>
-
-      <!-- 完成 -->
-      <view
-        class="kb-key kb-finish"
-        :style="{ backgroundColor: finishDisabled ? 'var(--app-line)' : primaryColor }"
-        hover-class="kb-finish-hover"
-        @click="onFinish"
-      >
-        <text class="kb-finish-text">{{ finishText }}</text>
-      </view>
-    </view>
-
-    <!-- 快捷金额 -->
-    <view v-if="quickAmounts.length > 0" class="kb-quick">
-      <view
-        v-for="amt in quickAmounts"
-        :key="amt"
-        class="quick-chip"
-        hover-class="quick-chip-hover"
-        @click="onQuick(amt)"
-      >
-        <text class="quick-text">+{{ amt }}</text>
+        <text class="kb-key-text" :class="kbTextClass(k)">{{ k }}</text>
       </view>
     </view>
   </view>
@@ -65,7 +27,6 @@
 <script>
 import { computed } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { formatCents } from '@/utils/money.js'
 
 export default {
   name: 'NumberKeyboard',
@@ -75,25 +36,37 @@ export default {
     /** 完成按钮文字 */
     finishText: { type: String, default: '完成' },
     /** 禁用完成 */
-    disabled: { type: Boolean, default: false },
-    /** 快捷金额（元） */
-    quickAmounts: { type: Array, default: () => [10, 20, 50, 100] }
+    disabled: { type: Boolean, default: false }
   },
   emits: ['update:modelValue', 'finish'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const primaryColor = computed(() => settingStore.primaryColor)
 
-    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
-    const ops = ['+', '-', '=']
+    /** 4x4 键位表：前三行是数字/退格/小数点，最后一行是运算符和确认 */
+    const keys = ['1', '2', '3', '⌫', '4', '5', '6', '7', '8', '9', '0', '.', '+', '-', '=', '完成']
 
-    const finishDisabled = computed(() => props.disabled || !props.modelValue)
+    const OPERATORS = ['+', '-', '=']
+    const isOperator = (k) => OPERATORS.includes(k)
 
-    /** 安全求值：只允许数字与 + - */
+    function kbKeyClass(k) {
+      if (k === '完成') return 'kb-finish'
+      if (isOperator(k)) return 'kb-op'
+      if (k === '⌫') return 'kb-backspace'
+      return ''
+    }
+
+    function kbTextClass(k) {
+      if (k === '完成') return 'kb-finish-text'
+      if (isOperator(k)) return 'kb-op-text'
+      if (k === '⌫') return 'kb-backspace-text'
+      return ''
+    }
+
+    /** 安全求值：只允许数字与 + -，不用 eval */
     function evaluate(expr) {
       const s = String(expr).replace(/[^0-9+\-.]/g, '')
       if (!s) return 0
-      // 避免 eval，手动分词求和
       const tokens = s.match(/[+\-]?[0-9.]+/g) || []
       let total = 0
       for (const tk of tokens) {
@@ -101,6 +74,22 @@ export default {
         if (Number.isFinite(n)) total += n
       }
       return Math.max(0, total)
+    }
+
+    function onKeyPress(k) {
+      if (k === '完成') {
+        onFinish()
+        return
+      }
+      if (k === '⌫') {
+        onBackspace()
+        return
+      }
+      if (isOperator(k)) {
+        onOp(k)
+        return
+      }
+      onKey(k)
     }
 
     function onKey(k) {
@@ -148,22 +137,14 @@ export default {
       emit('update:modelValue', v.slice(0, -1))
     }
 
-    function onQuick(amt) {
-      const v = props.modelValue || ''
-      const cur = evaluate(v)
-      const next = Math.round((cur + Number(amt)) * 100) / 100
-      emit('update:modelValue', String(next))
-    }
-
     function onFinish() {
-      if (finishDisabled.value) return
+      if (props.disabled || !props.modelValue) return
       emit('finish', evaluate(props.modelValue))
     }
 
     return {
-      digits, ops, primaryColor, finishDisabled,
-      onKey, onOp, onBackspace, onQuick, onFinish,
-      evaluate
+      keys, primaryColor, kbKeyClass, kbTextClass,
+      onKeyPress, onKey, onOp, onBackspace, onFinish, evaluate
     }
   }
 }
@@ -175,32 +156,7 @@ export default {
   padding: 8rpx;
 }
 
-.kb-row {
-  display: flex;
-  gap: 8rpx;
-  margin-bottom: 8rpx;
-}
-
-.kb-ops {
-  justify-content: flex-start;
-}
-
-.kb-op {
-  flex: 1;
-  height: 80rpx;
-  background-color: var(--app-card);
-  border-radius: 12rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.kb-op-text {
-  font-size: 36rpx;
-  color: var(--app-text-2);
-  line-height: 1;
-}
-
+/* 4 列固定网格 */
 .kb-grid {
   display: flex;
   flex-wrap: wrap;
@@ -208,7 +164,7 @@ export default {
 }
 
 .kb-key {
-  width: calc((100% - 16rpx) / 3);
+  width: calc((100% - 24rpx) / 4);
   height: 104rpx;
   background-color: var(--app-card);
   border-radius: 12rpx;
@@ -222,51 +178,36 @@ export default {
 }
 
 .kb-key-text {
-  font-size: 44rpx;
+  font-size: 40rpx;
   color: var(--app-text);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-.kb-backspace {
-  font-size: 40rpx;
+/* 运算符 */
+.kb-op {
+  background-color: var(--app-card-2);
+}
+
+.kb-op-text {
+  font-size: 36rpx;
   color: var(--app-text-2);
 }
 
-.kb-finish {
-  border-radius: 12rpx;
+/* 退格 */
+.kb-backspace-text {
+  font-size: 34rpx;
+  color: var(--app-text-2);
 }
 
-.kb-finish-hover {
-  opacity: 0.85;
+/* 完成 */
+.kb-finish {
+  background-color: var(--app-primary);
 }
 
 .kb-finish-text {
   color: #ffffff;
-  font-size: 32rpx;
+  font-size: 30rpx;
   font-weight: 500;
-}
-
-.kb-quick {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 12rpx;
-  padding: 0 4rpx;
-  flex-wrap: wrap;
-}
-
-.quick-chip {
-  padding: 8rpx 24rpx;
-  background-color: var(--app-card);
-  border-radius: 24rpx;
-}
-
-.quick-chip-hover {
-  background-color: var(--app-line);
-}
-
-.quick-text {
-  font-size: 24rpx;
-  color: var(--app-text-2);
 }
 </style>
