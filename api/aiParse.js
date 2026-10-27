@@ -180,12 +180,14 @@ export function validateItem(raw, ctx) {
   // 日期
   const occurredDay = toDayKey(raw.date !== undefined ? raw.date : raw.dayOffset, ctx.baseDate)
 
-  // 分类：按名称或 id 匹配，匹配不到用默认
+  // 分类：按名称或 id 匹配，优先二级分类
   let categoryId = null
   let categoryName = ''
   const rawCat = raw.category
   if (rawCat && type !== 'transfer') {
-    const hit = matchByNameOrId(rawCat, ctx.categories)
+    // 提示文本 = 备注 + 原句，用来在一级分类下猜二级
+    const hint = [raw.note, ctx.hintText].filter(Boolean).join(' ')
+    const hit = matchCategory(rawCat, ctx.categories, hint)
     if (hit) {
       categoryId = hit.id
       categoryName = hit.name
@@ -255,7 +257,160 @@ export function validateItem(raw, ctx) {
   }
 }
 
-/** 按名称或 id 在候选列表里找 */
+/**
+ * 分类匹配
+ *
+ * ★ 速记必须落到二级分类 ★
+ *   一级分类是「统计口径」（餐饮、居住…），用户记的是具体花在哪
+ *   （午餐、房租、外卖…）。所以：
+ *     1. 候选列表只给**叶子分类**（没有下级的那些）；
+ *        一级分类只有在「自己没有二级」时才作为候选（如「其他」）。
+ *     2. 匹配时**优先命中二级分类**，同名时二级优先。
+ *     3. 模型只给了一级分类时，用「备注/原句」里的关键词在它的二级里再猜一次。
+ */
+
+/**
+ * 构造给模型看的分类候选
+ * @param {Array} categories 全部分类（含二级）
+ * @returns {Array<{id:string,label:string,type:string,isLeaf:boolean}>}
+ *   label 形如「餐饮/午餐」，让模型知道归属关系
+ */
+export function buildCategoryOptions(categories = []) {
+  const list = categories || []
+  const parents = list.filter((c) => !c.parent_id)
+  const out = []
+
+  for (const p of parents) {
+    const children = list.filter((c) => c.parent_id === p.id)
+    if (children.length === 0) {
+      // 没有二级，一级本身就是最细的粒度
+      out.push({ id: p.id, label: p.name, type: p.type, isLeaf: true })
+    } else {
+      for (const c of children) {
+        out.push({
+          id: c.id,
+          label: `${p.name}/${c.name}`,
+          type: c.type || p.type,
+          isLeaf: true
+        })
+      }
+    }
+  }
+
+  return out
+}
+
+/**
+ * 从一段文字里猜某个一级分类下的哪个二级分类
+ *
+ * 做法分三档打分，取分最高的：
+ *   1. 分类名**原样出现在**文字里（如「外卖」出现在「点了外卖」）—— 最强信号
+ *   2. 分类名里**两个字以上**出现在文字里（如「咖啡奶茶」在「买了杯咖啡」里命中「咖啡」）
+ *   3. 分类名的**第一个字**出现在文字里（如「午饭」命中「午餐」的「午」）
+ *      —— 这一档专门对付「午饭/早饭/晚饭」这类同义不同字的说法
+ *
+ * @param {Array} children 二级分类
+ * @param {string} text 备注 + 用户原句
+ * @returns {object|null} 猜中的二级分类，猜不出返回 null
+ */
+export function guessChildByText(children = [], text = '') {
+  const t = String(text || '')
+  if (!t || children.length === 0) return null
+
+  let best = null
+  let bestScore = 0
+
+  for (const c of children) {
+    const name = String(c.name || '')
+    if (!name) continue
+
+    let score = 0
+
+    if (t.indexOf(name) !== -1) {
+      // 分类名原样出现
+      score = 1000 + name.length
+    } else {
+      let hits = 0
+      for (const ch of name) {
+        if (t.indexOf(ch) !== -1) hits++
+      }
+      if (hits >= 2) {
+        score = 100 + hits
+      } else if (t.indexOf(name[0]) !== -1) {
+        // 第一个字命中：午饭 -> 午餐、早饭 -> 早餐
+        score = 50
+      }
+    }
+
+    if (score > bestScore) {
+      best = c
+      bestScore = score
+    }
+  }
+
+  return bestScore > 0 ? best : null
+}
+
+/**
+ * 匹配分类，优先二级
+ *
+ * @param {*} rawValue 模型给的分类（可能是 id、名字、「餐饮/午餐」）
+ * @param {Array} categories 全部分类（含二级）
+ * @param {string} hintText 备注 + 原句，用于在一级分类下猜二级
+ * @returns {object|null} 命中的分类
+ */
+export function matchCategory(rawValue, categories = [], hintText = '') {
+  if (!rawValue) return null
+  const v = String(rawValue).trim()
+  if (!v) return null
+
+  const list = categories || []
+
+  // 「餐饮/午餐」这种带路径的写法
+  if (v.indexOf('/') !== -1) {
+    const parts = v.split('/').map((s) => s.trim()).filter(Boolean)
+    const leaf = parts[parts.length - 1]
+    const byLeaf = list.find((c) => c.name === leaf && c.parent_id)
+    if (byLeaf) return byLeaf
+    const byLeafAny = list.find((c) => c.name === leaf)
+    if (byLeafAny) return byLeafAny
+  }
+
+  // 按 id
+  const byId = list.find((c) => c.id === v)
+  if (byId) return byId
+
+  // 按名字精确匹配 —— 同名时二级优先
+  const exact = list.filter((c) => c.name === v)
+  if (exact.length > 0) {
+    const child = exact.find((c) => c.parent_id)
+    const hit = child || exact[0]
+    return refineToChild(hit, list, hintText)
+  }
+
+  // 按名字包含（模型可能输出「餐饮类」这种）
+  const loose = list.filter((c) => c.name && (v.indexOf(c.name) !== -1 || c.name.indexOf(v) !== -1))
+  if (loose.length > 0) {
+    const child = loose.find((c) => c.parent_id)
+    const hit = child || loose[0]
+    return refineToChild(hit, list, hintText)
+  }
+
+  return null
+}
+
+/**
+ * 命中的是一级分类且它有二级时，尝试用文字再猜一个二级出来
+ */
+function refineToChild(cat, list, hintText) {
+  if (!cat || cat.parent_id) return cat
+  const children = list.filter((c) => c.parent_id === cat.id)
+  if (children.length === 0) return cat
+  const guess = guessChildByText(children, hintText)
+  return guess || cat
+}
+
+/** 按名称或 id 在候选列表里找（账户、标签用） */
 function matchByNameOrId(rawValue, list) {
   if (!rawValue) return null
   const v = String(rawValue).trim()
@@ -297,10 +452,11 @@ export async function parseMessageToTransactions(text, ctx) {
 
   const baseDate = ctx.baseDate || new Date()
 
-  // 只把必要的候选集给模型，避免 prompt 过长
-  const categoryNames = ctx.categories
-    .filter((c) => !c.parent_id)   // 只给一级分类，二级让模型映射不到就用一级
-    .map((c) => c.name)
+  // ★ 只把「叶子分类」给模型 ★
+  //   一级分类（餐饮、居住…）是统计口径，不是用户记的具体项。
+  //   给模型的是「餐饮/午餐」这种二级分类，让它直接选到最细的一级。
+  const categoryOptions = buildCategoryOptions(ctx.categories)
+  const categoryLabels = categoryOptions.map((c) => c.label)
 
   const accountNames = ctx.accounts.map((a) => a.name)
 
@@ -312,20 +468,25 @@ export async function parseMessageToTransactions(text, ctx) {
 3. 如果某条信息没提到，用 null 或者省略该字段，不要编造。
 4. amount 只填数字（单位：元），不要带货币符号。
 5. type 只能是 "expense"（支出）、"income"（收入）、"transfer"（转账）。
-6. category 必须从给定的分类名列表里选，选不到就给 null。
+6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮/午餐」）。
+   - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段。
+   - 不要只填一级（如「餐饮」）。若列表里只有一级分类没有二级，才填一级。
+   - 选不到就给 null，不要编造分类名。
 7. account 必须从给定的账户名列表里选，选不到就给 null。
 8. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
 9. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
-  const userPrompt = `可选分类：${JSON.stringify(categoryNames)}
+  const userPrompt = `可选分类（请原样使用列表里的完整路径）：
+${categoryLabels.map((l) => `- ${l}`).join('\n')}
+
 可选账户：${JSON.stringify(accountNames)}
 
 用户消息：${message}
 
 请输出 JSON 数组，每个元素格式：
-{"amount": 45.5, "type": "expense", "category": "餐饮", "account": "微信", "date": "2026-10-27", "note": "午饭"}`
+{"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "date": "2026-10-27", "note": "午饭"}`
 
   const reply = await chat(
     [
@@ -361,7 +522,9 @@ export async function parseMessageToTransactions(text, ctx) {
       categories: ctx.categories,
       accounts: ctx.accounts,
       tags: ctx.tags || [],
-      baseDate
+      baseDate,
+      // 提示文本 = 用户原句，用来在一级分类下猜二级
+      hintText: message
     })
 
     if (!res.ok) {
@@ -389,6 +552,25 @@ export async function parseMessageToTransactions(text, ctx) {
         item.category_name = other.name
       }
       item.categoryFromAi = false
+    }
+
+    // ★ 分类细化兜底 ★
+    //   模型可能只给了一级分类（「餐饮」），而我们要求落到二级。
+    //   这里再用备注 + 原句在它下面猜一个二级；猜不到才保留一级。
+    if (item.type !== 'transfer' && item.category_id) {
+      const cat = ctx.categories.find((c) => c.id === item.category_id)
+      if (cat && !cat.parent_id) {
+        const children = ctx.categories.filter((c) => c.parent_id === cat.id)
+        if (children.length > 0) {
+          const hint = [item.note, message].filter(Boolean).join(' ')
+          const guess = guessChildByText(children, hint)
+          if (guess) {
+            item.category_id = guess.id
+            item.category_name = guess.name
+            item.categoryRefined = true
+          }
+        }
+      }
     }
 
     // 备注兜底：模型没给备注时，把原句作为备注（用户要求）

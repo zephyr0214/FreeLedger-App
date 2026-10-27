@@ -276,15 +276,25 @@ export async function ask(history, monthKey) {
  * 仅在用户显式开启 quickFallback 时调用
  */
 export async function parseQuickWithAi(text, candidates) {
+  // 分类同样只给「叶子分类」，让模型选到最细的一级
+  const categoryLabels = (candidates.categories || []).map((c) => {
+    if (c.parent_id) {
+      const parent = (candidates.categories || []).find((p) => p.id === c.parent_id)
+      return parent ? `${parent.name}/${c.name}` : c.name
+    }
+    return c.name
+  })
+
   const prompt = `把下面这句记账口语解析成 JSON，只输出 JSON，不要任何解释。
 
 句子：${text}
 
-可选分类：${JSON.stringify(candidates.categories.map((c) => c.name))}
+可选分类（请原样使用完整路径，必须选最具体的那一级）：
+${JSON.stringify(categoryLabels)}
 可选账户：${JSON.stringify(candidates.accounts.map((a) => a.name))}
 
 输出格式（金额单位元，数字）：
-{"amount": 45.5, "type": "expense|income|transfer", "category": "分类名或null", "account": "账户名或null", "toAccount": "目标账户名或null", "dayOffset": 0, "note": "备注"}`
+{"amount": 45.5, "type": "expense|income|transfer", "category": "分类完整路径或null", "account": "账户名或null", "toAccount": "目标账户名或null", "dayOffset": 0, "note": "备注"}`
 
   const reply = await chat([
     { role: 'system', content: '你是一个严谨的 JSON 生成器，只输出合法 JSON。' },
