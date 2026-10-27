@@ -262,14 +262,23 @@
       @confirm="onCalendarConfirm"
     />
 
-    <!-- 时间选择：type="time" 的 modelValue 是 'HH:mm' 字符串 -->
+    <!--
+      时间选择：type="time" 的 modelValue 是 'HH:mm' 字符串。
+      ★ 必须给一个空的默认插槽 ★
+        wd-datetime-picker 在「没有默认插槽」时，会自己渲染一个 wd-cell，
+        于是面板最下方就多出一条独立的「选择时间」行（label + 箭头）。
+        给一个空插槽后走 v-else 分支，只保留弹层，
+        选择入口统一放在上面「日期」行里的时间胶囊上。
+    -->
     <wd-datetime-picker
       ref="timePickerRef"
       v-model="timePickerValue"
       type="time"
       title="选择时间"
       @confirm="onTimeConfirm"
-    />
+    >
+      <view class="time-picker-anchor" />
+    </wd-datetime-picker>
   </wd-popup>
 </template>
 
@@ -1131,6 +1140,16 @@ export default {
   font-size: 24rpx;
   color: var(--app-text-2);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+  时间选择器的占位插槽。
+  wd-datetime-picker 没有默认插槽时会自己渲染一整行 wd-cell，
+  那就是面板底部多出来的「选择时间」独立行。
+  给一个空的插槽后组件只保留弹层，这个锚点不占位、不显示。
+*/
+.time-picker-anchor {
+  display: none;
 }
 
 .note-input {
