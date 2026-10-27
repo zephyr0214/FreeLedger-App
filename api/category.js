@@ -6,6 +6,11 @@ import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 
 /** 初始化用的默认分类（仅在首次启动时写入） */
+/**
+ * 默认分类。
+ * icon 字段的取值必须是 utils/icons.js 里 ICON_MAP 的键。
+ * 二级分类不单独配 icon，直接继承父级的（父级有就用父级的）。
+ */
 export const DEFAULT_EXPENSE_CATEGORIES = [
   { name: '餐饮', icon: 'food',  color: '#FF976A', children: ['早餐', '午餐', '晚餐', '外卖', '零食饮料', '咖啡奶茶'] },
   { name: '交通', icon: 'car',   color: '#1989FA', children: ['公交地铁', '打车', '加油', '停车', '高铁飞机'] },

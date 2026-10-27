@@ -19,8 +19,22 @@ npm install
 npm run verify
 ```
 
-- `npm run check` — SFC 结构 + JS 语法 + 模板编译 + 路由文件存在性
+- `npm run check` — SFC 结构 + JS 语法 + 模板编译 + SQL 方言 + 资源存在性
 - `npm run test` — 速记解析引擎（17 例）+ 金额与日期逻辑（22 例）
+
+## 图标
+
+**tabBar 图标**由脚本从组件库字体生成（原生 tabBar 只接受图片，不接受字体图标）：
+
+```bash
+npm run icons    # 需要 Python + Pillow
+```
+
+生成 32 个文件到 `static/tabbar/`：4 个 tab ×（浅色未选中 + 深色未选中 + 6 套主题色的选中态）。
+切换主题或深浅模式时，`utils/theme.js` 用 `uni.setTabBarItem` 动态替换路径。
+
+**页面内图标**用 emoji（`utils/icons.js`）。原因：`wd-icons.ttf` 里与消费相关的字形不到十个，
+覆盖不了二十多个记账分类；emoji 原生渲染、彩色、零资源，且用户自定义分类时可直接选。
 
 ## 目录
 

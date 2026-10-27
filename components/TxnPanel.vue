@@ -214,6 +214,7 @@ import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { toDayKey, shiftDay, formatDayHeader } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
+import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
   name: 'TxnPanel',
@@ -343,7 +344,7 @@ export default {
     /* ------------------------------------------------------ 方法 */
 
     function iconChar(cat) {
-      return cat.name ? cat.name.slice(0, 1) : '·'
+      return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
     }
 
     function isSameDay(a, b) {

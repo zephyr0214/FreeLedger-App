@@ -132,6 +132,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { daysUntilMonthDay, toMonthKey, formatDayHeader } from '@/utils/date.js'
+import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
   components: { MoneyText, EmptyState },
@@ -168,7 +169,9 @@ export default {
 
     function iconChar(txn) {
       if (txn.type === 'transfer') return '⇄'
-      return (txn.category_name || '·').slice(0, 1)
+      return txn.category_icon
+        ? iconEmoji(txn.category_icon)
+        : guessIconByName(txn.category_name)
     }
 
     function txnTitle(txn) {

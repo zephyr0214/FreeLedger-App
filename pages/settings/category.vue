@@ -31,9 +31,7 @@
       <view v-for="parent in tree" :key="parent.id" class="cat-group">
         <view class="parent-row" @click="toggleExpand(parent.id)">
           <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
-            <text class="parent-icon-text" :style="{ color: parent.color || primaryColor }">
-              {{ parent.name.slice(0, 1) }}
-            </text>
+            <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
           </view>
           <text class="parent-name">{{ parent.name }}</text>
           <text class="parent-count">{{ parent.children.length }} 个子类</text>
@@ -97,6 +95,24 @@
           </view>
 
           <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
+            <text class="editor-label">图标</text>
+            <scroll-view class="icon-scroll" scroll-y>
+              <view class="icon-grid">
+                <view
+                  v-for="opt in iconOptions"
+                  :key="opt.key"
+                  class="icon-cell"
+                  :class="{ active: editorForm.icon === opt.key }"
+                  @click="editorForm.icon = opt.key"
+                >
+                  <text class="icon-emoji">{{ iconEmoji(opt.key) }}</text>
+                  <text class="icon-name">{{ opt.label }}</text>
+                </view>
+              </view>
+            </scroll-view>
+          </view>
+
+          <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
             <text class="editor-label">颜色</text>
             <view class="color-grid">
               <view
@@ -123,6 +139,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, createCategory, updateCategory, deleteCategory
 } from '@/api/category.js'
+import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
 
 export default {
   components: { PageNav, EmptyState },
@@ -134,7 +151,9 @@ export default {
     const expandedIds = ref([])
     const showEditor = ref(false)
     const editingId = ref('')
-    const editorForm = reactive({ name: '', color: '', parent_id: null })
+    const editorForm = reactive({ name: '', color: '', icon: 'more', parent_id: null })
+
+    const iconOptions = ICON_OPTIONS
 
     const types = [
       { key: 'expense', name: '支出分类' },
@@ -181,6 +200,9 @@ export default {
       editingId.value = ''
       editorForm.name = ''
       editorForm.color = colors[0]
+      // 二级分类继承父级图标与颜色
+      editorForm.icon = parent ? (parent.icon || 'more') : 'more'
+      if (parent && parent.color) editorForm.color = parent.color
       editorForm.parent_id = parent ? parent.id : null
       showEditor.value = true
     }
@@ -189,6 +211,7 @@ export default {
       editingId.value = cat.id
       editorForm.name = cat.name
       editorForm.color = cat.color || colors[0]
+      editorForm.icon = cat.icon || 'more'
       editorForm.parent_id = cat.parent_id
       showEditor.value = true
     }
@@ -203,7 +226,8 @@ export default {
         if (editingId.value) {
           await updateCategory(editingId.value, {
             name: editorForm.name.trim(),
-            color: editorForm.color
+            color: editorForm.color,
+            icon: editorForm.icon
           })
         } else {
           await createCategory({
@@ -211,7 +235,7 @@ export default {
             type: activeType.value,
             color: editorForm.color,
             parent_id: editorForm.parent_id,
-            icon: 'more'
+            icon: editorForm.icon
           })
         }
         showEditor.value = false
@@ -253,6 +277,7 @@ export default {
     return {
       settingStore, activeType, tree, expandedIds,
       showEditor, editingId, editorForm, types, colors,
+      iconOptions, iconEmoji,
       primaryColor, pageStyle, scrollHeight,
       switchType, toggleExpand, openCreate, openEdit,
       onSaveCategory, onDelete, goBack
@@ -317,9 +342,9 @@ export default {
   flex-shrink: 0;
 }
 
-.parent-icon-text {
-  font-size: 28rpx;
-  font-weight: 600;
+.parent-emoji {
+  font-size: 34rpx;
+  line-height: 1;
 }
 
 .parent-name {
@@ -504,5 +529,46 @@ export default {
 .color-cell.active {
   outline: 4rpx solid var(--app-text);
   outline-offset: 2rpx;
+}
+
+/* 图标选择 */
+.icon-scroll {
+  width: 100%;
+  max-height: 380rpx;
+}
+
+.icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.icon-cell {
+  width: calc((100% - 60rpx) / 6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+  padding: 12rpx 4rpx;
+  border-radius: 12rpx;
+  background-color: var(--app-card-2);
+  border: 2rpx solid transparent;
+}
+
+.icon-cell.active {
+  border-color: var(--app-primary);
+  background-color: var(--app-primary-light);
+}
+
+.icon-emoji {
+  font-size: 36rpx;
+  line-height: 1.1;
+}
+
+.icon-name {
+  font-size: 16rpx;
+  color: var(--app-text-3);
+  text-align: center;
+  line-height: 1.2;
 }
 </style>

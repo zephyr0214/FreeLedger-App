@@ -100,9 +100,28 @@ export function buildWotThemeVars(presetKey) {
   }
 }
 
-/** 切换原生 tabBar 配色（不支持 CSS 变量） */
+/** tabBar 四个 tab 的路径与资源名 */
+const TABBAR_ITEMS = [
+  { index: 0, name: 'home' },
+  { index: 1, name: 'account' },
+  { index: 2, name: 'stats' },
+  { index: 3, name: 'mine' }
+]
+
+/**
+ * 切换原生 tabBar 配色与图标。
+ *
+ * 为什么不能只调 setTabBarStyle：
+ *   setTabBarStyle 只能改文字颜色和背景，改不了图标。
+ *   而 PNG 图标的颜色是烤死在像素里的，所以每套主题色各生成了一份选中态图标，
+ *   这里通过 setTabBarItem 逐个替换 iconPath / selectedIconPath。
+ *
+ * 前提：static/tabbar/ 下需要有 {name}.png、{name}-dark.png、
+ *       {name}-active-{preset}.png（由 scripts/gen-tabbar-icons.py 生成）
+ */
 export function applyTabBarTheme(presetKey, dark) {
   const p = getPreset(presetKey)
+
   try {
     uni.setTabBarStyle({
       color: dark ? '#8E8E93' : '#969799',
@@ -112,6 +131,20 @@ export function applyTabBarTheme(presetKey, dark) {
     })
   } catch (e) {
     // 部分平台/时机不支持，静默失败即可
+  }
+
+  // 替换图标：未选中态按深浅模式切换，选中态按主题色切换
+  const suffix = dark ? '-dark' : ''
+  for (const item of TABBAR_ITEMS) {
+    try {
+      uni.setTabBarItem({
+        index: item.index,
+        iconPath: `static/tabbar/${item.name}${suffix}.png`,
+        selectedIconPath: `static/tabbar/${item.name}-active-${p.key}.png`
+      })
+    } catch (e) {
+      // tabBar 尚未创建时（如首屏加载前）会失败，忽略即可
+    }
   }
 }
 

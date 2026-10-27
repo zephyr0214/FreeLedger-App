@@ -270,6 +270,7 @@ import { listTransactions, sumTransactions, deleteTransaction } from '@/api/tran
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, formatTime } from '@/utils/date.js'
+import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
 
 const PAGE_SIZE = 50
@@ -438,7 +439,9 @@ export default {
 
     function iconChar(txn) {
       if (txn.type === 'transfer') return '⇄'
-      return (txn.category_name || '·').slice(0, 1)
+      return txn.category_icon
+        ? iconEmoji(txn.category_icon)
+        : guessIconByName(txn.category_name)
     }
 
     function txnTitle(txn) {

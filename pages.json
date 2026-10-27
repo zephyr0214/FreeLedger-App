@@ -143,19 +143,27 @@
 		"list": [
 			{
 				"pagePath": "pages/index/index",
-				"text": "首页"
+				"text": "首页",
+				"iconPath": "static/tabbar/home.png",
+				"selectedIconPath": "static/tabbar/home-active-green.png"
 			},
 			{
 				"pagePath": "pages/account/index",
-				"text": "账户"
+				"text": "账户",
+				"iconPath": "static/tabbar/account.png",
+				"selectedIconPath": "static/tabbar/account-active-green.png"
 			},
 			{
 				"pagePath": "pages/stats/index",
-				"text": "统计"
+				"text": "统计",
+				"iconPath": "static/tabbar/stats.png",
+				"selectedIconPath": "static/tabbar/stats-active-green.png"
 			},
 			{
 				"pagePath": "pages/mine/index",
-				"text": "我的"
+				"text": "我的",
+				"iconPath": "static/tabbar/mine.png",
+				"selectedIconPath": "static/tabbar/mine-active-green.png"
 			}
 		]
 	},

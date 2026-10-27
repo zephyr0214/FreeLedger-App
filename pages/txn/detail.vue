@@ -113,6 +113,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getTransaction, deleteTransaction, getTxnTags } from '@/api/transaction.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
+import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
   components: { MoneyText, TxnPanel },
@@ -150,7 +151,9 @@ export default {
     const iconChar = computed(() => {
       if (!txn.value) return ''
       if (txn.value.type === 'transfer') return '⇄'
-      return (txn.value.category_name || '·').slice(0, 1)
+      return txn.value.category_icon
+        ? iconEmoji(txn.value.category_icon)
+        : guessIconByName(txn.value.category_name)
     })
 
     const dayLabel = computed(() => txn.value ? formatDayHeader(txn.value.occurred_day) : '')

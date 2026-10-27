@@ -223,6 +223,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { getInsight } from '@/api/ai.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
+import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
   components: { AppHeader, MoneyText, EmptyState, FabButton, TxnPanel, QuickInput, CalendarGrid },
@@ -390,7 +391,10 @@ export default {
 
     function iconChar(txn) {
       if (txn.type === 'transfer') return '⇄'
-      return (txn.category_name || '·').slice(0, 1)
+      // 优先用分类自带的 icon 键，没有就按名称猜
+      return txn.category_icon
+        ? iconEmoji(txn.category_icon)
+        : guessIconByName(txn.category_name)
     }
 
     function txnTitle(txn) {
