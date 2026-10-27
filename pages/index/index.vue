@@ -170,7 +170,7 @@
       <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 → 手动记账面板 -->
       <FabButton
         :hidden="showQuickAdd"
-        @tap="openQuickAdd"
+        @single-press="openQuickAdd"
         @hold-start="onHoldStart"
         @hold-end="onHoldEnd"
         @hold-cancel="onHoldCancel"

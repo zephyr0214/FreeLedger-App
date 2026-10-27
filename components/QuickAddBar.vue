@@ -1,5 +1,5 @@
 <template>
-  <view v-if="visible" class="quick-add-mask" @click="close">
+  <view v-if="visible" class="quick-add-mask" @click="onMaskClick">
     <view class="quick-add-bar" :style="barStyle" @click.stop>
       <!-- 左侧：输入框 -->
       <input
@@ -45,7 +45,7 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false }
   },
-  emits: ['update:modelValue', 'expanded', 'saved'],
+  emits: ['update:modelValue', 'saved'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -56,6 +56,17 @@ export default {
     const autoFocus = ref(false)
     const inputRef = ref(null)
     const keyboardHeight = ref(0)
+
+    /**
+     * 遮罩是否可点击关闭。
+     * ★ 防幽灵点击 ★
+     *   触摸 FAB 抬起时会触发 openQuickAdd，同时浏览器还会补发一次 click。
+     *   输入条是那一刻才渲染的，这次补发的 click 就会落到刚出现的遮罩上，
+     *   于是「刚打开就被关闭」，表现为单击没反应。
+     *   打开后 350ms 内忽略遮罩点击即可。
+     */
+    const maskEnabled = ref(false)
+    let maskTimer = null
 
     const visible = computed({
       get: () => props.modelValue,
@@ -205,11 +216,21 @@ export default {
       }
     }
 
+    function onMaskClick() {
+      if (!maskEnabled.value) return
+      close()
+    }
+
     function close() {
       visible.value = false
       draft.value = ''
       autoFocus.value = false
       keyboardHeight.value = 0
+      maskEnabled.value = false
+      if (maskTimer) {
+        clearTimeout(maskTimer)
+        maskTimer = null
+      }
       unbindKeyboard()
     }
 
@@ -223,6 +244,15 @@ export default {
           return
         }
         keyboardHeight.value = 0
+        maskEnabled.value = false
+
+        // 延迟启用遮罩，挡掉 FAB 抬起时补发的那次 click
+        if (maskTimer) clearTimeout(maskTimer)
+        maskTimer = setTimeout(() => {
+          maskEnabled.value = true
+          maskTimer = null
+        }, 350)
+
         bindKeyboard()
         await nextTick()
         autoFocus.value = true
@@ -233,7 +263,7 @@ export default {
     return {
       visible, draft, submitting, autoFocus, inputRef,
       primaryColor, canSend, barStyle,
-      submit, close
+      submit, close, onMaskClick
     }
   }
 }

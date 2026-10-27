@@ -27,8 +27,15 @@
 import { ref, computed } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 
-/** 长按阈值（ms）—— 低于此值视为单击 */
-const HOLD_MS = 260
+/**
+ * 长按阈值（ms）
+ *
+ * ★ 不能设太短 ★
+ *   原来 260ms —— 普通人一次点击的按压时长常见 200~350ms，
+ *   稍慢一点就被判成长按，于是「单击没反应」（实际打开了记账面板）。
+ *   400ms 是移动端长按的常见阈值（微信、支付宝都在 400~500ms）。
+ */
+const HOLD_MS = 400
 
 export default {
   name: 'FabButton',
@@ -39,7 +46,14 @@ export default {
     /** 是否隐藏（输入条展开时隐藏） */
     hidden: { type: Boolean, default: false }
   },
-  emits: ['tap', 'hold-start', 'hold-end', 'hold-cancel'],
+  /**
+   * ★ 事件名不要用 tap / click / longpress ★
+   *   这些是 uni-app 模板里的原生事件别名，
+   *   `<FabButton @tap="xxx">` 会被编译成监听根节点的原生 tap(click)，
+   *   而不是监听本组件 emit('tap')，结果就是单击毫无反应。
+   *   所以用 single-press / long-press 这类自定义名，避免与原生事件撞车。
+   */
+  emits: ['single-press', 'hold-start', 'hold-end', 'hold-cancel'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const pressing = ref(false)
@@ -93,7 +107,7 @@ export default {
         pressing.value = false
         emit('hold-end')
       } else {
-        emit('tap')
+        emit('single-press')
       }
       longFired = false
     }
