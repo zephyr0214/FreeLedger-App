@@ -310,12 +310,18 @@ export async function writeAllTodaySnapshots() {
 /** 总资产趋势：按天聚合所有账户快照 */
 export async function getAssetTrend(months = 6) {
   const days = months * 31
+  // 日期边界在 JS 里算好再传参，不依赖 SQLite 的 date('now') 时区行为
+  const from = new Date()
+  from.setDate(from.getDate() - days)
+  const fromDay = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
+
   const rows = await query(
     `SELECT day, SUM(balance_cents) AS total
      FROM account_snapshot
-     WHERE day >= date('now', '-${days} days')
+     WHERE day >= ?
      GROUP BY day
-     ORDER BY day ASC`
+     ORDER BY day ASC`,
+    [fromDay]
   )
   return rows.map((r) => ({ day: r.day, total: Number(r.total) || 0 }))
 }

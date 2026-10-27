@@ -225,8 +225,10 @@ export async function getUntaggedAmount(monthKey) {
 
 export async function getDailyTrend(monthKey) {
   const mk = monthKey || toMonthKey()
+  // occurred_day 是 'YYYY-MM-DD' 文本，用 SUBSTR 取第 9~10 位即「日」。
+  // 不用 DAY()（那是 MySQL 的），也不用 strftime（部分 Android 内核缺日期扩展）。
   const rows = await query(
-    `SELECT DAY(occurred_day) AS d,
+    `SELECT CAST(SUBSTR(occurred_day, 9, 2) AS INTEGER) AS d,
             COALESCE(SUM(CASE WHEN type='expense' THEN amount_cents ELSE 0 END),0) AS exp,
             COALESCE(SUM(CASE WHEN type='income'  THEN amount_cents ELSE 0 END),0) AS inc
      FROM txn
