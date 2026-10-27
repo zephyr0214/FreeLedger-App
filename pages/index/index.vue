@@ -26,12 +26,18 @@
       <scroll-view
         class="page-scroll"
         scroll-y
-        :refresher-enabled="true"
-        :refresher-triggered="refreshing"
-        @refresherrefresh="onRefresh"
       >
         <!-- ② 本月概览 -->
         <view class="overview-card">
+          <!-- 右上角：月份切换（概览和月历联动） -->
+          <view class="ov-month-nav">
+            <text class="ov-month-title">{{ calendarTitle }}</text>
+            <view class="ov-month-btns">
+              <text class="ov-month-btn" @click="shiftCalMonth(-1)">‹</text>
+              <text class="ov-month-btn" @click="shiftCalMonth(1)">›</text>
+            </view>
+          </view>
+
           <!-- 上方：并联显示本月支出 / 本月收入 -->
           <view class="ov-top">
             <view class="ov-top-item">
@@ -54,7 +60,6 @@
               />
             </view>
           </view>
-
           <!-- 中间：三个关键数字 -->
           <view class="ov-split">
             <view class="ov-item">
@@ -219,11 +224,7 @@
         <!-- ④ 月历 -->
         <view class="section">
           <view class="section-head">
-            <text class="section-title">{{ calendarTitle }}</text>
-            <view class="cal-nav">
-              <text class="cal-nav-btn" @click="shiftCalMonth(-1)">‹</text>
-              <text class="cal-nav-btn" @click="shiftCalMonth(1)">›</text>
-            </view>
+            <text class="section-title">月历</text>
           </view>
           <CalendarGrid
             :month-key="txnStore.currentMonth"
@@ -236,9 +237,10 @@
         <view class="bottom-space" />
       </scroll-view>
 
-      <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 → 手动记账面板 -->
+      <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 1 秒 → 手动记账面板
+           打开记账面板时按钮隐藏，关闭面板后恢复 -->
       <FabButton
-        :hidden="showQuickAdd"
+        :hidden="showQuickAdd || showPanel"
         @single-press="openQuickAdd"
         @hold-start="onHoldStart"
         @hold-end="onHoldEnd"
@@ -270,7 +272,7 @@
 
 <script>
 import { ref, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onPullDownRefresh } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -292,7 +294,6 @@ export default {
     const accountStore = useAccountStore()
     const txnStore = useTransactionStore()
 
-    const refreshing = ref(false)
     const showPanel = ref(false)
     const showQuickAdd = ref(false)
 
@@ -385,15 +386,6 @@ export default {
         budgets.value = await getBudgetUsage(txnStore.currentMonth)
       } catch (e) {
         budgets.value = []
-      }
-    }
-
-    async function onRefresh() {
-      refreshing.value = true
-      try {
-        await loadAll(true)
-      } finally {
-        refreshing.value = false
       }
     }
 
@@ -547,14 +539,29 @@ export default {
       settingStore.syncSystemTheme()
     })
 
+    /**
+     * 页面级下拉刷新。
+     * scroll-view 的 refresher 在 App 端支持不可靠，
+     * 改用页面级的 onPullDownRefresh（需 pages.json 里开 enablePullDownRefresh）。
+     */
+    onPullDownRefresh(async () => {
+      try {
+        await loadAll(true)
+      } finally {
+        try {
+          uni.stopPullDownRefresh()
+        } catch (e) {}
+      }
+    })
+
     return {
       settingStore, accountStore, txnStore,
-      refreshing, showPanel, panelPreset,
+      showPanel, panelPreset,
       selectedDay, showQuickAdd, parsing, parsingText,
       showDayDetail, dayActions, dayDetailTitle,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
       totalBudget, categoryBudgets, budgetRemaining, recentGroups,
-      onRefresh, shiftCalMonth, onDayClick, onDayTxnSelect,
+      shiftCalMonth, onDayClick, onDayTxnSelect,
       openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub,
@@ -594,19 +601,54 @@ export default {
   box-shadow: var(--app-shadow);
 }
 
-/* 上方并联：本月支出 / 本月收入 */
+/* 右上角月份切换 */
+.ov-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.ov-month-title {
+  font-size: 26rpx;
+  color: var(--app-text-2);
+  font-weight: 500;
+}
+
+.ov-month-btns {
+  display: flex;
+  gap: 10rpx;
+}
+
+.ov-month-btn {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background-color: var(--app-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  color: var(--app-text-2);
+}
+
+/* 上方并联：本月支出 / 本月收入
+   整组相对卡片居中，而不是各自撑满一半 */
 .ov-top {
   display: flex;
   align-items: center;
+  justify-content: center;
   padding-bottom: 24rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 
 .ov-top-item {
-  flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8rpx;
+  /* 不设 flex:1，宽度由内容决定，整组才能真正居中 */
+  min-width: 180rpx;
 }
 
 .ov-top-label {
@@ -618,7 +660,7 @@ export default {
   width: 1rpx;
   height: 52rpx;
   background-color: var(--app-line);
-  margin: 0 24rpx;
+  margin: 0 40rpx;
 }
 
 /* 中间三个：今日支出 / 本月结余 / 预算剩余 */
@@ -896,22 +938,6 @@ export default {
   50%      { height: 30rpx; opacity: 1; }
 }
 
-/* 月历导航 */
-.cal-nav {
-  display: flex;
-  gap: 8rpx;
-}
-
-.cal-nav-btn {
-  width: 48rpx;
-  height: 48rpx;
-  border-radius: 50%;
-  background-color: var(--app-card);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  color: var(--app-text-2);
-}
+/* 月历导航（已移到概览卡右上角，这里只保留月历自身样式） */
 
 </style>

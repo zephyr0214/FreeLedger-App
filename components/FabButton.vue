@@ -29,9 +29,9 @@ import { useSettingStore } from '@/stores/setting.js'
 
 /**
  * 长按触发时长（ms）
- * 3 秒：按住不动就自动打开手动记账面板，不用等松手。
+ * 1 秒：按住不动就自动打开手动记账面板，不用等松手。
  */
-const HOLD_MS = 3000
+const HOLD_MS = 1000
 
 export default {
   name: 'FabButton',

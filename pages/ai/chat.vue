@@ -58,14 +58,14 @@
       </view>
     </scroll-view>
 
-    <!-- 输入区 -->
+    <!-- 输入区：用 input 而非 textarea，空态时不会占两行 -->
     <view class="input-bar">
-      <textarea
+      <input
         v-model="draft"
         class="chat-input"
-        :auto-height="true"
-        :maxlength="200"
         :disabled="thinking"
+        :maxlength="200"
+        confirm-type="send"
         placeholder="问点什么，比如「这个月花了多少」"
         placeholder-class="input-placeholder"
         :show-confirm-bar="false"
@@ -406,14 +406,14 @@ export default {
 
 .chat-input {
   flex: 1;
-  min-height: 76rpx;
-  max-height: 200rpx;
-  padding: 20rpx 24rpx;
+  /* 单行输入：固定高度，不随内容增长 */
+  height: 76rpx;
+  padding: 0 24rpx;
   background-color: var(--app-card-2);
   border-radius: 16rpx;
   font-size: 28rpx;
   color: var(--app-text);
-  line-height: 1.4;
+  line-height: 76rpx;
 }
 
 .input-placeholder {

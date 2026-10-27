@@ -316,20 +316,19 @@ export default {
       }
       unbindKeyboard()
 
+      /**
+       * 恢复 tabBar 要快。
+       *
+       * 之前等键盘高度归零才显示（最长 400ms），
+       * 用户感觉就是「底栏卡一下才回来」。
+       * 现在改成：先收键盘，紧接着就显示 tabBar。
+       * 键盘收起是系统动画，两者几乎同步，感知不到延迟。
+       */
+      showTabBar()
+
       try {
         if (typeof uni.hideKeyboard === 'function') uni.hideKeyboard()
       } catch (e) {}
-
-      /**
-       * 恢复 tabBar 必须等键盘真正收起。
-       *
-       * adjustResize 下，键盘未收起时 webview 仍被压缩着，
-       * 此时 showTabBar() 会把 tabBar 渲染在「键盘上沿」那个位置 ——
-       * 看起来就像 tabBar 和 + 浮在键盘上面。
-       *
-       * 所以：先收键盘，等高度归零（或超时兜底）再显示 tabBar。
-       */
-      restoreTabBarWhenKeyboardGone()
 
       /**
        * 解锁要快。
@@ -340,36 +339,6 @@ export default {
       setTimeout(() => {
         closing = false
       }, 0)
-    }
-
-    /**
-     * 等键盘收起后再恢复 tabBar。
-     * 用键盘高度监听判断；若 400ms 内没收到归零事件（部分机型不回调），
-     * 直接兜底恢复。
-     */
-    function restoreTabBarWhenKeyboardGone() {
-      let done = false
-      const restore = () => {
-        if (done) return
-        done = true
-        try {
-          if (typeof uni.offKeyboardHeightChange === 'function') {
-            uni.offKeyboardHeightChange()
-          }
-        } catch (e) {}
-        showTabBar()
-      }
-
-      try {
-        if (typeof uni.onKeyboardHeightChange === 'function') {
-          uni.onKeyboardHeightChange((res) => {
-            if (!res.height) restore()
-          })
-        }
-      } catch (e) {}
-
-      // 兜底：键盘没弹出来过的情况，或机型不回调高度变化
-      setTimeout(restore, 400)
     }
 
     /* ------------------------------------------------------ 生命周期 */
