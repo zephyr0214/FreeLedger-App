@@ -785,7 +785,7 @@ export default {
       iconChar, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
       onAccountSelect, onToAccountSelect, onTagSelect, removeTag,
-      onCalendarConfirm, onSave, onClose
+      onCalendarConfirm, onFinish, onSave, onClose
     }
   }
 }
