@@ -61,7 +61,7 @@
         scroll-x
         :show-scrollbar="false"
       >
-        <view class="cat-list">
+        <view class="cat-list" :style="catListStyle">
           <view v-for="(row, ri) in categoryRows" :key="ri" class="cat-row">
             <view
               v-for="cat in row"
@@ -279,16 +279,44 @@ export default {
     /**
      * 分类分成两行。
      *
-     * 每行放 CATS_PER_ROW 个，剩余的继续排在第二行（第二行会更长，
-     * 可以向右滑动看到）。两行作为一个整体一起滑动。
+     * 每行放 5 个：iPhone 13 上正好一屏显示 5×2 = 10 个，
+     * 常见的 9 个支出分类刚好两行显示完，不用滑动。
+     * 分类超过 10 个时，第二行会变长，可以向右滑动查看。
      */
-    const CATS_PER_ROW = 6
+    const CATS_PER_ROW = 5
 
     const categoryRows = computed(() => {
       const list = categoryList.value
       const row1 = list.slice(0, CATS_PER_ROW)
       const row2 = list.slice(CATS_PER_ROW)
       return [row1, row2]
+    })
+
+    /**
+     * 分类容器的显式宽度。
+     *
+     * 不用 width: max-content —— 它在 flex column 容器上计算不可靠，
+     * 实测会把两行横向排开（右滑时只剩第二行）。
+     * 这里自己算：容器宽 = 最宽那一行的宽度 + 左右内边距，
+     * 换算成 px 绑到 style 上。
+     */
+    const catListStyle = computed(() => {
+      const rows = categoryRows.value
+      const maxCount = rows.reduce((m, r) => Math.max(m, r.length), 0)
+      if (maxCount === 0) return {}
+
+      // 1rpx 等于多少 px：750rpx 对应屏幕宽
+      let rpx = 1
+      try {
+        const info = uni.getSystemInfoSync()
+        if (info.windowWidth) rpx = info.windowWidth / 750
+      } catch (e) {}
+
+      const itemW = 108 * rpx
+      const gap = 8 * rpx
+      const padX = 32 * rpx
+      const rowW = maxCount * itemW + Math.max(maxCount - 1, 0) * gap
+      return { width: `${Math.ceil(rowW + padX * 2)}px` }
     })
 
     /**
@@ -675,7 +703,7 @@ export default {
 
     return {
       visible, types, form, primaryColor, currencySymbol,
-      categoryList, categoryRows, amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
+      categoryList, categoryRows, catListStyle, amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
@@ -796,24 +824,18 @@ export default {
   padding: 16rpx 0 20rpx;
 }
 
-/* 分类：两行，整体可向右滑动 */
-.cat-scroll {
-  width: 100%;
-  white-space: nowrap;
-  padding: 16rpx 0 20rpx;
-}
-
 /**
  * 纵向容器装两行。
- * 宽度不设死 —— 由最宽的那一行决定（第二行可能更长），
- * 于是两行作为一个整体比视口宽时可以横向滑动。
+ *
+ * 宽度由 JS 显式算好后通过 :style 绑定（见 catListStyle），
+ * 不用 width: max-content —— 在 flex column 容器上
+ * max-content 的计算结果不可靠，会把两行横向排开。
  */
 .cat-list {
   display: flex;
   flex-direction: column;
   gap: 16rpx;
   padding: 0 32rpx;
-  width: max-content;
 }
 
 .cat-row {

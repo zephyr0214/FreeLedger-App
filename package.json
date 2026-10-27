@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node scripts/test-ai-parse.mjs && node scripts/test-ai-e2e.mjs && node scripts/test-logic.mjs",
+    "test": "node scripts/test-ai-parse.mjs && node scripts/test-ai-e2e.mjs && node scripts/test-cat-width.mjs && node scripts/test-logic.mjs",
     "check": "node scripts/check-syntax.mjs && node scripts/check-deep.mjs && node scripts/check-undefined.mjs && node scripts/check-events.mjs && node scripts/check-sql.mjs && node scripts/check-assets.mjs && node scripts/check-layout.mjs",
     "icons": "python scripts/gen-tabbar-icons.py",
     "verify": "npm run check && npm run test"
