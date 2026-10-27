@@ -86,17 +86,12 @@ export default {
      *   组件已经关闭销毁后，定时器仍会执行 autoFocus=false→true，
      *   把下一次打开时的聚焦状态打乱，表现为「第二次起键盘不弹」。
      */
-    let focusTimer1 = null
-    let focusTimer2 = null
+    let focusTimer = null
 
     function clearFocusTimers() {
-      if (focusTimer1) {
-        clearTimeout(focusTimer1)
-        focusTimer1 = null
-      }
-      if (focusTimer2) {
-        clearTimeout(focusTimer2)
-        focusTimer2 = null
+      if (focusTimer) {
+        clearTimeout(focusTimer)
+        focusTimer = null
       }
     }
 
@@ -154,7 +149,6 @@ export default {
           uni.onKeyboardHeightChange((res) => {
             const h = res.height || 0
             keyboardHeight.value = h
-            console.log('[quick-add] keyboard height =', h, 'visible =', visible.value, 'everShown =', keyboardEverShown)
 
             /**
              * 键盘被系统收起（点空白、按返回键）时，监听会收到 height=0。
@@ -164,7 +158,6 @@ export default {
              * 所以高度归零且已经打开过时，直接关闭输入态。
              */
             if (h === 0 && visible.value && keyboardEverShown) {
-              console.log('[quick-add] keyboard dismissed -> close')
               close()
             }
             if (h > 0) keyboardEverShown = true
@@ -306,16 +299,10 @@ export default {
     function noop() {}
 
     function close() {
-      console.log('[quick-add] close(), closing =', closing)
       // 防重入：hideKeyboard() 会让键盘高度归零，
       // 而监听回调里 height===0 又会调 close()，不加锁会递归
       if (closing) return
       closing = true
-
-      try {
-        if (typeof uni.hideKeyboard === 'function') uni.hideKeyboard()
-      } catch (e) {}
-
       visible.value = false
       draft.value = ''
       autoFocus.value = false
@@ -329,8 +316,20 @@ export default {
       }
       unbindKeyboard()
 
-      // 恢复 tabBar，否则退出输入态后底栏一直不见了
-      showTabBar()
+      try {
+        if (typeof uni.hideKeyboard === 'function') uni.hideKeyboard()
+      } catch (e) {}
+
+      /**
+       * 恢复 tabBar 必须等键盘真正收起。
+       *
+       * adjustResize 下，键盘未收起时 webview 仍被压缩着，
+       * 此时 showTabBar() 会把 tabBar 渲染在「键盘上沿」那个位置 ——
+       * 看起来就像 tabBar 和 + 浮在键盘上面。
+       *
+       * 所以：先收键盘，等高度归零（或超时兜底）再显示 tabBar。
+       */
+      restoreTabBarWhenKeyboardGone()
 
       /**
        * 解锁要快。
@@ -343,16 +342,47 @@ export default {
       }, 0)
     }
 
+    /**
+     * 等键盘收起后再恢复 tabBar。
+     * 用键盘高度监听判断；若 400ms 内没收到归零事件（部分机型不回调），
+     * 直接兜底恢复。
+     */
+    function restoreTabBarWhenKeyboardGone() {
+      let done = false
+      const restore = () => {
+        if (done) return
+        done = true
+        try {
+          if (typeof uni.offKeyboardHeightChange === 'function') {
+            uni.offKeyboardHeightChange()
+          }
+        } catch (e) {}
+        showTabBar()
+      }
+
+      try {
+        if (typeof uni.onKeyboardHeightChange === 'function') {
+          uni.onKeyboardHeightChange((res) => {
+            if (!res.height) restore()
+          })
+        }
+      } catch (e) {}
+
+      // 兜底：键盘没弹出来过的情况，或机型不回调高度变化
+      setTimeout(restore, 400)
+    }
+
     /* ------------------------------------------------------ 生命周期 */
 
     watch(
       () => props.modelValue,
       async (open) => {
-        console.log('[quick-add] visible ->', open)
         if (!open) {
+          // 注意：这里不要再调 showTabBar()。
+          // 关闭流程由 close() 负责 —— 它会等键盘真正收起后才恢复 tabBar，
+          // 否则 tabBar 会渲染在「键盘上沿」，看起来像浮在键盘上面。
           unbindKeyboard()
           clearFocusTimers()
-          showTabBar()
           return
         }
         keyboardHeight.value = 0
@@ -374,26 +404,32 @@ export default {
         await nextTick()
 
         /**
-         * 显式聚焦。
-         * 只靠 :focus="autoFocus" 在 v-if 首次渲染时经常不生效
-         * （组件挂载与属性求值时序问题），所以补一次「先 false 再 true」，
-         * 强制 Vue 检测到属性变化从而触发聚焦。
+         * 聚焦。
          *
-         * 两个定时器都存进变量，close() 时必须清掉 —— 否则它们会在
-         * 组件销毁后继续跑，污染下一次打开的状态。
+         * ★ 不能再用「autoFocus 先 false 再 true」那招 ★
+         *   把 focus 设为 false 会**真的收起键盘**。而键盘一收起，
+         *   onKeyboardHeightChange 就会回调 height=0，触发 close()，
+         *   于是：输入条刚出现就消失、tabBar 和 + 跑到键盘上方。
+         *   （真机日志实测：第二次打开后 213ms 键盘就被这个技巧收掉了。）
+         *
+         *   现在组件是 v-if 挂载的，每次打开都是全新的 input 元素，
+         *   :focus="true" 在挂载时就会生效，不需要再折腾。
+         *   若某些机型仍不生效，用 ref 调 focus() 兜底，
+         *   那不会引起键盘收起。
          */
         autoFocus.value = true
 
         clearFocusTimers()
-        focusTimer1 = setTimeout(() => {
-          focusTimer1 = null
+        focusTimer = setTimeout(() => {
+          focusTimer = null
           if (!visible.value) return
-          autoFocus.value = false
-          focusTimer2 = setTimeout(() => {
-            focusTimer2 = null
-            if (visible.value) autoFocus.value = true
-          }, 60)
-        }, 220)
+          // 兜底：用 ref 直接聚焦，不改 focus 属性，避免收起键盘
+          try {
+            if (inputRef.value && typeof inputRef.value.focus === 'function') {
+              inputRef.value.focus()
+            }
+          } catch (e) {}
+        }, 300)
       },
       { immediate: false }
     )

@@ -351,7 +351,6 @@ export default {
 
     /** 单击 + → 弹出 AI 输入条 */
     function openQuickAdd() {
-      console.log('[home] openQuickAdd, current =', showQuickAdd.value)
       showQuickAdd.value = true
     }
 
