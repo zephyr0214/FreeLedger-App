@@ -154,6 +154,7 @@ export default {
           uni.onKeyboardHeightChange((res) => {
             const h = res.height || 0
             keyboardHeight.value = h
+            console.log('[quick-add] keyboard height =', h, 'visible =', visible.value, 'everShown =', keyboardEverShown)
 
             /**
              * 键盘被系统收起（点空白、按返回键）时，监听会收到 height=0。
@@ -163,6 +164,7 @@ export default {
              * 所以高度归零且已经打开过时，直接关闭输入态。
              */
             if (h === 0 && visible.value && keyboardEverShown) {
+              console.log('[quick-add] keyboard dismissed -> close')
               close()
             }
             if (h > 0) keyboardEverShown = true
@@ -304,6 +306,7 @@ export default {
     function noop() {}
 
     function close() {
+      console.log('[quick-add] close(), closing =', closing)
       // 防重入：hideKeyboard() 会让键盘高度归零，
       // 而监听回调里 height===0 又会调 close()，不加锁会递归
       if (closing) return
@@ -345,6 +348,7 @@ export default {
     watch(
       () => props.modelValue,
       async (open) => {
+        console.log('[quick-add] visible ->', open)
         if (!open) {
           unbindKeyboard()
           clearFocusTimers()
