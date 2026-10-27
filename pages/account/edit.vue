@@ -120,7 +120,8 @@
       </view>
 
       <view v-if="isEdit" class="danger-area">
-        <wd-button size="large" plain custom-class="del-btn" @click="onDelete">
+        <!-- block + width:100%：横向撑满整个内容区 -->
+        <wd-button size="large" plain block custom-class="del-btn" @click="onDelete">
           删除账户
         </wd-button>
       </view>
@@ -399,6 +400,8 @@ export default {
 }
 
 .del-btn {
+  /* 横向撑满 */
+  width: 100% !important;
   color: #ee0a24 !important;
   border-color: #ee0a24 !important;
 }
