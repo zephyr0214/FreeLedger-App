@@ -1,0 +1,137 @@
+/**
+ * 日期工具
+ *
+ * 存储策略：
+ *   occurred_at    UTC 毫秒时间戳（唯一权威时间）
+ *   occurred_day   本地 YYYY-MM-DD（冗余，用于按天聚合，避免每次 strftime）
+ *   month_key      本地 YYYY-MM（冗余，统计页 90% 的查询按此过滤）
+ *   year_key       本地 YYYY（冗余）
+ *   tz_offset      分钟数（东八区 = 480）
+ */
+
+export const TZ_OFFSET = -new Date().getTimezoneOffset() // 东八区 -> 480
+
+/** Date -> 本地 YYYY-MM-DD */
+export function toDayKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Date -> 本地 YYYY-MM */
+export function toMonthKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+/** Date -> 本地 YYYY */
+export function toYearKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  return String(d.getFullYear())
+}
+
+/** 时间戳 / Date -> 三个 key 的组合对象，写入 txn 时用 */
+export function makeDateKeys(input) {
+  const d = input instanceof Date ? input : new Date(input)
+  return {
+    occurred_at: d.getTime(),
+    occurred_day: toDayKey(d),
+    month_key: toMonthKey(d),
+    year_key: toYearKey(d),
+    tz_offset: TZ_OFFSET
+  }
+}
+
+/** YYYY-MM-DD 的字符串 -> Date（本地零点） */
+export function parseDayKey(dayKey) {
+  const [y, m, d] = String(dayKey).split('-').map(Number)
+  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0)
+}
+
+/** 某月的第一天与最后一天 */
+export function monthRange(monthKey) {
+  const [y, m] = String(monthKey).split('-').map(Number)
+  const start = new Date(y, m - 1, 1, 0, 0, 0, 0)
+  const end = new Date(y, m, 0, 23, 59, 59, 999)
+  return { start, end }
+}
+
+/** 月份加减，返回 YYYY-MM */
+export function shiftMonth(monthKey, delta) {
+  const [y, m] = String(monthKey).split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return toMonthKey(d)
+}
+
+/** 日期加减天数，返回本地 YYYY-MM-DD */
+export function shiftDay(dayKey, delta) {
+  const d = parseDayKey(dayKey)
+  d.setDate(d.getDate() + delta)
+  return toDayKey(d)
+}
+
+/** 今天 / 昨天 / 前天 的相对标签 */
+export function relativeDayLabel(dayKey) {
+  const today = toDayKey()
+  if (dayKey === today) return '今天'
+  if (dayKey === shiftDay(today, -1)) return '昨天'
+  if (dayKey === shiftDay(today, -2)) return '前天'
+  return ''
+}
+
+/** 星期几中文 */
+export const WEEKDAY_CN = ['日', '一', '二', '三', '四', '五', '六']
+export function weekdayLabel(dayKey) {
+  const d = parseDayKey(dayKey)
+  return `周${WEEKDAY_CN[d.getDay()]}`
+}
+
+/** 完整展示：10月27日 周二 */
+export function formatDayHeader(dayKey) {
+  const d = parseDayKey(dayKey)
+  const rel = relativeDayLabel(dayKey)
+  const base = `${d.getMonth() + 1}月${d.getDate()}日 ${weekdayLabel(dayKey)}`
+  return rel ? `${rel} · ${base}` : base
+}
+
+/** 时间展示 HH:mm */
+export function formatTime(ts) {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** 按月计算的扣款日：若当月没有该日（如 31 号在 2 月），回退到当月最后一天 */
+export function clampDayOfMonth(year, month, day) {
+  const last = new Date(year, month, 0).getDate()
+  return Math.min(day, last)
+}
+
+/** 距离下一次「还款日/账单日」还有几天（返回 0 表示今天） */
+export function daysUntilMonthDay(dayOfMonth) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const target = new Date(y, m, clampDayOfMonth(y, m + 1, dayOfMonth), 0, 0, 0, 0)
+  const today = new Date(y, m, now.getDate(), 0, 0, 0, 0)
+  let diff = Math.round((target - today) / 86400000)
+  if (diff < 0) {
+    const nextMonth = new Date(y, m + 1, clampDayOfMonth(y, m + 2, dayOfMonth), 0, 0, 0, 0)
+    diff = Math.round((nextMonth - today) / 86400000)
+  }
+  return diff
+}
+
+/** 本月已过天数 / 本月总天数，用于预算「日均可用」 */
+export function monthProgress(monthKey) {
+  const now = new Date()
+  const [y, m] = String(monthKey).split('-').map(Number)
+  const total = new Date(y, m, 0).getDate()
+  const isCurrent = y === now.getFullYear() && m === now.getMonth() + 1
+  const passed = isCurrent ? now.getDate() : (monthKey < toMonthKey(now) ? total : 0)
+  const remain = Math.max(total - passed, 0)
+  return { total, passed, remain }
+}

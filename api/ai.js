@@ -1,0 +1,252 @@
+/**
+ * AI 服务 —— 调用用户自配的大模型 API
+ *
+ * 约束（与计划书 §8.3 一致）：
+ *   1. prompt 里只放聚合摘要，绝不塞原始交易明细
+ *   2. 结果按 hash(区间+数据) 缓存到本地，数据不变不重算
+ *   3. 超时/失败一律降级为「暂不可用」，不影响任何账务功能
+ *   4. 不允许 AI 直接写库
+ */
+
+import { getSetting, setSetting, getAllSettings } from './settings.js'
+import { getAiSummary } from './stats.js'
+
+const CACHE_KEY = 'aiCache'
+
+/* ------------------------------------------------------------- 底层调用 */
+
+/**
+ * 统一的 chat completion 调用
+ * @param {Array} messages [{role, content}]
+ * @param {object} opt { temperature, timeoutMs, maxTokens }
+ */
+export async function chat(messages, opt = {}) {
+  const settings = await getAllSettings()
+  const ai = settings.ai || {}
+
+  if (!ai.apiKey) throw new Error('未配置 API Key，请到「设置 → AI」中填写')
+  if (!ai.baseUrl) throw new Error('未配置 Base URL')
+
+  const url = `${String(ai.baseUrl).replace(/\/+$/, '')}/chat/completions`
+  const timeoutMs = opt.timeoutMs || ai.timeoutMs || 20000
+
+  const body = {
+    model: ai.model || 'deepseek-chat',
+    messages,
+    temperature: opt.temperature !== undefined ? opt.temperature : (ai.temperature || 0.3),
+    stream: false
+  }
+  if (opt.maxTokens) body.max_tokens = opt.maxTokens
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        reject(new Error('AI 请求超时'))
+      }
+    }, timeoutMs)
+
+    uni.request({
+      url,
+      method: 'POST',
+      header: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ai.apiKey}`
+      },
+      data: body,
+      success: (res) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          const msg = extractError(res)
+          reject(new Error(msg))
+          return
+        }
+        try {
+          const content = res.data?.choices?.[0]?.message?.content
+          if (typeof content !== 'string') {
+            reject(new Error('AI 返回格式异常'))
+            return
+          }
+          resolve(content.trim())
+        } catch (e) {
+          reject(new Error('解析 AI 响应失败'))
+        }
+      },
+      fail: (e) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        reject(new Error(e.errMsg || '网络请求失败'))
+      }
+    })
+  })
+}
+
+function extractError(res) {
+  if (res.statusCode === 401) return 'API Key 无效或已过期 (401)'
+  if (res.statusCode === 404) return '接口地址或模型名不存在 (404)'
+  if (res.statusCode === 429) return '请求过于频繁或额度用尽 (429)'
+  const detail = res.data?.error?.message || res.data?.message || ''
+  return `AI 请求失败 (${res.statusCode})${detail ? ': ' + detail : ''}`
+}
+
+/** 连通性测试 */
+export async function testConnection() {
+  const reply = await chat(
+    [
+      { role: 'system', content: '你是一个测试助手。' },
+      { role: 'user', content: '回复"ok"两个字母即可。' }
+    ],
+    { maxTokens: 16, temperature: 0, timeoutMs: 15000 }
+  )
+  return { ok: true, reply: reply.slice(0, 50) }
+}
+
+/* ------------------------------------------------------------------ 缓存 */
+
+async function readCache() {
+  const raw = await getSetting(CACHE_KEY, {})
+  return raw && typeof raw === 'object' ? raw : {}
+}
+
+async function writeCache(cache) {
+  // 只保留最近 50 条，防止无限增长
+  const keys = Object.keys(cache)
+  if (keys.length > 50) {
+    keys
+      .sort((a, b) => (cache[a].ts || 0) - (cache[b].ts || 0))
+      .slice(0, keys.length - 50)
+      .forEach((k) => delete cache[k])
+  }
+  await setSetting(CACHE_KEY, cache)
+}
+
+/** 由数据生成哈希，用于判断是否需要重算 */
+function hashSummary(summary) {
+  const s = JSON.stringify(summary)
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  }
+  return String(h)
+}
+
+/* -------------------------------------------------------- 首页一句话洞察 */
+
+/**
+ * 首页 AI 洞察：一句结论，≤40 字
+ * @param {string} monthKey
+ * @param {boolean} force 强制刷新
+ */
+export async function getInsight(monthKey, force = false) {
+  const summary = await getAiSummary(monthKey)
+  const key = `insight:${monthKey}:${hashSummary(summary)}`
+
+  const cache = await readCache()
+  if (!force && cache[key]) return { text: cache[key].text, cached: true, ts: cache[key].ts }
+
+  const prompt = `你是个人记账助手。根据以下月度数据，用一句中文（不超过40字）指出最值得用户注意的一点，不要寒暄，不要列点，直接给结论。
+
+数据：${JSON.stringify(summary)}`
+
+  const text = await chat([
+    { role: 'system', content: '你是一位简洁、克制的个人财务助理，只说事实与洞察，不说教。' },
+    { role: 'user', content: prompt }
+  ], { maxTokens: 120 })
+
+  cache[key] = { text, ts: Date.now() }
+  await writeCache(cache)
+  return { text, cached: false, ts: Date.now() }
+}
+
+/* ------------------------------------------------------ 统计页 AI 分析 */
+
+/**
+ * 统计页分析：3~5 句 + 2 条建议
+ */
+export async function getAnalysis(monthKey, force = false) {
+  const summary = await getAiSummary(monthKey)
+  const key = `analysis:${monthKey}:${hashSummary(summary)}`
+
+  const cache = await readCache()
+  if (!force && cache[key]) return { text: cache[key].text, cached: true, ts: cache[key].ts }
+
+  const prompt = `你是个人记账助手。根据以下月度收支数据，给出简短分析：
+1. 先用 2~3 句说明这个月的消费结构特点（哪些分类占比高、有无异常）
+2. 再给 1~2 条具体可执行的建议（要具体到分类或金额，不要说"要省钱"这种空话）
+总字数控制在 150 字以内，不要用 markdown 标题，不要寒暄。
+
+数据：${JSON.stringify(summary)}`
+
+  const text = await chat([
+    { role: 'system', content: '你是一位务实、克制的个人财务助理。只基于给定数据分析，不编造数据。' },
+    { role: 'user', content: prompt }
+  ], { maxTokens: 400 })
+
+  cache[key] = { text, ts: Date.now() }
+  await writeCache(cache)
+  return { text, cached: false, ts: Date.now() }
+}
+
+/* ------------------------------------------------------------ 对话 */
+
+/**
+ * 自然语言问答
+ * @param {Array} history [{role, content}]
+ */
+export async function ask(history, monthKey) {
+  const summary = await getAiSummary(monthKey)
+
+  const system = `你是用户的个人记账助手。你只能基于下面这份本月账务摘要回答，摘要里没有的信息要如实说"数据里没有"。
+
+本月摘要：${JSON.stringify(summary)}
+
+回答要求：简洁口语化，中文，不要说教，不超过 100 字。`
+
+  const messages = [
+    { role: 'system', content: system },
+    ...history.slice(-6)  // 只带最近 3 轮，控制 Token
+  ]
+
+  return chat(messages, { maxTokens: 300 })
+}
+
+/* ------------------------------------------------ 速记解析的 AI 兜底 */
+
+/**
+ * 规则解析失败时，让 AI 把文本转成结构化 JSON
+ * 仅在用户显式开启 quickFallback 时调用
+ */
+export async function parseQuickWithAi(text, candidates) {
+  const prompt = `把下面这句记账口语解析成 JSON，只输出 JSON，不要任何解释。
+
+句子：${text}
+
+可选分类：${JSON.stringify(candidates.categories.map((c) => c.name))}
+可选账户：${JSON.stringify(candidates.accounts.map((a) => a.name))}
+
+输出格式（金额单位元，数字）：
+{"amount": 45.5, "type": "expense|income|transfer", "category": "分类名或null", "account": "账户名或null", "toAccount": "目标账户名或null", "dayOffset": 0, "note": "备注"}`
+
+  const reply = await chat([
+    { role: 'system', content: '你是一个严谨的 JSON 生成器，只输出合法 JSON。' },
+    { role: 'user', content: prompt }
+  ], { maxTokens: 200, temperature: 0 })
+
+  // 剥离可能的 markdown 代码块
+  const cleaned = reply.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('AI 未返回有效 JSON')
+
+  return JSON.parse(jsonMatch[0])
+}
+
+/** 清除缓存（设置页提供） */
+export async function clearAiCache() {
+  await setSetting('aiCache', {})
+  return true
+}

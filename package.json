@@ -1,0 +1,16 @@
+{
+  "name": "books",
+  "version": "1.0.0",
+  "description": "本地记账 App — uni-app + Vue3 + wot-design-uni + SQLite",
+  "private": true,
+  "scripts": {
+    "check": "node scripts/check-syntax.mjs"
+  },
+  "dependencies": {
+    "pinia": "2.3.1",
+    "wot-design-uni": "1.14.0"
+  },
+  "devDependencies": {
+    "sass": "1.106.1"
+  }
+}
