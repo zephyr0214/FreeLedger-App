@@ -71,15 +71,18 @@
             </view>
           </view>
 
-          <!-- 排行 -->
+          <!-- 排行（按二级分类） -->
           <view class="rank-list">
             <view
-              v-for="(cat, i) in categoryStats.slice(0, 7)"
+              v-for="(cat, i) in categoryStats.slice(0, 10)"
               :key="cat.id"
               class="rank-item"
             >
               <view class="rank-dot" :style="{ backgroundColor: cat.color }" />
-              <text class="rank-name">{{ cat.name }}</text>
+              <view class="rank-label-col">
+                <text class="rank-name">{{ cat.name }}</text>
+                <text class="rank-sub">{{ cat.parentName }}</text>
+              </view>
               <view class="rank-bar-wrap">
                 <view
                   class="rank-bar"
@@ -131,6 +134,15 @@
             <view v-for="(acc, i) in accountStats" :key="acc.id" class="rank-item">
               <view class="rank-dot" :style="{ backgroundColor: accColor(acc, i) }" />
               <text class="rank-name">{{ acc.name }}</text>
+              <view class="rank-bar-wrap">
+                <view
+                  class="rank-bar"
+                  :style="{
+                    width: piePercent(acc.amount, accountTotal) + '%',
+                    backgroundColor: accColor(acc, i)
+                  }"
+                />
+              </view>
               <text class="rank-pct">{{ piePercent(acc.amount, accountTotal) }}%</text>
               <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
             </view>
@@ -173,6 +185,15 @@
             <view v-for="t in accountTypeStats" :key="t.key" class="rank-item">
               <view class="rank-dot" :style="{ backgroundColor: t.color }" />
               <text class="rank-name">{{ t.name }}</text>
+              <view class="rank-bar-wrap">
+                <view
+                  class="rank-bar"
+                  :style="{
+                    width: piePercent(t.amount, accountTypeTotal) + '%',
+                    backgroundColor: t.color
+                  }"
+                />
+              </view>
               <text class="rank-pct">{{ piePercent(t.amount, accountTypeTotal) }}%</text>
               <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
             </view>
@@ -241,15 +262,10 @@
               <text class="simple-name">{{ c.name }}</text>
               <text class="cat-avg-hint">{{ c.count }} 笔</text>
             </view>
+            <!-- 笔均：字在上方，金额在下方 -->
             <view class="cat-avg-values">
-              <view class="cat-avg-row">
-                <text class="cat-avg-label">笔均</text>
-                <MoneyText :cents="c.avgPerTxn" :size="26" color="var(--app-text)" />
-              </view>
-              <view class="cat-avg-row">
-                <text class="cat-avg-label">日均</text>
-                <MoneyText :cents="c.avgPerDay" :size="26" color="var(--app-text-2)" />
-              </view>
+              <text class="cat-avg-label">笔均</text>
+              <MoneyText :cents="c.avgPerTxn" :size="26" color="var(--app-text)" />
             </view>
           </view>
         </view>
@@ -298,8 +314,8 @@ import MoneyText from '@/components/MoneyText.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
-  getOverviewRange, getCategoryStatsRange, getAccountStatsRange,
-  getAccountTypeStatsRange, getCategoryAveragesRange,
+  getOverviewRange, getSubCategoryStatsRange,
+  getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
   getDailyTrendRange, getAveragesRange, getTopExpensesRange
 } from '@/api/stats.js'
 import {
@@ -375,24 +391,36 @@ export default {
 
     /**
      * 画环形图的通用实现（conic-gradient，避开 canvas 首绘白屏）
+     *
      * @param {Array} list [{ amount, color }]
      * @param {number} total
+     * @param {number} topN 画前几项，剩下的合并成一段
      */
-    function buildDonut(list, total) {
-      const items = (list || []).slice(0, 7)
-      if (items.length === 0 || !total) {
+    function buildDonut(list, total, topN = 7) {
+      const all = (list || []).filter((x) => Number(x.amount) > 0)
+      if (all.length === 0 || !total) {
         return { background: 'var(--app-card-2)' }
       }
+
+      const items = all.slice(0, topN)
+      const rest = all.slice(topN)
+      const restAmount = rest.reduce((acc, x) => acc + Number(x.amount || 0), 0)
 
       let acc = 0
       const stops = []
       for (const item of items) {
-        const pct = (item.amount / total) * 100
+        const pct = (Number(item.amount) / total) * 100
         const from = acc
         acc += pct
         stops.push(`${item.color} ${from}% ${acc}%`)
       }
-      // 剩余归其他
+      // 剩下的合并成一段
+      if (restAmount > 0) {
+        const from = acc
+        acc += (restAmount / total) * 100
+        stops.push(`var(--app-line) ${from}% ${acc}%`)
+      }
+      // 不足 100%（比如总额里还有没归类的）用浅色补齐
       if (acc < 100) {
         stops.push(`var(--app-line) ${acc}% 100%`)
       }
@@ -402,7 +430,7 @@ export default {
 
     /** 用 conic-gradient 画环形图，避开 canvas 在 App 端首绘白屏的问题 */
     const donutStyle = computed(() =>
-      buildDonut(categoryStats.value, categoryTotal.value)
+      buildDonut(categoryStats.value, categoryTotal.value, 10)
     )
 
     /** 按账户分的环形图 */
@@ -462,7 +490,8 @@ export default {
       try {
         const [ov, cats, accs, accTypes, catAvgs, daily, avg, top] = await Promise.all([
           getOverviewRange(r),
-          getCategoryStatsRange(r, statType.value),
+          // 分类统计展示**二级分类**（午餐、外卖、房租…）
+          getSubCategoryStatsRange(r, statType.value),
           getAccountStatsRange(r, statType.value),
           getAccountTypeStatsRange(r, statType.value),
           getCategoryAveragesRange(r, statType.value),
@@ -736,6 +765,28 @@ export default {
   flex-shrink: 0;
 }
 
+/* 分类名 + 所属一级分类（两行） */
+.rank-label-col {
+  width: 130rpx;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  overflow: hidden;
+}
+
+.rank-label-col .rank-name {
+  width: auto;
+}
+
+.rank-sub {
+  font-size: 19rpx;
+  color: var(--app-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rank-bar-wrap {
   flex: 1;
   height: 10rpx;
@@ -809,20 +860,13 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 笔均、日均：上下两行 */
+/* 笔均：字在上方，金额在下方 */
 .cat-avg-values {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 12rpx;
+  gap: 4rpx;
   flex-shrink: 0;
-}
-
-/* 每一行：标签和金额在同一行上对齐 */
-.cat-avg-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10rpx;
 }
 
 .cat-avg-label {

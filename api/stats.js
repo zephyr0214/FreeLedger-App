@@ -382,6 +382,88 @@ export async function getCategoryStatsRange(range, type = 'expense') {
   return categoryStatsByScope(rangeScope(range), type)
 }
 
+/**
+ * 二级分类统计（按任意日期区间）
+ *
+ * 统计页的「分类统计」要展示**二级分类**（午餐、外卖、房租…），
+ * 而不是一级分类（餐饮、居住…）——
+ * 一级是统计口径，二级才是用户实际记的东西。
+ *
+ * 没有二级分类的交易归到它自己的一级分类下
+ * （用 COALESCE 保证不会漏掉）。
+ *
+ * ★ 二级分类的配色 ★
+ *   种子里二级分类继承父级颜色（分类管理页显示的是父级色），
+ *   但统计页的饼图要按二级分块 —— 同一父级下全是同一个颜色就分不开了。
+ *   所以这里在查询时按「父级色 + 序号」派生出色阶，
+ *   同一父级下的二级分类是同一色系的不同深浅。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @param {'expense'|'income'} type
+ * @returns {Promise<Array<{id:string,name:string,icon:string,color:string,
+ *   parentName:string,amount:number,count:number}>>}
+ */
+export async function getSubCategoryStatsRange(range, type = 'expense') {
+  const rows = await query(
+    `SELECT t.category_id AS id,
+            c.name, c.icon, c.color,
+            c.parent_id AS parent_id,
+            COALESCE(p.name, '未分类') AS parent_name,
+            COALESCE(p.color, c.color) AS parent_color,
+            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+     FROM txn t
+     LEFT JOIN category c ON c.id = t.category_id
+     LEFT JOIN category p ON p.id = c.parent_id
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', rangeScope(range))}
+     GROUP BY t.category_id
+     ORDER BY amt DESC`,
+    [type].concat(rangeScope(range).params)
+  )
+
+  // 同一父级下按序号派生色阶
+  const seqByParent = {}
+  return rows.map((r) => {
+    const parentId = r.parent_id || '__own__'
+    const idx = seqByParent[parentId] === undefined ? 0 : seqByParent[parentId]
+    seqByParent[parentId] = idx + 1
+    return {
+      id: r.id,
+      name: r.name || '未分类',
+      icon: r.icon || 'more',
+      color: shadeColor(r.parent_color || r.color || '#1989FA', idx),
+      parentName: r.parent_name || '未分类',
+      amount: Number(r.amt) || 0,
+      count: Number(r.cnt) || 0
+    }
+  })
+}
+
+/**
+ * 由基色派生出同色系的深浅色（用于同组内区分）
+ * @param {string} hex 基色，如 '#1989FA'
+ * @param {number} idx 序号
+ * @returns {string} 十六进制颜色
+ */
+export function shadeColor(hex, idx) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''))
+  if (!m) return '#1989FA'
+  if (!idx) return `#${m[1]}`
+
+  const num = parseInt(m[1], 16)
+  let r = (num >> 16) & 255
+  let g = (num >> 8) & 255
+  let b = num & 255
+
+  // 每往后一个，亮度降 12%，最低降到 45%
+  const factor = Math.max(0.45, 1 - idx * 0.12)
+  r = Math.round(r * factor)
+  g = Math.round(g * factor)
+  b = Math.round(b * factor)
+
+  const to2 = (v) => v.toString(16).padStart(2, '0')
+  return `#${to2(r)}${to2(g)}${to2(b)}`
+}
+
 /** 二级分类明细（点开一级分类时用） */
 export async function getSubCategoryStats(parentId, monthKey, type = 'expense') {
   const rows = await query(

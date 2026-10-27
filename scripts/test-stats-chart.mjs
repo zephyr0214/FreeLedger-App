@@ -12,6 +12,8 @@
 let pass = 0
 let fail = 0
 
+import { shadeColor } from '../api/stats.js'
+
 function check(name, actual, expected) {
   const a = JSON.stringify(actual)
   const e = JSON.stringify(expected)
@@ -22,7 +24,6 @@ function check(name, actual, expected) {
     console.log(`FAIL  ${name}\n      实际 ${a}\n      期望 ${e}`)
   }
 }
-
 /* ---------------------------------------------- 环形图（与页面同逻辑） */
 
 function buildDonut(list, total) {
@@ -100,8 +101,23 @@ check('三分之一', piePercent(1, 3), 33.3)
 check('全部', piePercent(100, 100), 100)
 check('total 为 0', piePercent(10, 0), 0)
 
-console.log('=== 各分类平均值 ===')
+console.log('=== 二级分类的色阶派生 ===')
 
+{
+  // 同一父级下的二级分类要能区分开（同一色系的不同深浅）
+  check('第一个用原色', shadeColor('#1989FA', 0), '#1989FA')
+  check('第二个变暗', shadeColor('#1989FA', 1) !== '#1989FA', true)
+  check('第三个比第二个更暗', shadeColor('#1989FA', 2) !== shadeColor('#1989FA', 1), true)
+  // 不能黑到看不见
+  check('序号很大也不会全黑', shadeColor('#1989FA', 20).slice(1, 3) !== '00', true)
+  // 非法输入兜底
+  check('非法颜色兜底', shadeColor('不是颜色', 1), '#1989FA')
+  check('空值兜底', shadeColor('', 0), '#1989FA')
+  // 颜色格式合法
+  check('输出是 7 位十六进制', /^#[0-9a-f]{6}$/.test(shadeColor('#1989FA', 3)), true)
+}
+
+console.log('=== 各分类平均值 ===')
 /** 与 getCategoryAveragesRange 同逻辑 */
 function calcCategoryAverages(rows, daysPassed) {
   return rows.map((r) => {
