@@ -73,6 +73,12 @@ export default {
     const maskEnabled = ref(false)
     let maskTimer = null
 
+    /** 本次打开期间键盘是否曾真正弹出过（用于区分"还没弹"和"已收起"） */
+    let keyboardEverShown = false
+
+    /** close() 重入锁 */
+    let closing = false
+
     const visible = computed({
       get: () => props.modelValue,
       set: (v) => emit('update:modelValue', v)
@@ -81,23 +87,64 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const canSend = computed(() => draft.value.trim().length > 0 && !submitting.value)
 
-    /** 输入条跟随键盘上移 */
-    const barStyle = computed(() => {
-      const bottom = keyboardHeight.value > 0
-        ? keyboardHeight.value + 'px'
-        : 'calc(env(safe-area-inset-bottom) + 20rpx)'
-      return { bottom }
-    })
+    /**
+     * 输入条位置。
+     *
+     * ★ 不要自己加键盘高度 ★
+     *   页面已配置 softinputMode=adjustResize，键盘弹出时整个 webview
+     *   （连同原生 tabBar）会被压缩到键盘上沿之上。
+     *   如果这里再用 bottom = 键盘高度，就会「webview 已经抬一次 +
+     *   输入条又抬一次」，表现为输入条飞到屏幕中间。
+     *
+     *   所以固定贴在 webview 底部即可，键盘出现时它会自然落在键盘上方。
+     */
+    const barStyle = computed(() => ({
+      bottom: 'calc(env(safe-area-inset-bottom) + 20rpx)'
+    }))
 
     /* ------------------------------------------------------ 键盘 */
 
     let keyboardTimer = null
 
+    /**
+     * 进入/退出输入态时切换原生 tabBar 的显隐。
+     *
+     * 为什么要隐藏 tabBar：
+     *   adjustResize 会让 webview 收缩到键盘上沿，原生 tabBar 作为
+     *   webview 的一部分也会被顶到键盘上方，和输入条挤在一起。
+     *   输入时把 tabBar 藏起来，视觉上就是一个干净的输入条贴键盘，
+     *   退出时再显示，tabBar 自然回到底部。
+     */
+    function hideTabBar() {
+      try {
+        uni.hideTabBar({ animation: false })
+      } catch (e) {}
+    }
+
+    function showTabBar() {
+      try {
+        uni.showTabBar({ animation: false })
+      } catch (e) {}
+    }
+
     function bindKeyboard() {
       try {
         if (typeof uni.onKeyboardHeightChange === 'function') {
           uni.onKeyboardHeightChange((res) => {
-            keyboardHeight.value = res.height || 0
+            const h = res.height || 0
+            keyboardHeight.value = h
+
+            /**
+             * 键盘被系统收起（点空白、按返回键）时，监听会收到 height=0。
+             * 此时组件自己并不知道，若不主动收尾，会出现：
+             *   - 输入条还在，但位置错乱/空白
+             *   - FAB 因为 hidden=showQuickAdd 一直不显示
+             * 所以高度归零且已经打开过时，直接关闭输入态。
+             */
+            if (h === 0 && visible.value && keyboardEverShown) {
+              close()
+            }
+            if (h > 0) keyboardEverShown = true
           })
         }
       } catch (e) {}
@@ -230,16 +277,34 @@ export default {
     function noop() {}
 
     function close() {
+      // 防重入：hideKeyboard() 会让键盘高度归零，
+      // 而监听回调里 height===0 又会调 close()，不加锁会递归
+      if (closing) return
+      closing = true
+
+      try {
+        if (typeof uni.hideKeyboard === 'function') uni.hideKeyboard()
+      } catch (e) {}
+
       visible.value = false
       draft.value = ''
       autoFocus.value = false
       keyboardHeight.value = 0
       maskEnabled.value = false
+      keyboardEverShown = false
       if (maskTimer) {
         clearTimeout(maskTimer)
         maskTimer = null
       }
       unbindKeyboard()
+
+      // 恢复 tabBar，否则退出输入态后底栏一直不见了
+      showTabBar()
+
+      // 等这一轮事件循环结束再解锁
+      setTimeout(() => {
+        closing = false
+      }, 50)
     }
 
     /* ------------------------------------------------------ 生命周期 */
@@ -249,10 +314,16 @@ export default {
       async (open) => {
         if (!open) {
           unbindKeyboard()
+          showTabBar()
           return
         }
         keyboardHeight.value = 0
         maskEnabled.value = false
+        keyboardEverShown = false
+        closing = false
+
+        // 隐藏 tabBar，避免它被 adjustResize 顶到键盘上方
+        hideTabBar()
 
         // 延迟启用遮罩，挡掉 FAB 抬起时补发的那次 click
         if (maskTimer) clearTimeout(maskTimer)
@@ -263,7 +334,21 @@ export default {
 
         bindKeyboard()
         await nextTick()
+
+        /**
+         * 显式聚焦。
+         * 只靠 :focus="autoFocus" 在 v-if 首次渲染时经常不生效
+         * （组件挂载与属性求值时序问题），表现为「输入条出来了但键盘不弹」。
+         * 先置 true 触发一次，再延时兜底一次，两者都不贵。
+         */
         autoFocus.value = true
+        setTimeout(() => {
+          if (!visible.value) return
+          autoFocus.value = false
+          setTimeout(() => {
+            if (visible.value) autoFocus.value = true
+          }, 60)
+        }, 220)
       },
       { immediate: false }
     )
