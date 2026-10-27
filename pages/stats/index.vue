@@ -45,13 +45,13 @@
           <view class="type-toggle">
               <text
                 class="type-tag"
-                :class="{ active: statType === 'expense' }"
-                @click="switchStatType('expense')"
+                :class="{ active: categoryStatType === 'expense' }"
+                @click="switchCategoryType('expense')"
               >支出</text>
               <text
                 class="type-tag"
-                :class="{ active: statType === 'income' }"
-                @click="switchStatType('income')"
+                :class="{ active: categoryStatType === 'income' }"
+                @click="switchCategoryType('income')"
               >收入</text>
           </view>
         </view>
@@ -93,7 +93,9 @@
                 />
               </view>
               <text class="rank-pct">{{ catPercent(cat) }}%</text>
-              <MoneyText :cents="cat.amount" :size="26" color="var(--app-text)" />
+              <view class="rank-amount">
+                <MoneyText :cents="cat.amount" :size="26" color="var(--app-text)" />
+              </view>
             </view>
           </view>
         </view>
@@ -106,13 +108,13 @@
           <view class="type-toggle">
             <text
               class="type-tag"
-              :class="{ active: statType === 'expense' }"
-              @click="switchStatType('expense')"
+              :class="{ active: accountStatType === 'expense' }"
+              @click="switchAccountType('expense')"
             >支出</text>
             <text
               class="type-tag"
-              :class="{ active: statType === 'income' }"
-              @click="switchStatType('income')"
+              :class="{ active: accountStatType === 'income' }"
+              @click="switchAccountType('income')"
             >收入</text>
           </view>
         </view>
@@ -144,7 +146,9 @@
                 />
               </view>
               <text class="rank-pct">{{ piePercent(acc.amount, accountTotal) }}%</text>
-              <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
+              <view class="rank-amount">
+                <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
+              </view>
             </view>
           </view>
         </view>
@@ -157,13 +161,13 @@
           <view class="type-toggle">
             <text
               class="type-tag"
-              :class="{ active: statType === 'expense' }"
-              @click="switchStatType('expense')"
+              :class="{ active: accountTypeStatType === 'expense' }"
+              @click="switchAccountTypeType('expense')"
             >支出</text>
             <text
               class="type-tag"
-              :class="{ active: statType === 'income' }"
-              @click="switchStatType('income')"
+              :class="{ active: accountTypeStatType === 'income' }"
+              @click="switchAccountTypeType('income')"
             >收入</text>
           </view>
         </view>
@@ -195,7 +199,9 @@
                 />
               </view>
               <text class="rank-pct">{{ piePercent(t.amount, accountTypeTotal) }}%</text>
-              <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
+              <view class="rank-amount">
+                <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
+              </view>
             </view>
           </view>
         </view>
@@ -234,17 +240,29 @@
       <view class="card">
         <view class="card-head">
           <text class="card-title">平均值</text>
+          <view class="type-toggle">
+            <text
+              class="type-tag"
+              :class="{ active: averageStatType === 'expense' }"
+              @click="switchAverageType('expense')"
+            >支出</text>
+            <text
+              class="type-tag"
+              :class="{ active: averageStatType === 'income' }"
+              @click="switchAverageType('income')"
+            >收入</text>
+          </view>
         </view>
 
         <!-- 总体 -->
         <view class="avg-grid">
           <view class="avg-item">
-            <text class="avg-label">日均支出</text>
+            <text class="avg-label">日均{{ averageStatType === 'expense' ? '支出' : '收入' }}</text>
             <MoneyText :cents="averages.avgPerDay" :size="34" :weight="600" color="var(--app-text)" />
             <text class="avg-hint">{{ averages.daysPassed }} 天</text>
           </view>
           <view class="avg-item">
-            <text class="avg-label">笔均支出</text>
+            <text class="avg-label">笔均{{ averageStatType === 'expense' ? '支出' : '收入' }}</text>
             <MoneyText :cents="averages.avgPerTxn" :size="34" :weight="600" color="var(--app-text)" />
             <text class="avg-hint">{{ averages.count }} 笔</text>
           </view>
@@ -329,7 +347,17 @@ export default {
 
     /** 三级联动选择：year / month / day，0 表示「全部」 */
     const dateRange = ref(defaultSelection())
-    const statType = ref('expense')
+    /**
+     * 每张卡片的「支出/收入」各自独立控制。
+     *
+     * 之前三张卡共用一个 statType，切换分类统计的收支，
+     * 账户统计也跟着变 —— 但这两者的收支对比是不同的事，
+     * 用户想同时看「支出的分类」和「收入的账户」。
+     */
+    const categoryStatType = ref('expense')
+    const accountStatType = ref('expense')
+    const accountTypeStatType = ref('expense')
+    const averageStatType = ref('expense')
 
     const categoryStats = ref([])
     const accountStats = ref([])
@@ -485,18 +513,26 @@ export default {
 
     /* ------------------------------------------------------ 加载 */
 
+    /**
+     * 加载各卡片的数据。
+     *
+     * ★ 每张卡片用自己的 statType ★
+     *   分类统计、账户统计、账户类别统计、平均值
+     *   四张卡的「支出/收入」互相独立，
+     *   所以每张卡的数据要按各自的 type 单独查。
+     */
     async function loadAll() {
       const r = range.value
       try {
         const [ov, cats, accs, accTypes, catAvgs, daily, avg, top] = await Promise.all([
           getOverviewRange(r),
           // 分类统计展示**二级分类**（午餐、外卖、房租…）
-          getSubCategoryStatsRange(r, statType.value),
-          getAccountStatsRange(r, statType.value),
-          getAccountTypeStatsRange(r, statType.value),
-          getCategoryAveragesRange(r, statType.value),
+          getSubCategoryStatsRange(r, categoryStatType.value),
+          getAccountStatsRange(r, accountStatType.value),
+          getAccountTypeStatsRange(r, accountTypeStatType.value),
+          getCategoryAveragesRange(r, averageStatType.value),
           getDailyTrendRange(r),
-          getAveragesRange(r),
+          getAveragesRange(r, averageStatType.value),
           getTopExpensesRange(r, 10)
         ])
 
@@ -546,22 +582,69 @@ export default {
       settingStore.refreshTabBar()
     })
 
-    // 切换支出/收入时重新拉分类与账户统计
-    function switchStatType(type) {
-      statType.value = type
-      loadAll()
+    /* ------------------------------------------------ 各卡片独立切换 */
+
+    /** 分类统计：切换支出/收入 */
+    async function switchCategoryType(type) {
+      if (categoryStatType.value === type) return
+      categoryStatType.value = type
+      try {
+        categoryStats.value = await getSubCategoryStatsRange(range.value, type)
+      } catch (e) {
+        console.error('[stats] 分类统计切换失败', e)
+      }
+    }
+
+    /** 账户统计：切换支出/收入 */
+    async function switchAccountType(type) {
+      if (accountStatType.value === type) return
+      accountStatType.value = type
+      try {
+        accountStats.value = await getAccountStatsRange(range.value, type)
+      } catch (e) {
+        console.error('[stats] 账户统计切换失败', e)
+      }
+    }
+
+    /** 账户类别统计：切换支出/收入 */
+    async function switchAccountTypeType(type) {
+      if (accountTypeStatType.value === type) return
+      accountTypeStatType.value = type
+      try {
+        accountTypeStats.value = await getAccountTypeStatsRange(range.value, type)
+      } catch (e) {
+        console.error('[stats] 账户类别统计切换失败', e)
+      }
+    }
+
+    /** 平均值：切换支出/收入 */
+    async function switchAverageType(type) {
+      if (averageStatType.value === type) return
+      averageStatType.value = type
+      try {
+        const [avgs, catAvgs] = await Promise.all([
+          getAveragesRange(range.value, type),
+          getCategoryAveragesRange(range.value, type)
+        ])
+        averages.value = avgs
+        categoryAverages.value = catAvgs
+      } catch (e) {
+        console.error('[stats] 平均值切换失败', e)
+      }
     }
 
     return {
       settingStore,
-      dateRange, statType,
+      dateRange,
+      categoryStatType, accountStatType, accountTypeStatType, averageStatType,
       categoryStats, accountStats, accountTypeStats, categoryAverages,
       dailyTrend, averages, topExpenses, overview,
       primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
       categoryTotal, donutStyle, accountTotal, accountTypeTotal,
       accountDonutStyle, accountTypeDonutStyle,
       barHeight, catPercent, shortDay, accColor, piePercent,
-      loadAll, onRangeChange, switchStatType,
+      loadAll, onRangeChange,
+      switchCategoryType, switchAccountType, switchAccountTypeType, switchAverageType,
       goTxnDetail, goAiChat, goSettings
     }
   }
@@ -758,16 +841,20 @@ export default {
   flex-shrink: 0;
 }
 
+/* 排行：名称列宽度统一，三处排行（分类/账户/账户类别）的进度条才能左右对齐 */
 .rank-name {
   font-size: 24rpx;
   color: var(--app-text);
-  width: 110rpx;
+  width: 150rpx;
   flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 分类名 + 所属一级分类（两行） */
 .rank-label-col {
-  width: 130rpx;
+  width: 150rpx;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -777,6 +864,8 @@ export default {
 
 .rank-label-col .rank-name {
   width: auto;
+  /* text 上省略号要 block 布局才生效 */
+  display: block;
 }
 
 .rank-sub {
@@ -807,6 +896,16 @@ export default {
   width: 70rpx;
   text-align: right;
   flex-shrink: 0;
+}
+
+/* 金额列固定宽度：不然金额位数一变，进度条右端就跟着移 */
+.rank-amount {
+  width: 150rpx;
+  flex-shrink: 0;
+  /* 用 flex 右对齐：text-align 对行内元素在 App WebView 上不可靠 */
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
 }
 
 /* 简单列表 */

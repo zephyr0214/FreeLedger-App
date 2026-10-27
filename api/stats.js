@@ -769,11 +769,11 @@ export async function getDailyTrendRange(range) {
 /* ------------------------------------------------------------ 平均值 */
 
 /** 平均值聚合主体（daysPassed 由调用方给，两套口径的「已过天数」定义不同） */
-async function averagesByScope(scope, daysPassed) {
+async function averagesByScope(scope, daysPassed, type = 'expense') {
   const row = await queryOne(
     `SELECT COALESCE(SUM(t.amount_cents),0) AS total, COUNT(*) AS cnt
-     FROM txn t WHERE t.deleted_at IS NULL AND t.type='expense'${withScope('', scope)}`,
-    scope.params
+     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}`,
+    [type].concat(scope.params)
   )
   const total = Number(row ? row.total : 0)
   const cnt = Number(row ? row.cnt : 0)
@@ -781,9 +781,9 @@ async function averagesByScope(scope, daysPassed) {
   // 最高单日
   const maxDay = await queryOne(
     `SELECT t.occurred_day AS day, SUM(t.amount_cents) AS amt
-     FROM txn t WHERE t.deleted_at IS NULL AND t.type='expense'${withScope('', scope)}
+     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY t.occurred_day ORDER BY amt DESC LIMIT 1`,
-    scope.params
+    [type].concat(scope.params)
   )
 
   return {
@@ -847,11 +847,12 @@ async function rangeDaysPassed(range) {
 /**
  * 按任意日期区间的平均值
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @param {'expense'|'income'} type 统计支出还是收入
  * @returns {Promise<{total:number,count:number,avgPerDay:number,avgPerTxn:number,daysPassed:number,maxDay:object|null}>}
  */
-export async function getAveragesRange(range) {
+export async function getAveragesRange(range, type = 'expense') {
   const daysPassed = await rangeDaysPassed(range)
-  return averagesByScope(rangeScope(range), daysPassed)
+  return averagesByScope(rangeScope(range), daysPassed, type)
 }
 
 /**
