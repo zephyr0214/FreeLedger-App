@@ -445,6 +445,13 @@ export async function getAssetTrend(months = 6) {
  *   delta = 与上一个点相比的变化额（第一个点为 0）
  */
 export async function getAssetChangePoints(months = 6) {
+  // ★ 先确保今天的快照存在 ★
+  //   快照原来只在 App 冷启动时写一次（writeAllTodaySnapshots）。
+  //   如果 App 跨过午夜还开着、或者不冷启动直接进页面，
+  //   今天就没有快照 -> 趋势图今天这一格是 0（看着像资产归零了）。
+  //   这里查之前补写一次，代价很小。
+  await writeAllTodaySnapshots().catch(() => {})
+
   const from = new Date()
   from.setDate(from.getDate() - months * 31)
   const fromDay = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
@@ -470,18 +477,21 @@ export async function getAssetChangePoints(months = 6) {
     total: Number(r.total) || 0
   }))
 
-  // 只保留「与前一天不同」的点 = 资产发生变化时打点
+  // 每天一个点，并标出「这一天资产变了没有」
+  // 之前只返回变化点，导致没变化的那天被补成 0 ——
+  // 折线会在两次变化之间整个掉到 0，看着像资产归零了。
+  // 现在返回完整序列，变化点用 changed 标出来。
   const points = []
   let prev = null
   for (const d of daily) {
-    if (prev === null || d.total !== prev) {
-      points.push({
-        day: d.day,
-        total: d.total,
-        delta: prev === null ? 0 : d.total - prev
-      })
-      prev = d.total
-    }
+    const changed = prev === null || d.total !== prev
+    points.push({
+      day: d.day,
+      total: d.total,
+      delta: prev === null ? 0 : d.total - prev,
+      changed
+    })
+    prev = d.total
   }
 
   return points
@@ -494,16 +504,24 @@ export async function getAssetChangePoints(months = 6) {
  * 没有这一步，折线会在两个点之间直接连一条直线，
  * 看起来像「这段时间资产没动过」，与事实不符。
  *
- * ★ 终点是「今天」，不是最后一个变化点 ★
- *   之前用最后一个点当终点，结果：
- *   - 只有 1 个变化点时，整个区间都是那一个点加一堆 0，
- *     看起来「一直只显示一个点的数据」
- *   - 最后一次变化之后到现在（资产没动过的那段）根本不画，趋势是断的
- *   现在改成「今天往前 days 天」，中间缺失的一律补 0。
+ * ★ 缺失的天用「上一个已知值」填，不是 0 ★
+ *   直接记 0 会让折线整个掉到 0 ——
+ *   资产没变的那天（最常见的情况）会被画成 0，
+ *   看着像资产归零了，实际只是那天没记账。
  *
- * @param {Array<{day:string,total:number,delta:number}>} points
+ *   规则：
+ *   - 有快照的天：用真实值
+ *   - 没快照的天：沿用上一个已知值（资产没动过）
+ *   - 一个已知值都没有（区间开头）：才记 0
+ *
+ * ★ 终点是「今天」★
+ *   最后一次变化之后到现在（资产没动过的那段）也要画出来，趋势才是连续的。
+ *
+ * 「资产变化点」由 changed 字段标出，页面用它决定要不要打标记。
+ *
+ * @param {Array<{day:string,total:number,delta:number,changed?:boolean}>} points
  * @param {number} days 区间长度（天）
- * @returns {Array<{day:string,total:number,delta:number}>}
+ * @returns {Array<{day:string,total:number,delta:number,changed:boolean}>}
  */
 export function fillChangePoints(points = [], days = 0) {
   if (points.length === 0) return []
@@ -521,13 +539,20 @@ export function fillChangePoints(points = [], days = 0) {
   for (const p of points) map[p.day] = p
 
   const out = []
+  // 上一个已知值（用来填补中间没数据的天）
+  let lastKnown = null
   const cur = new Date(startDate.getTime())
   while (cur.getTime() <= endDate.getTime()) {
     const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
     if (map[key]) {
-      out.push(map[key])
+      lastKnown = map[key]
+      out.push({ ...map[key], changed: map[key].changed !== false })
+    } else if (lastKnown) {
+      // 这天没快照，但资产没变过 -> 沿用上一个值
+      out.push({ day: key, total: lastKnown.total, delta: 0, changed: false })
     } else {
-      out.push({ day: key, total: 0, delta: 0 })
+      // 区间开头还没有任何数据
+      out.push({ day: key, total: 0, delta: 0, changed: false })
     }
     cur.setDate(cur.getDate() + 1)
   }

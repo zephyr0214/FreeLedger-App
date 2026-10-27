@@ -176,8 +176,11 @@ export default {
      *
      * ★ 补 0 ★
      *   用户要求「没数据的时刻就记为 0 来画图」——
-     *   否则两个变化点之间会连成一条直线，
+     *   否则两个变化点之间会直接连成一条直线，
      *   看起来像「这段时间资产没动过」，与事实不符。
+     *
+     *   实际实现是：没快照的那天沿用上一个已知值（资产确实没变），
+     *   只有区间开头还没任何数据时才记 0。
      */
     const trendPoints = computed(() =>
       fillChangePoints(trendData.value, trendRange.value * 31)

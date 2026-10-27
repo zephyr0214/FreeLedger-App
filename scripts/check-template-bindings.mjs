@@ -212,6 +212,45 @@ for (const file of files) {
   }
 }
 
+/* ------------------- scroll-into-view 的目标必须有对应的 id ------------------- */
+
+/**
+ * 踩过的坑：
+ *   AI 助手页每次进去都跳到最顶部。
+ *   原因是 scroll-into-view 绑的是 'bottom-anchor'，
+ *   但那个元素**只有 class、没有 id** ——
+ *   scroll-into-view 靠 id 找元素，找不到就什么都不做，
+ *   列表停在初始位置（顶部）。
+ *
+ * 这里检查：模板里 :scroll-into-view="xxx" 的 xxx（如果是字面量），
+ * 必须能在模板里找到一个 id="xxx" 的元素。
+ */
+for (const file of files) {
+  const code = readFileSync(file, 'utf-8')
+  const rel = relative(ROOT, file)
+
+  const tmplMatch = code.match(/<template>([\s\S]*)<\/template>/)
+  if (!tmplMatch) continue
+  const tmpl = tmplMatch[1]
+
+  // 只取字面量的 scroll-into-view（绑定变量的没法静态判断）
+  const re = /:scroll-into-view\s*=\s*"([A-Za-z0-9_-]+)"/g
+  let m
+  while ((m = re.exec(tmpl)) !== null) {
+    const target = m[1]
+    // 绑定的是变量（不是字面量 id）-> 没法静态判断，跳过
+    if (/^[a-z]/.test(target)) continue
+    const idRe = new RegExp(`\\bid\\s*=\\s*["']${target}["']`)
+    if (!idRe.test(tmpl)) {
+      const lineNo = code.slice(0, code.indexOf(tmpl) + m.index).split('\n').length
+      errors.push(
+        `${rel}:${lineNo} scroll-into-view 指向 "${target}"，但模板里没有 id="${target}" 的元素 —— ` +
+        'scroll-into-view 靠 id 定位，找不到就会停在当前位置（表现为列表跳到顶部）'
+      )
+    }
+  }
+}
+
 if (errors.length > 0) {
   console.log(`❌ 发现 ${errors.length} 处模板绑定问题:\n`)
   errors.forEach((e) => console.log('   ' + e))

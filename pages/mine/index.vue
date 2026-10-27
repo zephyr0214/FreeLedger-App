@@ -1,6 +1,6 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <AppHeader :show-date="false" @avatar-click="goProfile" />
+    <AppHeader @avatar-click="goProfile" />
 
     <scroll-view class="page-scroll" scroll-y>
       <!-- 个人信息卡 -->

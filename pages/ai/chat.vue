@@ -54,7 +54,10 @@
           </view>
         </view>
 
-        <view class="bottom-anchor" />
+        <!-- 底部锚点：scroll-into-view 要靠 id 找元素，
+             只有 class 的话 scroll-into-view 找不到目标，
+             列表会停在顶部 -->
+        <view id="bottom-anchor" class="bottom-anchor" />
       </view>
     </scroll-view>
 
@@ -122,6 +125,15 @@ export default {
 
     /* ------------------------------------------------------ 滚动到底 */
 
+    /**
+     * 滚动到底部
+     *
+     * scroll-into-view 的值不变时不会再次触发，
+     * 所以先置空再置成目标 id，强制触发一次。
+     * （目标元素是 id="bottom-anchor" 那个，
+     *  之前只有 class 没有 id，scroll-into-view 根本找不到目标，
+     *  列表就停在最顶部了。）
+     */
     async function scrollToBottom() {
       await nextTick()
       scrollTarget.value = ''
