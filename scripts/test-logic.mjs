@@ -41,6 +41,43 @@ check('格式化带符号', formatCents(4500, { sign: true }), '+45.00')
 check('紧凑 1万', formatCentsCompact(1000000), '1.0万')
 check('紧凑 1.2k', formatCentsCompact(120000), '1.2k')
 
+console.log('=== 金额正负号（交易类型） ===')
+
+/**
+ * 与 MoneyText 组件的 signedCents / showSign 同样的逻辑：
+ *   支出 -> 负数（前面 -）
+ *   收入 -> 正数（前面 +）
+ *   转账 -> 原值（不加符号）
+ */
+function signedAmount(cents, type) {
+  const n = Number(cents) || 0
+  if (type === 'expense') return -Math.abs(n)
+  if (type === 'income') return Math.abs(n)
+  return n
+}
+
+function shouldShowSign(type) {
+  if (type) return type === 'expense' || type === 'income'
+  return false
+}
+
+check('支出变负数', signedAmount(4500, 'expense'), -4500)
+check('收入变正数', signedAmount(4500, 'income'), 4500)
+check('转账保持原值', signedAmount(4500, 'transfer'), 4500)
+check('支出显示符号', shouldShowSign('expense'), true)
+check('收入显示符号', shouldShowSign('income'), true)
+check('转账不显示符号', shouldShowSign('transfer'), false)
+
+// 最终展示
+check('支出显示 -', formatCents(signedAmount(4500, 'expense'), { sign: shouldShowSign('expense') }), '-45.00')
+check('收入显示 +', formatCents(signedAmount(4500, 'income'), { sign: shouldShowSign('income') }), '+45.00')
+check('转账不显示符号', formatCents(signedAmount(4500, 'transfer'), { sign: shouldShowSign('transfer') }), '45.00')
+
+// 已经传了负数也不该出双负号
+check('支出传负数不会双负号', formatCents(signedAmount(-4500, 'expense'), { sign: shouldShowSign('expense') }), '-45.00')
+// 收入传负数也取绝对值
+check('收入传负数取正', formatCents(signedAmount(-4500, 'income'), { sign: shouldShowSign('income') }), '+45.00')
+
 console.log('=== 日期 ===')
 const d = new Date('2026-10-27T15:30:00')
 check('dayKey', toDayKey(d), '2026-10-27')

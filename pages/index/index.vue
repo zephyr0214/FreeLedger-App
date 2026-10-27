@@ -222,10 +222,10 @@
 
               <view class="txn-amount">
                 <MoneyText
-                  :cents="txn.type === 'expense' ? -txn.amount_cents : (txn.type === 'income' ? txn.amount_cents : txn.amount_cents)"
+                  :cents="txn.amount_cents"
+                  :type="txn.type"
                   :size="30"
                   :weight="500"
-                  :sign="false"
                   :color="txn.type === 'expense' ? 'var(--app-text)' : (txn.type === 'income' ? 'var(--app-success)' : 'var(--app-text-2)')"
                 />
               </view>

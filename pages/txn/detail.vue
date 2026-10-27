@@ -83,13 +83,11 @@
       </view>
 
       <!-- 不计入预算（只有支出才有意义） -->
-      <view v-if="txn.type === 'expense'" class="card">
-        <view class="budget-switch-row">
-          <view class="budget-switch-info">
-            <text class="budget-switch-title">不计入预算</text>
-            <text class="budget-switch-desc">
-              这笔钱不占预算额度，但账户余额照常计算
-            </text>
+      <view v-if="txn.type === 'expense'" class="detail-card">
+        <view class="row">
+          <view class="row-label-col">
+            <text class="row-label">不计入预算</text>
+            <text class="row-hint">不占预算额度，余额照常计算</text>
           </view>
           <switch
             :checked="excludeFromBudget"
@@ -374,29 +372,16 @@ export default {
   gap: 8rpx;
 }
 
-/* 不计入预算 开关行 */
-.budget-switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20rpx;
-  padding: 24rpx 0;
-}
-
-.budget-switch-info {
+/* 标签 + 副说明（两行），用于「不计入预算」这类带说明的条目 */
+.row-label-col {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6rpx;
+  gap: 4rpx;
   min-width: 0;
 }
 
-.budget-switch-title {
-  font-size: 28rpx;
-  color: var(--app-text);
-}
-
-.budget-switch-desc {
+.row-hint {
   font-size: 22rpx;
   color: var(--app-text-3);
 }

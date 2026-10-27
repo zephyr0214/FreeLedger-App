@@ -14,6 +14,16 @@ export default {
     cents: { type: Number, default: 0 },
     /** 是否显示正负号 */
     sign: { type: Boolean, default: false },
+    /**
+     * 交易类型：expense / income / transfer
+     *
+     * ★ 传了这个就不用自己算正负号了 ★
+     *   收入前面自动加 +，支出前面自动加 -，
+     *   转账不加符号。
+     *   之前各页面自己用 :cents="txn.type === 'expense' ? -txn.amount_cents : ..." ，
+     *   再配 :sign="false"，结果收支都看不到符号，还容易写错。
+     */
+    type: { type: String, default: '' },
     /** 是否显示货币符号 */
     symbol: { type: Boolean, default: true },
     /** 是否千分位 */
@@ -36,10 +46,31 @@ export default {
       return props.forceMask || settingStore.privacyMode
     })
 
+    /**
+     * 实际参与展示的金额
+     *
+     * 传了 type 时由 type 决定正负：
+     *   支出 -> 负数（前面显示 -）
+     *   收入 -> 正数（前面显示 +）
+     *   转账 -> 原值（不加符号）
+     */
+    const signedCents = computed(() => {
+      const n = Number(props.cents) || 0
+      if (props.type === 'expense') return -Math.abs(n)
+      if (props.type === 'income') return Math.abs(n)
+      return n
+    })
+
+    /** 是否显示正负号 */
+    const showSign = computed(() => {
+      if (props.type) return props.type === 'expense' || props.type === 'income'
+      return props.sign
+    })
+
     const display = computed(() => {
       if (masked.value) return '****'
-      return formatCents(props.cents, {
-        sign: props.sign,
+      return formatCents(signedCents.value, {
+        sign: showSign.value,
         symbol: props.symbol ? settingStore.currencySymbol : '',
         grouping: props.grouping,
         hideZeroDecimals: props.hideZeroDecimals

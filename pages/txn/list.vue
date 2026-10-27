@@ -85,9 +85,9 @@
             <view class="txn-right">
               <MoneyText
                 :cents="txn.amount_cents"
+                :type="txn.type"
                 :size="30"
                 :weight="500"
-                :sign="txn.type === 'income'"
                 :color="txn.type === 'expense' ? 'var(--app-text)' : (txn.type === 'income' ? 'var(--app-success)' : 'var(--app-text-2)')"
               />
               <text class="txn-time">{{ timeLabel(txn.occurred_at) }}</text>
