@@ -136,7 +136,7 @@ export default {
 
     const step = ref(0)
     const steps = [0, 1, 2, 3]
-    const selectedPreset = ref('wechat')
+    const selectedPreset = ref('online')
     const accountName = ref('')
     const initialBalance = ref('')
     const submitting = ref(false)
@@ -145,10 +145,10 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     const accountPresets = [
-      { type: 'wechat', icon: '💬', name: '微信', desc: '微信钱包、零钱通' },
-      { type: 'alipay', icon: '🔵', name: '支付宝', desc: '余额宝、花呗' },
+      { type: 'online', icon: '📱', name: '网络支付', desc: '微信、支付宝等零钱' },
       { type: 'debit', icon: '💳', name: '储蓄卡', desc: '银行卡活期账户' },
-      { type: 'cash', icon: '💵', name: '现金', desc: '手上的现钞票' }
+      { type: 'cash', icon: '💵', name: '现金', desc: '手上的现钞票' },
+      { type: 'prepaid', icon: '🎫', name: '充值卡', desc: '公交卡、饭卡等' }
     ]
 
     const defaultAccountName = computed(() => {

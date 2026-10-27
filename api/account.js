@@ -14,59 +14,37 @@ import { toDayKey } from '../utils/date.js'
 /**
  * 账户类型
  *
- * ★ 分五类 ★
+ * ★ 就这五种，不再有别的 ★
  *   网络支付：支付宝、微信等零钱账户
  *   信用卡  ：可以透支的信用账户（花呗算这里）
  *   储蓄卡  ：银行的储蓄账户
  *   现金    ：手里的现金
  *   充值卡  ：公交卡、饭卡等预付卡
  *
+ * 之前还有「投资 / 借入 / 应收 / 其他」，
+ * 用户没提这些，直接删掉了 ——
+ * 账户类型就是用户挑的这几种，不多不少。
+ *
  * isCredit = 会欠款的账户（信用卡）。
  * 只有这类账户才显示「信用额度」设置项。
- *
- * group 是**展示分组**，账户页按它分类呈现；
- * category 是更细的类型（选类型时用）。
  */
 export const ACCOUNT_TYPES = [
-  // ---- 网络支付
-  { key: 'alipay',  name: '支付宝',   icon: 'alipay',     isCredit: false, group: 'online',  category: '网络支付' },
-  { key: 'wechat',  name: '微信',     icon: 'wechat',     isCredit: false, group: 'online',  category: '网络支付' },
-  // ---- 信用卡
-  { key: 'credit',  name: '信用卡',   icon: 'creditcard', isCredit: true,  group: 'credit',  category: '信用卡' },
-  { key: 'huabei',  name: '花呗',     icon: 'huabei',     isCredit: true,  group: 'credit',  category: '信用卡' },
-  // ---- 储蓄卡
-  { key: 'debit',   name: '储蓄卡',   icon: 'card',       isCredit: false, group: 'debit',   category: '储蓄卡' },
-  // ---- 现金
-  { key: 'cash',    name: '现金',     icon: 'wallet',     isCredit: false, group: 'cash',    category: '现金' },
-  // ---- 充值卡
-  { key: 'prepaid', name: '充值卡',   icon: 'prepaid',    isCredit: false, group: 'prepaid', category: '充值卡' },
-  // ---- 其它（投资 / 借贷 / 其它，单独归类，不混进上面五类）
-  { key: 'invest',     name: '投资', icon: 'invest',   isCredit: false, group: 'other', category: '投资' },
-  { key: 'loan',       name: '借入', icon: 'arrowdown', isCredit: true,  group: 'other', category: '借入' },
-  { key: 'receivable', name: '应收', icon: 'arrowup',   isCredit: false, group: 'other', category: '应收' },
-  { key: 'other',      name: '其他', icon: 'more',      isCredit: false, group: 'other', category: '其他' }
+  { key: 'online',  name: '网络支付', icon: 'wechat',     isCredit: false, group: 'online' },
+  { key: 'credit',  name: '信用卡',   icon: 'creditcard', isCredit: true,  group: 'credit' },
+  { key: 'debit',   name: '储蓄卡',   icon: 'card',       isCredit: false, group: 'debit' },
+  { key: 'cash',    name: '现金',     icon: 'wallet',     isCredit: false, group: 'cash' },
+  { key: 'prepaid', name: '充值卡',   icon: 'prepaid',    isCredit: false, group: 'prepaid' }
 ]
 
 /**
- * 账户页的展示分组（按用户要求的五类 + 其它）
+ * 账户页的展示分组（就是上面这五类，顺序按用户给的）
  */
 export const ACCOUNT_GROUPS = [
   { key: 'online',  name: '网络支付' },
   { key: 'credit',  name: '信用卡' },
   { key: 'debit',   name: '储蓄卡' },
   { key: 'cash',    name: '现金' },
-  { key: 'prepaid', name: '充值卡' },
-  { key: 'other',   name: '其它' }
-]
-
-/** 账户类型选择页用的分类（按 category 归并，同一类的类型排在一起） */
-export const ACCOUNT_CATEGORIES = [
-  { key: '网络支付', types: ['alipay', 'wechat'] },
-  { key: '信用卡',   types: ['credit', 'huabei'] },
-  { key: '储蓄卡',   types: ['debit'] },
-  { key: '现金',     types: ['cash'] },
-  { key: '充值卡',   types: ['prepaid'] },
-  { key: '其它',     types: ['invest', 'loan', 'receivable', 'other'] }
+  { key: 'prepaid', name: '充值卡' }
 ]
 
 export function getTypeMeta(type) {
@@ -104,8 +82,6 @@ function normalizeAccount(row) {
     typeName: meta.name,
     typeIcon: meta.icon,
     group: meta.group,
-    /** 展示分类：网络支付 / 信用卡 / 储蓄卡 / 现金 / 充值卡 / 其它 */
-    category: meta.category || '其它',
     isCredit: meta.isCredit
   }
 }
@@ -429,6 +405,7 @@ export async function getAssetChangePoints(months = 6) {
 
   return points
 }
+
 /**
  * 把变化点补成连续的时间序列（缺失的天记为 0）。
  *
@@ -436,16 +413,25 @@ export async function getAssetChangePoints(months = 6) {
  * 没有这一步，折线会在两个点之间直接连一条直线，
  * 看起来像「这段时间资产没动过」，与事实不符。
  *
+ * ★ 终点是「今天」，不是最后一个变化点 ★
+ *   之前用最后一个点当终点，结果：
+ *   - 只有 1 个变化点时，整个区间都是那一个点加一堆 0，
+ *     看起来「一直只显示一个点的数据」
+ *   - 最后一次变化之后到现在（资产没动过的那段）根本不画，趋势是断的
+ *   现在改成「今天往前 days 天」，中间缺失的一律补 0。
+ *
  * @param {Array<{day:string,total:number,delta:number}>} points
- * @param {number} days 补齐的天数
+ * @param {number} days 区间长度（天）
  * @returns {Array<{day:string,total:number,delta:number}>}
  */
 export function fillChangePoints(points = [], days = 0) {
   if (points.length === 0) return []
+  if (days <= 0) return points.slice()
 
-  // 以最后一个点为终点往前推 days 天
-  const last = points[points.length - 1]
-  const endDate = parseDayKeyLocal(last.day)
+  // 终点：今天
+  const endDate = new Date()
+  endDate.setHours(0, 0, 0, 0)
+  // 起点：今天往前 days-1 天
   const startDate = new Date(endDate.getTime())
   startDate.setDate(startDate.getDate() - days + 1)
 
@@ -465,12 +451,6 @@ export function fillChangePoints(points = [], days = 0) {
     cur.setDate(cur.getDate() + 1)
   }
   return out
-}
-
-/** YYYY-MM-DD -> 本地 Date（不依赖 SQLite） */
-function parseDayKeyLocal(dayKey) {
-  const [y, m, d] = String(dayKey).split('-').map(Number)
-  return new Date(y || 1970, (m || 1) - 1, d || 1)
 }
 
 async function nextSort() {

@@ -63,10 +63,12 @@
             右滑显示「设为默认」：
             用 wd-swipe-action 的 right 插槽。
             原来那个常驻的「设默认」小字太挤，去掉了。
+            每行用 v-model 单独控制开合状态，点完「设为默认」要收起来。
           -->
           <wd-swipe-action
             v-for="acc in group.accounts"
             :key="acc.id"
+            v-model="swipeStates[acc.id]"
             class="acc-swipe"
           >
             <view class="acc-item" @click="goDetail(acc.id)">
@@ -143,8 +145,15 @@ export default {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
 
-    const trendRange = ref(6)
+    const trendRange = ref(1)
     const trendData = ref([])
+
+    /**
+     * 每个账户的右滑开合状态。
+     * key 是账户 id，值是 wd-swipe-action 的 modelValue：
+     *   'left' / 'right' 展开，'close' 收起。
+     */
+    const swipeStates = reactive({})
 
     const ranges = [
       { months: 1, label: '1月' },
@@ -211,11 +220,29 @@ export default {
       return formatCents(cents, { symbol: settingStore.currencySymbol })
     }
 
-    /** 设为默认账户 —— AI 记账和手动记账都会优先用它 */
+    /**
+     * 设为默认账户 —— AI 记账和手动记账都会优先用它
+     *
+     * 点完要把右滑的按钮收起来：
+     * 不收的话它一直露在那儿，用户会以为还能再点什么。
+     */
     async function setDefault(acc) {
-      if (acc.id === defaultAccountId.value) return
+      // 无论成功与否都先收起
+      closeSwipe(acc.id)
+
+      if (acc.id === defaultAccountId.value) {
+        uni.showToast({ title: '已经是默认账户了', icon: 'none' })
+        return
+      }
       await settingStore.update({ defaultAccountId: acc.id })
       uni.showToast({ title: `已设为默认：${acc.name}`, icon: 'none' })
+    }
+
+    /** 收起某个账户的右滑按钮 */
+    function closeSwipe(id) {
+      if (swipeStates.value[id] !== undefined) {
+        swipeStates.value[id] = 'close'
+      }
     }
 
     function goAddAccount() {
@@ -249,9 +276,9 @@ export default {
 
     return {
       settingStore, accountStore,
-      trendRange, ranges, trendData, trendPoints,
+      trendRange, ranges, trendData, trendPoints, swipeStates,
       primaryColor, pageStyle, defaultAccountId,
-      switchRange, formatGroupSum, formatAmount, setDefault,
+      switchRange, formatGroupSum, formatAmount, setDefault, closeSwipe,
       goAddAccount, goDetail, goSettings
     }
   }

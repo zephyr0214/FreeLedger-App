@@ -1,18 +1,16 @@
 /**
- * 账户类型分组的测试
+ * 账户类型的测试
  *
  *   node scripts/test-account-types.mjs
  *
- * 覆盖：
- *   1. 五类账户（网络支付/信用卡/储蓄卡/现金/充值卡）都存在
- *   2. 每个类型都归属到正确的展示分组
- *   3. 展示分组顺序与用户要求一致
- *   4. 信用卡类 isCredit = true（会显示信用额度）
- *   5. 账户类型选择页的分类覆盖了全部类型（不能漏）
+ * 用户要求：账户类型**就这五个**，
+ * 网络支付 / 信用卡 / 储蓄卡 / 现金 / 充值卡。
+ * 之前多出来的「投资 / 借入 / 应收 / 其他」是多余的，
+ * 这个测试确保它们不会又被加回来。
  */
 
 import {
-  ACCOUNT_TYPES, ACCOUNT_GROUPS, ACCOUNT_CATEGORIES, getTypeMeta, isCreditType
+  ACCOUNT_TYPES, ACCOUNT_GROUPS, getTypeMeta, isCreditType
 } from '../api/account.js'
 
 let pass = 0
@@ -29,86 +27,52 @@ function check(name, actual, expected) {
   }
 }
 
-console.log('=== 五类账户都在 ===')
+console.log('=== 就这五种类型 ===')
 
-const REQUIRED = ['网络支付', '信用卡', '储蓄卡', '现金', '充值卡']
-for (const name of REQUIRED) {
-  const has = ACCOUNT_TYPES.some((t) => t.category === name)
-  check(`${name} 有对应类型`, has, true)
+const EXPECTED = ['网络支付', '信用卡', '储蓄卡', '现金', '充值卡']
+
+check('类型数量就是 5 个', ACCOUNT_TYPES.length, 5)
+check('类型名称', ACCOUNT_TYPES.map((t) => t.name), EXPECTED)
+check('类型 key', ACCOUNT_TYPES.map((t) => t.key), ['online', 'credit', 'debit', 'cash', 'prepaid'])
+
+console.log('=== 之前多出来的类型已删除 ===')
+
+const FORBIDDEN = ['投资', '借入', '应收', '其他', '支付宝', '微信', '花呗']
+for (const name of FORBIDDEN) {
+  check(`没有「${name}」类型`, ACCOUNT_TYPES.some((t) => t.name === name), false)
 }
 
-console.log('=== 展示分组顺序 ===')
+console.log('=== 展示分组 ===')
 
-check('分组数量', ACCOUNT_GROUPS.length, 6)
-check('第1组是网络支付', ACCOUNT_GROUPS[0].name, '网络支付')
-check('第2组是信用卡', ACCOUNT_GROUPS[1].name, '信用卡')
-check('第3组是储蓄卡', ACCOUNT_GROUPS[2].name, '储蓄卡')
-check('第4组是现金', ACCOUNT_GROUPS[3].name, '现金')
-check('第5组是充值卡', ACCOUNT_GROUPS[4].name, '充值卡')
-check('第6组是其它', ACCOUNT_GROUPS[5].name, '其它')
+check('分组数量就是 5 个', ACCOUNT_GROUPS.length, 5)
+check('分组名称', ACCOUNT_GROUPS.map((g) => g.name), EXPECTED)
+check('分组顺序与类型一致', ACCOUNT_GROUPS.map((g) => g.key), ACCOUNT_TYPES.map((t) => t.key))
 
-console.log('=== 类型的分组归属 ===')
-
-const EXPECT_GROUP = {
-  alipay: 'online',
-  wechat: 'online',
-  credit: 'credit',
-  huabei: 'credit',
-  debit: 'debit',
-  cash: 'cash',
-  prepaid: 'prepaid',
-  invest: 'other',
-  loan: 'other',
-  receivable: 'other',
-  other: 'other'
-}
-
-for (const [key, group] of Object.entries(EXPECT_GROUP)) {
-  const meta = getTypeMeta(key)
-  check(`${key} 属于 ${group}`, meta.group, group)
+// 每个类型都要能在分组里找到
+for (const t of ACCOUNT_TYPES) {
+  check(`${t.name} 有对应的展示分组`, ACCOUNT_GROUPS.some((g) => g.key === t.group), true)
 }
 
 console.log('=== 信用账户 ===')
 
 check('信用卡是信用账户', isCreditType('credit'), true)
-check('花呗是信用账户', isCreditType('huabei'), true)
 check('储蓄卡不是信用账户', isCreditType('debit'), false)
-check('支付宝不是信用账户', isCreditType('alipay'), false)
-check('微信不是信用账户', isCreditType('wechat'), false)
+check('网络支付不是信用账户', isCreditType('online'), false)
 check('现金不是信用账户', isCreditType('cash'), false)
 check('充值卡不是信用账户', isCreditType('prepaid'), false)
-
-console.log('=== 类型选择页的分类 ===')
-
-// 每个类型都必须在某个分类里，不能漏
-const covered = new Set()
-for (const cat of ACCOUNT_CATEGORIES) {
-  for (const k of cat.types) covered.add(k)
-}
-for (const t of ACCOUNT_TYPES) {
-  check(`${t.key} 在类型选择页有归属`, covered.has(t.key), true)
-}
-
-// 反过来，分类里不能有不存在的类型
-const allKeys = new Set(ACCOUNT_TYPES.map((t) => t.key))
-for (const cat of ACCOUNT_CATEGORIES) {
-  for (const k of cat.types) {
-    check(`${cat.key} 里的 ${k} 是有效类型`, allKeys.has(k), true)
-  }
-}
-
-// 分类顺序
-check('分类第1个是网络支付', ACCOUNT_CATEGORIES[0].key, '网络支付')
-check('分类第2个是信用卡', ACCOUNT_CATEGORIES[1].key, '信用卡')
-check('分类第3个是储蓄卡', ACCOUNT_CATEGORIES[2].key, '储蓄卡')
-check('分类第4个是现金', ACCOUNT_CATEGORIES[3].key, '现金')
-check('分类第5个是充值卡', ACCOUNT_CATEGORIES[4].key, '充值卡')
 
 console.log('=== 兜底 ===')
 
 // 未知类型要兜底到第一个，不能崩
-check('未知类型有兜底', typeof getTypeMeta('不存在的类型').key, 'string')
-check('未知类型的 group 有效', ACCOUNT_GROUPS.some((g) => g.key === getTypeMeta('x').group), true)
+const fallback = getTypeMeta('不存在的类型')
+check('未知类型有兜底', typeof fallback.key, 'string')
+check('兜底的 group 有效', ACCOUNT_GROUPS.some((g) => g.key === fallback.group), true)
+
+// 每个类型都要有图标和名称
+for (const t of ACCOUNT_TYPES) {
+  check(`${t.name} 有名称`, !!t.name, true)
+  check(`${t.name} 有图标`, !!t.icon, true)
+}
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

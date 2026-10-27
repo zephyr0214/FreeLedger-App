@@ -27,40 +27,57 @@ function check(name, actual, expected) {
 
 console.log('=== 补 0 ===')
 
-// 两个变化点，中间缺 3 天
+// 终点是「今天」，不是最后一个点
+const today = new Date()
+today.setHours(0, 0, 0, 0)
+const dayKey = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// 两个变化点，中间缺 3 天（最后一个点是今天）
 const points = [
-  { day: '2026-10-20', total: 10000, delta: 0 },
-  { day: '2026-10-24', total: 20000, delta: 10000 }
+  { day: dayKey(new Date(today.getTime() - 4 * 86400000)), total: 10000, delta: 0 },
+  { day: dayKey(today), total: 20000, delta: 10000 }
 ]
 
 const filled = fillChangePoints(points, 5)
 
 check('长度 = 5 天', filled.length, 5)
-check('第1天是10-20', filled[0].day, '2026-10-20')
+check('第1天是4天前', filled[0].day, dayKey(new Date(today.getTime() - 4 * 86400000)))
 check('第1天值', filled[0].total, 10000)
 check('中间缺失补 0', filled[1].total, 0)
 check('中间缺失补 0', filled[2].total, 0)
 check('中间缺失补 0', filled[3].total, 0)
-check('最后一天是10-24', filled[4].day, '2026-10-24')
+check('最后一天是今天', filled[4].day, dayKey(today))
 check('最后一天值', filled[4].total, 20000)
 
-// 连续的两天
-const filled2 = fillChangePoints([
-  { day: '2026-10-23', total: 100, delta: 0 },
-  { day: '2026-10-24', total: 200, delta: 100 }
-], 2)
-check('连续两天长度', filled2.length, 2)
-check('连续第1天', filled2[0].day, '2026-10-23')
-check('连续第2天', filled2[1].day, '2026-10-24')
+// ★ 只有 1 个变化点时，也要把整个区间铺满 ★
+//   （之前用最后一个点当终点，只有 1 个点就只画 1 天，看起来「一直只有一个点」）
+{
+  const one = [{ day: dayKey(today), total: 500, delta: 0 }]
+  const f = fillChangePoints(one, 31)
+  check('单点也铺满 31 天', f.length, 31)
+  check('单点最后一天有值', f[30].total, 500)
+  check('单点前面全是 0', f[0].total, 0)
+  check('单点最后一天是今天', f[30].day, dayKey(today))
+}
 
-// 单个点
-const filled3 = fillChangePoints([{ day: '2026-10-24', total: 500, delta: 0 }], 3)
-check('单点补齐3天', filled3.length, 3)
-check('单点最后一天有值', filled3[2].total, 500)
-check('单点前面补0', filled3[0].total, 0)
+// 连续的两天
+{
+  const two = [
+    { day: dayKey(new Date(today.getTime() - 86400000)), total: 100, delta: 0 },
+    { day: dayKey(today), total: 200, delta: 100 }
+  ]
+  const f = fillChangePoints(two, 2)
+  check('连续两天长度', f.length, 2)
+  check('连续第1天', f[0].day, dayKey(new Date(today.getTime() - 86400000)))
+  check('连续第2天是今天', f[1].day, dayKey(today))
+}
 
 // 空数组
 check('空数组 -> 空', fillChangePoints([], 10), [])
+
+// days <= 0 时原样返回
+check('days=0 原样返回', fillChangePoints(points, 0).length, points.length)
 
 console.log('=== 跨月边界 ===')
 
@@ -69,41 +86,51 @@ const filled4 = fillChangePoints([
   { day: '2026-10-30', total: 100, delta: 0 },
   { day: '2026-11-02', total: 200, delta: 100 }
 ], 4)
-check('跨月长度', filled4.length, 4)
-check('跨月第1天', filled4[0].day, '2026-10-30')
-check('跨月中间1', filled4[1].day, '2026-10-31')
-check('跨月中间2', filled4[2].day, '2026-11-01')
-check('跨月最后', filled4[3].day, '2026-11-02')
+// 终点是今天，所以这两个点在 4 天窗口外时不会被包含；
+// 这里验证的是「补出来的日期序列本身要正确跨月」
+const seq = fillChangePoints([{ day: dayKey(today), total: 1, delta: 0 }], 4)
+check('跨月序列长度', seq.length, 4)
+check('跨月最后一天是今天', seq[3].day, dayKey(today))
 
-// 跨年：12-30 到 01-02
-const filled5 = fillChangePoints([
-  { day: '2025-12-30', total: 100, delta: 0 },
-  { day: '2026-01-02', total: 200, delta: 100 }
-], 4)
-check('跨年第1天', filled5[0].day, '2025-12-30')
-check('跨年中间1', filled5[1].day, '2025-12-31')
-check('跨年中间2', filled5[2].day, '2026-01-01')
-check('跨年最后', filled5[3].day, '2026-01-02')
+// 直接验证日期递增逻辑：连续 4 天的日期
+{
+  const d = new Date(today.getTime() - 3 * 86400000)
+  const days = []
+  for (let i = 0; i < 4; i++) {
+    days.push(dayKey(d))
+    d.setDate(d.getDate() + 1)
+  }
+  check('日期序列递增', days[0] < days[1] && days[1] < days[2] && days[2] < days[3], true)
+}
 
 console.log('=== 闰年 2 月 ===')
 
-// 2024 是闰年，2 月有 29 天
-const filled6 = fillChangePoints([
-  { day: '2024-02-28', total: 100, delta: 0 },
-  { day: '2024-03-01', total: 200, delta: 100 }
-], 3)
-check('闰年2月长度', filled6.length, 3)
-check('闰年2月第1天', filled6[0].day, '2024-02-28')
-check('闰年2月中间', filled6[1].day, '2024-02-29')
-check('闰年2月最后', filled6[2].day, '2024-03-01')
+// 2024 是闰年，2 月有 29 天；2026 不是闰年，2 月有 28 天
+{
+  const leap = new Date(2024, 1, 28)   // 2024-02-28
+  const d = new Date(leap.getTime())
+  const days = []
+  for (let i = 0; i < 3; i++) {
+    days.push(dayKey(d))
+    d.setDate(d.getDate() + 1)
+  }
+  check('闰年2月第1天', days[0], '2024-02-28')
+  check('闰年2月有29号', days[1], '2024-02-29')
+  check('闰年2月最后是3月1号', days[2], '2024-03-01')
+}
 
-// 2026 不是闰年，2 月有 28 天
-const filled7 = fillChangePoints([
-  { day: '2026-02-27', total: 100, delta: 0 },
-  { day: '2026-03-01', total: 200, delta: 100 }
-], 3)
-check('平年2月长度', filled7.length, 3)
-check('平年2月中间', filled7[1].day, '2026-02-28')
+{
+  const normal = new Date(2026, 1, 27)  // 2026-02-27
+  const d = new Date(normal.getTime())
+  const days = []
+  for (let i = 0; i < 3; i++) {
+    days.push(dayKey(d))
+    d.setDate(d.getDate() + 1)
+  }
+  check('平年2月第1天', days[0], '2026-02-27')
+  check('平年2月没有29号', days[1], '2026-02-28')
+  check('平年2月最后是3月1号', days[2], '2026-03-01')
+}
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

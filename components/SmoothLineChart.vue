@@ -15,10 +15,18 @@
           App 端（Vue3）跑在 WebView 上，WebView 支持 SVG，
           所以把 SVG 拼成字符串，用 image 以 data URI 加载。
       -->
-      <!-- 触摸层：盖在图上，捕捉触摸位置 -->
+      <!--
+        触摸层：盖在图上，捕捉触摸位置。
+        ★ 不能用 touchmove.prevent ★
+          图表在 scroll-view 里，prevent 会让整个图表区域都不能滚动页面，
+          用户想上下滑看下面的账户列表时卡住。
+          改成不 prevent，让纵向滑动正常滚页面；
+          横向滑动由 touchmove 事件自己处理（uni-app 的 touchmove
+          在 scroll-view 里仍会触发，只是可能被滚动打断）。
+      -->
       <view
         class="slc-touch"
-        @touchstart="onTouchStart"
+        @touchstart.stop="onTouchStart"
         @touchmove="onTouchMove"
         @touchend="onTouchEnd"
         @touchcancel="onTouchEnd"
@@ -52,7 +60,7 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, getCurrentInstance } from 'vue'
 import {
   calcBounds, calcCoords, calcZeroY, calcLinePath, calcAreaPath,
   calcMarkers, formatChartDay, buildSvgSource, svgToDataUri, findNearestIndex
@@ -182,35 +190,66 @@ export default {
     /* ------------------------------------------------- 触摸交互 */
 
     /**
+     * 图表容器的位置信息。
+     * 用 uni.createSelectorQuery 量一次并缓存 —— 异步查询在 touch 回调里
+     * 等它回来会慢一拍，指针跟手会不准。
+     * 首次触摸前先量好（onMounted + 首次 touchstart 兜底量一次）。
+     */
+    const chartRect = ref(null)
+
+    function measureChart() {
+      try {
+        const query = uni.createSelectorQuery().in(getCurrentInstance().proxy)
+        query.select('.slc-touch').boundingClientRect((r) => {
+          if (r && r.width) chartRect.value = { left: r.left, width: r.width }
+        }).exec()
+      } catch (e) {
+        // 量不到就用估算值
+      }
+    }
+
+    /**
      * 触摸位置 -> viewBox 坐标
      *
-     * 触摸事件给的是相对元素左上角的 px，
-     * 要换算成 viewBox 坐标（0~300）才能和 coords 对上。
-     *
-     * ★ 用 uni.getSystemInfoSync 算容器宽度，不查 DOM ★
-     *   uni.createSelectorQuery 是异步的，在 touch 回调里等它回来
-     *   会慢一拍，指针跟手会不准。
-     *   图表是撑满父容器宽度的，用窗口宽度减去左右 padding 估算即可，
-     *   误差只影响「选到哪个点」，不影响显示内容。
+     * 触摸事件里 touch.x 有两种含义：
+     *   - 相对**目标元素**（App 端大多数情况是这样）
+     *   - 相对**页面**（部分平台/滚动后）
+     * 两种都试一遍：哪个换算出来的坐标落在 [0, vbWidth] 内就用哪个。
      */
     function touchToChartX(touch) {
       const c = coords.value
       if (!c || c.length === 0) return 0
 
-      // 容器宽度（px）：图表左右各留 32rpx 的页面内边距
-      let winWidth = 375
-      try {
-        winWidth = uni.getSystemInfoSync().windowWidth || 375
-      } catch (e) {}
-      const padPx = (32 / 750) * winWidth * 2
-      const chartWidth = Math.max(winWidth - padPx, 1)
+      const rect = chartRect.value
+      const winWidth = (() => {
+        try { return uni.getSystemInfoSync().windowWidth || 375 } catch (e) { return 375 }
+      })()
 
-      return (touch.x / chartWidth) * vbWidth
+      // 候选 1：touch.x 已经是相对元素的
+      // 候选 2：touch.x 是相对页面的，要减去元素左边界
+      const candidates = []
+      if (rect && rect.width) {
+        candidates.push((touch.x / rect.width) * vbWidth)
+        candidates.push(((touch.x - rect.left) / rect.width) * vbWidth)
+      } else {
+        // 量不到容器：按「窗口宽度减去页面左右各 32rpx 的内边距」估算
+        const padPx = (32 / 750) * winWidth * 2
+        const chartWidth = Math.max(winWidth - padPx, 1)
+        candidates.push((touch.x / chartWidth) * vbWidth)
+      }
+
+      // 选一个落在图表范围内的
+      for (const x of candidates) {
+        if (x >= -vbWidth * 0.1 && x <= vbWidth * 1.1) return x
+      }
+      return candidates[0]
     }
 
     function onTouchStart(e) {
       const t = e.touches && e.touches[0]
       if (!t) return
+      // 第一次触摸时容器可能还没量过
+      if (!chartRect.value) measureChart()
       activeIndex.value = findNearestIndex(touchToChartX(t), coords.value)
     }
 
@@ -223,6 +262,11 @@ export default {
     function onTouchEnd() {
       // 松手后保留选中状态（用户要求「触碰上去会显示日期和金额」）
     }
+
+    // 挂载后量一次容器尺寸（触摸换算要用）
+    onMounted(() => {
+      measureChart()
+    })
 
     const axisFirst = computed(() => {
       const c = coords.value

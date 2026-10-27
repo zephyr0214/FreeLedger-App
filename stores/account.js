@@ -19,13 +19,13 @@ export const useAccountStore = defineStore('account', {
   }),
 
   getters: {
-    /** 信用账户（信用卡、花呗）—— 会欠款的 */
+    /** 信用账户（信用卡）—— 会欠款的 */
     creditAccounts(state) {
       return state.list.filter((a) => a.isCredit)
     },
-    /** 资金账户（不含信用）：网络支付 + 储蓄卡 + 现金 + 充值卡 */
+    /** 资金账户（不含信用）：网络支付 / 储蓄卡 / 现金 / 充值卡 */
     fundAccounts(state) {
-      return state.list.filter((a) => !a.isCredit && a.group !== 'other')
+      return state.list.filter((a) => !a.isCredit)
     },
     /** 默认账户：优先设置里的 defaultAccountId，否则第一个 */
     defaultAccount(state) {
