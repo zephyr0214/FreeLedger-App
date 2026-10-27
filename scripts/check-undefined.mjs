@@ -237,6 +237,20 @@ function extractReturnedNames(body) {
 
 const files = walk(ROOT)
 
+/**
+ * Vue 组合式 API 的全局可用名。
+ *
+ * ★ 故意只放「不会用错」的 ★
+ *   ref / computed / watch / 生命周期钩子这些漏了 import 基本都会白屏，
+ *   必须查出来，所以不放进白名单。
+ *   （之前放进来过，结果「reactive 没 import」这个坑就漏过去了。）
+ */
+const VUE_GLOBALS = new Set([
+  'defineProps', 'defineEmits', 'defineExpose', 'defineOptions',
+  'useSlots', 'useAttrs', 'useId', 'useTemplateRef', 'useCssModule',
+  'h', 'nextTick', 'getCurrentInstance'
+])
+
 for (const file of files) {
   const code = readFileSync(file, 'utf-8')
   const rel = relative(ROOT, file)
@@ -259,6 +273,66 @@ for (const file of files) {
     if (['undefined', 'null', 'true', 'false', 'this'].includes(name)) continue
     errors.push(`${rel}: return 里引用了未定义的 \`${name}\``)
   }
+
+  /* ---- setup 体内用到的标识符 ----
+   * 踩过的坑：
+   *   在 setup 里写了 `const swipeStates = reactive({})`，
+   *   但 import 那行忘了加 reactive，
+   *   运行时直接 ReferenceError: reactive is not defined → 整页白屏。
+   *   语法检查、模板编译、作用域检查全都看不出来
+   *   （作用域检查只查 return 里的名字）。
+   *
+   * 做法：扫出 setup 体内所有「被调用/被引用」的标识符，
+   * 确认它在 declared / imported / VUE_GLOBALS 里有定义。
+   */
+  const used = extractUsedIdentifiers(body)
+  for (const name of used) {
+    if (declared.has(name) || imported.has(name)) continue
+    if (VUE_GLOBALS.has(name)) continue
+    if (['undefined', 'null', 'true', 'false', 'this', 'arguments', 'console', 'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'Promise', 'Set', 'Map', 'WeakMap', 'WeakSet', 'Symbol', 'Error', 'TypeError', 'RangeError', 'RegExp', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'structuredClone', 'uni', 'plus', 'getCurrentInstance', 'resolve', 'reject', 'Proxy', 'Reflect', 'Intl', 'BigInt', 'globalThis', 'undefined'].includes(name)) continue
+    // 对象属性（a.b.c）、可选链（a?.b）里的 a 也要算
+    errors.push(`${rel}: setup 里用到了未定义的 \`${name}\` —— 运行时 ReferenceError`)
+  }
+}
+
+/**
+ * 取出 setup 体内「被使用」的标识符。
+ *
+ * 只取「后面跟着 ( 或 . 或 = 」这种明显被使用的形式，
+ * 避免把对象字面量的键、属性名当成变量。
+ */
+function extractUsedIdentifiers(body) {
+  const names = new Set()
+
+  // 去掉注释和字符串，避免误匹配
+  const code = body
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/`(?:\\.|[^`\\])*`/g, '``')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+
+  // 被调用： foo(  但排除关键字（if/for/while/switch/catch/return/function）
+  const callRe = /\b([A-Za-z_$][\w$]*)\s*\(/g
+  const KEYWORDS = new Set([
+    'if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'typeof',
+    'await', 'new', 'delete', 'void', 'in', 'of', 'do', 'else', 'try',
+    'finally', 'throw', 'case', 'break', 'continue', 'yield', 'instanceof',
+    // 下面这些是关键字/语法糖，不是变量
+    'async', 'get', 'set', 'static', 'super', 'extends', 'import', 'export',
+    'default', 'from', 'as', 'with'
+  ])
+  let m
+  while ((m = callRe.exec(code)) !== null) {
+    const name = m[1]
+    if (KEYWORDS.has(name)) continue
+    // 前面是 . 的（obj.method()）说明是属性，不算变量
+    const before = code.slice(0, m.index).trimEnd()
+    if (before.endsWith('.')) continue
+    names.add(name)
+  }
+
+  return names
 }
 
 /* ------------------------------------------------------------ 输出 */
