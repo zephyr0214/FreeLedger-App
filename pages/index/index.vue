@@ -42,35 +42,41 @@
           <view class="ov-top">
             <view class="ov-top-item">
               <text class="ov-top-label">本月支出</text>
-              <view class="ov-top-amount ov-top-amount-exp">
+              <view class="ov-top-amount">
                 <text class="ov-top-sign">-</text>
                 <MoneyText
                   :cents="overview.monthExpense"
                   :size="44"
                   :weight="600"
-                  color="var(--app-danger)"
+                  color="var(--app-text)"
                 />
               </view>
             </view>
             <view class="ov-top-divider" />
             <view class="ov-top-item">
               <text class="ov-top-label">本月收入</text>
-              <view class="ov-top-amount ov-top-amount-inc">
+              <view class="ov-top-amount">
                 <text class="ov-top-sign">+</text>
                 <MoneyText
                   :cents="overview.monthIncome"
                   :size="44"
                   :weight="600"
-                  color="var(--app-success)"
+                  color="var(--app-text)"
                 />
               </view>
             </view>
           </view>
-          <!-- 中间：三个关键数字 -->
+
+          <!-- 中间：今日支出 / 今日收入 / 本月结余 -->
           <view class="ov-split">
             <view class="ov-item">
               <text class="ov-item-label">今日支出</text>
               <MoneyText :cents="overview.todayExpense" :size="30" :weight="500" color="var(--app-text)" />
+            </view>
+            <view class="ov-divider" />
+            <view class="ov-item">
+              <text class="ov-item-label">今日收入</text>
+              <MoneyText :cents="overview.todayIncome" :size="30" :weight="500" color="var(--app-text)" />
             </view>
             <view class="ov-divider" />
             <view class="ov-item">
@@ -80,16 +86,6 @@
                 :size="30"
                 :weight="500"
                 :color="overview.monthBalance >= 0 ? 'var(--app-text)' : 'var(--app-danger)'"
-              />
-            </view>
-            <view class="ov-divider" />
-            <view class="ov-item">
-              <text class="ov-item-label">预算剩余</text>
-              <MoneyText
-                :cents="budgetRemaining"
-                :size="30"
-                :weight="500"
-                :color="budgetRemaining < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
               />
             </view>
           </view>
@@ -103,9 +99,14 @@
             <view class="ov-budget">
               <view class="ov-budget-head">
                 <text class="ov-budget-name">总预算</text>
-                <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
-                  {{ totalBudget.percent }}%
-                </text>
+                <view class="ov-budget-head-right">
+                  <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
+                    日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}
+                  </text>
+                  <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
+                    {{ totalBudget.percent }}%
+                  </text>
+                </view>
               </view>
               <view class="ov-budget-bar">
                 <view
@@ -126,9 +127,14 @@
             <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
               <view class="ov-budget-head">
                 <text class="ov-budget-name">{{ b.name }}</text>
-                <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
-                  {{ b.percent }}%
-                </text>
+                <view class="ov-budget-head-right">
+                  <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
+                    日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(0) }}
+                  </text>
+                  <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
+                    {{ b.percent }}%
+                  </text>
+                </view>
               </view>
               <view class="ov-budget-bar">
                 <view
@@ -658,14 +664,7 @@ export default {
   font-size: 40rpx;
   font-weight: 600;
   line-height: 1;
-}
-
-.ov-top-amount-exp .ov-top-sign {
-  color: var(--app-danger);
-}
-
-.ov-top-amount-inc .ov-top-sign {
-  color: var(--app-success);
+  color: var(--app-text-2);
 }
 
 .ov-top-divider {
@@ -726,6 +725,18 @@ export default {
 .ov-budget-name {
   font-size: 24rpx;
   color: var(--app-text-2);
+}
+
+/* 右侧：剩余日均预算 + 百分比 */
+.ov-budget-head-right {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+
+.ov-budget-daily {
+  font-size: 21rpx;
+  color: var(--app-text-3);
 }
 
 .ov-budget-pct {

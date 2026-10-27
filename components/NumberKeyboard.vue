@@ -1,12 +1,13 @@
 <template>
   <view class="num-keyboard">
     <!--
-      4 列 x 4 行 = 16 个键
+      4 列 x 5 行 = 20 个键
       ┌────┬────┬────┬────┐
       │ 1  │ 2  │ 3  │ ⌫  │  退格
-      │ 4  │ 5  │ 6  │ 7  │
+      │ 4  │ 5  │ 6  │ 7  │  7 键便于快速输入
       │ 8  │ 9  │ 0  │ .  │  小数点
-      │ +  │ -  │ =  │完成 │  运算符 + 确认
+      │ +  │ -  │ ×  │ ÷  │  四则运算
+      │ =  │ C  │ (  │ )  │  清除/括号/完成
       └────┴────┴────┴────┘
     -->
     <view class="kb-grid">
@@ -27,6 +28,7 @@
 <script>
 import { computed } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { evaluateAmount } from '@/utils/money.js'
 
 export default {
   name: 'NumberKeyboard',
@@ -43,16 +45,24 @@ export default {
     const settingStore = useSettingStore()
     const primaryColor = computed(() => settingStore.primaryColor)
 
-    /** 4x4 键位表：前三行是数字/退格/小数点，最后一行是运算符和确认 */
-    const keys = ['1', '2', '3', '⌫', '4', '5', '6', '7', '8', '9', '0', '.', '+', '-', '=', '完成']
+    /** 4x5 键位表 */
+    const keys = [
+      '1', '2', '3', '⌫',
+      '4', '5', '6', '7',
+      '8', '9', '0', '.',
+      '+', '-', '×', '÷',
+      '=', 'C', '(', '完成'
+    ]
 
-    const OPERATORS = ['+', '-', '=']
+    const OPERATORS = ['+', '-', '×', '÷']
     const isOperator = (k) => OPERATORS.includes(k)
 
     function kbKeyClass(k) {
       if (k === '完成') return 'kb-finish'
       if (isOperator(k)) return 'kb-op'
       if (k === '⌫') return 'kb-backspace'
+      if (k === 'C') return 'kb-clear'
+      if (k === '(' || k === ')') return 'kb-bracket'
       return ''
     }
 
@@ -60,20 +70,29 @@ export default {
       if (k === '完成') return 'kb-finish-text'
       if (isOperator(k)) return 'kb-op-text'
       if (k === '⌫') return 'kb-backspace-text'
+      if (k === 'C') return 'kb-clear-text'
       return ''
     }
 
-    /** 安全求值：只允许数字与 + -，不用 eval */
+    /**
+     * 求值：直接复用 utils/money.js 的 evaluateAmount（返回「分」），
+     * 避免同一套运算逻辑在两个地方各写一份而不同步。
+     * 那里是手写递归下降解析，不用 eval，优先级：括号 > 乘除 > 加减。
+     */
     function evaluate(expr) {
-      const s = String(expr).replace(/[^0-9+\-.]/g, '')
-      if (!s) return 0
-      const tokens = s.match(/[+\-]?[0-9.]+/g) || []
-      let total = 0
-      for (const tk of tokens) {
-        const n = Number(tk)
-        if (Number.isFinite(n)) total += n
+      const cents = evaluateAmount(expr)
+      return cents / 100
+    }
+
+    /** 括号配对检查 */
+    function hasUnmatchedParen(expr) {
+      let depth = 0
+      for (const c of String(expr || '')) {
+        if (c === '(') depth++
+        else if (c === ')') depth--
+        if (depth < 0) return true
       }
-      return Math.max(0, total)
+      return depth !== 0
     }
 
     function onKeyPress(k) {
@@ -83,6 +102,14 @@ export default {
       }
       if (k === '⌫') {
         onBackspace()
+        return
+      }
+      if (k === 'C') {
+        emit('update:modelValue', '')
+        return
+      }
+      if (k === '(' || k === ')') {
+        onParen(k)
         return
       }
       if (isOperator(k)) {
@@ -97,13 +124,13 @@ export default {
 
       if (k === '.') {
         // 当前段已有小数点则忽略
-        const seg = v.split(/[+\-]/).pop()
+        const seg = v.split(/[+\-×÷]/).pop()
         if (seg && seg.includes('.')) return
         if (!seg) v += '0'
         v += '.'
       } else {
         // 限制整数部分长度，防止溢出
-        const seg = v.split(/[+\-]/).pop()
+        const seg = v.split(/[+\-×÷]/).pop()
         if (seg && seg.replace('.', '').length >= 9) return
         // 前导 0 处理
         if (seg === '0') v = v.slice(0, -1)
@@ -114,21 +141,33 @@ export default {
 
     function onOp(op) {
       const v = props.modelValue || ''
-      if (op === '=') {
-        const result = evaluate(v)
-        emit('update:modelValue', result === 0 ? '' : String(Math.round(result * 100) / 100))
-        return
-      }
-      // + - 作为连接符
       if (!v) {
-        if (op === '-') return  // 不允许以负号开头（金额恒为正）
+        // 空输入时按运算符开头无效（金额恒为正）
         return
       }
       // 末尾已是运算符则替换
-      if (/[+\-]$/.test(v)) {
+      if (/[+\-×÷]$/.test(v)) {
         emit('update:modelValue', v.slice(0, -1) + op)
       } else {
         emit('update:modelValue', v + op)
+      }
+    }
+
+    function onParen(ch) {
+      const v = props.modelValue || ''
+      if (ch === '(') {
+        // 前面是数字或右括号时，先补一个乘号（隐式乘法）
+        const last = v.slice(-1)
+        if (v && /[0-9.)]/.test(last)) {
+          emit('update:modelValue', v + '×(')
+        } else {
+          emit('update:modelValue', v + '(')
+        }
+      } else {
+        // 右括号不能放在运算符后面
+        const last = v.slice(-1)
+        if (!v || /[+\-×÷(]/.test(last)) return
+        emit('update:modelValue', v + ')')
       }
     }
 
@@ -139,12 +178,17 @@ export default {
 
     function onFinish() {
       if (props.disabled || !props.modelValue) return
-      emit('finish', evaluate(props.modelValue))
+      const v = props.modelValue
+      if (hasUnmatchedParen(v)) {
+        emit('finish', -1)   // -1 表示括号不匹配
+        return
+      }
+      emit('finish', evaluate(v))
     }
 
     return {
       keys, primaryColor, kbKeyClass, kbTextClass,
-      onKeyPress, onKey, onOp, onBackspace, onFinish, evaluate
+      onKeyPress, onKey, onOp, onParen, onBackspace, onFinish, evaluate
     }
   }
 }
@@ -165,7 +209,7 @@ export default {
 
 .kb-key {
   width: calc((100% - 24rpx) / 4);
-  height: 104rpx;
+  height: 92rpx;
   background-color: var(--app-card);
   border-radius: 12rpx;
   display: flex;
@@ -178,7 +222,7 @@ export default {
 }
 
 .kb-key-text {
-  font-size: 40rpx;
+  font-size: 38rpx;
   color: var(--app-text);
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -190,14 +234,35 @@ export default {
 }
 
 .kb-op-text {
-  font-size: 36rpx;
+  font-size: 34rpx;
   color: var(--app-text-2);
 }
 
 /* 退格 */
 .kb-backspace-text {
-  font-size: 34rpx;
+  font-size: 32rpx;
   color: var(--app-text-2);
+}
+
+/* 清除 */
+.kb-clear {
+  background-color: var(--app-card-2);
+}
+
+.kb-clear-text {
+  font-size: 30rpx;
+  color: var(--app-text-3);
+  font-weight: 500;
+}
+
+/* 括号 */
+.kb-bracket {
+  background-color: var(--app-card-2);
+}
+
+.kb-bracket .kb-key-text {
+  font-size: 32rpx;
+  color: var(--app-text-3);
 }
 
 /* 完成 */
@@ -207,7 +272,7 @@ export default {
 
 .kb-finish-text {
   color: #ffffff;
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 500;
 }
 </style>

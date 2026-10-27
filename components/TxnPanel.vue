@@ -8,9 +8,9 @@
     @close="onClose"
   >
     <view class="panel">
-      <!-- 顶栏 -->
+      <!-- 顶栏：类型切换居中，取消放右上角（红色） -->
       <view class="panel-head">
-        <text class="panel-cancel" @click="onClose">取消</text>
+        <view class="panel-head-spacer" />
         <view class="type-switch">
           <view
             v-for="t in types"
@@ -30,7 +30,7 @@
             />
           </view>
         </view>
-        <text class="panel-cancel" style="opacity: 0" aria-hidden="true">取消</text>
+        <text class="panel-cancel" @click="onClose">取消</text>
       </view>
 
       <!-- 金额 -->
@@ -128,23 +128,25 @@
           </view>
         </view>
 
-        <!-- 标签 -->
+        <!-- 标签：单行横向滚动，不换行 -->
         <view class="form-row form-row-wrap">
           <text class="row-label">标签</text>
-          <view class="tag-area">
-            <view
-              v-for="tag in selectedTags"
-              :key="tag.id"
-              class="tag-chip"
-              :style="{ backgroundColor: (tag.color || primaryColor) + '22', borderColor: tag.color || primaryColor }"
-            >
-              <text class="tag-chip-text" :style="{ color: tag.color || primaryColor }">{{ tag.name }}</text>
-              <text class="tag-chip-x" @click.stop="removeTag(tag.id)">×</text>
+          <scroll-view class="tag-scroll" scroll-x :show-scrollbar="false">
+            <view class="tag-area">
+              <view
+                v-for="tag in selectedTags"
+                :key="tag.id"
+                class="tag-chip"
+                :style="{ backgroundColor: (tag.color || primaryColor) + '22', borderColor: tag.color || primaryColor }"
+              >
+                <text class="tag-chip-text" :style="{ color: tag.color || primaryColor }">{{ tag.name }}</text>
+                <text class="tag-chip-x" @click.stop="removeTag(tag.id)">×</text>
+              </view>
+              <view class="tag-add" @click="openTagPicker">
+                <text class="tag-add-text">+ 添加</text>
+              </view>
             </view>
-            <view class="tag-add" @click="openTagPicker">
-              <text class="tag-add-text">+ 添加</text>
-            </view>
-          </view>
+          </scroll-view>
         </view>
 
         <!-- 备注 -->
@@ -161,12 +163,12 @@
         </view>
       </view>
 
-      <!-- 数字键盘 -->
+      <!-- 数字键盘：4x5，支持 + - × ÷ 和括号 -->
       <NumberKeyboard
         v-model="form.amountRaw"
         :finish-text="form.type === 'transfer' ? '转账' : '保存'"
         :disabled="!canSave"
-        @finish="onSave"
+        @finish="onFinish"
       />
     </view>
 
@@ -473,6 +475,22 @@ export default {
       form.tag_ids = Array.isArray(p.tag_ids) ? [...p.tag_ids] : []
     }
 
+    /**
+     * 键盘的「完成」。
+     * 键盘已经把算式求好值传过来了（value），-1 表示括号不匹配。
+     */
+    function onFinish(value) {
+      if (value === -1) {
+        uni.showToast({ title: '括号没有闭合', icon: 'none' })
+        return
+      }
+      if (value !== undefined && value !== null) {
+        // 用算好的值回填，界面上显示的是最终金额
+        form.amountRaw = String(Math.round(value * 100) / 100)
+      }
+      onSave()
+    }
+
     async function onSave() {
       if (!canSave.value) {
         uni.showToast({ title: '请补全信息', icon: 'none' })
@@ -570,15 +588,26 @@ export default {
   padding: 24rpx 32rpx 0;
 }
 
+/* 左侧占位，让类型切换真正居中 */
+.panel-head-spacer {
+  width: 80rpx;
+  flex-shrink: 0;
+}
+
+/* 取消：右上角 + 红色 */
 .panel-cancel {
   font-size: 28rpx;
-  color: var(--app-text-2);
+  color: var(--app-danger);
   min-width: 80rpx;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .type-switch {
   display: flex;
   gap: 48rpx;
+  flex: 1;
+  justify-content: center;
 }
 
 .type-item {
@@ -739,10 +768,18 @@ export default {
   font-size: 24rpx;
 }
 
+/* 标签：单行横向滚动，不换行 */
+.tag-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
 .tag-area {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 12rpx;
+  padding-right: 24rpx;
 }
 
 .tag-chip {
@@ -752,6 +789,8 @@ export default {
   padding: 8rpx 16rpx;
   border-radius: 20rpx;
   border: 1rpx solid;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tag-chip-text {
@@ -767,6 +806,8 @@ export default {
   padding: 8rpx 20rpx;
   border-radius: 20rpx;
   border: 1rpx dashed var(--app-line);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tag-add-text {

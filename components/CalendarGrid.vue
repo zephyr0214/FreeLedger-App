@@ -37,22 +37,22 @@
             }"
           >{{ cell.day }}</text>
 
-          <!-- 支出额（负号，显示在上方） -->
+          <!--
+            支出额：负号，在日期下方
+            色彩规则：始终可区分 —— 浅色格子用深红，深色格子用亮红。
+            不要在深热力格子上退回白色，否则支出和收入分不清了。
+          -->
           <text
             v-if="cell.dayData && cell.dayData.expense > 0"
             class="day-amount day-expense"
-            :style="{
-              color: heatLevel(cell.dayData.expense) >= 3 ? 'rgba(255,255,255,0.92)' : 'var(--app-text-2)'
-            }"
+            :style="{ color: expenseColor(cell) }"
           >-{{ formatAmount(cell.dayData.expense) }}</text>
 
-          <!-- 收入额（正号，显示在下方） -->
+          <!-- 收入额：正号，在最下方；始终绿色系 -->
           <text
             v-if="cell.dayData && cell.dayData.income > 0"
             class="day-amount day-income"
-            :style="{
-              color: heatLevel(cell.dayData.expense) >= 3 ? 'rgba(255,255,255,0.92)' : 'var(--app-success)'
-            }"
+            :style="{ color: incomeColor(cell) }"
           >+{{ formatAmount(cell.dayData.income) }}</text>
         </view>
       </view>
@@ -190,12 +190,34 @@ export default {
       return `rgba(${r}, ${g}, ${b}, ${alpha})`
     }
 
-    /** 金额缩写：12345 分 -> "123"；120000 分 -> "1.2k" */
+    /**
+     * 金额格式化：精确到小数点后两位。
+     * 整数元不显示小数位（省空间），有零头时显示两位。
+     *   1200 分 -> "12"      1234 分 -> "12.34"
+     */
     function formatAmount(cents) {
-      const yuan = cents / 100
-      if (yuan >= 10000) return `${(yuan / 10000).toFixed(1)}万`
-      if (yuan >= 1000) return `${(yuan / 1000).toFixed(1)}k`
-      return String(Math.round(yuan))
+      const yuan = Number(cents || 0) / 100
+      if (Number.isInteger(yuan)) return String(yuan)
+      return yuan.toFixed(2)
+    }
+
+    /**
+     * 支出金额的颜色。
+     * 深热力格（level>=3）底色深，用亮红；浅格子用深红。
+     * 关键是始终保持红色系，不能退回白色 —— 否则和收入混淆。
+     */
+    function expenseColor(cell) {
+      const level = cell.dayData ? heatLevel(cell.dayData.expense) : 0
+      if (level >= 3) return '#FF6B6B'
+      if (level === 2) return '#E03131'
+      return '#D9363E'
+    }
+
+    /** 收入金额的颜色。始终绿色系，深格用亮绿。 */
+    function incomeColor(cell) {
+      const level = cell.dayData ? heatLevel(cell.dayData.expense) : 0
+      if (level >= 3) return '#4ADE80'
+      return '#0A8F4A'
     }
 
     function onDayClick(cell) {
@@ -205,7 +227,7 @@ export default {
 
     return {
       weekNames, cells, heatLevel, heatColor, heatColorByLevel,
-      formatAmount, onDayClick
+      formatAmount, expenseColor, incomeColor, onDayClick
     }
   }
 }
@@ -277,13 +299,12 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 金额行：16rpx 在窄屏上也要能挤下「-1.2k」，
-   所以用固定行高 + 紧凑字距，不用 gap 撑开 */
+/* 金额行：现在要显示完整的两位小数（如 -12.34），需要更紧凑的排版 */
 .day-amount {
-  font-size: 15rpx;
-  line-height: 1.15;
+  font-size: 16rpx;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.5rpx;
+  letter-spacing: -0.6rpx;
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
@@ -291,12 +312,12 @@ export default {
 
 /* 支出在上 */
 .day-expense {
-  opacity: 0.85;
+  font-weight: 500;
 }
 
 /* 收入在下 */
 .day-income {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .legend {

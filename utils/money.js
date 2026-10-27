@@ -102,30 +102,82 @@ export function parseAmountInput(str) {
 }
 
 /**
- * 解析带运算符的金额表达式（数字键盘支持 12+8 这类输入）。
- * 只允许数字与 + -，不用 eval。
+ * 解析带运算符的金额表达式，返回「分」。
  *
- *   evaluateAmount("12+8")   -> 2000  （分）
- *   evaluateAmount("12.5")   -> 1250
- *   evaluateAmount("")       -> 0
+ * 数字键盘支持 + - × ÷ 和括号，这里同步支持，
+ * 保证「界面上显示的金额」和「实际保存的金额」一致。
+ *
+ * 不用 eval —— 手写递归下降解析，优先级：
+ *   括号 > 乘除 > 加减
+ *
+ *   evaluateAmount("12+8")     -> 2000  （分）
+ *   evaluateAmount("12.5")     -> 1250
+ *   evaluateAmount("2×(3+4)")  -> 1400
+ *   evaluateAmount("")         -> 0
  */
 export function evaluateAmount(expr) {
   if (expr === null || expr === undefined) return 0
   const raw = String(expr).trim()
   if (!raw) return 0
 
-  // 不含运算符 → 走普通解析
-  if (!/[+\-]/.test(raw.slice(1))) {
-    return parseAmountInput(raw)
+  // 归一化：× → *，÷ → /
+  const s = raw.replace(/×/g, '*').replace(/÷/g, '/').replace(/\s/g, '')
+  if (!s) return 0
+
+  // 不含运算符和括号 → 走普通解析
+  if (!/[+\-*/()]/.test(s)) {
+    return parseAmountInput(s)
   }
 
-  const s = raw.replace(/[^0-9+\-.]/g, '')
-  const tokens = s.match(/[+\-]?[0-9.]+/g) || []
-  let total = 0
-  for (const tk of tokens) {
-    const n = Number(tk)
-    if (Number.isFinite(n)) total += n
+  let pos = 0
+
+  const peek = () => s[pos]
+
+  function parseExpr() {
+    let value = parseTerm()
+    while (peek() === '+' || peek() === '-') {
+      const op = s[pos++]
+      const rhs = parseTerm()
+      value = op === '+' ? value + rhs : value - rhs
+    }
+    return value
   }
-  if (!Number.isFinite(total) || total <= 0) return 0
-  return Math.round(total * 100)
+
+  function parseTerm() {
+    let value = parseFactor()
+    while (peek() === '*' || peek() === '/') {
+      const op = s[pos++]
+      const rhs = parseFactor()
+      if (op === '*') {
+        value = value * rhs
+      } else {
+        if (rhs === 0) return NaN   // 除以 0 视为无效
+        value = value / rhs
+      }
+    }
+    return value
+  }
+
+  function parseFactor() {
+    if (peek() === '(') {
+      pos++
+      const v = parseExpr()
+      if (peek() === ')') pos++
+      return v
+    }
+    let numStr = ''
+    while (pos < s.length && /[0-9.]/.test(s[pos])) {
+      numStr += s[pos++]
+    }
+    const n = Number(numStr)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  try {
+    const result = parseExpr()
+    if (!Number.isFinite(result) || result <= 0) return 0
+    return Math.round(result * 100)
+  } catch (e) {
+    return 0
+  }
 }
