@@ -38,7 +38,7 @@
         <text class="icon-preview-tip">选一个图标，或留空用首字符</text>
       </view>
 
-      <!-- 图标选择器 -->
+      <!-- 图标选择器：3 行 × 6 列 = 18 个 -->
       <view class="form-card">
         <view class="form-row form-row-column">
           <text class="form-label">账户图标</text>
@@ -48,10 +48,29 @@
               :key="ic.key"
               class="icon-cell"
               :class="{ active: form.icon === ic.key }"
-              :style="form.icon === ic.key ? { backgroundColor: (form.color || primaryColor) + '22' } : {}"
               @click="form.icon = (form.icon === ic.key ? '' : ic.key)"
             >
-              <LineIcon :name="ic.key" :size="22" :color="form.icon === ic.key ? (form.color || primaryColor) : 'var(--app-text-2)'" />
+              <view
+                class="icon-cell-inner"
+                :style="form.icon === ic.key
+                  ? { backgroundColor: (form.color || primaryColor) + '22', borderColor: form.color || primaryColor }
+                  : {}"
+              >
+                <!--
+                  ★ 颜色必须传真实色值，不能传 CSS 变量 ★
+                    LineIcon 内部把 SVG 编成 data URI 加载，
+                    那是一个**独立的图片文档**，不在页面的 CSS 环境里，
+                    `var(--app-text-2)` 在那里根本不存在 ->
+                    stroke 变成无效值 -> 图标渲染成透明（看不见）。
+                    这就是「图标要点击之后才看得见」的原因：
+                    点中时传的是真实主题色，才显出来。
+                -->
+                <LineIcon
+                  :name="ic.key"
+                  :size="24"
+                  :color="form.icon === ic.key ? (form.color || primaryColor) : iconInk"
+                />
+              </view>
             </view>
           </view>
           <text class="form-hint">再点一次取消选择 → 用账户名首字符</text>
@@ -201,28 +220,57 @@ export default {
     const settingStore = useSettingStore()
 
     /**
-     * 可选的账户图标。
+     * 可选的账户图标：3 行 × 6 列 = 18 个。
      *
-     * 覆盖记账 App 里常见的账户形态：
-     *   银行卡 / 信用卡 / 钱包 / 现金 / 支付宝 / 微信 / 花呗 / 投资 / 房子 / 车 / 手机 / 礼物
+     * ★ 为什么是这 18 个 ★
+     *   用户要求：「基础的微信、支付宝、各个银行的要有」。
+     *   所以把「支付平台」和「银行」都覆盖到，再补上常见的
+     *   现金 / 储值 / 投资 / 资产 / 收入类，一共 18 个正好 3×6 排满。
      *
-     * 都取自 utils/lineIcons.js 已有的 key（线性描边风格，和其他页面统一），
-     * 不引入新图标资源。
+     *   ⚠️ 这些**不是**复刻各家 logo（那是商标），
+     *   而是语义化的通用符号：
+     *     微信   -> 双对话气泡
+     *     支付宝 -> 圆形徽章 + 「支」字骨架
+     *     银行   -> 古典柱式建筑（全世界的银行都用这个符号，能覆盖所有银行）
+     *   这样既有辨识度，又不涉及具体品牌图形。
+     *
+     * 全部取自 utils/lineIcons.js（线性描边，和其他页面统一）。
      */
     const ACCOUNT_ICONS = [
-      { key: 'account', label: '银行卡' },
+      // --- 第 1 行：支付平台 + 银行 ---
+      { key: 'wechat', label: '微信' },
+      { key: 'alipay', label: '支付宝' },
+      { key: 'bank', label: '银行' },
       { key: 'creditcard', label: '信用卡' },
+      { key: 'account', label: '银行卡' },
+      { key: 'piggy', label: '储蓄' },
+      // --- 第 2 行：资金与理财 ---
       { key: 'cash', label: '现金' },
-      { key: 'wechat', label: '网络支付' },
-      { key: 'huabei', label: '先享后付' },
+      { key: 'safe', label: '定期' },
       { key: 'invest', label: '投资' },
+      { key: 'huabei', label: '先享后付' },
+      { key: 'budget', label: '储值卡' },
+      { key: 'salary', label: '工资卡' },
+      // --- 第 3 行：资产与其它 ---
       { key: 'home', label: '房产' },
       { key: 'car', label: '车辆' },
       { key: 'phone', label: '手机' },
       { key: 'gift', label: '礼品' },
-      { key: 'budget', label: '储值' },
+      { key: 'stats', label: '账户组' },
       { key: 'more', label: '其它' }
     ]
+
+    /**
+     * 未选中图标的描边色。
+     *
+     * ★ 必须是真实 hex，不能是 CSS 变量 ★
+     *   LineIcon 把 SVG 编成 data URI 加载，那是独立图片文档，
+     *   `var(--app-text-2)` 在那里不存在 -> stroke 无效 -> 图标透明。
+     *   这正是「图标要点了才看得见」的 bug 根因。
+     *
+     *   跟主题走：深色用浅灰、浅色用深灰，两边都有对比度。
+     */
+    const iconInk = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
     const accountStore = useAccountStore()
 
     const statusBarHeight = uni.getSystemInfoSync().statusBarHeight || 20
@@ -398,7 +446,7 @@ export default {
     })
 
     return {
-      ACCOUNT_TYPES, ACCOUNT_ICONS, LineIcon,
+      ACCOUNT_TYPES, ACCOUNT_ICONS, LineIcon, iconInk,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
       isCredit, dayRange, legacySvgIcon,
       onToggleInclude, onSave, onDelete, goBack, settingStore
@@ -482,27 +530,45 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 图标选择器：一行 6 个 */
+/* 图标选择器：3 行 × 6 列 */
 .icon-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 16rpx;
   width: 100%;
   margin-top: 4rpx;
 }
 
+/*
+  ★ 用百分比宽度而不是 flex:1 ★
+    App 端跑在系统 WebView 上，CSS Grid 支持不稳（项目里踩过），
+    所以用 flex + 百分比。6 列 = 每格 16.666%。
+    减去间隙靠内层 padding 让出，不靠 gap ——
+    gap 在个别低版本 WebView 上对 flex-wrap 支持不好，
+    会让最后一列被挤到下一行。
+*/
 .icon-cell {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 20rpx;
+  width: 16.6666%;
+  height: 96rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* 单元格里的内框：圆角 + 背景 + 选中描边 */
+.icon-cell-inner {
+  width: 78rpx;
+  height: 78rpx;
+  border-radius: 18rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   background-color: var(--app-card-2);
+  border: 2rpx solid transparent;
 }
 
-.icon-cell.active {
-  /* 选中态的背景色由模板内联注入（跟账户色一致） */
+.icon-cell.active .icon-cell-inner {
+  /* 选中态的背景色/边框色由模板内联注入（跟账户色一致） */
 }
 
 .form-hint {

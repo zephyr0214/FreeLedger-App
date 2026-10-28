@@ -263,6 +263,81 @@ const ICON_PATHS = {
     'M18 10.2v3.6'
   ],
 
+  /**
+   * 支付宝：圆形徽章 + 「支」字骨架
+   *
+   * 第一版笔画都挤在圆心附近，渲染出来比同排的图标小一圈。
+   * 第二版把整个字形撑到圆的内切范围（约 7.5 半径），
+   * 让视觉大小和其他图标一致。
+   */
+  alipay: [
+    circlePath(12, 12, 9),
+    // 「支」的横（拉宽到圆的 2/3）
+    'M6.6 9.2h10.8',
+    // 竖
+    'M12 5.6v4.6',
+    // 撇
+    'M7.4 13.6c2.2.2 4.4 1.3 5.8 3',
+    // 竖弯钩的简化（右侧包回来）
+    'M17.2 12.4c0 3.1-2.3 5.4-5.4 5.4-1.7 0-3.2-.7-4.1-1.9'
+  ],
+
+  /**
+   * 银行：古典柱式建筑（柱廊 + 三角山花）
+   *
+   * 这是「银行」最通用的视觉符号（全世界的银行都用它），
+   * 比画某个具体银行的 logo 合适得多，也能覆盖所有银行。
+   */
+  bank: [
+    // 三角山花
+    'M3 9.6L12 4l9 5.6',
+    // 横梁
+    'M4.4 9.6h15.2',
+    // 四根柱子
+    'M6.6 12.4v5',
+    'M10.2 12.4v5',
+    'M13.8 12.4v5',
+    'M17.4 12.4v5',
+    // 底座
+    'M3.6 19.6h16.8'
+  ],
+
+  /** 储蓄 / 存钱罐：罐身 + 投币口 */
+  piggy: [
+    'M4.2 13.2c0-3.3 3.5-6 7.8-6s7.8 2.7 7.8 6c0 1.6-.8 3-2.1 4v2.2h-2.6v-1.2c-.9.2-1.9.4-3.1.4s-2.2-.2-3.1-.4v1.2H6.3V17c-1.3-1-2.1-2.4-2.1-4z',
+    // 投币口
+    'M9.6 8.4l1.2-1.6h2.4l1.2 1.6',
+    // 眼睛
+    circlePath(15.6, 12.4, 0.9)
+  ],
+
+  /** 保险箱 / 定期：箱体 + 转盘 + 把手 */
+  safe: [
+    'M4 4.6h13a2 2 0 0 1 2 2v10.8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6.6a2 2 0 0 1 2-2z',
+    circlePath(10.5, 12, 3.2),
+    'M10.5 8.8v1.4',
+    'M10.5 13.8v1.4',
+    'M16.6 10.4v3.2'
+  ],
+
+  /**
+   * 工资 / 收入：工资袋（¥ 在袋子中间）
+   *
+   * 第一版画的是「钞票 + 圈」，和 cash 几乎一样，两个图标分不出来。
+   * 改成**工资袋**：上方一个收口 + 袋身，中间一个 ¥。
+   * 这个符号在记账 App 里就是「收入/工资」的通用表达。
+   */
+  salary: [
+    // 袋身
+    'M4.6 8.4h14.8l1.4 11.2a1.6 1.6 0 0 1-1.6 1.8H4.8a1.6 1.6 0 0 1-1.6-1.8z',
+    // 收口
+    'M7.6 8.4c0-2.2 1.9-4 4.4-4s4.4 1.8 4.4 4',
+    // ¥ 符号
+    'M9.8 11.6l2.2 2.6 2.2-2.6',
+    'M9.6 15.6h4.8',
+    'M12 14.2v3.6'
+  ],
+
   /** 微信 / 网络支付：两个叠起来的对话气泡 */
   wechat: [
     'M9.2 3.5c-3.9 0-7 2.6-7 5.8 0 1.8 1 3.4 2.6 4.5l-.7 2.2 2.5-1.3c.8.2 1.7.4 2.6.4',
@@ -394,9 +469,19 @@ export function lineIconSvg(key, opts = {}) {
  *   - URI 编码更简单，<image> 同样认这个形式
  *   - '#' 必须编码，否则会被当成 URL 的 fragment
  *
- * ★ currentColor 会被换成真实颜色 ★
- *   SVG 作为独立图片文档加载时拿不到外层的 color，
- *   写 currentColor 只会得到一个说不清的颜色（多半是黑）。
+ * ★ 为什么必须把颜色「解析成真实色值」★
+ *   SVG 被当作**独立图片文档**加载（data: URI）时，
+ *   它不在宿主页面的 CSS 上下文里 ——
+ *     写 currentColor  -> 拿不到外层 color，只得到一个说不清的颜色
+ *     写 var(--app-x)  -> **CSS 变量根本不存在，等同于无效值**
+ *                          stroke 变成 transparent，图标完全看不见
+ *
+ *   这是实际踩到的 bug：账户图标选择器里传了
+ *   `'var(--app-text-2)'`，结果 12 个图标全是空白，
+ *   用户看不到样式、只有点中之后（换成真实主题色）才显示出来。
+ *
+ *   所以这里做统一兜底：非真实色值（currentColor / var(...) / 空）
+ *   一律换成中性灰。调用方想精确控制颜色就传 hex。
  *
  * @param {string} key 图标 key（未知 key 自动兜底）
  * @param {object} opts 选项，同 lineIconSvg
@@ -406,7 +491,24 @@ export function lineIconDataUri(key, opts = {}) {
   const svg = lineIconSvg(key, opts)
   const resolved = svg.replace(
     /stroke="currentColor"/,
-    `stroke="${opts.color && opts.color !== 'currentColor' ? opts.color : CURRENT_COLOR_FALLBACK}"`
+    `stroke="${resolveStrokeColor(opts.color)}"`
   )
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(resolved)}`
+}
+
+/**
+ * 把传进来的颜色解析成一个「独立 SVG 文档里真的能用」的色值。
+ *
+ * @param {string} color 调用方传的颜色
+ * @returns {string} 真实色值
+ */
+export function resolveStrokeColor(color) {
+  if (!color || color === 'currentColor') return CURRENT_COLOR_FALLBACK
+  // CSS 变量在独立 SVG 里无效，换成中性灰
+  if (/^var\(/i.test(String(color).trim())) return CURRENT_COLOR_FALLBACK
+  // inherit / unset 之类同样无效
+  if (/^(inherit|unset|initial|revert)$/i.test(String(color).trim())) {
+    return CURRENT_COLOR_FALLBACK
+  }
+  return String(color)
 }

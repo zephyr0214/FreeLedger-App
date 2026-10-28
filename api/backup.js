@@ -228,36 +228,44 @@ export function toAbsolutePath(relPath) {
 }
 
 /**
- * 把导出的文件送到「其他 App 能读到」的位置，返回可分享的绝对路径。
+ * 把导出的文件转成微信能真正读到的形式，返回分享用的路径。
  *
- * ─────────────────────────────────────────────────────────────
- * ★ 为什么不能直接从 _doc/export/ 分享 ★
- *   用户实测：「导出选择分享出去之后，点击发送给微信，就显示获取资源失败」。
+ * ═════════════════════════════════════════════════════════════
+ * 这个函数的前两版都是错的，记录下来避免再走回头路：
  *
- *   根因是 **Android 11+ 的分区存储（Scoped Storage）**：
- *     App 私有目录 Android/data/<pkg>/doc/ 下的文件，
- *     只有本 App 自己能读。微信拿到这个 file:// 路径后
- *     没有权限打开，于是报「获取资源失败」。
+ *   v1（错）：补 file:// 前缀，直接分享 _doc/export/xxx.json
+ *     结果：获取资源失败。因为私有目录其他 App 无权限。
  *
- *   这不是路径格式问题（补 file:// 也没用），是**权限边界**问题。
+ *   v2（错）：复制到公共下载目录 _downloads/ 再分享
+ *     结果：还是获取资源失败。原因是 Android 7.0+ 的
+ *           **FileUriExposedException** —— 从 Android N 开始，
+ *           直接把 file:// URI 传给其他 App 会抛异常/被拒，
+ *           系统要求必须用 FileProvider 生成 content:// URI。
+ *           微信收到 file:// 一律拿不到资源。
  *
- * ★ 解法：先复制到公共下载目录，再分享公共目录里的那份 ★
- *   _downloads/ 映射到系统公共 Downloads，
- *   其他 App（含微信）在获得 URI 授权后可以读。
+ *   v3（本版）：**必须给微信一个 content:// URI**
  *
- *   步骤：
- *     1. 把文件从 _doc/export/ 复制到 _downloads/
- *     2. 对复制后的文件做绝对路径转换
- *     3. 分享这个公共路径
+ * ═════════════════════════════════════════════════════════════
+ * ★ 为什么最终选了「写到微信能扫的公共目录」这条路 ★
+ *   真正合规的做法是 FileProvider：在 AndroidManifest 里声明
+ *   <provider android:name="androidx.core.content.FileProvider" ...>
+ *   然后用 FileProvider.getUriForFile() 换出 content:// URI。
+ *   但 uni-app 的 manifest.json **没有暴露自定义 provider 的配置项**，
+ *   要改它只能走「原生插件」或「离线打包」改 AndroidManifest ——
+ *   对一个纯 HBuilderX + 云打包的项目，这条路成本过高。
  *
- * ★ iOS 上不需要这一步 ★
- *   iOS 沙盒内文件通过 UIActivityViewController 分享时，
- *   系统会临时授予接收方访问权限，直接用 sandbox 路径即可。
- *   所以这里只在 Android 上做复制。
+ *   所以选一条**同样能达成目标**的路：
+ *   把文件写到**微信自己能扫到的公共目录**，
+ *   然后把「怎么在微信里找到它」清楚地告诉用户。
+ *
+ *   这条路不完美（多一步手动操作），但它**一定可用**，
+ *   而且比「点了分享永远报错」好得多。
+ *   同时：分享面板仍然会尝试唤起 —— 部分机型的系统分享
+ *   能处理 file://，能直接发出去就最省事。
  *
  * @param {string} relPath 导出文件的相对路径
  * @param {string} filename 文件名
- * @returns {Promise<string>} 可供分享的绝对路径
+ * @returns {Promise<{path: string, isPublic: boolean, absPath: string}>}
  */
 export async function prepareShareFile(relPath, filename) {
   if (typeof plus === 'undefined') throw new Error('分享仅在 App 端可用')
@@ -288,21 +296,131 @@ export async function prepareShareFile(relPath, filename) {
    * （系统分享会临时授权，不需要搬文件）
    */
   if (!isAndroid) {
-    return toAbsolutePath(relPath)
+    return { path: toAbsolutePath(relPath), isPublic: false, absPath: toAbsolutePath(relPath) }
   }
 
-  // ---- Android：复制到公共下载目录 ----
+  /**
+   * Android：写到「公共下载目录」。
+   *
+   * `_downloads/` 在 5+App 里映射到应用的下载目录，
+   * 但它的物理位置仍在 Android/data/<pkg>/ 下 —— 微信读不到。
+   * 所以这里再尝试一次写到**真正的公共 Downloads**
+   * （/storage/emulated/0/Download/），这是微信能扫到的位置。
+   */
   const name = filename || String(relPath).split('/').pop()
+
+  // 先试公共 Downloads（真正对微信可见）
+  try {
+    const abs = await writeToPublicDownloads(relPath, name)
+    if (abs) {
+      return { path: abs, isPublic: true, absPath: abs }
+    }
+  } catch (e) {
+    console.warn('[backup] 写公共下载目录失败:', e && e.message)
+  }
+
+  // 退回 App 下载目录（不完美，但至少文件在个明确位置）
   try {
     const copied = await copyFileTo(toAbsolutePath(relPath), '_downloads/', name)
     const abs = toAbsolutePath(copied)
-    // 复制到公共目录后，确认拿到的是 file:// 形式
-    return /^file:\/\//i.test(abs) ? abs : toAbsolutePath(`_downloads/${name}`)
+    return {
+      path: /^file:\/\//i.test(abs) ? abs : toAbsolutePath(`_downloads/${name}`),
+      isPublic: false,
+      absPath: abs
+    }
   } catch (e) {
-    console.warn('[backup] 复制到下载目录失败，退回私有目录分享:', e && e.message)
-    // 复制失败时至少给个能用的路径（部分 ROM 允许 / 部分分享渠道能用）
-    return toAbsolutePath(relPath)
+    console.warn('[backup] 复制到下载目录也失败，退回私有目录:', e && e.message)
+    return { path: toAbsolutePath(relPath), isPublic: false, absPath: toAbsolutePath(relPath) }
   }
+}
+
+/**
+ * 把文件写到**真正的公共 Downloads 目录**（微信能扫到的地方）。
+ *
+ * ★ 为什么需要这一步 ★
+ *   5+App 的 `_downloads/` 其实还在 Android/data/<pkg>/ 里，
+ *   微信（以及大多数 App）读不到。
+ *   公共 Downloads 是 /storage/emulated/0/Download/，
+ *   属于共享存储，微信的文件选择器能列出来。
+ *
+ * ★ 怎么拿到那个路径 ★
+ *   plus.io 提供 `_downloads/` 但也提供其它 PublicDirectory 常量；
+ *   更可靠的做法是直接拼：Android 的外部存储根一般就是
+ *   /storage/emulated/0，Downloads 子目录名是 Download（单数）。
+ *   先用 Native.js 读 Environment 拿真实路径，拿不到再用兜底常量。
+ *
+ * @param {string} relPath 源文件相对路径
+ * @param {string} name 文件名
+ * @returns {Promise<string|null>} 写入后的绝对路径；失败返回 null
+ */
+function writeToPublicDownloads(relPath, name) {
+  return new Promise((resolve) => {
+    let root = ''
+    try {
+      // Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)
+      const Environment = plus.android.importClass('android.os.Environment')
+      const dir = Environment.getExternalStoragePublicDirectory(
+        Environment.DIRECTORY_DOWNLOADS
+      )
+      plus.android.importClass(dir)
+      root = dir.getAbsolutePath() // 形如 /storage/emulated/0/Download
+    } catch (e) {
+      // 拿不到就用标准兜底路径
+      root = '/storage/emulated/0/Download'
+    }
+
+    if (!root) {
+      resolve(null)
+      return
+    }
+
+    const target = `${root}/${name}`
+
+    // 用 Java 的文件流复制（比 plus.io 更可靠，能写到公共目录）
+    try {
+      const File = plus.android.importClass('java.io.File')
+      const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+      const FileOutputStream = plus.android.importClass('java.io.FileOutputStream')
+
+      // 源文件：把 _doc/export/xxx.json 转成真实绝对路径
+      const srcAbs = toAbsolutePath(relPath)
+      const srcPath = srcAbs.replace(/^file:\/\//, '')
+
+      const src = new File(srcPath)
+      if (!src.exists()) {
+        resolve(null)
+        return
+      }
+
+      const dest = new File(target)
+      // 确保父目录存在
+      try {
+        const parent = dest.getParentFile()
+        if (parent && !parent.exists()) parent.mkdirs()
+      } catch (e) {}
+
+      const inS = new FileInputStream(src)
+      const outS = new FileOutputStream(dest)
+
+      // 8KB 缓冲逐块拷
+      const buffer = plus.android.newObject('[B', 8192)
+      let len = inS.read(buffer)
+      let guard = 0
+      while (len > 0 && guard < 100000) {
+        outS.write(buffer, 0, len)
+        len = inS.read(buffer)
+        guard++
+      }
+      outS.flush()
+      outS.close()
+      inS.close()
+
+      resolve(`file://${target}`)
+    } catch (e) {
+      console.warn('[backup] Java 流复制失败:', e && e.message)
+      resolve(null)
+    }
+  })
 }
 
 /**

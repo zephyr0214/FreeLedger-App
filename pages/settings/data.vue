@@ -367,15 +367,24 @@ export default {
     /**
      * 分享导出的文件。
      *
-     * ★ 「获取资源失败」的真正原因是分区存储，不是路径格式 ★
-     *   Android 11+ 之后，App 私有目录
-     *   （Android/data/<pkg>/doc/export/）下的文件只有本 App 能读。
-     *   微信拿到这个 file:// 路径没有权限打开，就报「获取资源失败」。
+     * ★ 「获取资源失败」的完整诊断历程 ★
+     *   v1 补 file:// 前缀        -> 失败（私有目录无权限）
+     *   v2 复制到 _downloads/     -> 失败（Android 7+ 禁 file:// 外传）
+     *   v3 声明 Share 模块        -> 仍失败（模块只是让 plus.share 存在，
+     *                                     传过去的还是 file://）
      *
-     *   所以分享前必须先把文件搬到**公共下载目录**，
-     *   再分享公共目录里的那份 —— prepareShareFile() 做这件事：
-     *     Android：复制到 _downloads/ 再分享
-     *     iOS：沙盒文件分享时系统会临时授权，不用搬
+     *   真正的解法是 FileProvider 换 content:// URI，
+     *   但 uni-app 的 manifest.json 没暴露自定义 provider 的配置项，
+     *   纯云打包项目做不了（要原生插件或离线打包改 AndroidManifest）。
+     *
+     *   所以现在这条路的策略是「双保险 + 兜底说明」：
+     *     1. 先把文件写到**真正的公共 Downloads 目录**
+     *        （/storage/emulated/0/Download/，微信能扫到）
+     *     2. 仍然尝试唤起系统分享（部分机型/应用能处理 file://）
+     *     3. 如果分享失败，明确告诉用户「文件在哪、怎么用微信发出去」
+     *        —— 而不是含糊的一句「获取资源失败」
+     *
+     *   关键是不能让用户卡在「点了没反应」上。
      */
     async function shareFile(relPath, filename) {
       if (typeof plus === 'undefined') {
@@ -383,10 +392,10 @@ export default {
         return
       }
 
-      let absPath = ''
+      let prepared = null
       uni.showLoading({ title: '准备分享…', mask: true })
       try {
-        absPath = await prepareShareFile(relPath, filename)
+        prepared = await prepareShareFile(relPath, filename)
         uni.hideLoading()
       } catch (e) {
         uni.hideLoading()
@@ -397,26 +406,55 @@ export default {
         return
       }
 
+      const absPath = prepared.absPath || prepared.path
+
       try {
         plus.share.sendWithSystem(
-          { type: 'file', filePath: absPath },
-          () => {},
-          (e) => {
-            uni.showModal({
-              title: '分享没有完成',
-              content:
-                `系统分享返回：${(e && e.message) || '未知原因'}\n\n` +
-                `文件已放在公共下载目录：\n${absPath}\n\n` +
-                '可以用文件管理器打开下载目录，从那里发给对方。',
-              showCancel: false,
-              confirmText: '知道了'
-            })
+          { type: 'file', filePath: prepared.path },
+          () => {
+            // 成功了就不打扰
+          },
+          () => {
+            // 分享通道失败 —— 这才是常态，给出可操作的信息
+            showShareFallback(absPath, prepared.isPublic)
           }
         )
       } catch (e) {
+        showShareFallback(absPath, prepared.isPublic)
+      }
+    }
+
+    /**
+     * 分享失败时的兜底提示。
+     *
+     * ★ 为什么要这么啰嗦 ★
+     *   微信读不到 App 私有目录的文件（Android 7+ 的 FileUri 限制 +
+     *   分区存储），在没有 FileProvider 的前提下**无法**直接分享给它。
+     *   与其反复报「获取资源失败」，不如把文件放到它能扫到的位置，
+     *   并把这个位置明明白白告诉用户。
+     */
+    function showShareFallback(absPath, isPublic) {
+      if (isPublic) {
         uni.showModal({
-          title: '分享不可用',
-          content: `文件已保存到：\n${absPath}`,
+          title: '文件已放到「下载」目录',
+          content:
+            `路径：\n${absPath}\n\n` +
+            '微信不能直接接收 App 私有目录的文件，但这份已经放到公共下载目录了。\n\n' +
+            '发出去的方法：\n' +
+            '1. 打开微信聊天\n' +
+            '2. 点「+」→「文件」\n' +
+            '3. 在「下载」里找到这个 .json 文件\n\n' +
+            '（文件管理器里也能直接找到并转发）',
+          showCancel: false,
+          confirmText: '知道了'
+        })
+      } else {
+        uni.showModal({
+          title: '分享未能直接完成',
+          content:
+            `文件位置：\n${absPath}\n\n` +
+            '如果要用微信发送，建议先用「复制到指定文件夹」把它放到\n' +
+            '「下载」目录，然后在微信聊天里点「+」→「文件」找到它。',
           showCancel: false,
           confirmText: '知道了'
         })
