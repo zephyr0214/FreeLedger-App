@@ -28,10 +28,69 @@ console.log('=== 1. manifest.json ===')
     const mods = Object.keys((m['app-plus'] || {}).modules || {})
     console.log('     modules:', mods.join(', ') || '(空)')
 
+    /* ★ 权限重复检测（云打包失败的头号原因）★
+       现象：
+         Element uses-permission#android.permission.WRITE_EXTERNAL_STORAGE
+         duplicated with element declared at AndroidManifest.xml:6:1-76
+         Validation failed, exiting
+
+       根因：同一条权限在两个地方各出现一次 ——
+         1) 这里的 distribute.android.permissions
+         2) HBuilderX「SDK 配置 -> 权限」里勾选的（会回写到同一个文件）
+       Gradle 的 manifest merger 遇到同名 uses-permission 就直接失败。
+
+       ★ 特别注意 ★
+       HBuilderX 每次打包都会用界面上的勾选状态**重写** manifest.json，
+       所以「在文件里删掉」是不够的 —— 必须去界面里取消勾选。
+       这个检查是为了让你在打包前就能发现界面里还勾着。
+    */
     const perms = (((m['app-plus'] || {}).distribute || {}).android || {}).permissions || []
+    const names = perms
+      .map((p) => (p.match(/android\.permission\.([A-Z_]+)/) || [])[1])
+      .filter(Boolean)
+
+    // 出现次数 > 1 的就是重复声明
+    const seen = {}
+    const dup = []
+    names.forEach((n) => {
+      seen[n] = (seen[n] || 0) + 1
+      if (seen[n] === 2) dup.push(n)
+    })
+    dup.length
+      ? warn('★ 权限重复声明（云打包会失败）: ' + dup.join(', ') +
+        '。请到 HBuilderX「SDK 配置 -> 权限」里取消勾选对应的项。')
+      : ok(`权限无重复（${names.length} 条）`)
+
+    // 存储权限：导出/分享已删，用不到，别勾
+    const STORAGE = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'READ_MEDIA_IMAGES', 'MANAGE_EXTERNAL_STORAGE']
+    const storageOn = names.filter((n) => STORAGE.includes(n))
+    storageOn.length
+      ? warn('★ 声明了用不到的存储权限: ' + storageOn.join(', ') +
+        '。备份只写 App 私有目录(_doc/)，不需要存储权限；' +
+        '留着的另一个害处是会和 HBuilderX 界面勾选撞车。')
+      : ok('没有多余的存储权限')
+
     console.log('     权限数:', perms.length)
     const hasInternet = perms.some((p) => p.includes('INTERNET'))
     hasInternet ? ok('有 INTERNET 权限（AI 功能需要）') : warn('★ 缺 INTERNET 权限，AI 功能会用不了')
+
+    /* ★ 分享相关的模块/SDK 也要检查 ★
+       导出/分享功能已删。如果 HBuilderX 界面还勾着「分享」，
+       它会被回写进 manifest，云打包就会多打一套微信/QQ SDK 进去。
+    */
+    const UNUSED_MODULES = ['Share', 'File']
+    const unusedMods = UNUSED_MODULES.filter((k) => mods.includes(k))
+    unusedMods.length
+      ? warn('★ modules 里还有用不到的: ' + unusedMods.join(', ') +
+        '。导出/分享已删，请到 HBuilderX「SDK 配置」里取消勾选。')
+      : ok('modules 里没有用不到的模块')
+
+    const sdkKeys = Object.keys((((m['app-plus'] || {}).distribute || {}).sdkConfigs) || {})
+    const unusedSdk = sdkKeys.filter((k) => k === 'share')
+    unusedSdk.length
+      ? warn('★ sdkConfigs 里还有: ' + unusedSdk.join(', ') +
+        '。导出/分享已删，请到 HBuilderX「SDK 配置」里取消勾选。')
+      : ok('sdkConfigs 里没有用不到的 SDK')
 
     // 图标
     const icons = (((m['app-plus'] || {}).distribute || {}).icons || {}).android || {}
@@ -138,6 +197,21 @@ console.log('  · manifest.json 的 appid 必须保留（' + (JSON.parse(fs.read
 console.log('  · modules 里只声明了 SQLite —— 导出/分享功能已删，不需要 Share 模块')
 console.log('  · 卸载应用会删除全部数据，备份只在 _doc/backup/（本机）')
 console.log('  · tabBar 图标路径没变但内容变过 —— 必须重新打包才生效')
+
+console.log('\n  ★★ HBuilderX 的「SDK 配置」面板会覆盖 manifest.json ★★')
+console.log('  HBuilderX 每次打包都会用界面上勾选的配置**重写** manifest.json：')
+console.log('    - 「权限」里勾了什么，distribute.android.permissions 就是什么')
+console.log('    - 「模块配置」里勾了什么，modules 就是什么')
+console.log('  所以光改文件没用 —— 必须在界面上取消勾选，否则每次打包都会写回来。')
+console.log('')
+console.log('  打包前请在 HBuilderX 里确认（manifest.json 右上角「打包」按钮旁的')
+console.log('  「基础配置 / App权限配置 / App SDK配置」三个页签）：')
+console.log('    ① App权限配置：取消勾选 存储/读写外部存储/相册/媒体 相关权限')
+console.log('       （本应用的备份只写 App 私有目录 _doc/，完全用不到外部存储）')
+console.log('    ② App SDK配置：取消勾选 分享/Share 相关的 SDK')
+console.log('       （导出/分享功能已整块删掉了）')
+console.log('    ③ 如果这些项之前勾着而你已取消，manifest.json 会自动被改回来，')
+console.log('       本检查也会跟着报出来 —— 看到 ❌ 就是界面里还勾着。')
 
 console.log(issues === 0 ? '\n✅ 检查通过，可以云打包' : `\n❌ 发现 ${issues} 个问题`)
 process.exit(issues ? 1 : 0)
