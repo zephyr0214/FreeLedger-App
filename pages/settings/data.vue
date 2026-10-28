@@ -74,9 +74,9 @@
         </view>
       </view>
 
-      <!-- 数据管理：列出备份 + 导出的所有 JSON，可逐个恢复 / 删除 -->
+      <!-- 历史数据管理：扫描三个文件夹（_doc/_downloads/_documents）里的所有 JSON，可逐个恢复 / 删除 -->
       <view id="section-data" class="section">
-        <text class="section-title">数据管理</text>
+        <text class="section-title">历史数据管理</text>
         <view class="card">
           <view class="card-row" @click="onOpenDataManager">
             <view class="row-info">
@@ -149,16 +149,19 @@
     <wd-popup v-model="showDataManager" position="bottom" :safe-area-inset-bottom="true">
       <view class="backup-panel">
         <view class="panel-head">
-          <text class="panel-title">数据管理</text>
-          <text class="panel-close" @click="showDataManager = false">关闭</text>
+          <text class="panel-title">历史数据管理</text>
+          <view class="panel-head-ops">
+            <text class="panel-close" @click="refreshDataManager">刷新</text>
+            <text class="panel-close" @click="showDataManager = false">关闭</text>
+          </view>
         </view>
 
         <view class="panel-tip">
-          <text class="panel-tip-text">扫描 _doc/backup（备份）和 _doc/export（导出）里的 JSON 文件，可逐个恢复或删除。</text>
+          <text class="panel-tip-text">扫描 _doc / _downloads / _documents 三个文件夹里的所有 JSON 文件，可逐个恢复或删除。</text>
         </view>
 
         <view v-if="dataFiles.length === 0" class="panel-empty">
-          <text class="panel-empty-text">还没有任何备份或导出文件</text>
+          <text class="panel-empty-text">没有任何 JSON 文件</text>
         </view>
 
         <scroll-view v-else class="backup-scroll" scroll-y>
@@ -169,7 +172,7 @@
           >
             <view class="backup-info">
               <text class="backup-name">
-                <text :class="f.kind === 'backup' ? 'data-kind data-kind-backup' : 'data-kind data-kind-export'">{{ f.kind === 'backup' ? '备份' : '导出' }}</text>
+                <text :class="['data-kind', f.kind === 'backup' ? 'data-kind-backup' : 'data-kind-export']">{{ kindLabel(f.kind) }}</text>
                 {{ formatDataTime(f.time) }}
               </text>
               <text class="backup-file">{{ f.name }}</text>
@@ -382,22 +385,44 @@ export default {
       }
     }
 
-    /* ------------------------------------------------------ 数据管理 */
+    /* ------------------------------------------------------ 历史数据管理 */
 
-    /** 合并备份 + 导出 两个目录的 JSON，标记 kind，按时间倒序 */
-    async function loadDataManager() {
-      const [backs, exports] = await Promise.all([listBackups(), listExportFiles()])
-      const all = [
-        ...backs.map((f) => ({ ...f, kind: 'backup' })),
-        ...exports.map((f) => ({ ...f, kind: 'export' }))
-      ]
-      all.sort((a, b) => (b.time || 0) - (a.time || 0))
-      dataFiles.value = all
-      return all
+    /** 根据目录判断文件类型标签 */
+    function kindFromDir(dir) {
+      const d = String(dir || '')
+      if (/backup/.test(d)) return 'backup'
+      if (/export/.test(d)) return 'export'
+      if (/import/.test(d)) return 'import'
+      if (/downloads?/i.test(d) || /download/i.test(d)) return 'download'
+      return 'other'
     }
 
-    /** 打开「数据管理」弹层（顺便刷新列表） */
+    /** 类型标签的显示文字 */
+    function kindLabel(kind) {
+      return (
+        { backup: '备份', export: '导出', import: '导入', download: '下载', other: '文件' }[kind] || '文件'
+      )
+    }
+
+    /**
+     * 扫描三个文件夹（_doc / _downloads / _documents）里的所有 JSON。
+     * ★ 和「从文件导入」用的同一个扫描函数 listImportableFiles ★
+     *   _doc 里递归包含 backup / export / import，所以三个根就全覆盖了。
+     */
+    async function loadDataManager() {
+      const files = await listImportableFiles()
+      dataFiles.value = files.map((f) => ({ ...f, kind: kindFromDir(f.dir) }))
+      return dataFiles.value
+    }
+
+    /** 打开「历史数据管理」弹层（顺便刷新列表） */
     async function onOpenDataManager() {
+      await refreshDataManager()
+      showDataManager.value = true
+    }
+
+    /** 刷新历史数据列表（弹层里的「刷新」按钮也用它） */
+    async function refreshDataManager() {
       uni.showLoading({ title: '扫描…' })
       try {
         await loadDataManager()
@@ -405,19 +430,17 @@ export default {
       } catch (e) {
         uni.hideLoading()
         await alertDialog({ title: '扫描失败', content: (e && e.message) || '无法读取文件列表' })
-        return
       }
-      showDataManager.value = true
     }
 
     /**
-     * 恢复某个备份/导出文件（覆盖当前数据）。
-     * 备份和导出都是完整快照，恢复语义一致。
+     * 恢复某个 JSON 文件（覆盖当前数据）。
+     * 备份/导出/导入都是完整快照，恢复语义一致。
      */
     async function onRestoreData(file) {
       const ok = await confirmDialog({
         title: '用这个文件恢复数据？',
-        content: `将用 ${formatDataTime(file.time)} 的${file.kind === 'backup' ? '备份' : '导出'}覆盖当前数据。\n当前数据会先自动备份一次，万一不对可以再恢复回来。`,
+        content: `将用 ${formatDataTime(file.time)} 的${kindLabel(file.kind)}覆盖当前数据。\n当前数据会先自动备份一次，万一不对可以再恢复回来。`,
         confirmText: '恢复',
         danger: true
       })
@@ -451,7 +474,7 @@ export default {
       }
     }
 
-    /** 删除某个备份/导出文件（不影响 App 内数据） */
+    /** 删除某个 JSON 文件（不影响 App 内数据） */
     async function onDeleteData(file) {
       const ok = await confirmDialog({
         title: '删除这个文件？',
@@ -671,6 +694,9 @@ export default {
       autoBackupEnabled.value = settings.autoBackup !== false
       await loadCounts()
       await loadBackups()
+      // ★ 一进页面就扫一次，让「历史数据管理」的数量立即正确，
+      //   不用等点进去才加载（之前就是只在点开时加载，首次显示 0）★
+      await loadDataManager()
 
       // 内容加载完再滚，保证目标区块已经渲染出来
       if (pendingTab.value) {
@@ -685,7 +711,7 @@ export default {
       primaryColor, pageStyle, scrollTarget,
       onExport,
       onImport, onPickImportFile,
-      onOpenDataManager, onRestoreData, onDeleteData,
+      onOpenDataManager, onRestoreData, onDeleteData, refreshDataManager, kindLabel,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
       formatDataTime, formatImportTime, goBack, settingStore
@@ -837,6 +863,13 @@ export default {
   justify-content: space-between;
   padding: 28rpx;
   border-bottom: 1rpx solid var(--app-line);
+}
+
+/* 面板头部右侧的按钮组（刷新 / 关闭） */
+.panel-head-ops {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
 }
 
 .panel-title {

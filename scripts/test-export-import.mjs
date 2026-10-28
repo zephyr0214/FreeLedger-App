@@ -144,14 +144,18 @@ check('有「导入」区块', /section-import/.test(data), true)
 check('有导出按钮', /onExport/.test(data), true)
 check('有导入按钮', /onImport/.test(data), true)
 
-// ★ 数据管理：合并备份 + 导出，每个 JSON 可恢复 / 删除 ★
-check('有「数据管理」区块', /section-data/.test(data), true)
+// ★ 历史数据管理：扫三个文件夹（_doc/_downloads/_documents），每个 JSON 可恢复 / 删除 ★
+check('有「历史数据管理」区块', /section-data/.test(data), true)
+check('入口叫「历史数据管理」', /历史数据管理/.test(data), true)
 check('有数据管理列表状态', /dataFiles/.test(data), true)
 check('有数据管理弹层状态', /showDataManager/.test(data), true)
 check('能打开数据管理', /onOpenDataManager/.test(data), true)
 check('能恢复数据', /onRestoreData/.test(data), true)
 check('能删除数据', /onDeleteData/.test(data), true)
-check('合并备份+导出', /listBackups\(\).*listExportFiles\(\)/s.test(data), true)
+// ★ 扫三个文件夹：用 listImportableFiles（它扫 _doc/_downloads/_documents）★
+check('用 listImportableFiles 扫三个文件夹', /listImportableFiles\s*\(/.test(data), true)
+check('有刷新按钮', /refreshDataManager/.test(data), true)
+check('页面加载时就扫一次（数量立即正确）', /onMounted[\s\S]{0,400}loadDataManager\s*\(/.test(data), true)
 
 // ★ 旧的「导出历史」「备份记录」两个入口已删除 ★
 check('没有导出历史入口', /openExportFiles/.test(data), false)
