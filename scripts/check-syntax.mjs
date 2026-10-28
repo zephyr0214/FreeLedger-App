@@ -111,7 +111,45 @@ for (const file of vueFiles) {
   }
 }
 
-/* ------------------------------------------- 3. 检查 pages.json 路由 */
+/* ------------------------------------------- 3. 检查 JSON 配置文件 */
+
+/**
+ * ★ 为什么 manifest.json / theme.json 也要查 ★
+ *   踩过的坑：删 manifest.json 里的一个模块时留了个尾逗号，
+ *   整个项目编译失败（uni-app 报 "Unexpected comma"），
+ *   而 npm run verify 全绿 —— 因为当时只有 pages.json 被检查。
+ *
+ *   尾逗号 JSON.parse 会直接报错，这类问题不能靠肉眼，
+ *   必须让脚本每次都跑一遍。
+ */
+const JSON_FILES = ['manifest.json', 'pages.json', 'theme.json']
+
+for (const name of JSON_FILES) {
+  const file = join(ROOT, name)
+  if (!existsSync(file)) continue
+
+  let raw = readFileSync(file, 'utf-8')
+  // uni-app 的 json5 风格：允许 // 和 /* */ 注释
+  raw = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+
+  try {
+    JSON.parse(raw)
+  } catch (e) {
+    addError(file, `JSON 解析失败: ${e.message}`)
+    // 打印出错行附近，方便定位
+    const m = e.message.match(/position (\d+)/)
+    if (m) {
+      const pos = parseInt(m[1])
+      const lines = raw.split('\n')
+      const lineNo = raw.slice(0, pos).split('\n').length
+      for (let i = Math.max(0, lineNo - 2); i < Math.min(lines.length, lineNo + 1); i++) {
+        addError(file, `  第 ${i + 1} 行: ${lines[i].trim()}`)
+      }
+    }
+  }
+}
+
+/* ------------------------------------------- 4. 检查 pages.json 路由 */
 
 const pagesJsonPath = join(ROOT, 'pages.json')
 if (existsSync(pagesJsonPath)) {
@@ -137,7 +175,10 @@ if (existsSync(pagesJsonPath)) {
       }
     }
   } catch (e) {
-    addError(pagesJsonPath, 'JSON 解析失败: ' + e.message)
+    // 语法错误上面已经报过了，这里不再重复
+    if (!/JSON 解析失败/.test(errors.join('\n'))) {
+      addError(pagesJsonPath, 'JSON 解析失败: ' + e.message)
+    }
   }
 }
 
