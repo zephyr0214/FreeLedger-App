@@ -440,13 +440,24 @@ export default {
      *   覆盖语义更清楚。覆盖前 api 层会自动备份当前库，能反悔。
      */
     async function onImport() {
+      const T0 = Date.now()
+      const log = (tag, extra) => {
+        const t = new Date(Date.now())
+        const pad = (n) => String(n).padStart(2, '0')
+        const stamp = `${t.getHours()}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`
+        console.log(`[自由记导入页面] ${stamp} ${tag}`, extra === undefined ? '' : extra)
+      }
+
+      log('onImport 开始')
       let picked = ''
       try {
         uni.showLoading({ title: '选择文件…' })
         picked = await chooseImportFile()
         uni.hideLoading()
+        log('chooseImportFile 返回', { picked, 耗时ms: Date.now() - T0 })
       } catch (e) {
         uni.hideLoading()
+        log('chooseImportFile 失败', (e && e.message) || '')
         // 用户主动取消不算错误，不用弹框打扰
         if (/取消/.test(e.message)) return
         await alertDialog({ title: '选择文件失败', content: e.message })
@@ -461,10 +472,12 @@ export default {
       })
       if (!ok) return
 
+      log('确认覆盖')
       uni.showLoading({ title: '导入中…' })
       try {
         const report = await importFromFile(picked)
         uni.hideLoading()
+        log('importFromFile 完成', { 耗时ms: Date.now() - T0 })
 
         clearSettingsCache()
         await settingStore.load()
@@ -472,6 +485,7 @@ export default {
         await txnStore.loadHome(true)
         await loadCounts()
         await loadBackups()
+        log('刷新完成', { 耗时ms: Date.now() - T0 })
 
         await alertDialog({
           title: '导入完成',
@@ -484,6 +498,7 @@ export default {
         })
       } catch (e) {
         uni.hideLoading()
+        log('importFromFile 失败', (e && e.message) || '')
         await alertDialog({ title: '导入失败', content: e.message })
       }
     }

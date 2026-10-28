@@ -21,6 +21,26 @@ const BACKUP_DIR = '_doc/backup/'
 /** 导出文件目录：用户主动导出、可分享的文件都放这里 */
 const EXPORT_DIR = '_doc/export/'
 
+/**
+ * 导入/导出调试日志。
+ *
+ * ★ 为什么留 ★
+ *   用户反馈「选择从文件导入后很慢/一直转圈」，但我在电脑上复现不了，
+ *   只能靠用户手机上的日志定位。所以把导入/导出每一步都打点：
+ *   console.log 会进原生 logcat（HBuilderX 控制台可见），
+ *   同时 uni.showLoading 的标题会变成当前阶段，手机上也能看到卡在哪。
+ *
+ * @param {string} tag  阶段名
+ * @param {*} [extra]   附加信息
+ */
+function logStep(tag, extra) {
+  const ts = Date.now()
+  const t = new Date(ts)
+  const pad = (n) => String(n).padStart(2, '0')
+  const stamp = `${t.getHours()}:${pad(t.getMinutes())}:${pad(t.getSeconds())}.${String(ts % 1000).padStart(3, '0')}`
+  console.log(`[自由记导入] ${stamp} ${tag}`, extra === undefined ? '' : extra)
+}
+
 /* ------------------------------------------------------------------ 导出 */
 
 /**
@@ -529,6 +549,7 @@ export function chooseImportFile() {
       reject(new Error('选择文件仅在 App 端可用'))
       return
     }
+    logStep('chooseImportFile 开始', plus.os.name)
     if (plus.os.name === 'Android') {
       androidChooseFile(resolve, reject)
     } else {
@@ -574,6 +595,11 @@ function androidChooseFile(resolve, reject) {
 
     listener = (result) => {
       try {
+        logStep('onActivityResult 收到', {
+          requestCode: result && result.requestCode,
+          resultCode: result && result.resultCode,
+          hasIntent: !!(result && result.intent)
+        })
         if (Number(result.requestCode) !== REQUEST_CODE) return
 
         // Activity.RESULT_OK === -1
@@ -594,27 +620,35 @@ function androidChooseFile(resolve, reject) {
           fail('没有选中文件')
           return
         }
+        logStep('拿到 uri', String(uri))
 
         readUriIntoAppDir(uri)
           .then((path) => {
+            logStep('readUriIntoAppDir 完成', path)
             if (settled) return
             settled = true
             cleanUp()
             resolve(path)
           })
-          .catch((e) => fail((e && e.message) || '读取选中文件失败'))
+          .catch((e) => {
+            logStep('readUriIntoAppDir 失败', (e && e.message) || '')
+            fail((e && e.message) || '读取选中文件失败')
+          })
       } catch (e) {
+        logStep('onActivityResult 异常', (e && e.message) || '')
         fail((e && e.message) || '处理选择结果失败')
       }
     }
 
     plus.globalEvent.addEventListener('onActivityResult', listener)
     main.startActivityForResult(intent, REQUEST_CODE)
+    logStep('已启动系统文件选择（startActivityForResult）', REQUEST_CODE)
 
     // 90 秒兜底：就算系统回调完全不来，也不能让用户无限转圈。
     // 90 秒足够挑完一个文件，还没回来就是真出问题了，明确报错。
     setTimeout(() => fail('选择文件超时（没收到系统回调，请重试）'), 90 * 1000)
   } catch (e) {
+    logStep('androidChooseFile 启动异常', (e && e.message) || '')
     fail((e && e.message) || '无法调起系统文件选择')
   }
 }
@@ -627,6 +661,7 @@ function androidChooseFile(resolve, reject) {
  */
 function readUriIntoAppDir(uri) {
   return new Promise((resolve, reject) => {
+    const t0 = Date.now()
     try {
       const main = plus.android.runtimeMainActivity()
       const resolver = main.getContentResolver()
@@ -647,12 +682,14 @@ function readUriIntoAppDir(uri) {
           cursor.close()
         }
       } catch (e) {}
+      logStep('已拿到文件名', { name, 耗时ms: Date.now() - t0 })
 
       const stream = resolver.openInputStream(uri)
       if (!stream) {
         reject(new Error('打不开选中的文件'))
         return
       }
+      logStep('已打开输入流', { 耗时ms: Date.now() - t0 })
 
       // ★ 一次性读完整个流 ★
       //   之前用 BufferedReader + `while (line !== null) readLine()`，
@@ -661,17 +698,23 @@ function readUriIntoAppDir(uri) {
       //   结果就是「选完文件一直转圈」。
       //   改用 java.util.Scanner：useDelimiter('\\A') 表示「整个输入」，
       //   next() 一次返回全部内容，没有逐行判空，不会卡死。
+      try { uni.showLoading({ title: '读取文件…' }) } catch (e) {}
       const Scanner = plus.android.importClass('java.util.Scanner')
       const scanner = new Scanner(stream, 'UTF-8')
       scanner.useDelimiter('\\A')
       const text = scanner.hasNext() ? String(scanner.next()) : ''
       scanner.close()
       stream.close()
+      logStep('Scanner 读取完成', { 字符数: text.length, 耗时ms: Date.now() - t0 })
 
       writeTextFile('_doc/import/', name, text)
-        .then((rel) => resolve(rel))
+        .then((rel) => {
+          logStep('写入沙盒完成', { rel, 耗时ms: Date.now() - t0 })
+          resolve(rel)
+        })
         .catch((e) => reject(new Error('写入沙盒失败: ' + ((e && e.message) || ''))))
     } catch (e) {
+      logStep('readUriIntoAppDir 异常', (e && e.message) || '')
       reject(new Error((e && e.message) || '读取文件内容失败'))
     }
   })
