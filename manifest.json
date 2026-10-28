@@ -1,6 +1,6 @@
 {
     "name" : "自由记",
-    "appid" : "__UNI__9AC9784",
+    "appid" : "__UNI__8E8C7CE",
     "description" : "本地记账 App",
     "versionName" : "1.0.0",
     "versionCode" : "100",
@@ -33,6 +33,14 @@
         "distribute" : {
             /* android打包配置 */
             "android" : {
+                /* ★ 这里不要再手写存储权限 ★
+                   写在这里的权限会和 HBuilderX「SDK 配置 -> 权限」里勾选的
+                   合并成两条同名 uses-permission，Gradle 的 manifest merger
+                   直接报 duplicated 错误，整个云打包失败。
+
+                   权限统一在 HBuilderX 界面里勾选，那边的配置会回写到这个文件，
+                   这里是权威来源。手写一份的结果就是重复。
+                   （真正需要的权限就那几条基础权限，本来也用不到存储权限。） */
                 "permissions" : [
                     "<uses-permission android:name=\"android.permission.INTERNET\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
@@ -44,7 +52,11 @@
             "ios" : {
                 "dSYMs" : false
             },
-            /* SDK配置 */
+            /* SDK配置
+               ★ 不要在这里加 share ★
+                 导出/分享功能已经删掉了，加了只会让云打包多打一个
+                 微信/QQ 的 SDK 进去，白白增大包体。
+                 权限同理，见上面 permissions 处的说明。 */
             "sdkConfigs" : {},
             "icons" : {
                 "android" : {
