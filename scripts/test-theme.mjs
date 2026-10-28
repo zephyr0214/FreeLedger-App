@@ -144,15 +144,23 @@ calls.length = 0
 refreshTabBarTheme('red', false, false)
 check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selectedColor, '#EE0A24')
 
-/* ---------------- tabBar 字号 / 图标尺寸：pages.json 里配够大 ---------------- */
+/* ---------------- tabBar 字号 / 图标尺寸：pages.json 里配够大 ----------------
+ * ★ 这两个值必须与 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH 一起看 ★
+ *   用户看到的图标粗细 = 描边宽度 × (iconWidth / 画布尺寸)，
+ *   记作 onScreen。改任一个都要重算，不能各自随手调。
+ *   现在的组合（描边 2.9 / 画布 108 / iconWidth 25px）-> onScreen 0.671，
+ *   落在「太细」(0.593) 与「太粗」(0.778) 的中间。
+ *   fontSize 用整数 11px：uni-app 的原生 tabBar 对小数 px 的支持没有把握，
+ *   宁可用整数值也不要冒「配了不生效」的风险。
+ */
 {
   const pagesJson = JSON.parse(
     readFileSync(join(process.cwd(), 'pages.json'), 'utf-8')
       .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
   )
   const tb = pagesJson.tabBar || {}
-  check('tabBar 字号 12px', tb.fontSize, '12px')
-  check('tabBar 图标宽 28px', tb.iconWidth, '28px')
+  check('tabBar 字号 11px', tb.fontSize, '11px')
+  check('tabBar 图标宽 25px', tb.iconWidth, '25px')
 }
 
 delete globalThis.uni
