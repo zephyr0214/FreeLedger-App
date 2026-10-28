@@ -74,12 +74,18 @@
 
             <view class="txn-info">
               <view class="txn-name-row">
-                <text class="txn-name">{{ txnTitle(txn) }}</text>
+                <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
+                <!-- 标签：跟在分类名后面（txnTitle 就是分类名），
+                     小 tag 胶囊形态，高度压到 28rpx 以内 -->
+                <view v-if="txnTags(txn).length" class="txn-tag-list">
+                  <text
+                    v-for="name in txnTags(txn)"
+                    :key="name"
+                    class="txn-tag"
+                  >{{ name }}</text>
+                </view>
               </view>
-              <view class="txn-sub-row">
-                <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
-                <text v-if="txnTags(txn)" class="txn-tags">{{ txnTags(txn) }}</text>
-              </view>
+              <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>
 
             <view class="txn-right">
@@ -775,22 +781,24 @@ export default {
     })
 
     /**
-     * 这笔交易的标签名（纯文字，不带背景块）
+     * 这笔交易的标签名列表
      *
-     * 多个标签用「、」连接；超过 2 个只显示前两个 + 「+N」，
-     * 免得一行被标签撑高。
+     * 显示标签名字本身（不显示「N 个标签」这种计数），
+     * 交易里只存了 tag_id（tag_ids），要显示名字得靠本页已加载的标签表反查。
+     *
+     * 最多取前 2 个：标签太多会撑破一行，
+     * 剩下的用「+N」在最后一个位置表示。
      */
     function txnTags(txn) {
       const ids = txn.tag_ids
-      if (!ids || !ids.length) return ''
+      if (!ids || !ids.length) return []
       const names = []
       for (const id of ids) {
         const name = tagNameMap.value[id]
         if (name) names.push(name)
       }
-      if (!names.length) return ''
-      if (names.length <= 2) return names.join('、')
-      return `${names.slice(0, 2).join('、')} +${names.length - 2}`
+      if (names.length <= 2) return names
+      return names.slice(0, 2).concat([`+${names.length - 2}`])
     }
 
     function timeLabel(ts) {
@@ -1152,33 +1160,55 @@ export default {
   display: flex;
   align-items: center;
   gap: 10rpx;
+  min-width: 0;
 }
 
 .txn-name {
   font-size: 28rpx;
   color: var(--app-text);
   font-weight: 500;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
-/* 副标题行：备注 + 标签名（纯文字，不撑高整行） */
-.txn-sub-row {
+/**
+ * 标签：跟在分类名后面的一排小胶囊
+ *
+ * ★ 高度必须小 ★
+ *   用户反馈「标签显示的高度略高，不协调」——
+ *   原来是一个带背景的方块（padding 2rpx 10rpx + 18rpx 字），
+ *   跟 28rpx 的分类名放一行时会明显高出一截，把整行撑得松散。
+ *   现在：上下 padding 2rpx + 20rpx 字 + 8rpx 行高 ≈ 28rpx，
+ *   和分类名同一行齐平，整行高度不受影响。
+ *
+ * ★ 不换行 ★
+ *   flex-wrap: nowrap + overflow: hidden，
+ *   标签多了就横向截断，不换行把行高撑开。
+ *   （txnTags() 里已经限死最多 2 个 + 「+N」，这里只是兜底）
+ */
+.txn-tag-list {
   display: flex;
   align-items: center;
-  gap: 12rpx;
-  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 6rpx;
+  flex-shrink: 0;
+  max-width: 220rpx;
+  overflow: hidden;
+}
+
+.txn-tag {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  line-height: 20rpx;
+  color: var(--app-text-2);
+  background-color: var(--app-card-2);
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
 }
 
 .txn-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
-  flex-shrink: 1;
-  min-width: 0;
-}
-
-.txn-tags {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  flex-shrink: 0;
 }
 
 .txn-right {

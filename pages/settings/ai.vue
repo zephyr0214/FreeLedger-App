@@ -296,13 +296,26 @@ export default {
 
 .form-input {
   flex: 1;
+  min-width: 0;
   text-align: right;
   font-size: 28rpx;
   color: var(--app-text);
 }
 
+/**
+ * 整行宽度的输入框（接口地址 / API Key）
+ *
+ * ★ 必须显式写 box-sizing: border-box ★
+ *   App.vue 的全局样式里是
+ *     view, text, scroll-view, image { box-sizing: border-box; }
+ *   —— input **不在这个列表里**，所以 input 默认还是 content-box。
+ *   之前 .form-input-full 写了 width: 100% + padding: 16rpx 20rpx，
+ *   实际占位 = 100% + 40rpx，横向溢出容器右边，看起来就是「输入框穿模」。
+ *   这里显式补上 border-box 就好了。
+ */
 .form-input-full {
   width: 100%;
+  box-sizing: border-box;
   font-size: 26rpx;
   color: var(--app-text);
   background-color: var(--app-card-2);
@@ -315,11 +328,25 @@ export default {
   font-size: 26rpx;
 }
 
+/**
+ * API Key 那一行：输入框 + 「显示/隐藏」按钮并排
+ *
+ * ★ 输入框必须 flex: 1 + min-width: 0 ★
+ *   flex 容器里，默认 flex-basis:auto 会让子项按内容宽度撑开，
+ *   加上「显示/隐藏」按钮就容易被挤出容器右边。
+ *   min-width: 0 允许它缩到比内容还窄（配合 input 自身的 overflow 处理），
+ *   这样按钮永远留在容器内。
+ */
 .key-row {
   display: flex;
   align-items: center;
   gap: 16rpx;
   width: 100%;
+}
+
+.key-row .form-input-full {
+  flex: 1;
+  min-width: 0;
 }
 
 .key-toggle {
@@ -334,6 +361,8 @@ export default {
   gap: 16rpx;
   flex: 1;
   width: 100%;
+  /* 同理：slider 也不在全局 border-box 名单里，min-width: 0 防止撑破容器 */
+  min-width: 0;
 }
 
 .slider-value {
