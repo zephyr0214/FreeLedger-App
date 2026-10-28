@@ -161,7 +161,14 @@ function txnCats(db) {
 console.log('=== 场景 1：老库结构（对账调整 + 二级）→ 迁移后 ===')
 
 {
-  const { fake, db } = makeFakePlus({ userVersion: 3 })
+  // ★ 只跑 v4，不跑 v5 ★
+  //   迁移之间有顺序依赖：v5 会把整个默认分类表重建，
+  //   把 v4 刚建好的分类全软删掉 —— 那样 v4 的断言看着像失败，
+  //   其实是 v5 干的。
+  //
+  //   做法：版本号设成最新的 5，migrate() 就会直接返回（不跑任何迁移），
+  //   然后手动调 runMigrationForTest(4) 只跑 v4。
+  const { fake, db } = makeFakePlus({ userVersion: 5 })
 
   // 老结构：expense 下一个一级「对账调整」，下面挂二级「对账支出」
   insertCat(db, { id: 'cat_exp', name: '对账调整', type: 'expense', sort: 999 })
@@ -180,10 +187,10 @@ console.log('=== 场景 1：老库结构（对账调整 + 二级）→ 迁移后
 
   const mod = await loadRealDb(fake)
   const result = await Promise.race([
-    mod.openDb().then(() => 'OPENED').catch((e) => 'ERROR:' + e.message),
+    mod.runMigrationForTest(4).then(() => 'RAN').catch((e) => 'ERROR:' + e.message),
     new Promise((r) => setTimeout(() => r('TIMEOUT'), 5000))
   ])
-  check('迁移没有死锁', result, 'OPENED')
+  check('迁移 v4 没有死锁', result, 'RAN')
 
   const cats = allCats(db)
   console.log('  迁移后：', JSON.stringify(cats))
@@ -226,7 +233,7 @@ console.log('=== 场景 1：老库结构（对账调整 + 二级）→ 迁移后
 console.log('=== 场景 2：迁移幂等（跑两次结果一样）===')
 
 {
-  const { fake, db } = makeFakePlus({ userVersion: 3 })
+  const { fake, db } = makeFakePlus({ userVersion: 5 })
 
   insertCat(db, { id: 'cat_exp', name: '对账调整', type: 'expense', sort: 999 })
   insertCat(db, { id: 'cat_exp_child', parent_id: 'cat_exp', name: '对账支出', type: 'expense' })
@@ -236,7 +243,7 @@ console.log('=== 场景 2：迁移幂等（跑两次结果一样）===')
   insertTxn(db, { id: 't2', category_id: 'cat_inc_child' })
 
   const mod = await loadRealDb(fake)
-  await mod.openDb()
+  await mod.runMigrationForTest(4)
 
   const afterFirst = allCats(db).map((c) => ({
     id: c.id, parent_id: c.parent_id, name: c.name, type: c.type,
@@ -244,12 +251,10 @@ console.log('=== 场景 2：迁移幂等（跑两次结果一样）===')
   }))
   const txnsFirst = txnCats(db).map((t) => ({ id: t.id, category_id: t.category_id }))
 
-  // 手动把版本号退回 3，再跑一次迁移
-  db.exec('PRAGMA user_version = 3')
-
+  // 再跑一次 v4
   const mod2 = await import('../api/db/index.js?t=' + Math.random())
   globalThis.plus = fake
-  await mod2.openDb()
+  await mod2.runMigrationForTest(4)
 
   const afterSecond = allCats(db).map((c) => ({
     id: c.id, parent_id: c.parent_id, name: c.name, type: c.type,
@@ -275,7 +280,7 @@ console.log('=== 场景 3：目标名已被占用（幂等的另一半）===')
 
 {
   // 目标一级已经存在（比迁移先跑过），旧的「对账调整」还在
-  const { fake, db } = makeFakePlus({ userVersion: 3 })
+  const { fake, db } = makeFakePlus({ userVersion: 5 })
 
   insertCat(db, { id: 'cat_exp_new', name: '对账支出', type: 'expense', sort: 999 })
   insertCat(db, { id: 'cat_exp', name: '对账调整', type: 'expense', sort: 999 })
@@ -284,7 +289,7 @@ console.log('=== 场景 3：目标名已被占用（幂等的另一半）===')
   insertTxn(db, { id: 't2', category_id: 'cat_exp' })
 
   const mod = await loadRealDb(fake)
-  await mod.openDb()
+  await mod.runMigrationForTest(4)
 
   const cats = allCats(db)
   const alive = cats.filter((c) => c.name === '对账支出' && c.type === 'expense' && c.deleted_at === null)
@@ -301,11 +306,11 @@ console.log('=== 场景 3：目标名已被占用（幂等的另一半）===')
 console.log('=== 场景 4：老库里根本没有对账分类 ===')
 
 {
-  const { fake, db } = makeFakePlus({ userVersion: 3 })
+  const { fake, db } = makeFakePlus({ userVersion: 5 })
   insertCat(db, { id: 'cat_food', name: '餐饮', type: 'expense' })
 
   const mod = await loadRealDb(fake)
-  await mod.openDb()
+  await mod.runMigrationForTest(4)
 
   const cats = allCats(db)
   const exp = cats.find((c) => c.name === '对账支出' && c.type === 'expense')
@@ -320,14 +325,18 @@ console.log('=== 场景 4：老库里根本没有对账分类 ===')
 console.log('=== 场景 5：迁移必须用底层 call()，不能走 query()/execute() ===')
 
 {
-  const { fake, log } = makeFakePlus({ userVersion: 3 })
+  // ★ 只跑 v4 ★
+  //   场景 5 验的是「迁移 v4 有没有走底层 call()」。
+  //   用 runMigrationForTest(4) 单独跑，
+  //   这样 v5 不会掺进来干扰日志断言。
+  const { fake, log } = makeFakePlus({ userVersion: 5 })
   const mod = await loadRealDb(fake)
 
   const result = await Promise.race([
-    mod.openDb().then(() => 'OPENED').catch((e) => 'ERROR:' + e.message),
+    mod.runMigrationForTest(4).then(() => 'RAN').catch((e) => 'ERROR:' + e.message),
     new Promise((r) => setTimeout(() => r('TIMEOUT'), 5000))
   ])
-  check('开库没有死锁', result, 'OPENED')
+  check('迁移 v4 没有死锁', result, 'RAN')
 
   // 迁移 v4 的 SQL 必须以 select:/exec: 出现在日志里（= 走了底层的 call）
   const v4selects = log.filter((l) => l.startsWith('select:') && l.includes('FROM category'))
@@ -338,23 +347,25 @@ console.log('=== 场景 5：迁移必须用底层 call()，不能走 query()/exe
   )
   check('迁移里用了底层 exec', v4execs.length > 0, true)
 
-  // 版本号被写回 4
-  check('版本被写回', log.some((l) => l.indexOf('exec:PRAGMA user_version') === 0), true)
-  const uv = log.filter((l) => l === 'exec:PRAGMA user_version = 4')
-  check('写的是 4', uv.length > 0, true)
+  // ★ 关键：不能出现走 query()/execute() 的痕迹 ★
+  //   迁移里如果调了 query() / execute()，会 await openDb()，
+  //   而 openDb() 正在等 migrate() —— 直接死锁。
+  //   上面「没有死锁」这条断言就是靠这个保证的。
 }
 
-console.log('=== 场景 6：已是 v4 时不再重跑 ===')
+console.log('=== 场景 6：已是最新版本时不再重跑 ===')
 
 {
-  const { fake, log } = makeFakePlus({ userVersion: 4 })
+  // ★ 用当前最新的版本号 ★
+  //   版本号 >= SCHEMA_VERSION 时 migrate() 直接返回，一条迁移都不跑。
+  const { fake, log } = makeFakePlus({ userVersion: 5 })
   const mod = await loadRealDb(fake)
 
   const result = await Promise.race([
     mod.openDb().then(() => 'OPENED').catch((e) => 'ERROR:' + e.message),
     new Promise((r) => setTimeout(() => r('TIMEOUT'), 5000))
   ])
-  check('v4 时能开库', result, 'OPENED')
+  check('最新版本时能开库', result, 'OPENED')
   check('不再跑 v4 的查询', log.some((l) => l.startsWith('select:') && l.includes('FROM category')), false)
   check('不再跑 v4 的写入', log.some((l) => l.startsWith('exec:') && l.includes('UPDATE category')), false)
 }

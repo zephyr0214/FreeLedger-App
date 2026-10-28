@@ -89,11 +89,24 @@ check(
   DEFAULT_INCOME_CATEGORIES.map((c) => c.name),
   ['工资', '奖金补贴', '副业劳务', '租金收入', '投资收益', '红包礼金', '二手出售', '退款返还', '父母补贴']
 )
-check('工资的二级', DEFAULT_INCOME_CATEGORIES[0].children, ['奖金补贴'])
+check('工资没有二级', DEFAULT_INCOME_CATEGORIES[0].children, [])
 check(
   '其余收入分类没有二级',
   DEFAULT_INCOME_CATEGORIES.slice(1).map((c) => c.children),
   [[], [], [], [], [], [], [], []]
+)
+
+// ★ 「奖金补贴」不能既是「工资」的二级、又是一级 ★
+//   那属于重复定义（同一个东西出现两次，速记匹配会随机落到其中一个）。
+check(
+  '「奖金补贴」只作为独立一级分类存在',
+  DEFAULT_INCOME_CATEGORIES.filter((c) => c.name === '奖金补贴').length,
+  1
+)
+check(
+  '没有一级分类的二级与它重名',
+  DEFAULT_INCOME_CATEGORIES.filter((c) => c.children.includes('奖金补贴')).length,
+  0
 )
 
 console.log('=== 图标 key 必须真实存在 ===')
@@ -123,6 +136,20 @@ console.log('=== 别名表：键必须是一级分类名 ===')
 const allNames = new Set(allCats.map((c) => c.name))
 for (const key of Object.keys(DEFAULT_ALIAS)) {
   check(`别名键「${key}」是已存在的一级分类`, allNames.has(key), true)
+}
+
+// ★ 别名不能同时指向两个一级分类 ★
+//   否则速记解析会随机落到其中一个，用户看着像「分类会自己变」。
+const aliasToNames = new Map()
+for (const [name, words] of Object.entries(DEFAULT_ALIAS)) {
+  for (const w of words) {
+    const prev = aliasToNames.get(w)
+    if (prev && prev !== name) {
+      check(`别名「${w}」不重复指向多个一级分类`, `${prev}|${name}`, name)
+    } else {
+      aliasToNames.set(w, name)
+    }
+  }
 }
 
 console.log('=== 对账分类：固定的一级分类 ===')

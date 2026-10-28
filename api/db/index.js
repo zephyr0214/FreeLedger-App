@@ -7,7 +7,11 @@
  *   3. 事务必须手动 begin/commit，散落在业务层极易漏掉导致余额错乱
  */
 
-import { SCHEMA_V1, INDEXES_V1, SCHEMA_VERSION, RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME } from './schema.js'
+import {
+  SCHEMA_V1, INDEXES_V1, SCHEMA_VERSION,
+  RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
+  DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES
+} from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
 import { prefixedId } from '../../utils/id.js'
 
@@ -214,6 +218,20 @@ const MIGRATIONS = [
     //   详见 migrateReconcileCategories()。
     version: 4,
     up: migrateReconcileCategories
+  },
+  {
+    // ★ 默认分类重建成新的分类表 ★
+    //   老库里存的是旧结构（餐饮/交通/购物/居住/娱乐/医疗/教育/人情/其他…），
+    //   用户要求换成新的分类表（餐饮食品/交通出行/居住住房/购物消费…）。
+    //
+    //   ★ 为什么必须靠迁移，不能靠 seedDefaultCategories ★
+    //     seedDefaultCategories() 只在「分类表一条都没有」时才写，
+    //     老用户库里有旧分类，走不到那里 —— 改代码对他们没有任何效果。
+    //     只有全新安装才看得到新分类。这就是「改了却没生效」的原因。
+    //
+    //   详见 rebuildDefaultCategories()。
+    version: 5,
+    up: rebuildDefaultCategories
   }
 ]
 
@@ -377,6 +395,211 @@ async function migrateReconcileCategories() {
 }
 
 /**
+ * 迁移 v5 —— 把默认分类重建成新的分类表
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ★ 背景 ★
+ *   旧默认分类：餐饮/交通/购物/居住/娱乐/医疗/教育/人情/其他
+ *               + 工资/理财/兼职/红包/其他
+ *   新默认分类：餐饮食品/交通出行/居住住房/购物消费/医疗健康/社交娱乐/
+ *               学校学习/人情往来/其他-杂项
+ *               + 工资/奖金补贴/副业劳务/租金收入/投资收益/红包礼金/
+ *                 二手出售/退款返还/父母补贴
+ *
+ * ★ 为什么必须做成「迁移」而不是改 seedDefaultCategories ★
+ *   seedDefaultCategories() 只在「分类表一条都没有」时才写入。
+ *   老用户库里已经有旧分类了，这个函数根本不会执行 ——
+ *   改了代码对老设备完全没有效果，只有全新安装才看得到新分类。
+ *   所以要让老设备也换上新分类，只能走数据库迁移。
+ *
+ * ★ 处理方式：清空重建 ★
+ *   1. 先把旧分类全部「软删除」（deleted_at 打上时间戳）。
+ *      不用硬删，是为了万一用户想撤销还能捞回来。
+ *   2. 历史交易的 category_id 改指向新结构里的兜底分类
+ *      （expense -> 「其他/杂项」，income -> 「父母补贴」不合适，
+ *        收入这边用「其他/杂项」？收入没有这个分类，
+ *        所以收入的旧交易改指向「奖金补贴」？也不对。
+ *        —— 收入的兜底用「父母补贴」不合适，这里统一用
+ * ★ 处理方式：清空重建 ★
+ *   1. 先把旧分类全部「软删除」（deleted_at 打上时间戳）。
+ *      不用硬删，是为了万一用户想撤销还能捞回来。
+ *   2. 写入新分类表（一级 + 二级）。
+ *   3. 历史交易的 category_id 改指向新分类里活着的那些
+ *      （指向已删除分类的交易会变成「未分类」，JOIN 不到）。
+ *   4. 重新建「对账支出」「对账收入」两个固定一级分类
+ *      （上一步把旧分类全软删了，包括这两个，得重建）。
+ *
+ * ★ 分类预算怎么办 ★
+ *   budget.category_id 指向的是旧分类 id，分类被软删后预算就悬空了。
+ *   budget 表没有 deleted_at 字段，所以直接 DELETE ——
+ *   预算只是限额，删了不影响任何交易和余额。
+ *
+ * ★ 幂等：靠「已经是新结构了就直接跳过」 ★
+ *   跑第二遍时，如果分类表已经是新结构了（判断依据见下），
+ *   就直接返回，什么都不做 ——
+ *   否则会把刚建好的分类又软删一遍再重建，
+ *   白白产生一批软删除记录，而且历史交易的 category_id 会指向被删的行。
+ *
+ *   判断依据：一个一级分类的名字 + type + parent_id IS NULL
+ *   在新结构里全部存在，就认为已经是新结构了。
+ *
+ * ★ 这里必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，会死锁。
+ *   （v2 的 fixNoonTimestamps 已经踩过这个坑。）
+ */
+async function rebuildDefaultCategories() {
+  const now = Date.now()
+
+  /** 底层查询（迁移里不能走 query()，会死锁） */
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v5 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  /** 底层写入（迁移里不能走 execute()，会死锁） */
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v5 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  // ---- 0) 幂等检查：已经是新结构了就直接跳过 ----
+  //   逐个查新结构里的一级分类（名字 + type + 一级）是否都已存在。
+  //   全在 -> 说明上一轮已经建好了，别再动。
+  let alreadyNew = true
+  const allTop = [
+    ...DEFAULT_EXPENSE_CATEGORIES.map((c) => ({ name: c.name, type: 'expense' })),
+    ...DEFAULT_INCOME_CATEGORIES.map((c) => ({ name: c.name, type: 'income' }))
+  ]
+  for (const t of allTop) {
+    const rows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [t.name, t.type]
+    )
+    if (!rows || rows.length === 0) {
+      alreadyNew = false
+      break
+    }
+  }
+  if (alreadyNew) {
+    console.log('[db] migration v5: 分类表已是新结构，跳过')
+    return
+  }
+
+  // ---- 1) 旧分类全部软删除 ----
+  await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL', [now, now])
+
+  // ---- 2) 写新分类表 ----
+  //   用 schema.js 里的同一份定义（api/category.js 的 seedDefaultCategories
+  //   也用它），保证「首次安装写的」和「迁移重建的」结构完全一致 ——
+  //   改默认分类表只改一处，不会两处不同步。
+  let created = 0
+  for (const type of ['expense', 'income']) {
+    const list = type === 'expense' ? DEFAULT_EXPENSE_CATEGORIES : DEFAULT_INCOME_CATEGORIES
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i]
+      const parentId = prefixedId('cat')
+      const ok = await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [parentId, null, item.name, type, item.icon, item.color, i, now, now]
+      )
+      if (!ok) continue
+      created++
+
+      for (let j = 0; j < item.children.length; j++) {
+        const okChild = await run(
+          `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+           VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+          [prefixedId('cat'), parentId, item.children[j], type, item.icon, item.color, j, now, now]
+        )
+        if (okChild) created++
+      }
+    }
+  }
+
+  // ---- 3) 历史交易改指向新分类 ----
+  //   旧分类已经没了，txn.category_id 还指着它们就成了悬空引用，
+  //   统计时 JOIN 不到分类（会显示成「未分类」）。
+  //
+  //   支出交易 -> 归到「其他/杂项」
+  //   收入交易 -> 归到「其他/杂项」？收入的分类表里没有「其他/杂项」，
+  //              所以收入这边统一归到「奖金补贴」？语义不对。
+  //              —— 收入里最中性的是……收入分类表里确实没有「其他」。
+  //              折中做法：收入的旧交易归到「工资」显然不对。
+  //
+  //   所以这里不猜：收入的旧交易直接置空（category_id = NULL），
+  //   界面上会显示「未分类」，用户可以自己重新归类 ——
+  //   比归到一个语义不对的分类里更诚实。
+  const expenseFallback = await select(
+    'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+    ['其他/杂项', 'expense']
+  )
+  const fallbackId = expenseFallback && expenseFallback.length > 0 ? expenseFallback[0].id : null
+
+  if (fallbackId) {
+    await run(
+      `UPDATE txn SET category_id = ?
+       WHERE deleted_at IS NULL
+         AND category_id IS NOT NULL
+         AND category_id NOT IN (SELECT id FROM category WHERE deleted_at IS NULL)`,
+      [fallbackId]
+    )
+  } else {
+    // 连兜底分类都没有 -> 置空，至少不指向已删除的行
+    await run(
+      `UPDATE txn SET category_id = NULL
+       WHERE deleted_at IS NULL
+         AND category_id IS NOT NULL
+         AND category_id NOT IN (SELECT id FROM category WHERE deleted_at IS NULL)`,
+      []
+    )
+  }
+
+  // ---- 4) 失效的分类预算删掉 ----
+  //   budget 表没有 deleted_at 字段，直接 DELETE。
+  //   预算只是限额，删掉不影响任何交易和账户余额。
+  //
+  //   run() 内部已经 catch 了错误并返回 false，
+  //   所以这里失败也不会中断迁移（分类重建已经成功了，这只是收尾）。
+  await run(
+    `DELETE FROM budget
+     WHERE scope = 'category' AND category_id IS NOT NULL
+       AND category_id NOT IN (SELECT id FROM category WHERE deleted_at IS NULL)`,
+    []
+  )
+
+  // ---- 5) 重建「对账支出」「对账收入」两个固定一级分类 ----
+  //   第 1 步把旧分类连这两个一起软删了，得重新建。
+  //   sort = 999：排到最后，别抢用户自己分类的位置。
+  for (const def of RECONCILE_CATEGORIES) {
+    const existing = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [def.name, def.type]
+    )
+    if (existing && existing.length > 0) continue
+
+    await run(
+      `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+       VALUES (?,NULL,?,?,?,?,999,0,?,?,NULL)`,
+      [prefixedId('cat'), def.name, def.type, def.icon, def.color, now, now]
+    )
+  }
+
+  console.log(`[db] migration v5: 默认分类已重建（${created} 条）`)
+}
+
+/**
  * 回填历史记录的时刻（12:00 -> 实际创建时刻）
  *
  * 条件：occurred_at 落在当天 12:00（±1 分钟，容忍时钟漂移）
@@ -456,6 +679,29 @@ async function migrate() {
     }
     await writeUserVersion(m.version)
   }
+}
+
+/**
+ * ★ 仅供测试用：单独跑某一条迁移 ★
+ *
+ * 为什么需要它
+ *   迁移之间是有顺序依赖的：
+ *     v4 把「对账调整」拆成两个固定一级分类
+ *     v5 把整个默认分类表重建
+ *   两个测试如果都从同一个老版本号起步，
+ *   v5 会在 v4 之后跑，把 v4 刚建好的分类全软删掉 ——
+ *   于是 v4 的断言看着像是失败了，其实是 v5 干的。
+ *
+ *   有了这个函数，测试可以「只跑 v4」，互不干扰。
+ *
+ * @param {number} version 要跑的那条迁移的版本号
+ * @returns {Promise<boolean>} 是否找到了并执行
+ */
+export async function runMigrationForTest(version) {
+  const m = MIGRATIONS.find((x) => x.version === version)
+  if (!m) return false
+  await m.up()
+  return true
 }
 
 /** 打开数据库（并发调用共享同一个 Promise） */

@@ -4,13 +4,23 @@
 
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
-import { RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME } from './db/schema.js'
+import {
+  RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
+  DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS
+} from './db/schema.js'
 
 /**
  * 默认分类。
  *
+ * ★ 定义搬到 api/db/schema.js 了 ★
+ *   两处都要用这份结构：
+ *     - 这里的 seedDefaultCategories()（全新安装时写）
+ *     - api/db/index.js 的迁移 v5（老设备重建时写）
+ *   而本文件依赖 api/db/index.js，反过来 import 就成环了。
+ *   schema.js 不依赖任何模块，是唯一能放「两边共用」的地方。
+ *
  * icon 字段的取值必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键。
- * 二级分类不单独配 icon，直接继承父级的（父级有就用父级的）。
+ * 二级分类不单独配 icon，直接继承父级的。
  *
  * ★ 结构是一级 + 二级 ★
  *   一级是「统计口径」（餐饮食品、交通出行…），二级是用户真正记的那一项
@@ -20,65 +30,7 @@ import { RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME } from './db/schema.js'
  * ★ 颜色取自 App 现有的 Material 风格调色板 ★
  *   同一类型内保证一级分类颜色互不相同，一眼能分清。
  */
-export const DEFAULT_EXPENSE_CATEGORIES = [
-  { name: '餐饮食品', icon: 'food',    color: '#FF976A', children: ['正餐', '饮品', '零食/小吃', '超市/零售'] },
-  { name: '交通出行', icon: 'car',     color: '#1989FA', children: ['公共交通/打车', '火车/飞机', '加油/停车'] },
-  { name: '居住住房', icon: 'home',    color: '#7D5FFF', children: ['房租/房贷/物业', '水电燃气', '话费/网费'] },
-  { name: '购物消费', icon: 'shop',    color: '#EE0A24', children: ['日用品', '服饰', '数码'] },
-  { name: '医疗健康', icon: 'medical', color: '#FF8F1F', children: ['买药/看病', '健身', '医保/社保'] },
-  { name: '社交娱乐', icon: 'game',    color: '#07C160', children: ['旅游', '娱乐', '团建'] },
-  { name: '学校学习', icon: 'book',    color: '#0A8F4A', children: ['学费', '书籍/课程/资料', '文具'] },
-  { name: '人情往来', icon: 'gift',    color: '#FF6B9D', children: ['随份子', '红包', '送礼'] },
-  { name: '其他/杂项', icon: 'more',   color: '#969799', children: [] }
-]
-
-export const DEFAULT_INCOME_CATEGORIES = [
-  { name: '工资',     icon: 'money',  color: '#07C160', children: ['奖金补贴'] },
-  { name: '奖金补贴', icon: 'bonus',  color: '#FF8F1F', children: [] },
-  { name: '副业劳务', icon: 'work',   color: '#7D5FFF', children: [] },
-  { name: '租金收入', icon: 'rent',   color: '#1989FA', children: [] },
-  { name: '投资收益', icon: 'chart',  color: '#0A8F4A', children: [] },
-  { name: '红包礼金', icon: 'gift',   color: '#FF6B9D', children: [] },
-  { name: '二手出售', icon: 'more',   color: '#EE0A24', children: [] },
-  { name: '退款返还', icon: 'refund', color: '#26A69A', children: [] },
-  { name: '父母补贴', icon: 'money',  color: '#FFD60A', children: [] }
-]
-
-/**
- * ★ 注意：「奖金补贴」既是「工资」的二级，也是一个独立的一级 ★
- *   这是用户给的分类结构本身如此（截图里就是这样），不是笔误，原样保留。
- *
- *   影响：速记解析遇到「奖金补贴」时，按「同名二级优先」的既有规则
- *   会落到「工资/奖金补贴」上（api/aiParse.js 的 matchCategory）。
- *   给模型看的候选列表里两者是不同标签（"工资/奖金补贴" 和 "奖金补贴"），
- *   模型选完整路径时能精确命中独立的那个。
-
-/**
- * 分类别名 —— 速记解析用，可在分类管理里扩展
- *
- * ★ 键名要和 DEFAULT_*_CATEGORIES 里的一级分类名对齐 ★
- *   一级分类改名后，这里的键也要跟着改，否则速记的别名就失配了。
- */
-export const DEFAULT_ALIAS = {
-  餐饮食品: ['吃', '吃饭', '外卖', '午饭', '晚饭', '早餐', '奶茶', '咖啡', '下馆子', '喝', '饭', '零食', '超市'],
-  交通出行: ['打车', '地铁', '公交', '加油', '停车', '高铁', '飞机', '滴滴', '车费', '火车'],
-  居住住房: ['房租', '房贷', '物业', '燃气', '宽带', '交租', '水费', '电费', '话费', '网费'],
-  购物消费: ['买', '淘宝', '京东', '拼多多', '超市', '购物', '日用品', '服饰', '数码'],
-  医疗健康: ['药', '挂号', '看病', '体检', '健身', '医保', '社保'],
-  社交娱乐: ['电影', '游戏', '会员', '续费', '旅游', '唱歌', '团建', '聚会'],
-  学校学习: ['书', '课程', '培训', '考试', '学费', '文具', '资料'],
-  人情往来: ['红包', '礼物', '请客', '份子', '随份子', '送礼'],
-  '其他/杂项': ['其他', '杂项', '别的'],
-  工资: ['工资', '发工资', '月薪', '薪水', '底薪'],
-  奖金补贴: ['奖金', '年终奖', '补贴', '津贴', '加班费'],
-  副业劳务: ['稿费', '项目款', '外快', '兼职', '劳务'],
-  租金收入: ['房租收入', '租金', '出租'],
-  投资收益: ['利息', '分红', '收益', '基金', '股票'],
-  红包礼金: ['收到红包', '礼金', '压岁钱'],
-  二手出售: ['二手', '卖掉', '闲鱼', '转卖'],
-  退款返还: ['报销', '退款', '返还', '退钱'],
-  父母补贴: ['爸妈', '父母', '家里给', '家用']
-}
+export { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS }
 
 /* ------------------------------------------------------------------ 查询 */
 
@@ -325,7 +277,51 @@ export async function ensureReconcileCategory() {
   return result
 }
 
-/** 写入默认分类（仅当分类表为空） */
+/**
+ * 把默认分类写进数据库（首次安装用）。
+ *
+ * @param {Function} exec  执行 SQL 的函数
+ * @param {Function} makeId 生成 id 的函数
+ * @param {number} now 时间戳
+ * @returns {number} 写入的分类条数
+ */
+async function insertDefaultCategories(exec, makeId, now) {
+  let n = 0
+
+  for (const type of ['expense', 'income']) {
+    const list = type === 'expense' ? DEFAULT_EXPENSE_CATEGORIES : DEFAULT_INCOME_CATEGORIES
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i]
+      const parentId = makeId()
+      await exec(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [parentId, null, item.name, type, item.icon, item.color, i, now, now]
+      )
+      n++
+
+      for (let j = 0; j < item.children.length; j++) {
+        await exec(
+          `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+           VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+          [makeId(), parentId, item.children[j], type, item.icon, item.color, j, now, now]
+        )
+        n++
+      }
+    }
+  }
+
+  return n
+}
+
+/**
+ * 写入默认分类（仅当分类表为空）。
+ *
+ * ★ 为什么老设备上不会自动更新 ★
+ *   这里只在「一条分类都没有」时才写。
+ *   老用户库里有旧分类，就永远走不到这里 ——
+ *   改成新分类结构要靠数据库迁移（见 api/db/index.js 的迁移 v5）。
+ */
 export async function seedDefaultCategories() {
   const count = await queryOne('SELECT COUNT(*) AS c FROM category WHERE deleted_at IS NULL')
   if (Number(count ? count.c : 0) > 0) return 0
@@ -334,28 +330,7 @@ export async function seedDefaultCategories() {
   let n = 0
 
   await transaction(async () => {
-    for (const type of ['expense', 'income']) {
-      const list = type === 'expense' ? DEFAULT_EXPENSE_CATEGORIES : DEFAULT_INCOME_CATEGORIES
-      for (let i = 0; i < list.length; i++) {
-        const item = list[i]
-        const parentId = prefixedId('cat')
-        await execute(
-          `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-           VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-          [parentId, null, item.name, type, item.icon, item.color, i, now, now]
-        )
-        n++
-
-        for (let j = 0; j < item.children.length; j++) {
-          await execute(
-            `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-             VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-            [prefixedId('cat'), parentId, item.children[j], type, item.icon, item.color, j, now, now]
-          )
-          n++
-        }
-      }
-    }
+    n = await insertDefaultCategories(execute, prefixedId, now)
   })
 
   return n

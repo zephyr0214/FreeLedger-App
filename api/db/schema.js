@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 /**
  * 「对账」固定分类（v4 起）
@@ -35,6 +35,76 @@ export const RECONCILE_CATEGORIES = [
  * 迁移 v4 负责把它拆成两个独立的一级分类。
  */
 export const RECONCILE_LEGACY_NAME = '对账调整'
+
+/**
+ * 默认分类表（v5 起）
+ *
+ * ★ 为什么定义在 schema.js 而不是 api/category.js ★
+ *   两处都要用这份结构：
+ *     - api/category.js 的 seedDefaultCategories()（全新安装时写）
+ *     - api/db/index.js 的迁移 v5（老设备重建时写）
+ *   而 api/category.js 依赖 api/db/index.js，反过来 import 就成环了。
+ *   schema.js 不依赖任何模块，是唯一能放「两边共用」的地方 ——
+ *   和 RECONCILE_CATEGORIES 一样的思路。
+ *
+ * ★ icon 字段的取值必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键 ★
+ *   二级分类不单独配 icon，直接继承父级的。
+ *
+ * ★ 结构是一级 + 二级 ★
+ *   一级是「统计口径」（餐饮食品、交通出行…），二级是用户真正记的那一项
+ *   （正餐、饮品、零食/小吃…）。二级继承父级的 icon 和 color，
+ *   所以每个一级只给一个图标一个颜色。
+ */
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  { name: '餐饮食品', icon: 'food',    color: '#FF976A', children: ['正餐', '饮品', '零食/小吃', '超市/零售'] },
+  { name: '交通出行', icon: 'car',     color: '#1989FA', children: ['公共交通/打车', '火车/飞机', '加油/停车'] },
+  { name: '居住住房', icon: 'home',    color: '#7D5FFF', children: ['房租/房贷/物业', '水电燃气', '话费/网费'] },
+  { name: '购物消费', icon: 'shop',    color: '#EE0A24', children: ['日用品', '服饰', '数码'] },
+  { name: '医疗健康', icon: 'medical', color: '#FF8F1F', children: ['买药/看病', '健身', '医保/社保'] },
+  { name: '社交娱乐', icon: 'game',    color: '#07C160', children: ['旅游', '娱乐', '团建'] },
+  { name: '学校学习', icon: 'book',    color: '#0A8F4A', children: ['学费', '书籍/课程/资料', '文具'] },
+  { name: '人情往来', icon: 'gift',    color: '#FF6B9D', children: ['随份子', '红包', '送礼'] },
+  { name: '其他/杂项', icon: 'more',   color: '#969799', children: [] }
+]
+
+export const DEFAULT_INCOME_CATEGORIES = [
+  { name: '工资',     icon: 'money',  color: '#07C160', children: [] },
+  { name: '奖金补贴', icon: 'bonus',  color: '#FF8F1F', children: [] },
+  { name: '副业劳务', icon: 'work',   color: '#7D5FFF', children: [] },
+  { name: '租金收入', icon: 'rent',   color: '#1989FA', children: [] },
+  { name: '投资收益', icon: 'chart',  color: '#0A8F4A', children: [] },
+  { name: '红包礼金', icon: 'gift',   color: '#FF6B9D', children: [] },
+  { name: '二手出售', icon: 'more',   color: '#EE0A24', children: [] },
+  { name: '退款返还', icon: 'refund', color: '#26A69A', children: [] },
+  { name: '父母补贴', icon: 'money',  color: '#FFD60A', children: [] }
+]
+
+/**
+ * 分类别名 —— 速记解析用
+ *
+ * ★ 键名要和上面的一级分类名对齐 ★
+ *   一级分类改名后，这里的键也要跟着改，否则速记的别名就失配了。
+ */
+export const DEFAULT_ALIAS = {
+  餐饮食品: ['吃', '吃饭', '外卖', '午饭', '晚饭', '早餐', '奶茶', '咖啡', '下馆子', '喝', '饭', '零食', '超市'],
+  交通出行: ['打车', '地铁', '公交', '加油', '停车', '高铁', '飞机', '滴滴', '车费', '火车'],
+  居住住房: ['房租', '房贷', '物业', '燃气', '宽带', '交租', '水费', '电费', '话费', '网费'],
+  购物消费: ['买', '淘宝', '京东', '拼多多', '购物', '日用品', '服饰', '数码'],
+  医疗健康: ['药', '挂号', '看病', '体检', '健身', '医保', '社保'],
+  社交娱乐: ['电影', '游戏', '会员', '续费', '旅游', '唱歌', '团建', '聚会'],
+  学校学习: ['书', '课程', '培训', '考试', '学费', '文具', '资料'],
+  人情往来: ['红包', '礼物', '请客', '份子', '随份子', '送礼'],
+  '其他/杂项': ['其他', '杂项', '别的'],
+  工资: ['工资', '发工资', '月薪', '薪水', '底薪'],
+  奖金补贴: ['奖金', '年终奖', '补贴', '津贴', '加班费'],
+  副业劳务: ['稿费', '项目款', '外快', '兼职', '劳务'],
+  租金收入: ['房租收入', '租金', '出租'],
+  投资收益: ['利息', '分红', '收益', '基金', '股票'],
+  红包礼金: ['收到红包', '礼金', '压岁钱'],
+  二手出售: ['二手', '卖掉', '闲鱼', '转卖'],
+  退款返还: ['报销', '退款', '返还', '退钱'],
+  父母补贴: ['爸妈', '父母', '家里给', '家用']
+}
 
 export const SCHEMA_V1 = [
   // ---------------------------------------------------------------- 账户
