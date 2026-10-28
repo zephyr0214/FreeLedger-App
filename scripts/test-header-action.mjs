@@ -99,6 +99,24 @@ console.log('=== 编译后不能把插槽内容丢掉 ===')
   const code = compile('components/HeaderAction.vue')
   check('编译产物里有 renderSlot 或 slot 相关处理', /renderSlot|_slot|slot/.test(code), true)
   check('编译产物里有 text 这个 prop 的引用', /text/.test(code), true)
+
+  /**
+   * ★ 为什么要再查一次 `_renderSlot(` ★
+   *   上面那条 `/renderSlot|_slot|slot/` 太宽松了 ——
+   *   只要模板里出现过 <slot>，编译器就会把 renderSlot 一起 import 进来，
+   *   哪怕这个 slot 最后被丢掉了，那条断言也会「通过」。
+   *
+   *   带左括号才是「真的调用了」：
+   *     renderSlot as _renderSlot,   <- 只是 import
+   *     _renderSlot(_ctx.$slots...    <- 真的用了
+   *
+   *   另一头：往别人组件的插槽里塞内容（<template #right>），
+   *   编译后是被内联进父组件的 children 里的，
+   *   产物里既没有 renderSlot 也没有插槽名 ——
+   *   判断那种情况要看内容本身，别看 renderSlot。
+   *   （详见 scripts/test-settings-swipe.mjs 文件头的那段说明。）
+   */
+  check('真的调用了 _renderSlot（不只是 import）', /_renderSlot\(/.test(code), true)
 }
 
 console.log('=== 文字不能被 flex 压扁 ===')

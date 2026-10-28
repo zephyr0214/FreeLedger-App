@@ -14,6 +14,42 @@
  *   这里用「真的编译一遍 SFC 模板 + 读 script 源码」来验，
  *   而不是只看某个字符串在不在 —— 前者能抓到
  *   「函数定义了但没在 return 里暴露」这类静默失效。
+ *
+ * ─────────────────────────────────────────────────────────────────
+ * ★ 给后面加插槽断言的人：不要用 renderSlot 判断插槽内容 ★
+ *
+ *   写这个测试时踩过的坑：
+ *   我本来想用「编译产物里有没有 renderSlot」来判断
+ *   `<template #right>` 里的内容有没有进产物 —— 结果一直 false。
+ *
+ *   ★ 原因 ★
+ *     renderSlot 是「组件自己定义 <slot> 占位」的产物，
+ *     也就是「用别人组件的插槽」时才会出现。
+ *     而 <template #right> 是「往别人组件的插槽里塞内容」——
+ *     编译时这段内容被**直接内联**进父组件的 children 对象里，
+ *     产物里既没有 renderSlot，也没有 "right" 这个字符串。
+ *
+ *   ★ 实测对照（三个文件编译后的产物）★
+ *     components/HeaderAction.vue  定义了 <slot> 且有默认内容
+ *         -> import 里有 renderSlot，且真的调用了 _renderSlot(
+ *     pages/settings/category.vue 往 wd-swipe-action 的 #right 塞内容
+ *         -> 没有 renderSlot，但有 _withModifiers(
+ *     pages/settings/budget.vue   同上
+ *         -> 没有 renderSlot，但有 _withModifiers(
+ *
+ *   ★ 所以判断插槽内容有没有进产物，要看内容本身 ★
+ *     比如这里查 "编辑" / "删除" / swipe-edit 这些实际标记。
+ *
+ *   ★ 顺带一个更隐蔽的坑 ★
+ *     就算编译产物的 **import 语句** 里有 renderSlot，
+ *     也不代表插槽被用上了 —— 只要模板里出现过 <slot>，
+ *     编译器就会把 renderSlot 一起 import 进来。
+ *     要看它到底调没调，得查 `_renderSlot(` （带左括号），
+ *     不能只查 `renderSlot` 这个词。
+ *
+ *   写别的组件的插槽断言时同理 ——
+ *   先 dump 一遍编译产物看看长什么样，别凭直觉猜。
+ * ─────────────────────────────────────────────────────────────────
  */
 
 import { readFileSync } from 'fs'
@@ -206,6 +242,13 @@ console.log('=== 模板真的能编译 ===')
    *   所以这里真的编译一遍，确认：
    *     1. 模板能编译（没写坏）
    *     2. 右滑区的内容确实进了产物（而不是被丢掉了）
+   *
+   * ★ 为什么查 "编辑" / swipe-edit 而不是 renderSlot ★
+   *   renderSlot 是「组件自己定义 <slot> 占位」的产物，
+   *   <template #right> 是「往别人组件的插槽里塞内容」，
+   *   编译时这段内容被直接内联进父组件的 children 对象里，
+   *   产物里既没有 renderSlot 也没有 "right" 字样。
+   *   详见文件头的那段说明。
    */
   const code1 = compile(CATEGORY)
   check('分类页模板编译产物非空', code1.length > 0, true)
@@ -213,6 +256,8 @@ console.log('=== 模板真的能编译 ===')
   check('分类页模板里有右滑的「删除」', /"删除"/.test(code1), true)
   check('分类页模板里有 swipe-edit 类', /swipe-edit/.test(code1), true)
   check('分类页模板里有 swipe-delete 类', /swipe-delete/.test(code1), true)
+  // 插槽里的 @click.stop 会被编译成 onClick: _withModifiers(...)
+  check('分类页模板里右滑按钮的 click 带了 stop', /_withModifiers/.test(code1), true)
   // 弹层里的删除入口也在产物里
   check('分类页模板里有「删除这个分类」', /"删除这个分类"/.test(code1), true)
 
