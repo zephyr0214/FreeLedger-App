@@ -84,10 +84,25 @@ check('每个 key 都至少有 1 条 path', emptyPaths, [])
 console.log('=== 新增的账户图标质量 ===')
 
 // 这几个是这次为账户选择器专门画的
-const NEW_KEYS = ['creditcard', 'cash', 'wechat', 'huabei', 'invest', 'car', 'phone', 'gift', 'more']
+const NEW_KEYS = [
+  'creditcard', 'cash', 'wechat', 'alipay', 'bank', 'piggy',
+  'safe', 'prepaid', 'huabei', 'invest', 'car', 'phone', 'gift', 'more'
+]
 for (const k of NEW_KEYS) {
   check(`${k} 存在于图标库`, LINE_ICON_KEYS.includes(k), true)
   check(`${k} 不是兜底`, isFallbackIcon(k), false)
+}
+
+console.log('=== 语义化取舍：支付宝不画「支」字 ===')
+
+// 支 是 7 画，在 24px 描边图里画汉字很容易变成看不懂的形状。
+// 前面三版分别试过「笔画挤在圆心」「曲线抖动像叶子」「按字形结构摆开」，
+// 渲染出来都不理想。最后改成「钱包 + ¥」——
+// 表达的是「支付/钱包」这个类别，不是复刻品牌字形。
+{
+  const paths = lineIconPaths('alipay')
+  check('alipay 不是圆形徽章（说明已放弃画支字）', !paths.some((d) => d.startsWith('M12 3a9 9')), true)
+  check('alipay 含有 ¥ 的横笔画', paths.some((d) => /M9 16\.8h5\.8|M9\.2 16\.8h5\.8/.test(d)), true)
 }
 
 console.log('=== 选择器 UI ===')

@@ -242,21 +242,21 @@ export default {
       { key: 'alipay', label: '支付宝' },
       { key: 'bank', label: '银行' },
       { key: 'creditcard', label: '信用卡' },
-      { key: 'account', label: '银行卡' },
+      { key: 'account', label: '钱包' },
       { key: 'piggy', label: '储蓄' },
       // --- 第 2 行：资金与理财 ---
       { key: 'cash', label: '现金' },
       { key: 'safe', label: '定期' },
       { key: 'invest', label: '投资' },
       { key: 'huabei', label: '先享后付' },
-      { key: 'budget', label: '储值卡' },
+      { key: 'prepaid', label: '储值卡' },
       { key: 'salary', label: '工资卡' },
       // --- 第 3 行：资产与其它 ---
       { key: 'home', label: '房产' },
       { key: 'car', label: '车辆' },
       { key: 'phone', label: '手机' },
       { key: 'gift', label: '礼品' },
-      { key: 'stats', label: '账户组' },
+      { key: 'stats', label: '账目' },
       { key: 'more', label: '其它' }
     ]
 
