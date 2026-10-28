@@ -76,11 +76,11 @@
 
       <!-- 历史数据管理：扫描三个文件夹（_doc/_downloads/_documents）里的所有 JSON，可逐个恢复 / 删除 -->
       <view id="section-data" class="section">
-        <text class="section-title">历史数据管理</text>
+        <text class="section-title">数据管理</text>
         <view class="card">
           <view class="card-row" @click="onOpenDataManager">
             <view class="row-info">
-              <text class="row-name">备份与导出文件</text>
+              <text class="row-name">历史数据管理</text>
               <text class="row-desc">{{ dataFiles.length }} 个 JSON 文件，可恢复或删除</text>
             </view>
             <text class="row-arrow">›</text>
