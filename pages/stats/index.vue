@@ -1,6 +1,6 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <AppHeader @avatar-click="goSettings">
+    <AppHeader @avatar-click="goProfile">
       <template #right>
         <!-- AI 对话入口：和首页一样，通向同一个子页面 -->
         <HeaderAction @action-click="goAiChat">AI 助手</HeaderAction>
@@ -572,9 +572,9 @@ export default {
       uni.navigateTo({ url: '/pages/ai/chat' })
     }
 
-    function goSettings() {
-      uni.navigateTo({ url: '/pages/settings/index' })
-    }
+    function goProfile() {
+    uni.navigateTo({ url: '/pages/settings/profile' })
+  }
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
@@ -652,7 +652,7 @@ export default {
       barHeight, catPercent, shortDay, accColor, piePercent,
       loadAll, onRangeChange,
       switchCategoryType, switchAccountType, switchAccountTypeType, switchAverageType,
-      goTxnDetail, goAiChat, goSettings
+      goTxnDetail, goAiChat, goProfile
     }
   }
 }

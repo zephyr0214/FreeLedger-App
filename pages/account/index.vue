@@ -1,6 +1,6 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <AppHeader @avatar-click="goSettings">
+    <AppHeader @avatar-click="goProfile">
       <template #right>
         <HeaderAction @action-click="goAddAccount">+ 添加账户</HeaderAction>
       </template>
@@ -285,9 +285,9 @@ export default {
       uni.navigateTo({ url: `/pages/account/detail?id=${id}` })
     }
 
-    function goSettings() {
-      uni.navigateTo({ url: '/pages/settings/index' })
-    }
+    function goProfile() {
+    uni.navigateTo({ url: '/pages/settings/profile' })
+  }
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
@@ -311,7 +311,7 @@ export default {
       trendRange, ranges, trendData, trendPoints, swipeStates,
       primaryColor, pageStyle, defaultAccountId, isSvgIcon,
       switchRange, formatGroupSum, formatAmount, setDefault, onSwipeClick,
-      goAddAccount, goDetail, goSettings
+      goAddAccount, goDetail, goProfile
     }
   }
 }

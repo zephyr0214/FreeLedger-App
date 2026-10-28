@@ -111,10 +111,13 @@ const pagesJson = JSON.parse(
 check('pages.json 注册了 quick-add 页面',
   (pagesJson.pages || []).some((p) => p.path === 'pages/settings/quick-add'), true)
 
-// 设置页要有入口
-const setIndexCode = readFileSync(join(ROOT, 'pages', 'settings', 'index.vue'), 'utf-8')
-check('设置页有「记账按钮设置」入口', /记账按钮设置/.test(setIndexCode), true)
-check('入口指向新页面', /\/pages\/settings\/quick-add/.test(setIndexCode), true)
+// 「我的」页要有入口
+// ★ 注意：设置聚合页（pages/settings/index.vue）已经删除了 ★
+//   用户要求「把点击左上角头像进入的这个页面彻底删除」，
+//   所有设置项现在都从「我的」页直达。
+const mineCode = readFileSync(join(ROOT, 'pages', 'mine', 'index.vue'), 'utf-8')
+check('「我的」页有「记账按钮设置」入口', /记账按钮设置/.test(mineCode), true)
+check('入口指向新页面', /\/pages\/settings\/quick-add/.test(mineCode), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

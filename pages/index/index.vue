@@ -15,7 +15,7 @@
     </block>
 
     <block v-else>
-      <AppHeader @avatar-click="goSettings">
+      <AppHeader @avatar-click="goProfile">
         <template #right>
           <HeaderAction @action-click="goAiChat">AI 助手</HeaderAction>
         </template>
@@ -541,9 +541,9 @@ export default {
       uni.navigateTo({ url: '/pages/account/edit' })
     }
 
-    function goSettings() {
-      uni.navigateTo({ url: '/pages/settings/index' })
-    }
+    function goProfile() {
+    uni.navigateTo({ url: '/pages/settings/profile' })
+  }
 
     function goAllTxn() {
       uni.navigateTo({ url: '/pages/txn/list' })
@@ -596,7 +596,7 @@ export default {
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub,
-      goAddAccount, goSettings, goAllTxn, goTxnDetail, goBudget, goAiChat
+      goAddAccount, goProfile, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }
 }

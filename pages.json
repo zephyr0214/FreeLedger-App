@@ -63,13 +63,6 @@
 			}
 		},
 		{
-			"path": "pages/settings/index",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "设置"
-			}
-		},
-		{
 			"path": "pages/settings/profile",
 			"style": {
 				"navigationStyle": "custom",
