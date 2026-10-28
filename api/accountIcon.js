@@ -116,9 +116,10 @@ export function svgToDataUri(svg) {
  *
  * @param {string} name 账户名称
  * @param {string} typeName 账户类型名（如「储蓄卡」）
+ * @param {object} opt { timeoutMs }
  * @returns {Promise<string|null>} data URI；失败返回 null
  */
-export async function generateAccountIcon(name, typeName) {
+export async function generateAccountIcon(name, typeName, opt = {}) {
   const prompt = SVG_PROMPT
     .replace('{NAME}', String(name || '').slice(0, 30))
     .replace('{TYPE}', String(typeName || '账户'))
@@ -131,7 +132,15 @@ export async function generateAccountIcon(name, typeName) {
       },
       { role: 'user', content: prompt }
     ],
-    { maxTokens: 400, temperature: 0.6, timeoutMs: 20000 }
+    {
+      // ★ maxTokens 要留够 ★
+      //   一个带若干 path 的 SVG 轻松超过 400 token，
+      //   400 会被截断成半截 SVG → sanitizeSvg 拿不到 </svg> → 返回 null，
+      //   用户看到的就是「生成失败」。
+      maxTokens: 800,
+      temperature: 0.6,
+      timeoutMs: opt.timeoutMs || 30000
+    }
   )
 
   const svg = sanitizeSvg(reply)

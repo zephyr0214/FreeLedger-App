@@ -76,85 +76,197 @@ export async function exportToJson(opt = {}) {
 }
 
 /**
+ * 生成文件名里的时间戳（精确到秒 + 毫秒尾数）
+ *
+ * ★ 为什么不能用「精确到分钟」★
+ *   原来是 books_20261028_1323.json。
+ *   同一分钟内导两次 → 文件名完全相同 → 第二次会去覆盖第一次那个文件。
+ *   覆盖本身在多数 ROM 上能成功，但如果第一次的文件正被分享/被其它
+ *   进程打开，写入就会失败 —— 表现为「导出过一次，再导出就失败」。
+ *   加上秒和毫秒尾数，基本不可能撞名。
+ */
+function makeStamp() {
+  const now = new Date()
+  const p2 = (n) => String(n).padStart(2, '0')
+  const ymd = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}`
+  const hms = `${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
+  const ms = String(now.getMilliseconds()).padStart(3, '0').slice(0, 2)
+  return `${ymd}_${hms}${ms}`
+}
+
+/**
  * 导出到文件
  * @returns {Promise<{path: string, filename: string, size: number}>}
  */
 export async function exportToFile(opt = {}) {
   const json = await exportToJson(opt)
-  const now = new Date()
-  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
-  const filename = `books_${stamp}.json`
+  const filename = `books_${makeStamp()}.json`
 
   const path = await writeTextFile('_doc/export/', filename, json)
   return { path, filename, size: json.length }
 }
 
-/** 低级文件写入（plus.io） */
+/**
+ * 把文件复制到目标目录。
+ *
+ * 用于「导出后自定义位置」：用户选个目录，把 JSON 复制过去，
+ * 这样文件管理器 / 微信 / 网盘都能找到。
+ *
+ * @param {string} absSrcPath 源文件绝对路径
+ * @param {string} targetDir 目标目录（plus.io 认识的形式，如 '_downloads/'）
+ * @param {string} fileName 目标文件名
+ * @returns {Promise<string>} 目标绝对路径
+ */
+export function copyFileTo(absSrcPath, targetDir, fileName) {
+  return new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined') {
+      reject(new Error('仅在 App 端可用'))
+      return
+    }
+
+    plus.io.resolveLocalFileSystemURL(
+      absSrcPath,
+      (srcEntry) => {
+        plus.io.resolveLocalFileSystemURL(
+          targetDir,
+          (dirEntry) => {
+            // 先删同名的旧文件，避免 copyTo 因目标已存在而失败
+            dirEntry.getFile(
+              fileName,
+              { create: false },
+              (oldFile) => {
+                oldFile.remove(
+                  () => doCopy(srcEntry, dirEntry, fileName, targetDir, resolve, reject),
+                  () => doCopy(srcEntry, dirEntry, fileName, targetDir, resolve, reject)
+                )
+              },
+              () => doCopy(srcEntry, dirEntry, fileName, targetDir, resolve, reject)
+            )
+          },
+          () => reject(new Error(`无法访问目标目录：${targetDir}`))
+        )
+      },
+      () => reject(new Error('找不到源文件'))
+    )
+  })
+}
+
+function doCopy(srcEntry, dirEntry, fileName, targetDir, resolve, reject) {
+  srcEntry.copyTo(
+    dirEntry,
+    fileName,
+    (newEntry) => {
+      try {
+        resolve(newEntry.fullPath || `${targetDir}${fileName}`)
+      } catch (e) {
+        resolve(`${targetDir}${fileName}`)
+      }
+    },
+    (e) => reject(new Error('复制失败: ' + ((e && e.message) || '')))
+  )
+}
+
+/**
+ * 把相对路径（_doc/export/xxx.json）解析成可供分享的绝对路径。
+ *
+ * ★ 为什么必须转 ★
+ *   plus.share.sendWithSystem 的 filePath 要的是**绝对路径**，
+ *   传 '_doc/export/xxx.json' 这种相对路径，
+ *   多数 ROM 上直接失败（表现为「发送失败」）。
+ *   先用 plus.io.convertLocalFileSystemURL 转成 file:///...
+ *
+ * @param {string} relPath 相对路径
+ * @returns {string} 绝对路径（转换失败时原样返回）
+ */
+export function toAbsolutePath(relPath) {
+  if (typeof plus === 'undefined' || !relPath) return relPath || ''
+  try {
+    if (plus.io && typeof plus.io.convertLocalFileSystemURL === 'function') {
+      const abs = plus.io.convertLocalFileSystemURL(relPath)
+      if (abs) return abs
+    }
+  } catch (e) {
+    console.warn('[backup] 路径转换失败:', e && e.message)
+  }
+  return relPath
+}
+
+/**
+ * 低级文件写入（plus.io）
+ *
+ * ★ 修过一个「第一次成功、第二次失败」的 bug ★
+ *   原实现先 resolveLocalFileSystemURL(dir)：
+ *     - 目录不存在 → 走失败回调，递归建目录（这条路径是好的）
+ *     - 目录已存在 → entry 是**目录本身**，然后在它上面调
+ *       entry.getDirectory('', ...) —— 空目录名在部分 Android ROM 上
+ *       直接报错，于是第二次导出就失败了。
+ *   现在改成：
+ *     1. 先用 resolveLocalFileSystemURL 拿 _doc/ 根
+ *     2. 用 getDirectory(相对路径, { create: true }) 一次性建出（或拿到）目录
+ *        getDirectory 的 create:true 本来就是幂等的，目录存在就直接返回
+ *     3. 再 getFile + createWriter
+ *   一条路径走到底，不再分「存在/不存在」两种情况。
+ *
+ * @param {string} dir 目录（相对 _doc/ 或以 _doc/ 开头），如 '_doc/export/'
+ * @param {string} filename 文件名
+ * @param {string} content 内容
+ * @returns {Promise<string>} 写入的相对路径
+ */
 export function writeTextFile(dir, filename, content) {
   return new Promise((resolve, reject) => {
     if (typeof plus === 'undefined') {
       reject(new Error('文件导出仅在 App 端可用'))
       return
     }
-    const fullPath = `${dir}${filename}`
 
-    plus.io.resolveLocalFileSystemURL(
-      dir,
-      (entry) => {
-        entry.getDirectory(
-          '',
+    const fullPath = `${dir}${filename}`
+    // 目录统一成「相对 _doc/ 的路径」：'export' / 'backup'
+    const relDir = String(dir)
+      .replace(/^_doc\//, '')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/, '')
+
+    const writeInto = (parentEntry) => {
+      const onDir = (dirEntry) => {
+        dirEntry.getFile(
+          filename,
           { create: true },
-          (dirEntry) => {
-            dirEntry.getFile(
-              filename,
-              { create: true },
-              (fileEntry) => {
-                fileEntry.createWriter(
-                  (writer) => {
-                    writer.onwrite = () => resolve(fullPath)
-                    writer.onerror = (e) => reject(new Error('写入失败: ' + (e.message || '')))
-                    writer.write(content)
-                  },
-                  (e) => reject(new Error('创建写入流失败'))
-                )
+          (fileEntry) => {
+            fileEntry.createWriter(
+              (writer) => {
+                // ★ onwriteend 比 onwrite 更可靠 ★
+                //   onwrite 在部分 ROM 上会被多次触发（分块写入），
+                //   提前 resolve 会让调用方拿到一个还没写完的文件，
+                //   紧接着的分享/读取就会失败。
+                writer.onwriteend = () => resolve(fullPath)
+                writer.onerror = (e) => reject(new Error('写入失败: ' + ((e && e.message) || '')))
+                // 已有同名文件时先截断，否则会残留上一次的尾部内容
+                try { writer.truncate(0) } catch (err) {}
+                writer.write(content)
               },
-              (e) => reject(new Error('创建文件失败'))
+              () => reject(new Error('创建写入流失败'))
             )
           },
-          (e) => reject(new Error('创建目录失败'))
-        )
-      },
-      () => {
-        // 目录不存在时递归创建
-        plus.io.resolveLocalFileSystemURL(
-          '_doc/',
-          (root) => {
-            root.getDirectory(
-              dir.replace('_doc/', '').replace(/\/$/, ''),
-              { create: true },
-              (dirEntry) => {
-                dirEntry.getFile(
-                  filename,
-                  { create: true },
-                  (fileEntry) => {
-                    fileEntry.createWriter(
-                      (writer) => {
-                        writer.onwrite = () => resolve(fullPath)
-                        writer.onerror = () => reject(new Error('写入失败'))
-                        writer.write(content)
-                      },
-                      () => reject(new Error('创建写入流失败'))
-                    )
-                  },
-                  () => reject(new Error('创建文件失败'))
-                )
-              },
-              () => reject(new Error('无法创建导出目录'))
-            )
-          },
-          () => reject(new Error('无法访问 _doc 目录'))
+          () => reject(new Error('创建文件失败'))
         )
       }
+
+      if (!relDir) {
+        onDir(parentEntry)
+        return
+      }
+      parentEntry.getDirectory(
+        relDir,
+        { create: true },
+        onDir,
+        () => reject(new Error(`无法创建目录 ${relDir}`))
+      )
+    }
+
+    plus.io.resolveLocalFileSystemURL(
+      '_doc/',
+      (root) => writeInto(root),
+      () => reject(new Error('无法访问 _doc 目录'))
     )
   })
 }
@@ -422,9 +534,7 @@ export async function importFromFile(path, opt = {}) {
 export async function autoBackup(reason = 'auto') {
   try {
     const json = await exportToJson({ includeApiKey: true })
-    const now = new Date()
-    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
-    const filename = `backup_${stamp}_${reason}.json`
+    const filename = `backup_${makeStamp()}_${reason}.json`
     const path = await writeTextFile(BACKUP_DIR, filename, json)
 
     await rotateBackups()

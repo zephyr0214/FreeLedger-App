@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS = {
     model: 'deepseek-chat',
     temperature: 0.3,
     timeoutMs: 20000,
-    quickFallback: false      // 速记规则失败时是否走 AI 兜底
+    quickFallback: false      // ⚠️ 已废弃：无任何调用方，UI 入口已删除（见 api/ai.js 的说明）
   },
 
   // 数据

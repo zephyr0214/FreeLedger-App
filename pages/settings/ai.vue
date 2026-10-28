@@ -47,8 +47,11 @@
           />
         </view>
 
-        <view class="form-row">
-          <text class="form-label">温度</text>
+        <view class="form-row form-row-column">
+          <view class="label-row">
+            <text class="form-label">回答的随机程度</text>
+            <text class="label-value">{{ form.temperature.toFixed(1) }}</text>
+          </view>
           <view class="slider-wrap">
             <slider
               :value="form.temperature * 100"
@@ -60,8 +63,17 @@
               style="flex: 1"
               @change="(e) => form.temperature = e.detail.value / 100"
             />
-            <text class="slider-value">{{ form.temperature.toFixed(1) }}</text>
           </view>
+          <!--
+            ★ 把「温度」翻译成人话 ★
+              原文写「温度」，用户根本不知道是什么意思、调了会怎样。
+              它其实是采样随机性：越低越稳定保守，越高越发散有创意。
+              记账场景要的是稳定，所以默认 0.3 偏低。
+          -->
+          <text class="form-hint">
+            越低回答越稳定、越贴事实（记账推荐 0.1~0.3）；
+            越高越灵活、越有创意，但也更容易不按格式来。
+          </text>
         </view>
 
         <view class="form-row">
@@ -76,22 +88,14 @@
         </view>
       </view>
 
-      <!-- 速记兜底 -->
-      <view class="form-card">
-        <view class="switch-row">
-          <view class="switch-info">
-            <text class="switch-name">速记 AI 兜底</text>
-            <text class="switch-desc">
-              规则解析失败时，把速记原文发给大模型解析成结构化交易
-            </text>
-          </view>
-          <switch
-            :checked="form.quickFallback"
-            :color="primaryColor"
-            @change="(e) => form.quickFallback = e.detail.value"
-          />
-        </view>
-      </view>
+      <!--
+        ★ 「速记 AI 兜底」开关已删除 ★
+          它是早期「规则解析 → 失败后走 AI」两段式设计的遗留开关。
+          后来速记直接改成走 aiParse.js（本来就调模型），
+          规则引擎那一段已经不在了，这个开关背后的
+          api/ai.js:parseQuickWithAi() 从来没有任何地方调用 ——
+          开了也没用，属于纯粹的误导。删掉。
+      -->
 
       <!-- 测试与保存 -->
       <view class="action-area">
@@ -152,7 +156,6 @@ export default {
       apiKey: '',
       model: 'deepseek-chat',
       temperature: 0.3,
-      quickFallback: false
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -198,7 +201,6 @@ export default {
           model: form.model.trim(),
           temperature: form.temperature,
           timeoutMs: Number(timeoutSec.value) * 1000,
-          quickFallback: form.quickFallback
         })
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
@@ -229,7 +231,6 @@ export default {
       form.apiKey = ai.apiKey || ''
       form.model = ai.model || 'deepseek-chat'
       form.temperature = ai.temperature !== undefined ? ai.temperature : 0.3
-      form.quickFallback = !!ai.quickFallback
       timeoutSec.value = String(Math.round((ai.timeoutMs || 20000) / 1000))
     })
 
@@ -332,6 +333,7 @@ export default {
   align-items: center;
   gap: 16rpx;
   flex: 1;
+  width: 100%;
 }
 
 .slider-value {
@@ -339,6 +341,29 @@ export default {
   color: var(--app-text-2);
   width: 60rpx;
   text-align: right;
+}
+
+/* 「回答的随机程度」：标签和数值同一行 */
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.label-value {
+  font-size: 26rpx;
+  color: var(--app-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 参数说明（把「温度」翻译成人话） */
+.form-hint {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  line-height: 1.6;
+  width: 100%;
+  margin-top: 4rpx;
 }
 
 /* 开关行 */

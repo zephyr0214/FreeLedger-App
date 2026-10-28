@@ -16,6 +16,62 @@ const CACHE_KEY = 'aiCache'
 /* ------------------------------------------------------------- 底层调用 */
 
 /**
+ * 从响应里取出正文。
+ *
+ * ★ 为什么不能直接读 choices[0].message.content ★
+ *   不同网关 / 不同模型的返回形状差别很大，直接读会踩这些坑：
+ *     1. max_tokens 被截断时 content 可能是 null 或空串
+ *     2. 推理模型（deepseek-reasoner 这类）正文在 reasoning_content 里，
+ *        content 是空的 —— 只看 content 就会误判成「格式异常」
+ *     3. 部分网关返回 Anthropic 风格的分段数组：
+ *        content: [{ type: 'text', text: '...' }, ...]
+ *   这些都当成「格式异常」抛掉的话，用户只会看到一句莫名其妙的报错，
+ *   完全不知道是模型没配好还是网络问题。
+ *
+ * @param {object} data 响应体
+ * @returns {{text: string, reason: string}} text 为空时 reason 说明原因
+ */
+function extractContent(data) {
+  const choice = data && data.choices && data.choices[0]
+  const msg = choice && choice.message
+
+  if (!msg) {
+    return { text: '', reason: '响应里没有 choices/message' }
+  }
+
+  let raw = msg.content
+
+  // Anthropic 风格的分段数组
+  if (Array.isArray(raw)) {
+    raw = raw
+      .map((part) => {
+        if (typeof part === 'string') return part
+        if (part && typeof part.text === 'string') return part.text
+        return ''
+      })
+      .join('')
+  }
+
+  // 推理模型：正文可能在 reasoning_content
+  if ((typeof raw !== 'string' || raw.trim() === '') && typeof msg.reasoning_content === 'string') {
+    raw = msg.reasoning_content
+  }
+
+  const text = typeof raw === 'string' ? raw.trim() : ''
+
+  if (text) return { text, reason: '' }
+
+  // 空正文时给出能看懂的原因
+  if (choice && choice.finish_reason === 'length') {
+    return { text: '', reason: '模型输出被 max_tokens 截断（正文为空）' }
+  }
+  if (choice && choice.finish_reason === 'content_filter') {
+    return { text: '', reason: '内容被服务端过滤' }
+  }
+  return { text: '', reason: '模型返回了空正文' }
+}
+
+/**
  * 统一的 chat completion 调用
  * @param {Array} messages [{role, content}]
  * @param {object} opt { temperature, timeoutMs, maxTokens }
@@ -83,16 +139,13 @@ export async function chat(messages, opt = {}) {
           reject(new Error(msg))
           return
         }
-        try {
-          const content = res.data?.choices?.[0]?.message?.content
-          if (typeof content !== 'string') {
-            reject(new Error('AI 返回格式异常'))
-            return
-          }
-          resolve(content.trim())
-        } catch (e) {
-          reject(new Error('解析 AI 响应失败'))
+
+        const { text, reason } = extractContent(res.data)
+        if (!text) {
+          reject(new Error(`AI 返回内容为空：${reason}`))
+          return
         }
+        resolve(text)
       },
       fail: (e) => {
         if (settled) return
@@ -272,8 +325,20 @@ export async function ask(history, monthKey) {
 /* ------------------------------------------------ 速记解析的 AI 兜底 */
 
 /**
- * 规则解析失败时，让 AI 把文本转成结构化 JSON
- * 仅在用户显式开启 quickFallback 时调用
+ * ⚠️ 当前**没有任何调用方**，属于死代码，保留以备将来恢复两段式设计。
+ *
+ * ★ 为什么现在不用它 ★
+ *   当初的设计是「本地规则引擎先解析，解析不了再交给 AI 兜底」，
+ *   所以有了这个函数和设置页那个「速记 AI 兜底」开关。
+ *   后来速记改成直接走 api/aiParse.js（它内部就调模型），
+ *   规则引擎那一段已经不在了 ——
+ *   于是这个函数和那个开关都变成了摆设：开了也不会有任何效果。
+ *
+ *   死开关比没开关更糟，用户会以为自己开了个功能。
+ *   所以设置页那个开关已经删掉，这个函数保留但加了这行说明。
+ *
+ * 如果将来真要做「本地优先、AI 兜底」，
+ * 在这里接上即可（参数 ctx 的结构见 aiParse.js 的 parseMessageToTransactions）。
  */
 export async function parseQuickWithAi(text, candidates) {
   // 分类同样只给「叶子分类」，让模型选到最细的一级

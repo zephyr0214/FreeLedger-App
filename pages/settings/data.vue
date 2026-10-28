@@ -184,7 +184,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { queryOne } from '@/api/db/index.js'
 import {
   exportToFile, listExportFiles, importFromFile, autoBackup,
-  listBackups, importPayload
+  listBackups, importPayload, toAbsolutePath, copyFileTo
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
@@ -298,47 +298,197 @@ export default {
 
         await setSettings({ lastExportAt: Date.now() })
 
-        const goShare = await confirmDialog({
-          title: '导出成功',
-          content: `文件：${res.filename}\n大小：${(res.size / 1024).toFixed(1)} KB\n路径：${res.path}`,
-          confirmText: '去分享',
-          cancelText: '知道了'
+        // 导出成功后给三个去处：分享 / 复制到指定文件夹 / 知道了
+        const absPath = toAbsolutePath(res.path)
+        const idx = await new Promise((resolve) => {
+          uni.showActionSheet({
+            itemList: ['分享出去', '复制到指定文件夹', '知道了'],
+            success: (r) => resolve(r.tapIndex),
+            fail: () => resolve(-1)
+          })
         })
-        if (goShare) shareFile(res.path)
+
+        if (idx === 0) {
+          shareFile(res.path)
+        } else if (idx === 1) {
+          copyExportToFolder(res.path)
+        } else {
+          uni.showModal({
+            title: '导出成功',
+            content: `文件：${res.filename}\n大小：${(res.size / 1024).toFixed(1)} KB\n\n保存位置：\n${absPath}`,
+            showCancel: false,
+            confirmText: '知道了'
+          })
+        }
       } catch (e) {
         uni.hideLoading()
-        await alertDialog({ title: '导出失败', content: e.message })
+        await alertDialog({ title: '导出失败', content: e && e.message })
       }
     }
 
-    function shareFile(path) {
-      if (typeof plus === 'undefined') return
+    /**
+     * 分享导出的文件。
+     *
+     * ★ 必须传绝对路径 ★
+     *   plus.share.sendWithSystem 的 filePath 要的是 file:///... 这种绝对路径，
+     *   传 '_doc/export/xxx.json' 相对路径在多数 ROM 上直接失败 ——
+     *   用户看到的就是「发送失败」。
+     *   所以先用 toAbsolutePath() 转一次。
+     */
+    function shareFile(relPath) {
+      if (typeof plus === 'undefined') {
+        uni.showToast({ title: '分享仅在 App 端可用', icon: 'none' })
+        return
+      }
+
+      const absPath = toAbsolutePath(relPath)
+
       try {
         plus.share.sendWithSystem(
-          { type: 'file', filePath: path },
+          { type: 'file', filePath: absPath },
           () => {},
-          () => {
-            uni.showToast({ title: '分享不可用，文件已保存在 _doc/export/', icon: 'none' })
+          (e) => {
+            // 分享失败时至少告诉用户文件在哪，别让人以为白导了
+            uni.showModal({
+              title: '分享失败',
+              content: `系统分享没有成功（${(e && e.message) || '未知原因'}）。\n文件已保存到：\n${absPath}`,
+              showCancel: false,
+              confirmText: '知道了'
+            })
           }
         )
       } catch (e) {
-        uni.showToast({ title: `文件在 ${path}`, icon: 'none' })
+        uni.showModal({
+          title: '分享不可用',
+          content: `文件已保存到：\n${absPath}`,
+          showCancel: false,
+          confirmText: '知道了'
+        })
       }
+    }
+
+    /**
+     * 复制导出文件到用户指定的位置。
+     *
+     * 用户要求：「导入时候设置为可自定义位置，然后复制到指定文件夹下」
+     * —— 即让用户自己选一个文件夹，把导出的 JSON 复制过去，
+     * 这样用文件管理器 / 微信 / 网盘都能找到。
+     */
+    async function copyExportToFolder(relPath) {
+      if (typeof plus === 'undefined') {
+        uni.showToast({ title: '仅在 App 端可用', icon: 'none' })
+        return
+      }
+
+      const srcAbs = toAbsolutePath(relPath)
+      const fileName = String(relPath).split('/').pop()
+
+      // 让用户选目标文件夹。
+      // ★ 这里用 plus.io 的目录选择能力 ★
+      //   App 端没有标准的「选文件夹」API，
+      //   所以退一步：提供几个常用目标目录让用户选（下载目录 / 文档目录），
+      //   比让用户自己敲路径现实得多。
+      const targets = [
+        { key: '_downloads/', label: '下载目录' },
+        { key: '_documents/', label: '文档目录' },
+        { key: '_doc/', label: 'App 私有目录（_doc）' }
+      ]
+
+      uni.showActionSheet({
+        itemList: targets.map((t) => t.label),
+        success: async (res) => {
+          const target = targets[res.tapIndex]
+          if (!target) return
+
+          uni.showLoading({ title: '复制中…', mask: true })
+          try {
+            const destAbs = await copyFileTo(srcAbs, target.key, fileName)
+            uni.hideLoading()
+            uni.showModal({
+              title: '已复制',
+              content: `文件已复制到：\n${destAbs}`,
+              showCancel: false,
+              confirmText: '知道了'
+            })
+          } catch (e) {
+            uni.hideLoading()
+            await alertDialog({ title: '复制失败', content: e && e.message })
+          }
+        }
+      })
     }
 
     /* ------------------------------------------------------ 导入 */
 
+    /**
+     * 可扫描的导入目录。
+     *
+     * ★ 为什么要多个目录 ★
+     *   用户把 JSON 从微信/网盘拿到手机后，通常落在「下载」目录，
+     *   不会在 `_doc/export/` 里。只扫一个固定目录的话，
+     *   用户会一直看到「没有找到备份文件」，根本不知道要放哪。
+     *   这里把常见的几个目录都扫一遍（能扫到就列，扫不到就跳过）。
+     */
+    const IMPORT_DIRS = [
+      { key: '_doc/export/', label: 'App 导出目录' },
+      { key: '_downloads/', label: '下载目录' },
+      { key: '_documents/', label: '文档目录' }
+    ]
+
+    /** 列出某个目录下的 json 文件（目录不存在就返回空数组） */
+    function listJsonIn(dir) {
+      return new Promise((resolve) => {
+        if (typeof plus === 'undefined') {
+          resolve([])
+          return
+        }
+        plus.io.resolveLocalFileSystemURL(
+          dir,
+          (entry) => {
+            const reader = entry.createReader()
+            reader.readEntries(
+              (entries) => {
+                resolve(
+                  entries
+                    .filter((e) => e.isFile && /\.json$/i.test(e.name))
+                    .map((e) => ({ name: e.name, path: `${dir}${e.name}`, dir }))
+                )
+              },
+              () => resolve([])
+            )
+          },
+          () => resolve([])
+        )
+      })
+    }
+
     async function onImport(mode) {
-      // App 端 uni.chooseFile 不可用，改用固定目录方案
-      const files = await listExportFiles()
+      uni.showLoading({ title: '查找文件…' })
+      let files = []
+      try {
+        const groups = await Promise.all(IMPORT_DIRS.map((d) => listJsonIn(d.key)))
+        files = groups.flat()
+      } finally {
+        uni.hideLoading()
+      }
 
       if (files.length === 0) {
         await alertDialog({
-          title: '没有找到备份文件',
+          title: '没有找到可导入的文件',
           content:
-            '请先把要导入的 JSON 文件放到以下目录，再回到这里导入：\n\n_doc/export/\n\n可通过文件管理器访问此路径，或先用本应用导出一份文件查看位置。'
+            '已在这几个位置查找 .json 文件：\n\n' +
+            IMPORT_DIRS.map((d) => `· ${d.label}（${d.key}）`).join('\n') +
+            '\n\n你可以：\n' +
+            '1. 直接在「导出」里导出一份（会落到 App 导出目录）\n' +
+            '2. 用文件管理器把备份文件复制到「下载」目录，再回来导入'
         })
         return
+      }
+
+      // 标出文件来自哪个目录，避免同名文件分不清
+      const label = (f) => {
+        const d = IMPORT_DIRS.find((x) => x.key === f.dir)
+        return `${f.name}（${d ? d.label : f.dir}）`
       }
 
       const title = mode === 'merge' ? '选择要合并的文件' : '选择要覆盖的文件'
@@ -349,9 +499,10 @@ export default {
 
       uni.showActionSheet({
         alertText: tip,
-        itemList: files.slice(0, 6).map((f) => f.name),
+        itemList: files.slice(0, 6).map(label),
         success: async (res) => {
           const file = files[res.tapIndex]
+          if (!file) return
           await doImport(file.path, mode)
         }
       })

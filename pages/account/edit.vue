@@ -279,10 +279,16 @@ export default {
           if (accountStore.list.length === 1) {
             await settingStore.update({ defaultAccountId: acc.id })
           }
-          uni.showToast({ title: '已添加', icon: 'success' })
 
-          // 画图标（不阻塞导航，失败也不影响已保存的账户）
-          drawIconFor(acc.id, payload.name, payload.type)
+          // ★ 画图标：必须 await，不能 fire-and-forget ★
+          //   之前是「发起请求 → 500ms 后 navigateBack」，
+          //   请求回来时页面已经销毁了，回调里碰 Vue 实例就报
+          //   Cannot read properties of undefined (reading '$')。
+          //   现在改成等它画完（最多 30 秒）再返回；
+          //   失败也不影响已保存的账户，只是图标退回首字符。
+          await drawIconFor(acc.id, payload.name, payload.type)
+
+          uni.showToast({ title: '已添加', icon: 'success' })
         }
         setTimeout(() => uni.navigateBack(), 500)
       } catch (e) {
@@ -293,19 +299,40 @@ export default {
     /**
      * 调用大模型为账户画一个 SVG 图标，然后写回账户。
      *
-     * ★ 失败一律静默 ★
-     *   没配 API Key / 超时 / 模型返回垃圾 —— 三种情况都不该打扰用户，
-     *   账户已经存好了，图标退回到首字符就行。
-     *   唯一要避免的是「保存按钮点了没反应」那种体验。
+     * ★ 为什么要给进度提示 ★
+     *   模型画图要几秒到十几秒，这期间界面毫无反应的话，
+     *   用户会以为「保存键没生效」然后反复点。
+     *
+     * ★ 失败不影响账户 ★
+     *   账户在上一步已经存好了。图标画不出来（没配 Key / 超时 /
+     *   模型返回垃圾）就退回首字符，只用 toast 轻轻带过。
+     *
+     * @returns {Promise<boolean>} 是否成功写入图标
      */
     async function drawIconFor(accountId, name, type) {
+      const typeMeta = ACCOUNT_TYPES.find((t) => t.key === type)
+      const typeName = typeMeta ? typeMeta.name : '账户'
+
+      uni.showLoading({ title: 'AI 绘制图标…', mask: true })
       try {
-        const typeMeta = ACCOUNT_TYPES.find((t) => t.key === type)
-        const uri = await generateAccountIcon(name, typeMeta ? typeMeta.name : '账户')
-        if (!uri) return
+        const uri = await generateAccountIcon(name, typeName)
+        if (!uri) {
+          uni.hideLoading()
+          return false
+        }
         await accountStore.update(accountId, { icon: uri })
+        uni.hideLoading()
+        return true
       } catch (e) {
+        uni.hideLoading()
         console.warn('[account] 生成图标失败（不影响保存）:', e && e.message)
+        // 只在真正失败时说一句，避免用户以为图标功能不存在
+        uni.showToast({
+          title: `图标未能生成：${(e && e.message) || '未知原因'}`,
+          icon: 'none',
+          duration: 2600
+        })
+        return false
       }
     }
 
