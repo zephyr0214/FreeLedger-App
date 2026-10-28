@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="预算管理" @back="goBack" />
 
@@ -170,6 +170,9 @@
       cancel-text="取消"
       @select="onCategorySelect"
     />
+
+    <!-- 弹窗宿主：确定框统一用组件库样式 -->
+    <AppDialog />
   </view>
 </template>
 
@@ -177,15 +180,17 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { listBudgets, createBudget, updateBudget, deleteBudget } from '@/api/budget.js'
 import { listCategories } from '@/api/category.js'
 import { yuanToCents } from '@/utils/money.js'
 import { toMonthKey } from '@/utils/date.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, MoneyText },
+  components: { PageNav, MoneyText, AppDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -310,27 +315,25 @@ export default {
         await load()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 
-    function removeBudget(b) {
-      uni.showModal({
+    async function removeBudget(b) {
+      const ok = await confirmDialog({
         title: `删除「${b.name}」预算？`,
         content: '只是删除限额，已产生的交易不受影响',
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            await deleteBudget(b.id)
-            await load()
-            uni.showToast({ title: '已删除', icon: 'success' })
-          } catch (e) {
-            uni.showModal({ title: '删除失败', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      if (!ok) return
+      try {
+        await deleteBudget(b.id)
+        await load()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
     }
 
     function goBack() {

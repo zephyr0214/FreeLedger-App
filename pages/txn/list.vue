@@ -311,6 +311,9 @@
         </view>
       </view>
     </wd-popup>
+
+    <!-- 弹窗宿主：确定框统一用组件库样式 -->
+    <AppDialog />
   </view>
 </template>
 
@@ -320,6 +323,7 @@ import { onShow, onLoad } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -329,11 +333,12 @@ import { listTags } from '@/api/tag.js'
 import { formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateRangePicker },
+  components: { MoneyText, EmptyState, DateRangePicker, AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -699,23 +704,21 @@ export default {
     }
 
     /** 长按删除（软删除 + 二次确认） */
-    function onLongPress(txn) {
-      uni.showModal({
+    async function onLongPress(txn) {
+      const ok = await confirmDialog({
         title: '删除这笔记录？',
         content: `${txnTitle(txn)} ¥${(txn.amount_cents / 100).toFixed(2)}`,
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            await deleteTransaction(txn.id)
-            uni.showToast({ title: '已删除', icon: 'success' })
-            await loadFirstPage()
-          } catch (e) {
-            uni.showModal({ title: '删除失败', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      if (!ok) return
+      try {
+        await deleteTransaction(txn.id)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        await loadFirstPage()
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
     }
 
     /* ------------------------------------------------- URL 参数（深链） */

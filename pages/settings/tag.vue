@@ -90,6 +90,9 @@
         </view>
       </view>
     </wd-popup>
+
+    <!-- 弹窗宿主：确定框统一用组件库样式 -->
+    <AppDialog />
   </view>
 </template>
 
@@ -97,12 +100,14 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
 import { query } from '@/api/db/index.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, EmptyState },
+  components: { PageNav, EmptyState, AppDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -167,28 +172,26 @@ export default {
         await load()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 
-    function onDelete() {
-      uni.showModal({
+    async function onDelete() {
+      const ok = await confirmDialog({
         title: '删除标签？',
         content: '相关交易不会被删除，只是取消标签关联',
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            await deleteTag(editingId.value)
-            showEditor.value = false
-            await load()
-            uni.showToast({ title: '已删除', icon: 'success' })
-          } catch (e) {
-            uni.showModal({ title: '删除失败', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      if (!ok) return
+      try {
+        await deleteTag(editingId.value)
+        showEditor.value = false
+        await load()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
     }
 
     function goBack() {

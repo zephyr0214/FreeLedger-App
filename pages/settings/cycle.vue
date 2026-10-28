@@ -203,6 +203,9 @@
         </scroll-view>
       </view>
     </wd-popup>
+
+    <!-- 弹窗宿主：确定框统一用组件库样式 -->
+    <AppDialog />
   </view>
 </template>
 
@@ -222,15 +225,17 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import CycleList from '@/components/CycleList.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { getCycles, setCycles, CYCLE_TYPES } from '@/api/settings.js'
 import { yuanToCents } from '@/utils/money.js'
 import { prefixedId } from '@/utils/id.js'
 import { toDayKey, shiftDay, clampDayOfMonth } from '@/utils/date.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, MoneyText, CycleList },
+  components: { PageNav, MoneyText, CycleList, AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -433,7 +438,7 @@ export default {
         showEditor.value = false
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 
@@ -457,23 +462,21 @@ export default {
       uni.navigateTo({ url: `/pages/settings/cycle-detail?id=${c.id}` })
     }
 
-    function onDelete(c) {
-      uni.showModal({
+    async function onDelete(c) {
+      const ok = await confirmDialog({
         title: `删除「${c.name}」？`,
         content: '只是删除这条周期支出登记，已产生的交易不受影响',
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            cycles.value = cycles.value.filter((x) => x.id !== c.id)
-            await persist()
-            uni.showToast({ title: '已删除', icon: 'success' })
-          } catch (e) {
-            uni.showModal({ title: '删除失败', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      if (!ok) return
+      try {
+        cycles.value = cycles.value.filter((x) => x.id !== c.id)
+        await persist()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
     }
 
     /* ------------------------------------------------------ 选择器 */

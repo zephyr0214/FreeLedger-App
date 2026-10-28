@@ -142,6 +142,9 @@
         </view>
       </view>
     </wd-popup>
+
+    <!-- 弹窗宿主：确定框统一用组件库样式 -->
+    <AppDialog />
   </view>
 </template>
 
@@ -149,15 +152,17 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, createCategory, updateCategory, deleteCategory,
   isReconcileCategory
 } from '@/api/category.js'
 import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, EmptyState },
+  components: { PageNav, EmptyState, AppDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -284,32 +289,30 @@ export default {
         await load()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 
-    function onDelete(cat) {
+    async function onDelete(cat) {
       // 固定分类不能删
       if (isReconcile(cat)) {
         uni.showToast({ title: `「${cat.name}」是固定分类，不能删除`, icon: 'none' })
         return
       }
-      uni.showModal({
+      const ok = await confirmDialog({
         title: `删除「${cat.name}」？`,
         content: '若该分类下已有交易则无法删除',
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            await deleteCategory(cat.id)
-            await load()
-            uni.showToast({ title: '已删除', icon: 'success' })
-          } catch (e) {
-            uni.showModal({ title: '无法删除', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      if (!ok) return
+      try {
+        await deleteCategory(cat.id)
+        await load()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '无法删除', content: e.message })
+      }
     }
 
     /**
