@@ -6,7 +6,7 @@
       <view class="guide-area">
         <EmptyState
           emoji="👋"
-          title="欢迎使用记账本"
+          title="欢迎使用自由记"
           desc="先添加一个账户，才能开始记账"
           action-text="添加账户"
           @action="goAddAccount"

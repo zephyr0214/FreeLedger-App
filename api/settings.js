@@ -2,7 +2,7 @@
  * 设置读写 —— 全部存 setting 表（KV），值序列化为 JSON
  *
  * 为什么不用 uni.setStorageSync：
- *   导出 JSON 时要求"设置也一起导出"，存 SQLite 可以一次 SELECT 全带走，
+ *   备份时要求"设置也一起存"，存 SQLite 可以一次 SELECT 全带走，
  *   并且和账户/交易在同一个事务里保持一致。
  */
 
@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS = {
 
   // 数据
   autoBackup: true,
-  lastExportAt: 0
+  lastBackupAt: 0
 }
 
 /**

@@ -184,7 +184,7 @@
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "@navTxtStyle",
-		"navigationBarTitleText": "记账本",
+		"navigationBarTitleText": "自由记",
 		"navigationBarBackgroundColor": "@navBgColor",
 		"backgroundColor": "@bgColor",
 		"backgroundTextStyle": "@bgTxtStyle",

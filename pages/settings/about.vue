@@ -4,10 +4,8 @@
 
     <scroll-view class="page-scroll" scroll-y>
       <view class="logo-area">
-        <view class="logo-box" :style="{ backgroundColor: primaryColor }">
-          <text class="logo-text">记</text>
-        </view>
-        <text class="app-name">记账本</text>
+        <image class="logo-img" src="/static/app/logo.png" mode="aspectFit" />
+        <text class="app-name">自由记</text>
         <text class="app-version">v1.0.0</text>
       </view>
 
@@ -51,9 +49,9 @@
             因为数据只在本机，请务必注意：
 
 · 卸载应用会删除全部数据，卸载前请先导出备份。
-· 换手机时，先用「导出 JSON」保存文件，在新机「导入」即可。
-· 建议定期导出并保存到网盘或电脑。
-· 应用每天自动备份到 _doc/backup/，保留最近 5 份，可在「数据管理」中恢复。
+· 换手机时没法直接搬数据（没有导出功能），请在旧机上多备份几次，并妥善保存数据。
+· 备份只存在本机，卸载应用会一并删除，请谨慎操作。
+· 应用每天自动备份到 _doc/backup/，保留最近 5 份，可在「数据与备份」中恢复。
           </text>
         </view>
       </view>
@@ -149,20 +147,17 @@ export default {
   gap: 12rpx;
 }
 
-.logo-box {
-  width: 140rpx;
-  height: 140rpx;
-  border-radius: 32rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 12rpx;
-}
-
-.logo-text {
-  color: #ffffff;
-  font-size: 64rpx;
-  font-weight: 600;
+/*
+  App 图标
+  用户提供的 1024x1024 源图（static/app/logo.png），
+  本身已经是圆形浅底 + 蓝色记账本铅笔，所以直接按原样显示，
+  不再套一层圆角背景。
+*/
+.logo-img {
+  width: 168rpx;
+  height: 168rpx;
+  border-radius: 50%;
+  margin-bottom: 16rpx;
 }
 
 .app-name {

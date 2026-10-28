@@ -83,7 +83,7 @@
       </view>
 
       <view class="version-tip">
-        <text class="version-text">记账本 v1.0.0 · 数据全部保存在本机</text>
+        <text class="version-text">自由记 v1.0.0 · 数据全部保存在本机</text>
       </view>
 
       <view class="bottom-space" />
@@ -100,7 +100,7 @@ import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { queryOne } from '@/api/db/index.js'
-import { daysSinceLastExport } from '@/api/backup.js'
+import { daysSinceLastBackup } from '@/api/backup.js'
 
 export default {
   components: { AppHeader, HeaderAction, LineIcon },
@@ -109,7 +109,7 @@ export default {
     const accountStore = useAccountStore()
 
     const stats = ref({ txnCount: 0, accountCount: 0, dayCount: 0 })
-    const exportHint = ref('')
+    const backupHint = ref('')
     const budgetCount = ref(0)
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -126,7 +126,7 @@ export default {
      *   主题外观、数据与备份
      *   —— App 本身的表现设置，跟记账内容无关。
      *
-     * ★ 「导出/导入」和「备份」合并成一个条目 ★
+     * ★ 「数据与备份」入口 ★
      *   它们本来在同一个页面（/pages/settings/data）里，
      *   拆成两个入口反而让人以为是两回事。合成「数据与备份」，
      *   进页面后按区块看。
@@ -150,7 +150,7 @@ export default {
         title: '系统设置',
         items: [
           { key: 'theme', icon: 'theme', name: '主题外观', value: themeLabel.value, route: '/pages/settings/theme' },
-          { key: 'data', icon: 'data', name: '数据与备份', value: exportHint.value, route: '/pages/settings/data' }
+          { key: 'data', icon: 'data', name: '数据与备份', value: backupHint.value, route: '/pages/settings/data' }
         ]
       }
     ])
@@ -185,10 +185,10 @@ export default {
         }
         budgetCount.value = Number(budgetRow ? budgetRow.c : 0)
 
-        const days = await daysSinceLastExport()
-        if (days === Infinity) exportHint.value = '从未导出'
-        else if (days === 0) exportHint.value = '今天已导出'
-        else exportHint.value = `${days} 天前`
+        const days = await daysSinceLastBackup()
+        if (days === Infinity) backupHint.value = '尚未备份'
+        else if (days === 0) backupHint.value = '今天已备份'
+        else backupHint.value = `${days} 天前备份`
       } catch (e) {
         console.warn('[mine] stats failed', e)
       }
@@ -227,7 +227,7 @@ export default {
     })
 
     return {
-      settingStore, accountStore, stats, exportHint, budgetCount,
+      settingStore, accountStore, stats, backupHint, budgetCount,
       primaryColor, pageStyle, menuGroups,
       themeLabel, aiLabel, budgetLabel,
       onMenuClick, goProfile, goAbout

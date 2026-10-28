@@ -100,7 +100,7 @@ export default {
       {
         title: '数据',
         items: [
-          { key: 'data', icon: '💾', name: '导出 / 导入 / 备份', route: '/pages/settings/data' },
+          { key: 'data', icon: '💾', name: '数据与备份', route: '/pages/settings/data' },
           { key: 'about', icon: 'ℹ️', name: '关于', route: '/pages/settings/about' }
         ]
       }

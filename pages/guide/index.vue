@@ -16,7 +16,7 @@
       <view class="step-body">
         <block v-if="step === 0">
           <text class="step-emoji">📒</text>
-          <text class="step-title">欢迎使用记账本</text>
+          <text class="step-title">欢迎使用自由记</text>
           <text class="step-desc">
             一个完全离线的个人记账工具。数据只存在你的手机里，不上传、不联网、不需要注册。
           </text>

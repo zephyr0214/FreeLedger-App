@@ -1,4 +1,4 @@
-# 记账本
+# 自由记
 
 纯本地记账 App。uni-app + Vue3 + wot-design-uni + plus.sqlite，仅面向 Android / iOS App 端。
 
@@ -45,7 +45,7 @@ api/           业务层，页面不直接写 SQL
   account.js   账户 + 余额重算 + 每日快照
   transaction.js  交易（含转账两端余额）
   stats.js     全部统计查询
-  backup.js    导出 / 导入 / 自动备份
+  backup.js    自动备份 / 恢复
   ai.js        大模型调用 + 结果缓存
 components/    公共组件
 pages/         页面（4 个 tab + 子页）
