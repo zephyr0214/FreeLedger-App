@@ -58,6 +58,13 @@ export default {
           { key: 'category', icon: '📂', name: '分类管理', route: '/pages/settings/category' },
           { key: 'tag', icon: '🏷️', name: '标签管理', route: '/pages/settings/tag' },
           {
+            key: 'quickAdd',
+            icon: '🎯',
+            name: '记账按钮设置',
+            value: quickAddLabel.value,
+            route: '/pages/settings/quick-add'
+          },
+          {
             key: 'defaultAccount',
             icon: '💳',
             name: '默认账户',
@@ -114,6 +121,19 @@ export default {
       settingStore.settings.ai && settingStore.settings.ai.apiKey ? '已配置' : '未配置'
     )
 
+    /**
+     * 记账按钮设置的摘要
+     * 例如「短按AI / 长按手动」
+     */
+    const quickAddLabel = computed(() => {
+      const nameOf = (key) => {
+        if (key === 'ai') return 'AI'
+        if (key === 'manual') return '手动'
+        return '无'
+      }
+      return `短按${nameOf(settingStore.quickAddTapAction)} / 长按${nameOf(settingStore.quickAddHoldAction)}`
+    })
+
     function onClick(item) {
       if (item.route === '__pickDefaultAccount') {
         pickDefaultAccount()
@@ -149,7 +169,7 @@ export default {
 
     return {
       statusBarHeight, pageStyle, groups,
-      defaultAccountName, themeLabel, aiLabel,
+      defaultAccountName, themeLabel, aiLabel, quickAddLabel,
       onClick, goBack, settingStore
     }
   }

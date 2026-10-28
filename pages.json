@@ -168,6 +168,13 @@
 			}
 		},
 		{
+			"path": "pages/settings/quick-add",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "记账按钮设置"
+			}
+		},
+		{
 			"path": "pages/ai/chat",
 			"style": {
 				"navigationStyle": "custom",
@@ -194,7 +201,7 @@
 		"backgroundColor": "@tabBgColor",
 		"borderStyle": "@tabBorderStyle",
 		"fontSize": "11px",
-		"iconWidth": "25px",
+		"iconWidth": "24px",
 		"spacing": "4px",
 		"list": [
 			{

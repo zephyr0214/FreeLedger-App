@@ -250,13 +250,14 @@
 
 
 
-      <!-- ⑦ 悬浮按钮：单击 → AI 输入条；长按 1 秒 → 手动记账面板
+      <!-- ⑦ 悬浮按钮：单击 / 长按触发什么，由「记账按钮设置」决定
            打开记账面板时按钮隐藏，关闭面板后恢复；滑到底部也隐藏 -->
       <FabButton
         :hidden="showQuickAdd || showPanel || fabHidden"
-        @single-press="openQuickAdd"
+        :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
+        @single-press="onFabTap"
         @hold-start="onHoldStart"
-        @hold-end="onHoldEnd"
+        @hold-end="onFabHoldEnd"
         @hold-cancel="onHoldCancel"
       />
 
@@ -452,18 +453,40 @@ export default {
 
     /* ------------------------------------------------------ 交互 */
 
-    /** 单击 + → 弹出 AI 输入条 */
-    function openQuickAdd() {
-      showQuickAdd.value = true
+    /**
+     * 打开某种记账入口
+     * @param {string} act ai | manual
+     */
+    function openQuickAddFor(act) {
+      if (act === 'ai') {
+        showQuickAdd.value = true
+        return
+      }
+      if (act === 'manual') {
+        panelPreset.value = null
+        showPanel.value = true
+      }
+      // none：什么都不做
     }
 
-    /** 长按 + → 打开手动记账面板（触觉反馈在 FabButton 内） */
+    /**
+     * 短按 + 号
+     * 触发什么由「设置 → 记账按钮设置」决定（默认 AI 速记）
+     */
+    function onFabTap() {
+      openQuickAddFor(settingStore.quickAddTapAction)
+    }
+
+    /**
+     * 长按 + 号
+     * 触发什么由「设置 → 记账按钮设置」决定（默认手动记账）
+     */
+    function onFabHoldEnd() {
+      openQuickAddFor(settingStore.quickAddHoldAction)
+    }
+
+    /** 长按开始（触觉反馈在 FabButton 内，这里只占位） */
     function onHoldStart() {}
-
-    function onHoldEnd() {
-      panelPreset.value = null
-      showPanel.value = true
-    }
 
     function onHoldCancel() {}
 
@@ -570,7 +593,7 @@ export default {
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
       totalBudget, categoryBudgets, budgetRemaining, recentGroups, fabHidden,
       shiftCalMonth, onDayClick, onScroll,
-      openQuickAdd, onHoldStart, onHoldEnd, onHoldCancel,
+      openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub,
       goAddAccount, goSettings, goAllTxn, goTxnDetail, goBudget, goAiChat

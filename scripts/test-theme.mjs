@@ -123,33 +123,38 @@ check('选中图标按主题色', (() => {
   return item.opt.selectedIconPath
 })(), 'static/tabbar/home-active-purple.png')
 
-/* ---------------- tabBar 文字色：未选中态要够深 ----------------
+/* ---------------- tabBar 文字色：未选中态要比最早的 #969799 深 ----------------
  * 原来浅色用 #969799，白底上几乎糊成一片，
  * 未选中 / 选中的对比太弱，切换 tab 时体感不明显。
- * 现在浅色 #4E4F52（接近正文色）、深色 #C7C7CC。
+ * 现在浅色 #646566、深色 #A1A1A6。
+ *
+ * ★ 注意：颜色深浅和线条粗细是两回事 ★
+ * 用户说「太粗」说的是图标的线条，颜色没被抱怨，
+ * 所以深浅维持在第一版的水平，没有继续往正文色加深。
  */
-check('浅色下 tabBar 文字色加深', TABBAR_FONT_COLOR_LIGHT, '#4E4F52')
-check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#C7C7CC')
+check('浅色下 tabBar 文字色加深', TABBAR_FONT_COLOR_LIGHT, '#646566')
+check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
 
 calls.length = 0
 refreshTabBarTheme('green', false, false)
-check('setTabBarStyle 用的是加深的浅色文字色', calls.find((c) => c.type === 'style').opt.color, '#4E4F52')
+check('setTabBarStyle 用的是加深的浅色文字色', calls.find((c) => c.type === 'style').opt.color, '#646566')
 
 calls.length = 0
 refreshTabBarTheme('green', true, false)
-check('深色下 setTabBarStyle 用深色文字色', calls.find((c) => c.type === 'style').opt.color, '#C7C7CC')
+check('深色下 setTabBarStyle 用深色文字色', calls.find((c) => c.type === 'style').opt.color, '#A1A1A6')
 
 /* --------------- 选中态必须是主题色（与未选中态拉开的对比）--------------- */
 calls.length = 0
 refreshTabBarTheme('red', false, false)
 check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selectedColor, '#EE0A24')
 
-/* ---------------- tabBar 字号 / 图标尺寸：pages.json 里配够大 ----------------
+/* ---------------- tabBar 字号 / 图标尺寸 ----------------
  * ★ 这两个值必须与 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH 一起看 ★
- *   用户看到的图标粗细 = 描边宽度 × (iconWidth / 画布尺寸)，
- *   记作 onScreen。改任一个都要重算，不能各自随手调。
- *   现在的组合（描边 2.9 / 画布 108 / iconWidth 25px）-> onScreen 0.671，
- *   落在「太细」(0.593) 与「太粗」(0.778) 的中间。
+ *   用户看到的图标粗细 = 描边宽度 × (iconWidth / 画布尺寸)，记作 onScreen。
+ *   现在是 描边 2 / 画布 81 / iconWidth 24px -> onScreen 0.593，
+ *   即用户认可「第一次加粗」的那一版。
+ *   曾经试过 108px 画布 + 描边 2.9 + 25px（onScreen 0.671），
+ *   用户反馈「还是太粗」，已退回。
  *   fontSize 用整数 11px：uni-app 的原生 tabBar 对小数 px 的支持没有把握，
  *   宁可用整数值也不要冒「配了不生效」的风险。
  */
@@ -160,7 +165,7 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
   )
   const tb = pagesJson.tabBar || {}
   check('tabBar 字号 11px', tb.fontSize, '11px')
-  check('tabBar 图标宽 25px', tb.iconWidth, '25px')
+  check('tabBar 图标宽 24px', tb.iconWidth, '24px')
 }
 
 delete globalThis.uni

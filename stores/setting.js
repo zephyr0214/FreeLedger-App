@@ -8,7 +8,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { getAllSettings, setSettings } from '@/api/settings.js'
+import { getAllSettings, setSettings, normalizeQuickAddAction } from '@/api/settings.js'
 import {
   THEME_PRESETS, THEME_MODE, resolveDark, buildCssVars, buildWotThemeVars,
   buildWotCssVars, wotThemeClass, applyTabBarTheme, refreshTabBarTheme,
@@ -30,6 +30,8 @@ export const useSettingStore = defineStore('setting', {
       themeMode: THEME_MODE.SYSTEM,
       themePreset: 'green',
       privacyMode: false,
+      quickAddHoldAction: 'manual',
+      quickAddTapAction: 'ai',
       ai: { baseUrl: '', apiKey: '', model: 'deepseek-chat', temperature: 0.3, timeoutMs: 20000, quickFallback: false },
       autoBackup: true,
       lastExportAt: 0
@@ -81,6 +83,20 @@ export const useSettingStore = defineStore('setting', {
     },
     avatar(state) {
       return state.settings.avatar || ''
+    },
+    /**
+     * 悬浮「+」按钮长按触发什么
+     * ai | manual | none
+     */
+    quickAddHoldAction(state) {
+      return normalizeQuickAddAction(state.settings.quickAddHoldAction, 'manual')
+    },
+    /**
+     * 悬浮「+」按钮短按触发什么
+     * ai | manual | none
+     */
+    quickAddTapAction(state) {
+      return normalizeQuickAddAction(state.settings.quickAddTapAction, 'ai')
     }
   },
 
@@ -207,6 +223,21 @@ export const useSettingStore = defineStore('setting', {
     async setPrivacyMode(on) {
       this.settings.privacyMode = !!on
       await setSettings({ privacyMode: !!on })
+    },
+
+    /**
+     * 设置悬浮「+」按钮的触发方式
+     *
+     * @param {'hold'|'tap'} which hold = 长按，tap = 短按
+     * @param {string} action ai | manual | none
+     */
+    async setQuickAddAction(which, action) {
+      const key = which === 'hold' ? 'quickAddHoldAction' : 'quickAddTapAction'
+      const fallback = which === 'hold' ? 'manual' : 'ai'
+      const value = normalizeQuickAddAction(action, fallback)
+      this.settings[key] = value
+      await setSettings({ [key]: value })
+      return value
     }
   }
 })

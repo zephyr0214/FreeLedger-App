@@ -21,6 +21,17 @@ export const DEFAULT_SETTINGS = {
   firstRunDone: false,
 
   /**
+   * 悬浮「+」按钮的行为
+   *   quickAddHoldAction 长按触发什么：ai | manual | none
+   *   quickAddTapAction  短按触发什么：ai | manual | none
+   *
+   * 默认值 = 改动前的行为（长按打开手动记账面板、短按打开 AI 速记），
+   * 这样老用户升级后行为不变。
+   */
+  quickAddHoldAction: 'manual',
+  quickAddTapAction: 'ai',
+
+  /**
    * 周期性固定支出列表
    * 结构见 normalizeCycle()：
    *   { id, name, amountCents, icon, cycleType, interval,
@@ -46,6 +57,38 @@ export const DEFAULT_SETTINGS = {
   // 数据
   autoBackup: true,
   lastExportAt: 0
+}
+
+/**
+ * 悬浮「+」按钮的触发方式
+ *
+ * ai     → 打开 AI 速记（QuickAddBar）
+ * manual → 打开传统手动记账面板（TxnPanel）
+ * none   → 不响应
+ */
+export const QUICK_ADD_ACTIONS = [
+  { key: 'ai', name: 'AI 速记' },
+  { key: 'manual', name: '手动记账' },
+  { key: 'none', name: '不响应' }
+]
+
+/** 合法的触发方式 */
+const QUICK_ADD_ACTION_KEYS = QUICK_ADD_ACTIONS.map((a) => a.key)
+
+/**
+ * 把存进库的触发方式归一化
+ *
+ * 库里存的是字符串，值可能来自旧版本或手工改库，
+ * 这里统一兜底成合法值（非法的一律回落到 'ai'）。
+ *
+ * @param {any} raw
+ * @param {string} fallback 非法时的默认值
+ * @returns {string} ai | manual | none
+ */
+export function normalizeQuickAddAction(raw, fallback = 'ai') {
+  const v = String(raw || '').trim()
+  if (QUICK_ADD_ACTION_KEYS.includes(v)) return v
+  return QUICK_ADD_ACTION_KEYS.includes(fallback) ? fallback : 'ai'
 }
 
 /**

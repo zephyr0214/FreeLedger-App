@@ -16,8 +16,10 @@
       <text class="fab-icon" :class="{ rotated: pressing }">+</text>
     </view>
 
-    <!-- 长按进度环：达到 3 秒时自动打开记账面板 -->
-    <view v-if="pressing" class="fab-ring">
+    <!-- 长按进度环：达到 3 秒时自动打开记账面板
+         长按被关掉时（holdEnabled=false）不显示进度环 ——
+         一个转完却什么都不发生的进度环比没有更让人困惑 -->
+    <view v-if="pressing && holdEnabled" class="fab-ring">
       <view class="fab-ring-inner" :style="ringStyle" />
     </view>
   </view>
@@ -40,7 +42,18 @@ export default {
     bottom: { type: String, default: 'calc(env(safe-area-inset-bottom) + 40rpx)' },
     right: { type: String, default: '36rpx' },
     /** 是否隐藏（输入条展开时隐藏） */
-    hidden: { type: Boolean, default: false }
+    hidden: { type: Boolean, default: false },
+    /**
+     * 长按是否启用
+     *
+     * ★ 为什么需要这个开关 ★
+     *   「记账按钮设置」里长按可以被设成「不响应」。
+     *   如果只把 hold-end 的处理函数改成空动作，用户长按时
+     *   仍然会看到进度环转圈、仍然会震动，
+     *   结果是「有反应但什么也没发生」——比完全不响应更困惑。
+     *   所以关掉长按时，连进度环和震动一起关掉。
+     */
+    holdEnabled: { type: Boolean, default: true }
   },
   /**
    * ★ 事件名不要用 tap / click / longpress ★
@@ -110,6 +123,10 @@ export default {
       pressing.value = true
       progress.value = 0
 
+      // 长按被关掉：不启动计时器、不震动、不发 hold 事件，
+      // 松手时按短按处理（这样短按仍然可用）
+      if (!props.holdEnabled) return
+
       // 300ms 后自动打开，不需要等用户松手
       timer = setTimeout(() => {
         longFired = true
@@ -134,7 +151,8 @@ export default {
       clearTimer()
       clearRaf()
       const delta = Date.now() - startTs
-      const wasLong = longFired || delta >= HOLD_MS
+      // 长按被关掉时，无论按多久都按短按处理
+      const wasLong = props.holdEnabled && (longFired || delta >= HOLD_MS)
 
       if (wasLong) {
         // 到达阈值时已经自动触发过了，这里不重复
