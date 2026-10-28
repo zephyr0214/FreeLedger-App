@@ -12,6 +12,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
+import { SCHEMA_VERSION } from '../api/db/schema.js'
 
 let pass = 0
 let fail = 0
@@ -358,7 +359,10 @@ console.log('=== 场景 6：已是最新版本时不再重跑 ===')
 {
   // ★ 用当前最新的版本号 ★
   //   版本号 >= SCHEMA_VERSION 时 migrate() 直接返回，一条迁移都不跑。
-  const { fake, log } = makeFakePlus({ userVersion: 5 })
+  //   ★ 必须从 schema.js 读，不能写死数字 ★
+  //     写死的话，每加一条迁移这个测试就会假失败
+  //     （版本号变了 -> 旧迁移会被重跑 -> 断言失效）。
+  const { fake, log } = makeFakePlus({ userVersion: SCHEMA_VERSION })
   const mod = await loadRealDb(fake)
 
   const result = await Promise.race([
