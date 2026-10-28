@@ -143,31 +143,69 @@ export async function updateCategory(id, patch) {
   return getCategory(id)
 }
 
-/** 删除分类 —— 若有交易引用则拒绝，避免统计口径断裂 */
+/**
+ * 删除分类
+ *
+ * ★ 有交易也能删 ★
+ *   用户要求：删除分类时就算分类下还有交易也允许删除，
+ *   这些交易变成「无分类」（交易本身不删，历史记录要留住）。
+ *
+ * ★ 为什么可以直接置 NULL ★
+ *   txn.category_id 建表时就是可空的（`category_id TEXT`，没有 NOT NULL），
+ *   不像 account_id 那样有约束问题 —— 不需要任何数据库迁移。
+ *
+ * ★ 删一级分类时连带软删除它的子分类 ★
+ *   否则会留下一堆孤儿二级（parent_id 指向已删除的一级），
+ *   分类树里点不到、但又还在库里占着位置。
+ *   子分类下的交易同样置成「无分类」。
+ *
+ * ★ 固定分类（对账支出 / 对账收入）仍然不允许删 ★
+ *   这两条是余额对账的记账口径，删了账就对不上了。
+ */
 export async function deleteCategory(id) {
   // ★ 固定分类（对账支出 / 对账收入）不允许删 ★
   //   UI 层已经拦了一道，这里是 API 层的兜底。
   const target = await getCategory(id)
-  if (target && isReconcileCategory(target)) {
+  if (!target) throw new Error('分类不存在')
+  if (isReconcileCategory(target)) {
     throw new Error(`「${target.name}」是固定分类，不能删除`)
   }
 
-  const used = await queryOne(
-    'SELECT COUNT(*) AS c FROM txn WHERE category_id = ? AND deleted_at IS NULL',
-    [id]
-  )
-  if (Number(used ? used.c : 0) > 0) {
-    throw new Error(`该分类下有 ${used.c} 笔交易，请先改分类或隐藏它`)
-  }
-  const children = await queryOne(
-    'SELECT COUNT(*) AS c FROM category WHERE parent_id = ? AND deleted_at IS NULL',
-    [id]
-  )
-  if (Number(children ? children.c : 0) > 0) {
-    throw new Error('请先删除该分类下的子分类')
-  }
   const now = Date.now()
-  await execute('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+
+  await transaction(async () => {
+    // 1) 收集要删的分类 id：自己 + 它的所有子分类
+    //    （删一级时连带删二级，避免留下孤儿）
+    const childRows = await query(
+      'SELECT id FROM category WHERE parent_id = ? AND deleted_at IS NULL',
+      [id]
+    )
+    const ids = [id].concat(childRows.map((r) => r.id))
+
+    // 2) 这些分类下的交易变成「无分类」（交易本身不删）
+    for (const cid of ids) {
+      await execute(
+        'UPDATE txn SET category_id = NULL, updated_at = ? WHERE category_id = ? AND deleted_at IS NULL',
+        [now, cid]
+      )
+    }
+
+    // 3) 删掉这些分类的「分类预算」
+    //   ★ budget 表没有 deleted_at 字段，只能硬删 ★
+    //     （见 api/db/schema.js 的建表语句）
+    //   不删的话预算会一直挂着，但它的分类已经没了：
+    //   交易的 category_id 都变成 NULL 了，那个预算的「已用」永远是 0，
+    //   看着像「预算没生效」。
+    for (const cid of ids) {
+      await execute('DELETE FROM budget WHERE scope = ? AND category_id = ?', ['category', cid])
+    }
+
+    // 4) 软删除子分类 + 自己
+    for (const cid of ids) {
+      await execute('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, cid])
+    }
+  })
+
   return true
 }
 

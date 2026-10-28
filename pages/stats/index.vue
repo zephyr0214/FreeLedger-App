@@ -306,7 +306,9 @@
             <text class="top-rank" :class="{ 'top-3': i < 3 }">{{ i + 1 }}</text>
             <view class="top-info">
               <text class="top-name">{{ t.category_name || '未分类' }}</text>
-              <text class="top-sub ellipsis">{{ t.note || t.account_name || '无备注' }}</text>
+              <!-- ★ 账户被删除后 account_name 为空 —— 显示「无账户」而不是「无备注」 ★
+                   （无备注是另一回事，两者别混） -->
+              <text class="top-sub ellipsis">{{ t.note || t.account_name || '无账户' }}</text>
             </view>
             <view class="top-right">
               <MoneyText :cents="t.amount_cents" :size="28" :weight="500" color="var(--app-text)" />

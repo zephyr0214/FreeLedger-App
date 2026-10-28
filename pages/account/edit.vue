@@ -256,7 +256,7 @@ export default {
     async function onDelete() {
       const confirmed = await confirmDialog({
         title: '删除账户？',
-        content: '如果该账户下还有交易，将无法删除',
+        content: '该账户下的交易会变成「无账户」，交易记录本身不会删除',
         confirmText: '删除',
         danger: true
       })

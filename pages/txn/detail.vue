@@ -29,12 +29,12 @@
       <view class="detail-card">
         <view class="row">
           <text class="row-label">{{ txn.type === 'transfer' ? '转出账户' : '账户' }}</text>
-          <text class="row-value">{{ txn.account_name || '—' }}</text>
+          <text class="row-value">{{ txn.account_name || '无账户' }}</text>
         </view>
 
         <view v-if="txn.type === 'transfer'" class="row">
           <text class="row-label">转入账户</text>
-          <text class="row-value">{{ txn.to_account_name || '—' }}</text>
+          <text class="row-value">{{ txn.to_account_name || '无账户' }}</text>
         </view>
 
         <view v-if="txn.type !== 'transfer'" class="row">

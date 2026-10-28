@@ -679,7 +679,8 @@ export default {
 
     function txnTitle(txn) {
       if (txn.type === 'transfer') {
-        return `${txn.account_name || '-'} → ${txn.to_account_name || '-'}`
+        // ★ 账户被删除后 account_name 为空 —— 显示「无账户」而不是 '-' ★
+        return `${txn.account_name || '无账户'} → ${txn.to_account_name || '无账户'}`
       }
       return txn.category_name || '未分类'
     }
@@ -687,7 +688,8 @@ export default {
     function txnSub(txn) {
       const parts = []
       if (txn.note) parts.push(txn.note)
-      if (txn.type !== 'transfer') parts.push(txn.account_name || '')
+      // ★ 账户被删除后 account_name 为空 —— 显示「无账户」 ★
+      if (txn.type !== 'transfer') parts.push(txn.account_name || '无账户')
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 

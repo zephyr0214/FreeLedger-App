@@ -154,10 +154,11 @@ export default {
     /** 标题（分类名 / 转账对象） */
     function txnTitle(txn) {
       if (txn.type === 'transfer') {
+        // ★ 账户被删除后 account_name 为空 —— 显示「无账户」而不是 '-' ★
         if (props.accountId) {
           return txn.account_id === props.accountId
-            ? `转出至 ${txn.to_account_name || '-'}`
-            : `来自 ${txn.account_name || '-'}`
+            ? `转出至 ${txn.to_account_name || '无账户'}`
+            : `来自 ${txn.account_name || '无账户'}`
         }
         return txn.to_account_name ? `转出至 ${txn.to_account_name}` : '转账'
       }
@@ -168,7 +169,12 @@ export default {
     function txnSub(txn) {
       const parts = []
       if (txn.occurred_at) parts.push(formatTime(txn.occurred_at))
-      if (txn.account_name) parts.push(txn.account_name)
+      // ★ 账户被删除后 account_name 为空 —— 显示「无账户」 ★
+      if (txn.type === 'transfer') {
+        parts.push(txn.to_account_name ? `转出至 ${txn.to_account_name}` : '转账')
+      } else {
+        parts.push(txn.account_name || '无账户')
+      }
       if (txn.note) parts.push(txn.note)
       return parts.join(' · ')
     }

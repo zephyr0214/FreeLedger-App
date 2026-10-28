@@ -339,7 +339,9 @@ async function categoryStatsByScope(scope, type) {
   return rows.map((r) => {
     const meta = catMap[r.root_id] || {}
     return {
-      id: r.root_id,
+      // ★ 分类被删除后，交易的 category_id 变成 NULL，
+      //   COALESCE 之后 root_id 也是 NULL —— 给个非空 id 给列表 key 用。
+      id: r.root_id || 'none',
       name: meta.name || '未分类',
       icon: meta.icon || 'more',
       color: meta.color || '#969799',
@@ -424,7 +426,9 @@ export async function getSubCategoryStatsRange(range, type = 'expense') {
 
   // 按调色板顺序取色：每块颜色都不同
   return rows.map((r, i) => ({
-    id: r.id,
+    // ★ 分类被删除后，交易的 category_id 变成 NULL ★
+    //   给个非空 id 给列表的 v-for key 用，名字显示「未分类」。
+    id: r.id || 'none',
     name: r.name || '未分类',
     icon: r.icon || 'more',
     color: PIE_PALETTE[i % PIE_PALETTE.length],
@@ -497,8 +501,11 @@ async function accountStatsByScope(scope, type) {
     [type].concat(scope.params)
   )
   return rows.map((r) => ({
-    id: r.id,
-    name: r.name || '已删除账户',
+    // ★ 账户被删除后，交易的 account_id 变成空字符串 ★
+    //   这里给个非空的 id（列表的 v-for key 用），
+    //   名字显示「无账户」，和用户删除账户后的预期一致。
+    id: r.id || 'none',
+    name: r.id ? (r.name || '已删除账户') : '无账户',
     icon: r.icon || 'wallet',
     color: r.color || '#1989FA',
     accountType: r.account_type,
@@ -534,12 +541,12 @@ export async function getAccountStatsRange(range, type = 'expense') {
  */
 export async function getAccountTypeStatsRange(range, type = 'expense') {
   const rows = await query(
-    `SELECT a.type AS account_type,
+    `SELECT COALESCE(a.type, 'other') AS account_type,
             SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN account a ON a.id = t.account_id
      WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', rangeScope(range))}
-     GROUP BY a.type
+     GROUP BY COALESCE(a.type, 'other')
      ORDER BY amt DESC`,
     [type].concat(rangeScope(range).params)
   )
@@ -551,7 +558,7 @@ export async function getAccountTypeStatsRange(range, type = 'expense') {
     rowMap[r.account_type || 'other'] = r
   }
 
-  return ACCOUNT_TYPES
+  const out = ACCOUNT_TYPES
     .filter((t) => rowMap[t.key])
     .map((t) => ({
       key: t.key,
@@ -561,6 +568,23 @@ export async function getAccountTypeStatsRange(range, type = 'expense') {
       amount: Number(rowMap[t.key].amt) || 0,
       count: Number(rowMap[t.key].cnt) || 0
     }))
+
+  // ★ 「无账户」也要显示出来 ★
+  //   账户被删除后，它名下的交易变成「无账户」（account_id = ''）。
+  //   这些金额如果不单独列一块，环形图上的合计会比实际支出少一块 ——
+  //   表现为「支出总额和图表对不上」。
+  if (rowMap['other']) {
+    out.push({
+      key: 'other',
+      name: '无账户',
+      icon: 'wallet',
+      color: ACCOUNT_TYPE_COLORS.other || '#969799',
+      amount: Number(rowMap['other'].amt) || 0,
+      count: Number(rowMap['other'].cnt) || 0
+    })
+  }
+
+  return out
 }
 
 /**
@@ -899,7 +923,8 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
     const amount = Number(r.amt) || 0
     const count = Number(r.cnt) || 0
     return {
-      id: r.root_id,
+      // ★ 分类被删除后 root_id 为 NULL —— 给个非空 id 给列表 key 用
+      id: r.root_id || 'none',
       name: meta.name || '未分类',
       icon: meta.icon || 'more',
       color: meta.color || '#969799',
@@ -992,7 +1017,7 @@ export async function getBudgetUsage(monthKey) {
   let catNames = {}
   if (catIds.length > 0) {
     const list = await query(
-      `SELECT id, name, icon FROM category WHERE id IN (${catIds.map(() => '?').join(',')})`,
+      `SELECT id, name, icon FROM category WHERE deleted_at IS NULL AND id IN (${catIds.map(() => '?').join(',')})`,
       catIds
     )
     list.forEach((c) => { catNames[c.id] = c })
@@ -1144,7 +1169,7 @@ export async function getBudgetUsageRange(range) {
   let catNames = {}
   if (catIds.length > 0) {
     const list = await query(
-      `SELECT id, name, icon FROM category WHERE id IN (${catIds.map(() => '?').join(',')})`,
+      `SELECT id, name, icon FROM category WHERE deleted_at IS NULL AND id IN (${catIds.map(() => '?').join(',')})`,
       catIds
     )
     list.forEach((c) => { catNames[c.id] = c })

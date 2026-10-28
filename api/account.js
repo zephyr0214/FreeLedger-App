@@ -11,6 +11,7 @@ import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 import { toDayKey, makeDateKeys } from '../utils/date.js'
 import { ensureReconcileCategory } from './category.js'
+import { getSetting, setSetting } from './settings.js'
 
 /**
  * 账户类型
@@ -332,20 +333,115 @@ export async function recalcAllBalances() {
   return accounts.length
 }
 
-/** 软删除账户（有交易时拒绝，避免数据悬空） */
+/**
+ * 软删除账户
+ *
+ * ★ 有交易也能删 ★
+ *   用户要求：删除账户时就算账户下还有交易也允许删除，
+ *   这些交易变成「无账户」（交易本身不删，历史记录要留住）。
+ *
+ * ★ 为什么用空字符串 '' 而不是 NULL ★
+ *   txn.account_id 在建表时是 `TEXT NOT NULL`，
+ *   SQLite 改不了已有列的 NOT NULL（只能重建表，代价大、风险高）。
+ *   而用 NULL 会直接撞上 NOT NULL 约束 —— 写不进去。
+ *   空字符串 '' 同样「匹配不上任何账户」（账户 id 是 uuid），
+ *   LEFT JOIN account a ON a.id = t.account_id 匹配不到，
+ *   显示效果和 NULL 完全一样，但不违反约束。
+ *   同时 api/backup.js 的导入用 `t.account_id || null` 写值，
+ *   空字符串经过 || 也会变成 null，导入不会炸。
+ *
+ * ★ to_account_id 用 NULL ★
+ *   它建表时就是可空的（没有 NOT NULL），用 NULL 语义更准确。
+ *
+ * ★ 要重算哪些账户的余额 ★
+ *   只重算「转账的对方账户」——
+ *   被删账户自己已经软删了，不再出现在账户列表里，
+ *   它的余额缓存留着也不影响显示（总资产统计本来就排除了 deleted_at 的行）。
+ *   对方账户则必须重算：
+ *     - 被删的是转入方 -> to_account_id 置 NULL，这笔转账不再计入任何人的流入，
+ *       但转出方仍在转出，转出方余额要重算
+ *     - 被删的是转出方 -> 转入方的流入不变（to_account_id 还指着它），
+ *       重算一次是无害的兜底
+ *
+ * @param {string} id 账户 id
+ * @returns {Promise<boolean>}
+ */
 export async function deleteAccount(id) {
-  const row = await queryOne(
-    'SELECT COUNT(*) AS c FROM txn WHERE deleted_at IS NULL AND (account_id = ? OR to_account_id = ?)',
-    [id, id]
-  )
-  if (Number(row ? row.c : 0) > 0) {
-    throw new Error(`该账户下还有 ${row.c} 笔交易，不能删除。可先归档。`)
-  }
+  const acc = await getAccount(id)
+  if (!acc) throw new Error('账户不存在')
+
   const now = Date.now()
+
   await transaction(async () => {
+    // 1) 找出两种「对方账户」—— 必须在改 account_id 之前查，改完就找不到了
+    //
+    //    a) 被删账户是「转出方」：这笔转账的转入方是谁
+    //       —— 对方仍然是转入方，余额不变（但重算一次也没坏处，
+    //          顺便兜住别的情况）
+    //    b) 被删账户是「转入方」：这笔转账的转出方是谁
+    //       —— ★ 这个必须重算 ★
+    //          to_account_id 被置 NULL 之后，这笔转账不再计入
+    //          任何人的流入，但转出方仍然在转出（account_id 还在），
+    //          不重算的话转出方的余额就平白少了一截。
+    const transferOutRows = await query(
+      `SELECT DISTINCT to_account_id AS id FROM txn
+       WHERE deleted_at IS NULL AND to_account_id IS NOT NULL AND to_account_id != ''
+         AND account_id = ?`,
+      [id]
+    )
+    const transferInRows = await query(
+      `SELECT DISTINCT account_id AS id FROM txn
+       WHERE deleted_at IS NULL AND account_id IS NOT NULL AND account_id != ''
+         AND to_account_id = ?`,
+      [id]
+    )
+    const counterpartIds = transferOutRows
+      .concat(transferInRows)
+      .map((r) => r.id)
+      .filter((x) => x && x !== id)
+
+    // 2) 交易本身不删，只把账户摘掉（变成「无账户」）
+    //    account_id 置空字符串（NOT NULL 约束），to_account_id 置 NULL（可空）
+    await execute(
+      `UPDATE txn SET account_id = '', updated_at = ?
+       WHERE deleted_at IS NULL AND account_id = ?`,
+      [now, id]
+    )
+    await execute(
+      `UPDATE txn SET to_account_id = NULL, updated_at = ?
+       WHERE deleted_at IS NULL AND to_account_id = ?`,
+      [now, id]
+    )
+
+    // 3) 软删除账户 + 清掉它的快照
     await execute('UPDATE account SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
     await execute('DELETE FROM account_snapshot WHERE account_id = ?', [id])
+
+    // 4) 重算对方账户的余额
+    for (const cid of counterpartIds) {
+      await recalcBalance(cid)
+      await writeTodaySnapshot(cid)
+    }
   })
+
+  // 5) 被删的账户如果正是「默认账户」，把默认账户设置清掉
+  //    ★ 必须在事务外做 ★
+  //      setSetting 内部会走 execute() -> await openDb()，
+  //      而这里已经在 transaction() 里了，套一层事务容易出问题。
+  //    ★ 为什么必须清 ★
+  //      defaultAccountId 被 TxnPanel / QuickAddBar 直接拿来当新交易的账户，
+  //      不校验它还在不在。留着的话新交易会挂到一个已删除的账户上，
+  //      余额算不到（看起来就是「钱丢了」）。
+  try {
+    const defaultId = await getSetting('defaultAccountId', '')
+    if (defaultId === id) {
+      await setSetting('defaultAccountId', '')
+    }
+  } catch (e) {
+    // 设置写失败不该挡住删除
+    console.warn('[account] 清理默认账户设置失败:', e && e.message)
+  }
+
   return true
 }
 
