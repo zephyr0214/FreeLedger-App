@@ -35,24 +35,28 @@ SCSS_PATH = os.path.join(
 OUT_DIR = os.path.join(ROOT, "static", "tabbar")
 
 # tabBar 图标建议 81x81（3 倍图），uni-app 自动缩放
-SIZE = 81
+# ★ 提高到 108x108（4 倍图）★
+#   线条越粗，缩放后边缘越容易糊。81px 上描边 3px，缩到 24~28px 显示时
+#   只剩 1px 左右，看起来还是「一根细线」。
+#   画布放大到 108px，描边 3px 缩放后还有 2px 以上，才真正「显而易见」。
+SIZE = 108
 
 # ★ 描边宽度（加粗）★
-#   字体图标本身的笔画偏细，放到 81px 的图上看就是「线条太细」，
+#   字体图标本身的笔画偏细，放到图上看就是「线条太细」，
 #   切换 tab 时体感不明显。这里给字形加一圈同色描边，等效于「加粗」，
 #   比单纯放大字号更稳（放大字号会让图标撑出画布、比例失调）。
 #
-#   Pillow 的 stroke_width 单位是像素（不是比例），
-#   2 在 81px 的图上已经能明显看出加粗，3 就偏臃肿了。
-STROKE_WIDTH = 2
+#   Pillow 的 stroke_width 单位是像素（不是比例）。
+#   2 偏细（上一轮用户反馈还是不够明显），本轮提到 3 ——
+#   配合更大的画布（108px）才够看得出差别。
+STROKE_WIDTH = 3
 
 # 未选中态：浅色主题用深灰，深色主题用浅灰
-# ★ 比原来深一档 ★
-#   原来浅色用 #969799，跟白色底几乎糊在一起，
-#   未选中 / 选中的对比太弱，切换时看不出区别。
-#   现在浅色用 #646566（与 --app-text-2 一致），深色用 #A1A1A6。
-NORMAL_LIGHT = (100, 101, 103)    # #646566
-NORMAL_DARK = (161, 161, 166)     # #A1A1A6
+# ★ 与 theme.json 的 tabFontColor 保持一致 ★
+#   浅色 #4E4F52（接近正文色）、深色 #C7C7CC（接近深色正文色），
+#   比上一轮的 #646566 / #A1A1A6 又深一档。
+NORMAL_LIGHT = (78, 79, 82)       # #4E4F52
+NORMAL_DARK = (199, 199, 204)     # #C7C7CC
 
 # 选中态：与 utils/theme.js 的 THEME_PRESETS 保持一致
 PRESET_COLORS = {
@@ -100,11 +104,15 @@ def render(char, color, out_path):
 
     加粗的做法：先按 STROKE_WIDTH 描边画一遍（fill 与 stroke 同色），
     再叠一层正常填充 —— 描边让笔画变粗，填充把描边造成的镂空补回来。
+
+    描边会往外扩 STROKE_WIDTH 像素，所以字号的占比要比原来小一点，
+    否则描边后整体超出画布被裁掉（图标边缘会缺一块）。
     """
     image = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    font_size = int(SIZE * 0.72)
+    # 描边外扩 STROKE_WIDTH 像素，字号占比相应调小
+    font_size = int(SIZE * 0.66)
     try:
         font = ImageFont.truetype(FONT_PATH, font_size)
     except Exception as e:

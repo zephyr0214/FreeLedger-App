@@ -193,8 +193,8 @@
 		"selectedColor": "@tabSelectedColor",
 		"backgroundColor": "@tabBgColor",
 		"borderStyle": "@tabBorderStyle",
-		"fontSize": "11px",
-		"iconWidth": "24px",
+		"fontSize": "12px",
+		"iconWidth": "28px",
 		"spacing": "4px",
 		"list": [
 			{

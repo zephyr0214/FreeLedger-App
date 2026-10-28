@@ -76,13 +76,14 @@
               <view class="txn-name-row">
                 <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
                 <!-- 标签：跟在分类名后面（txnTitle 就是分类名），
-                     小 tag 胶囊形态，高度压到 28rpx 以内 -->
+                     小 tag 胶囊形态，背景用标签自己的颜色 -->
                 <view v-if="txnTags(txn).length" class="txn-tag-list">
                   <text
-                    v-for="name in txnTags(txn)"
-                    :key="name"
+                    v-for="t in txnTags(txn)"
+                    :key="t.key"
                     class="txn-tag"
-                  >{{ name }}</text>
+                    :style="t.bg ? { backgroundColor: t.bg, color: t.color } : null"
+                  >{{ t.name }}</text>
                 </view>
               </view>
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
@@ -769,22 +770,27 @@ export default {
     }
 
     /**
-     * 标签 id -> 名字 的映射
+     * 标签 id -> { name, color } 的映射
      *
-     * 交易里只存了 tag_id（tag_ids），要显示名字得靠本页已加载的标签表反查。
+     * 交易里只存了 tag_id（tag_ids），要显示名字和颜色得靠本页已加载的标签表反查。
      * 建一张 map，避免每行都去 list 里线性找。
      */
     const tagNameMap = computed(() => {
       const m = {}
-      for (const t of tags.value) m[t.id] = t.name
+      for (const t of tags.value) m[t.id] = { name: t.name, color: t.color || '' }
       return m
     })
 
     /**
-     * 这笔交易的标签名列表
+     * 这笔交易的标签（显示名字 + 用自己的颜色做背景）
      *
-     * 显示标签名字本身（不显示「N 个标签」这种计数），
-     * 交易里只存了 tag_id（tag_ids），要显示名字得靠本页已加载的标签表反查。
+     * ★ 背景用标签自己的颜色，但只用 12% 左右的透明度 ★
+     *   纯色背景配白字虽然对比强，但一排标签全是纯色块会非常刺眼，
+     *   而且中文名（2026装修）在纯色底上可读性差。
+     *   所以：背景 = 标签色 + '22'（约 12% 透明），文字 = 标签本色。
+     *
+     * 兜底：标签没设颜色（color 为空）时，bg 传空字符串，
+     *   样式回落到 CSS 里的 --app-card-2 背景 + --app-text-2 文字。
      *
      * 最多取前 2 个：标签太多会撑破一行，
      * 剩下的用「+N」在最后一个位置表示。
@@ -792,13 +798,21 @@ export default {
     function txnTags(txn) {
       const ids = txn.tag_ids
       if (!ids || !ids.length) return []
-      const names = []
+      const list = []
       for (const id of ids) {
-        const name = tagNameMap.value[id]
-        if (name) names.push(name)
+        const t = tagNameMap.value[id]
+        if (!t) continue
+        list.push({
+          key: id,
+          name: t.name,
+          color: t.color || 'var(--app-text-2)',
+          bg: t.color ? t.color + '22' : ''
+        })
       }
-      if (names.length <= 2) return names
-      return names.slice(0, 2).concat([`+${names.length - 2}`])
+      if (list.length <= 2) return list
+      const rest = list.slice(0, 2)
+      rest.push({ key: '__more__', name: `+${list.length - 2}`, color: 'var(--app-text-3)', bg: '' })
+      return rest
     }
 
     function timeLabel(ts) {
@@ -1180,6 +1194,10 @@ export default {
  *   跟 28rpx 的分类名放一行时会明显高出一截，把整行撑得松散。
  *   现在：上下 padding 2rpx + 20rpx 字 + 8rpx 行高 ≈ 28rpx，
  *   和分类名同一行齐平，整行高度不受影响。
+ *
+ * ★ 背景用标签自己的颜色（12% 透明度），文字用标签本色 ★
+ *   由模板的 :style 内联覆盖（见 txnTags()）。
+ *   这里的 background-color / color 是「标签没设颜色」时的兜底。
  *
  * ★ 不换行 ★
  *   flex-wrap: nowrap + overflow: hidden，

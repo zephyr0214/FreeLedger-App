@@ -55,10 +55,29 @@ const full = (style.match(/\.form-input-full\s*\{([^}]*)\}/) || [])[1] || ''
 check('找到 .form-input-full 样式', full.length > 0, true)
 check('.form-input-full 有 box-sizing: border-box', /box-sizing:\s*border-box/.test(full), true)
 
+/* ------------------- 1b. 不能被压扁：要有固定高度，且上下不留 padding */
+
+/**
+ * ★★ 为什么会被压扁 ★★
+ *   uni-app 的 <input> 编译成 <uni-input>，默认高度是 1.4em，
+ *   本身没有固定高度。
+ *   补了 box-sizing: border-box 之后，如果还保留 padding: 16rpx 上下，
+ *   那 32rpx 的上下 padding 要从 1.4em（约 36rpx）的内容高度里扣，
+ *   26rpx 的字号只剩 4rpx 的内容区 —— 字被压成一条线。
+ *
+ *   修法：给 height + line-height，padding 只留左右。
+ */
+check('.form-input-full 有固定高度', /height:\s*\d+rpx/.test(full), true)
+check('.form-input-full 有 line-height', /line-height:\s*\d+rpx/.test(full), true)
+
+// 上下 padding 必须是 0（只留左右）
+const padding = (full.match(/padding:\s*([^;]+);/) || [])[1] || ''
+check('.form-input-full 的 padding 上下为 0', /^\s*0\s+\d+rpx\s*$/.test(padding.trim()), true)
+
 /* --------------------------- 2. 不能有会撑破容器的固定宽度 */
 
 // width 只能出现 100%（或没有 width），出现具体 px/rpx 就是撑破
-const widths = (full.match(/width:\s*([^;]+);/g) || []).map((w) => w.replace(/width:\s*|;/g, '').trim())
+const widths = (full.match(/(^|[^-\w])width:\s*([^;]+);/g) || []).map((w) => w.replace(/.*width:\s*|;/g, '').trim())
 check('没有固定宽度', widths.every((w) => w === '100%' || w === 'auto'), true)
 
 /* ------------------------- 3. API Key 行的输入框不能挤掉按钮 */
@@ -71,9 +90,12 @@ const keyInput = (style.match(/\.key-row\s+\.form-input-full\s*\{([^}]*)\}/) || 
 check('API Key 输入框有 flex: 1', /flex:\s*1/.test(keyInput), true)
 check('API Key 输入框有 min-width: 0', /min-width:\s*0/.test(keyInput), true)
 
-// 「显示/隐藏」按钮不能被压扁
+// 「显示/隐藏」按钮不能被压扁，且要跟输入框等高
 const keyToggle = (style.match(/\.key-toggle\s*\{([^}]*)\}/) || [])[1] || ''
 check('「显示/隐藏」按钮有 flex-shrink: 0', /flex-shrink:\s*0/.test(keyToggle), true)
+check('「显示/隐藏」按钮有 line-height 与输入框对齐', /line-height:\s*\d+rpx/.test(keyToggle), true)
+// align-items: stretch 让输入框跟着行高走
+check('.key-row 用 align-items: stretch', /align-items:\s*stretch/.test(keyRow), true)
 
 /* --------------------------- 4. 其它 input 也不能撑破容器 */
 

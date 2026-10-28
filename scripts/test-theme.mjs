@@ -10,6 +10,8 @@
  *   4. refreshTabBarTheme 的「冲缓存」逻辑
  */
 
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   buildCssVars, buildWotCssVars, wotThemeClass, refreshTabBarTheme, THEME_PRESETS,
   isSystemDark, resolveDark, watchSystemTheme, THEME_MODE, applyNativeTheme,
@@ -124,18 +126,34 @@ check('选中图标按主题色', (() => {
 /* ---------------- tabBar 文字色：未选中态要够深 ----------------
  * 原来浅色用 #969799，白底上几乎糊成一片，
  * 未选中 / 选中的对比太弱，切换 tab 时体感不明显。
- * 现在浅色 #646566、深色 #A1A1A6。
+ * 现在浅色 #4E4F52（接近正文色）、深色 #C7C7CC。
  */
-check('浅色下 tabBar 文字色加深', TABBAR_FONT_COLOR_LIGHT, '#646566')
-check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
+check('浅色下 tabBar 文字色加深', TABBAR_FONT_COLOR_LIGHT, '#4E4F52')
+check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#C7C7CC')
 
 calls.length = 0
 refreshTabBarTheme('green', false, false)
-check('setTabBarStyle 用的是加深的浅色文字色', calls.find((c) => c.type === 'style').opt.color, '#646566')
+check('setTabBarStyle 用的是加深的浅色文字色', calls.find((c) => c.type === 'style').opt.color, '#4E4F52')
 
 calls.length = 0
 refreshTabBarTheme('green', true, false)
-check('深色下 setTabBarStyle 用深色文字色', calls.find((c) => c.type === 'style').opt.color, '#A1A1A6')
+check('深色下 setTabBarStyle 用深色文字色', calls.find((c) => c.type === 'style').opt.color, '#C7C7CC')
+
+/* --------------- 选中态必须是主题色（与未选中态拉开的对比）--------------- */
+calls.length = 0
+refreshTabBarTheme('red', false, false)
+check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selectedColor, '#EE0A24')
+
+/* ---------------- tabBar 字号 / 图标尺寸：pages.json 里配够大 ---------------- */
+{
+  const pagesJson = JSON.parse(
+    readFileSync(join(process.cwd(), 'pages.json'), 'utf-8')
+      .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  )
+  const tb = pagesJson.tabBar || {}
+  check('tabBar 字号 12px', tb.fontSize, '12px')
+  check('tabBar 图标宽 28px', tb.iconWidth, '28px')
+}
 
 delete globalThis.uni
 

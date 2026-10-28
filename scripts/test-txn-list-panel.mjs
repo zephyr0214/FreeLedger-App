@@ -111,5 +111,21 @@ check('不再有 .txn-tags 纯文字样式', /\.txn-tags\s*\{/.test(style), fals
 const codeNoComment = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 check('代码里没有「个标签」计数文案', /个标签/.test(codeNoComment), false)
 
+/* ------------------------- 7. 标签用「自己的颜色」做背景 */
+
+/**
+ * ★ 用户反馈「标签的颜色作为 tag 背景颜色」★
+ *   标签表有 color 字段（api/tag.js / tag 表）。
+ *   每个标签的背景要用它自己的颜色，文字用标签本色。
+ *   背景只用约 12% 透明度（颜色 + '22'），
+ *   纯色背景配中文名太刺眼、可读性也差。
+ */
+check('标签背景用标签自己的颜色（内联样式）', /backgroundColor:\s*t\.bg/.test(template), true)
+check('标签文字用标签本色（内联样式）', /color:\s*t\.color/.test(template), true)
+check('txnTags 返回带 color 的对象', /color:\s*t\.color\s*\|\|/.test(code), true)
+check('背景色带 12% 透明度后缀', /\+\s*'22'/.test(code), true)
+// 兜底：标签没设颜色时 bg 传空串，回落到 CSS 里的 --app-card-2
+check('无颜色时 bg 兜底为空串', /bg:\s*t\.color\s*\?\s*t\.color\s*\+\s*'22'\s*:\s*''/.test(code), true)
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

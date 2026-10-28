@@ -305,22 +305,36 @@ export default {
 /**
  * 整行宽度的输入框（接口地址 / API Key）
  *
- * ★ 必须显式写 box-sizing: border-box ★
+ * ★★ 两个坑叠在一起，都会让输入框「穿模 / 压扁」★★
+ *
+ * 坑 1：input 不在全局的 border-box 名单里 → 横向穿模
  *   App.vue 的全局样式里是
  *     view, text, scroll-view, image { box-sizing: border-box; }
  *   —— input **不在这个列表里**，所以 input 默认还是 content-box。
- *   之前 .form-input-full 写了 width: 100% + padding: 16rpx 20rpx，
- *   实际占位 = 100% + 40rpx，横向溢出容器右边，看起来就是「输入框穿模」。
- *   这里显式补上 border-box 就好了。
+ *   .form-input-full 同时有 width: 100% 和 padding: 16rpx 20rpx，
+ *   实际占位 = 100% + 40rpx，横向溢出容器右边（穿模）。
+ *
+ * 坑 2：补了 border-box 却没给高度 → 纵向压扁
+ *   uni-app 的 <input> 编译成 <uni-input>，默认高度是 1.4em（≈ 1.4 × 字号），
+ *   本身没有固定高度。一旦改成 border-box，又保留 padding: 16rpx 上下，
+ *   那 16rpx×2 的 padding 就要从「1.4em 的内容高度」里扣，
+ *   26rpx 的字号只剩 36rpx - 32rpx = 4rpx 的内容区 ——
+ *   字被压成一条线，就是用户说的「被压扁了」。
+ *
+ * 修法（uni-app 的标准写法）：给固定 height + line-height，去掉上下 padding。
+ *   height 管盒子高度，line-height 让文字在盒子里垂直居中，
+ *   横向留白交给 padding: 0 20rpx。
  */
 .form-input-full {
   width: 100%;
+  height: 80rpx;
+  line-height: 80rpx;
   box-sizing: border-box;
   font-size: 26rpx;
   color: var(--app-text);
   background-color: var(--app-card-2);
   border-radius: 10rpx;
-  padding: 16rpx 20rpx;
+  padding: 0 20rpx;
 }
 
 .form-placeholder {
@@ -336,10 +350,15 @@ export default {
  *   加上「显示/隐藏」按钮就容易被挤出容器右边。
  *   min-width: 0 允许它缩到比内容还窄（配合 input 自身的 overflow 处理），
  *   这样按钮永远留在容器内。
+ *
+ * ★ align-items: stretch ★
+ *   默认是 center，输入框用自己的 height 撑着；
+ *   改成 stretch 让它跟着行高走，两边（输入框 / 按钮）视觉上齐平，
+ *   按钮文字用 line-height 对齐到同一个高度。
  */
 .key-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 16rpx;
   width: 100%;
 }
@@ -351,6 +370,7 @@ export default {
 
 .key-toggle {
   font-size: 24rpx;
+  line-height: 80rpx;
   color: var(--app-primary);
   flex-shrink: 0;
 }

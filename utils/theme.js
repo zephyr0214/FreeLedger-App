@@ -365,13 +365,13 @@ export function buildWotThemeVars(presetKey) {
  * ★ 未选中态刻意加深 ★
  *   原来浅色用 #969799（在白底上几乎糊成一片），
  *   未选中 / 选中之间的对比太弱，切换 tab 时体感不明显。
- *   现在浅色用 #646566（与 --app-text-2 一致），
- *   深色用 #A1A1A6（与 --app-text-2 深色值一致），
- *   配合更粗的图标（见 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH），
- *   切换时的视觉差异就明显了。
+ *   现在浅色用 #4E4F52（接近正文色 #323233），
+ *   深色用 #C7C7CC（接近深色模式的正文色 #F5F5F7）。
+ *   配合更粗更大的图标（见 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH
+ *   与 pages.json 的 iconWidth），切换时的视觉差异才够明显。
  */
-export const TABBAR_FONT_COLOR_LIGHT = '#646566'
-export const TABBAR_FONT_COLOR_DARK = '#A1A1A6'
+export const TABBAR_FONT_COLOR_LIGHT = '#4E4F52'
+export const TABBAR_FONT_COLOR_DARK = '#C7C7CC'
 
 /** tabBar 四个 tab 的路径与资源名 */
 const TABBAR_ITEMS = [
@@ -389,6 +389,11 @@ const TABBAR_ITEMS = [
  *   那么 setTabBarItem 再传同一个路径就会复用旧图 ——
  *   表现是「文字色变了、图标没变粗」。
  *   refreshTabBarTheme 的 force 模式只冲 color/selectedColor，救不了图标。
+ *
+ *   ★★ 所以：改图标内容后必须重新打包，光热更新不生效 ★★
+ *   本轮又加粗了一档（STROKE_WIDTH 2 → 3，iconWidth 24px → 28px，
+ *   字体 11px → 12px），这类改动一定要重新构建 App 才能看到效果。
+ *   只验证配色变化的话，切一次主题色即可（force 模式会重刷）。
  *
  *   什么情况下**不会**遇到：
  *     重新打包 / 重新安装后首次启动。原生层的 bitmap 缓存不跨进程，
