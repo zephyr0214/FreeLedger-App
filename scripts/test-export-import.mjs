@@ -94,23 +94,22 @@ check('文本分享用 type:text', /type:\s*'text'/.test(code), true)
 
 console.log('=== api/backup.js：导入走应用内文件浏览 ===')
 
-for (const name of ['listImportableFiles', 'importFromFile']) {
+for (const name of ['listImportableFiles', 'importFromFile', 'startSystemPick', 'ensureSystemPickListener']) {
   check(`${name} 已导出`, typeof backup[name], 'function')
 }
-// ★ 系统选择器（Native.js ACTION_GET_CONTENT + onActivityResult）在用户基座上
-//   回调从不触发（实测日志：startActivityForResult 调起后 90 秒报「系统未回调」）。
-//   所以导入改成 plus.io 扫描 _doc/_downloads/_documents 的应用内浏览。
-//   官方文档对 App 端也这么建议：「通过 plus.io API，自己做选择框」。
+// ★ 系统选择器：SAF ACTION_OPEN_DOCUMENT + 提前注册 onActivityResult（绕开懒注册收不到）★
+check('系统选择用 ACTION_OPEN_DOCUMENT', /Intent\.ACTION_OPEN_DOCUMENT/.test(code), true)
+check('系统选择有提前注册监听', /ensureSystemPickListener/.test(code), true)
+check('系统选择提前注册 onActivityResult', /addEventListener\('onActivityResult'/.test(code), true)
+check('把 Uri 内容写进沙盒', /_doc\/import\//.test(code), true)
+check('用 Scanner 读取', /java\.util\.Scanner/.test(code), true)
+// ★ 应用内浏览保底：plus.io 扫描 _doc/_downloads/_documents ★
 check('用 plus.io 扫描可导入文件', /listImportableFiles/.test(code), true)
 check('扫 _doc 目录', /_doc\//.test(code), true)
 check('扫 _downloads 目录', /_downloads\//.test(code), true)
 check('扫 _documents 目录', /_documents\//.test(code), true)
 check('用 createReader 列目录', /createReader/.test(code), true)
 check('只挑 .json 文件', code.includes('\\.json$'), true)
-
-// ★ 不能再依赖 onActivityResult（用户基座收不到）★
-check('没有依赖 ACTION_GET_CONTENT', /Intent\.ACTION_GET_CONTENT/.test(code), false)
-check('没有依赖 onActivityResult', /addEventListener\('onActivityResult'/.test(code), false)
 // 不能退回 uni.chooseFile（App 端会打开相册）
 check('没有用 uni.chooseFile', /uni\.chooseFile/.test(code), false)
 
@@ -147,11 +146,13 @@ check('有导出历史列表状态', /exportFiles/.test(data), true)
 check('有导出历史弹层状态', /showExportFiles/.test(data), true)
 check('能分享导出文件', /onShareExport/.test(data), true)
 check('能删除导出文件', /onDeleteExport/.test(data), true)
-// ★ 导入是应用内文件浏览（系统选择器回调不触发，改用 plus.io 扫描）★
+// ★ 导入入口提供两条路：系统文件选择（任意位置）+ 应用文件夹浏览 ★
 check('有导入文件列表状态', /importFiles/.test(data), true)
 check('有导入浏览弹层状态', /showImportPicker/.test(data), true)
 check('能挑一个文件导入', /onPickImportFile/.test(data), true)
-check('导入前扫描文件', /listImportableFiles/.test(data), true)
+check('有系统文件选择入口', /startSystemPick/.test(data), true)
+check('页面加载时提前注册监听', /ensureSystemPickListener/.test(data), true)
+check('onLoad 里提前注册', /onLoad\s*\(/.test(data), true)
 
 // 导出历史里两个操作都要出现
 check('导出历史里有「分享」', /分享/.test(data), true)

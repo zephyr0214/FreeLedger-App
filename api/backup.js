@@ -530,22 +530,154 @@ function nameToTime(name) {
 
 /* ------------------------------------------------------------ 从文件导入 */
 
+/* ★ 系统文件选择（任意位置）★
+   这个基座的 plus.globalEvent 懒注册收不到 onActivityResult，
+   但社区经验是「监听要尽早注册」。所以：
+   - data.vue 在 onLoad 里调用 ensureSystemPickListener() 提前注册；
+   - 点击时 startSystemPick() 才 startActivityForResult；
+   - 用 ACTION_OPEN_DOCUMENT（SAF），能浏览任意位置（下载/网盘/微信文件）。 */
+
+const PICK_REQUEST_CODE = 0x5b1
+let pickListenerReady = false
+let pendingPickResolve = null
+let pendingPickReject = null
+
+/** 提前注册 onActivityResult 监听（页面 onLoad 里调，绕开懒注册收不到的问题） */
+export function ensureSystemPickListener() {
+  if (pickListenerReady || typeof plus === 'undefined' || !plus.globalEvent) return
+  pickListenerReady = true
+  plus.globalEvent.addEventListener('onActivityResult', (result) => {
+    if (Number(result.requestCode) !== PICK_REQUEST_CODE) return
+    const resolve = pendingPickResolve
+    const reject = pendingPickReject
+    pendingPickResolve = null
+    pendingPickReject = null
+    if (!resolve) return
+    try {
+      if (Number(result.resultCode) !== -1) {
+        reject(new Error('已取消'))
+        return
+      }
+      const data = result.intent
+      if (!data) {
+        reject(new Error('没有返回文件'))
+        return
+      }
+      plus.android.importClass(data)
+      const uri = data.getData()
+      if (!uri) {
+        reject(new Error('没有选中文件'))
+        return
+      }
+      logStep('onActivityResult 拿到 uri', String(uri))
+      readUriIntoAppDir(uri).then(resolve, (e) => reject(e))
+    } catch (e) {
+      reject(new Error((e && e.message) || '处理选择结果失败'))
+    }
+  })
+}
+
+/**
+ * 调起系统文件选择器（SAF / ACTION_OPEN_DOCUMENT），选任意位置的 JSON。
+ *
+ * ★ 前置 ★ 必须先调用过 ensureSystemPickListener()（页面 onLoad 里），
+ *   否则这个基座收不到 onActivityResult（实测日志）。
+ *
+ * @returns {Promise<string>} 落到 _doc/import/ 的路径
+ */
+export function startSystemPick() {
+  ensureSystemPickListener()
+  return new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined') {
+      reject(new Error('选择文件仅在 App 端可用'))
+      return
+    }
+    try {
+      const main = plus.android.runtimeMainActivity()
+      const Intent = plus.android.importClass('android.content.Intent')
+      const intent = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+      intent.setType('*/*')
+      intent.addCategory(Intent.CATEGORY_OPENABLE)
+      try {
+        intent.putExtra('android.intent.extra.MIME_TYPES', ['application/json', 'text/plain'])
+      } catch (e) {}
+
+      pendingPickResolve = resolve
+      pendingPickReject = reject
+      main.startActivityForResult(intent, PICK_REQUEST_CODE)
+      logStep('已调起系统文件选择（ACTION_OPEN_DOCUMENT）')
+
+      // 15 秒兜底：还是收不到回调就明确报错，别让用户无限等
+      setTimeout(() => {
+        if (!pendingPickResolve) return
+        const r = pendingPickReject
+        pendingPickResolve = null
+        pendingPickReject = null
+        if (r) r(new Error('选择文件超时（系统回调没触发），请改用「应用文件夹浏览」'))
+      }, 15 * 1000)
+    } catch (e) {
+      reject(new Error((e && e.message) || '无法调起系统文件选择'))
+    }
+  })
+}
+
+/** 把 content:// Uri 的内容读出来，落进沙盒的 _doc/import/（Scanner 一次读完） */
+function readUriIntoAppDir(uri) {
+  return new Promise((resolve, reject) => {
+    try {
+      const main = plus.android.runtimeMainActivity()
+      const resolver = main.getContentResolver()
+      plus.android.importClass(resolver)
+
+      let name = `import_${Date.now()}.json`
+      try {
+        const cursor = resolver.query(uri, null, null, null, null)
+        if (cursor) {
+          plus.android.importClass(cursor)
+          if (cursor.moveToFirst()) {
+            const idx = cursor.getColumnIndex('_display_name')
+            if (idx >= 0) {
+              const got = cursor.getString(idx)
+              if (got) name = String(got)
+            }
+          }
+          cursor.close()
+        }
+      } catch (e) {}
+
+      const stream = resolver.openInputStream(uri)
+      if (!stream) {
+        reject(new Error('打不开选中的文件'))
+        return
+      }
+
+      const Scanner = plus.android.importClass('java.util.Scanner')
+      const scanner = new Scanner(stream, 'UTF-8')
+      scanner.useDelimiter('\\A')
+      const text = scanner.hasNext() ? String(scanner.next()) : ''
+      scanner.close()
+      stream.close()
+
+      writeTextFile('_doc/import/', name, text)
+        .then((rel) => resolve(rel))
+        .catch((e) => reject(new Error('写入沙盒失败: ' + ((e && e.message) || ''))))
+    } catch (e) {
+      reject(new Error((e && e.message) || '读取文件内容失败'))
+    }
+  })
+}
+
 /**
  * 列出应用可访问目录里的可导入 JSON 文件。
  *
- * ★ 为什么不用系统文件选择器 ★
- *   用户实测（日志确认）：这个基座上 startActivityForResult 能调起，
- *   但 onActivityResult 事件**从不回调**（plus.globalEvent 收不到），
- *   90 秒后报「系统未回调」。所以 Native.js + ACTION_GET_CONTENT 那套
- *   在这个基座上走不通。
+ * ★ 为什么保留应用内浏览 ★
+ *   系统选择器（上面的 startSystemPick）在部分基座上仍可能收不到回调，
+ *   应用内浏览是保底方案，一定可用。
  *
  *   uni.chooseFile 在 App 端只打开相册；plus.io.chooseFile 并不存在。
  *   官方文档对 App 端的建议就是：
  *     「App端如果想选择下载到 _doc、_downloads、_documents 等
  *       plus.io 控制的目录下的文件，可通过 plus.io API，自己做选择框」
- *
- *   所以这里用 plus.io 扫这几个目录，把 .json 列出来给页面渲染，
- *   用户在应用内挑一个。纯 plus.io、没有原生回调，稳定可靠。
  *
  * @returns {Promise<Array<{path,name,dir,time}>>} 按修改时间倒序
  */
