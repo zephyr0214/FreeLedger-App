@@ -257,8 +257,7 @@ import { queryOne } from '@/api/db/index.js'
 import {
   autoBackup, listBackups, restoreBackup,
   exportToFile, listExportFiles, deleteExportFile, shareExportFile,
-  listImportableFiles, importFromFile,
-  ensureSystemPickListener, startSystemPick
+  listImportableFiles, importFromFile
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
@@ -468,60 +467,38 @@ export default {
     /* ------------------------------------------------------ 导入 */
 
     /**
-     * 导入入口：让用户选「系统文件选择（任意位置）」或「应用文件夹浏览」。
+     * 从应用文件夹导入。
      *
-     * 系统选择器用 SAF（ACTION_OPEN_DOCUMENT）+ 提前注册的 onActivityResult，
-     * 能浏览任意位置；但部分基座仍可能收不到回调，所以保留应用内浏览兜底。
+     * ★ 为什么不是系统文件选择器 ★
+     *   用户实测（日志）：这个基座上 startActivityForResult 能调起，
+     *   但 onActivityResult 事件从不回调，90 秒后报「系统未回调」。
+     *   所以 Native.js + ACTION_GET_CONTENT 走不通。
+     *
+     *   官方文档对 App 端的建议是：选 _doc/_downloads/_documents 里的
+     *   文件，用 plus.io API 自己做选择框。这里就照着做：
+     *   扫这几个目录列出 .json，用户在应用内挑一个。
+     *
+     * ★ 导入是「覆盖」而不是「合并」★
+     *   覆盖前 api 层会自动备份当前库，能反悔。
      */
     async function onImport() {
-      let which = 0
-      try {
-        which = await new Promise((resolve, reject) => {
-          uni.showActionSheet({
-            itemList: ['从系统文件选择（任意位置）', '从应用文件夹浏览'],
-            success: (r) => resolve(r.tapIndex),
-            fail: () => resolve(-1) // 用户取消
-          })
-        })
-      } catch (e) {
-        return
+      const T0 = Date.now()
+      const log = (tag, extra) => {
+        const t = new Date(Date.now())
+        const pad = (n) => String(n).padStart(2, '0')
+        const stamp = `${t.getHours()}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`
+        console.log(`[自由记导入页面] ${stamp} ${tag}`, extra === undefined ? '' : extra)
       }
-      if (which === -1) return
 
-      if (which === 0) {
-        await importFromSystemPicker()
-      } else {
-        await importFromFolderBrowser()
-      }
-    }
-
-    /** 系统文件选择（SAF）：选任意位置的 JSON */
-    async function importFromSystemPicker() {
-      uni.showLoading({ title: '选择文件…' })
-      let picked = ''
-      try {
-        picked = await startSystemPick()
-        uni.hideLoading()
-      } catch (e) {
-        uni.hideLoading()
-        if (/取消/.test(e.message)) return
-        await alertDialog({
-          title: '选择文件失败',
-          content: (e.message || '') + '\n\n可以改用「从应用文件夹浏览」。'
-        })
-        return
-      }
-      await doImportFile(picked)
-    }
-
-    /** 应用文件夹浏览（plus.io 扫描，保底） */
-    async function importFromFolderBrowser() {
+      log('onImport 开始（应用内浏览）')
       uni.showLoading({ title: '扫描文件…' })
       try {
         importFiles.value = await listImportableFiles()
         uni.hideLoading()
+        log('listImportableFiles 返回', { 数量: importFiles.value.length, 耗时ms: Date.now() - T0 })
       } catch (e) {
         uni.hideLoading()
+        log('listImportableFiles 失败', (e && e.message) || '')
         await alertDialog({ title: '扫描失败', content: (e && e.message) || '无法读取文件列表' })
         return
       }
@@ -531,14 +508,9 @@ export default {
     /** 用户在应用内文件列表里选中一个 */
     async function onPickImportFile(file) {
       showImportPicker.value = false
-      await doImportFile(file.path)
-    }
-
-    /** 真正的导入执行：二次确认 → importFromFile → 刷新 */
-    async function doImportFile(path) {
       const ok = await confirmDialog({
         title: '用这个文件覆盖当前数据？',
-        content: '导入会清空当前所有账户、交易、分类，再写入文件里的内容。\n导入前会自动备份一次，万一不对可以从备份恢复。',
+        content: `${file.name}\n\n导入会清空当前所有账户、交易、分类，再写入文件里的内容。\n导入前会自动备份一次，万一不对可以从备份恢复。`,
         confirmText: '导入',
         danger: true
       })
@@ -546,7 +518,7 @@ export default {
 
       uni.showLoading({ title: '导入中…' })
       try {
-        const report = await importFromFile(path)
+        const report = await importFromFile(file.path)
         uni.hideLoading()
 
         clearSettingsCache()
@@ -739,10 +711,6 @@ export default {
      */
     onLoad((options) => {
       pendingTab.value = (options && options.tab) || ''
-      // ★ 提前注册 onActivityResult 监听 ★
-      //   这个基座懒注册收不到回调，必须在页面加载时就监听，
-      //   这样「系统文件选择」才能拿到选中结果。
-      ensureSystemPickListener()
     })
 
     onMounted(async () => {
