@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="主题外观" @back="goBack" />
 
@@ -13,7 +13,9 @@
             class="mode-row"
             @click="setMode(m.key)"
           >
-            <text class="mode-icon">{{ m.icon }}</text>
+            <view class="mode-icon">
+              <LineIcon :name="m.icon" :size="20" :color="primaryColor" />
+            </view>
             <view class="mode-info">
               <text class="mode-name">{{ m.name }}</text>
               <text class="mode-desc">{{ m.desc }}</text>
@@ -54,53 +56,6 @@
         </view>
       </view>
 
-      <!-- 预览 -->
-      <view class="section">
-        <text class="section-title">预览</text>
-        <view class="preview-card">
-          <view class="preview-head">
-            <view class="preview-avatar" :style="{ backgroundColor: primaryColor }">
-              <text class="preview-avatar-text">记</text>
-            </view>
-            <view class="preview-info">
-              <text class="preview-name">记账人</text>
-              <text class="preview-date">10月27日 周一</text>
-            </view>
-          </view>
-          <text class="preview-label">本月结余</text>
-          <text class="preview-amount" :style="{ color: 'var(--app-text)' }">¥ 2,480.50</text>
-          <view class="preview-row">
-            <view class="preview-item">
-              <text class="preview-item-label">支出</text>
-              <text class="preview-item-value">¥ 1,519.50</text>
-            </view>
-            <view class="preview-item">
-              <text class="preview-item-label">收入</text>
-              <text class="preview-item-value">¥ 4,000.00</text>
-            </view>
-          </view>
-          <view class="preview-btn" :style="{ backgroundColor: primaryColor }">
-            <text class="preview-btn-text">记一笔</text>
-          </view>
-        </view>
-      </view>
-
-      <!-- 隐私模式 -->
-      <view class="section">
-        <text class="section-title">隐私</text>
-        <view class="switch-row">
-          <view class="switch-info">
-            <text class="switch-name">金额脱敏</text>
-            <text class="switch-desc">打开后所有页面金额显示为 ****</text>
-          </view>
-          <switch
-            :checked="privacyMode"
-            :color="primaryColor"
-            @change="onPrivacyChange"
-          />
-        </view>
-      </view>
-
       <view class="bottom-space" />
     </scroll-view>
   </view>
@@ -109,28 +64,37 @@
 <script>
 import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
 
 export default {
-  components: { PageNav },
+  components: { PageNav, LineIcon },
   setup() {
     const settingStore = useSettingStore()
 
     const presets = THEME_PRESETS
 
+    /**
+     * 深浅模式的三种选项
+     *
+     * ★ 用线性图标，不用 emoji ★
+     *   emoji 是彩色位图，各系统长得完全不一样，
+     *   也没法跟随主题色。改成 utils/lineIcons.js 里的描边图标：
+     *     auto —— 半亮半暗的圆（跟随系统）
+     *     sun  —— 太阳（浅色）
+     *     moon —— 月亮（深色）
+     */
     const modes = [
-      { key: THEME_MODE.SYSTEM, icon: '🌗', name: '跟随系统', desc: '随手机深浅色自动切换' },
-      { key: THEME_MODE.LIGHT, icon: '☀️', name: '浅色', desc: '始终使用浅色主题' },
-      { key: THEME_MODE.DARK, icon: '🌙', name: '深色', desc: '始终使用深色主题' }
+      { key: THEME_MODE.SYSTEM, icon: 'auto', name: '跟随系统', desc: '随手机深浅色自动切换' },
+      { key: THEME_MODE.LIGHT, icon: 'sun', name: '浅色', desc: '始终使用浅色主题' },
+      { key: THEME_MODE.DARK, icon: 'moon', name: '深色', desc: '始终使用深色主题' }
     ]
 
     const themeMode = computed(() => settingStore.settings.themeMode)
     const themePreset = computed(() => settingStore.settings.themePreset)
-    const privacyMode = computed(() => settingStore.privacyMode)
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
-
 
     async function setMode(key) {
       await settingStore.setThemeMode(key)
@@ -141,18 +105,14 @@ export default {
       await settingStore.setThemePreset(key)
     }
 
-    async function onPrivacyChange(e) {
-      await settingStore.setPrivacyMode(e.detail.value)
-    }
-
     function goBack() {
       uni.navigateBack()
     }
 
     return {
-      presets, modes, themeMode, themePreset, privacyMode,
+      presets, modes, themeMode, themePreset,
       primaryColor, pageStyle,
-      setMode, setPreset, onPrivacyChange, goBack, settingStore
+      setMode, setPreset, goBack, settingStore
     }
   }
 }
@@ -194,8 +154,13 @@ export default {
   border-bottom: none;
 }
 
+/* 模式图标（线性描边图标，size 单位是 px） */
 .mode-icon {
-  font-size: 34rpx;
+  width: 40rpx;
+  height: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -277,132 +242,6 @@ export default {
 
 .preset-name {
   font-size: 22rpx;
-}
-
-/* 预览 */
-.preview-card {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 28rpx;
-}
-
-.preview-head {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  margin-bottom: 28rpx;
-}
-
-.preview-avatar {
-  width: 68rpx;
-  height: 68rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.preview-avatar-text {
-  color: #ffffff;
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.preview-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2rpx;
-}
-
-.preview-name {
-  font-size: 26rpx;
-  color: var(--app-text);
-  font-weight: 500;
-}
-
-.preview-date {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-}
-
-.preview-label {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  display: block;
-}
-
-.preview-amount {
-  font-size: 56rpx;
-  font-weight: 600;
-  line-height: 1.3;
-  font-variant-numeric: tabular-nums;
-}
-
-.preview-row {
-  display: flex;
-  gap: 40rpx;
-  margin-top: 20rpx;
-  padding-top: 20rpx;
-  border-top: 1rpx solid var(--app-line);
-}
-
-.preview-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-
-.preview-item-label {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-}
-
-.preview-item-value {
-  font-size: 26rpx;
-  color: var(--app-text-2);
-}
-
-.preview-btn {
-  margin-top: 24rpx;
-  height: 80rpx;
-  border-radius: 16rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.preview-btn-text {
-  color: #ffffff;
-  font-size: 28rpx;
-  font-weight: 500;
-}
-
-/* 开关 */
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 28rpx;
-  gap: 20rpx;
-}
-
-.switch-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-
-.switch-name {
-  font-size: 28rpx;
-  color: var(--app-text);
-}
-
-.switch-desc {
-  font-size: 22rpx;
-  color: var(--app-text-3);
 }
 
 </style>

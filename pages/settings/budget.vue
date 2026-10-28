@@ -3,6 +3,16 @@
     <PageNav title="预算管理" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
+      <!--
+        ★ 层级结构 ★
+          总预算（本月总支出上限）
+            └─ 已分配合计（从总预算里分给各分类的额度）
+                 ├─ 分类预算 A
+                 ├─ 分类预算 B
+                 └─ 未分配额度
+        分类预算是总预算的**子额度**，不是独立额度。
+      -->
+
       <!-- 总预算 -->
       <view class="card">
         <view class="card-head">
@@ -35,11 +45,19 @@
               }"
             />
           </view>
-          <text class="usage-tip">
-            {{ totalBudget.over
-              ? `已超支 ¥${((totalBudget.used - totalBudget.limit) / 100).toFixed(2)}`
-              : `剩余 ¥${(totalBudget.remaining / 100).toFixed(2)}，日均可用 ¥${(totalBudget.dailyAvailable / 100).toFixed(0)}` }}
-          </text>
+          <view class="total-foot">
+            <view class="total-foot-item">
+              <text class="total-foot-label">剩余</text>
+              <text
+                class="total-foot-num"
+                :style="{ color: totalBudget.remaining < 0 ? 'var(--app-danger)' : 'var(--app-text)' }"
+              >¥{{ (totalBudget.remaining / 100).toFixed(2) }}</text>
+            </view>
+            <view class="total-foot-item">
+              <text class="total-foot-label">日均可用</text>
+              <text class="total-foot-num">¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}</text>
+            </view>
+          </view>
         </view>
 
         <view v-else class="empty-hint" @click="editTotalBudget">
@@ -47,12 +65,49 @@
         </view>
       </view>
 
-      <!-- 分类预算 -->
+      <!-- 已分配合计（总预算的分配情况） -->
+      <view v-if="allocation.hasTotal" class="card">
+        <view class="card-head">
+          <view class="card-title-row">
+            <text class="card-title">已分配分类预算</text>
+            <text class="card-sub">从总预算里分给各分类的额度</text>
+          </view>
+        </view>
+
+        <view class="alloc">
+          <view class="alloc-head">
+            <text class="alloc-label">已分配合计</text>
+            <text class="alloc-value">
+              <text class="alloc-num">{{ (allocation.allocated / 100).toFixed(0) }}</text>
+              <text class="alloc-total">/ {{ (allocation.totalLimit / 100).toFixed(0) }} 元</text>
+            </text>
+          </view>
+
+          <view class="usage-bar">
+            <view
+              class="usage-fill"
+              :style="{
+                width: Math.min(allocation.allocatedPercent, 100) + '%',
+                backgroundColor: allocation.overAllocated ? 'var(--app-danger)' : primaryColor
+              }"
+            />
+          </view>
+
+          <text v-if="allocation.overAllocated" class="alloc-warn">
+            分类预算合计已超出总预算 ¥{{ (Math.abs(allocation.unallocated) / 100).toFixed(2) }}
+          </text>
+          <text v-else class="alloc-tip">
+            未分配额度 <text class="alloc-unallocated">¥{{ (allocation.unallocated / 100).toFixed(2) }}</text>
+          </text>
+        </view>
+      </view>
+
+      <!-- 分类预算（总预算的子项） -->
       <view class="card">
         <view class="card-head">
           <view class="card-title-row">
             <text class="card-title">分类预算</text>
-            <text class="card-sub">对特定分类单独限额</text>
+            <text class="card-sub">{{ categorySubTitle }}</text>
           </view>
           <text class="card-action" @click="openCategoryPicker">+ 添加</text>
         </view>
@@ -80,7 +135,10 @@
           >
             <view class="cat-budget" @click="goBudgetDetail(b)">
               <view class="cat-budget-head">
-                <text class="cat-budget-name">{{ b.name }}</text>
+                <view class="cat-budget-title">
+                  <view class="cat-budget-dot" :style="{ backgroundColor: primaryColor }" />
+                  <text class="cat-budget-name">{{ b.name }}</text>
+                </view>
               </view>
               <view class="usage-head">
                 <MoneyText :cents="b.used" :size="30" :weight="500" color="var(--app-text)" />
@@ -99,6 +157,9 @@
                   }"
                 />
               </view>
+              <text class="cat-budget-remaining" :class="{ danger: b.remaining < 0 }">
+                剩余 ¥{{ (b.remaining / 100).toFixed(2) }}
+              </text>
             </view>
 
             <!--
@@ -123,8 +184,8 @@
 
       <view class="tip-card">
         <text class="tip-text">
-          预算按自然月计算。分类预算与总预算相互独立，
-          总预算已设置时，分类预算的额度不占用总预算。
+          预算按自然月计算。分类预算是总预算下设的子额度，
+          分类预算的额度从总预算里分配出去，不额外占用额度。
         </text>
       </view>
 
@@ -199,7 +260,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getBudgetUsage } from '@/api/stats.js'
-import { listBudgets, createBudget, updateBudget, deleteBudget } from '@/api/budget.js'
+import { listBudgets, createBudget, updateBudget, deleteBudget, summarizeAllocation, checkCategoryAllocation } from '@/api/budget.js'
 import { listCategories } from '@/api/category.js'
 import { yuanToCents } from '@/utils/money.js'
 import { toMonthKey } from '@/utils/date.js'
@@ -257,6 +318,27 @@ export default {
 
     const totalBudget = computed(() => usages.value.find((b) => b.scope === 'total') || null)
     const categoryBudgets = computed(() => usages.value.filter((b) => b.scope === 'category'))
+
+    /**
+     * 额度分配情况
+     *
+     * ★ 分类预算是总预算的子额度 ★
+     *   已分配合计 = 所有分类预算的额度之和
+     *   未分配额度 = 总预算 - 已分配合计
+     *   超出时（已分配合计 > 总预算）红色提示
+     */
+    const allocation = computed(() => summarizeAllocation(usages.value))
+
+    /**
+     * 「分类预算」卡片的副标题
+     *
+     * 有总预算时说明是从总预算里分出来的；
+     * 没总预算时提示先设总预算（但**不阻止**单独设分类预算）。
+     */
+    const categorySubTitle = computed(() => {
+      if (!allocation.value.hasTotal) return '建议先设置总预算，分类额度从中分配'
+      return '额度从总预算里分配'
+    })
 
     /** 已被设过预算的分类不能再选 */
     const usedCategoryIds = computed(() =>
@@ -347,6 +429,16 @@ export default {
       showEditor.value = true
     }
 
+    /**
+     * 保存预算
+     *
+     * ★ 分类预算超额时只提示、不硬拦 ★
+     *   分类预算是总预算的子额度，分配加起来超过总预算时
+     *   应该提醒用户（「已分配合计会超出总预算」），
+     *   但**不能直接拒绝保存** ——
+     *   用户可能有自己的理由（先按旧额度设好，之后再调总预算）。
+     *   所以弹窗问一句，用户确认就照样保存。
+     */
     async function saveBudget() {
       const cents = yuanToCents(editorAmount.value)
       if (!(cents > 0)) {
@@ -356,6 +448,30 @@ export default {
       if (editorMode.value === 'category' && !editorCategoryId.value) {
         uni.showToast({ title: '请选择分类', icon: 'none' })
         return
+      }
+
+      // 分类预算：检查会不会超出总预算
+      if (editorMode.value === 'category') {
+        const check = checkCategoryAllocation(
+          usages.value,
+          cents,
+          editorBudgetId.value || undefined
+        )
+        if (check.wouldOver) {
+          const ok = await confirmDialog({
+            title: '分类预算会超出总预算',
+            content:
+              `总预算 ¥${(check.totalLimit / 100).toFixed(0)}，` +
+              `已分配 ¥${(check.allocated / 100).toFixed(0)}，` +
+              `这次再分配 ¥${(cents / 100).toFixed(0)}，` +
+              `合计会超出 ¥${(check.overflow / 100).toFixed(0)}。\n` +
+              '仍要保存吗？',
+            confirmText: '仍要保存',
+            cancelText: '回去改'
+          })
+          closeAllSwipes()
+          if (!ok) return
+        }
       }
 
       try {
@@ -420,7 +536,8 @@ export default {
     return {
       usages, categories, showEditor, editorMode, editorCategoryId, editorAmount,
       showCatPicker, primaryColor, pageStyle, swipeStates,
-      totalBudget, categoryBudgets, availableCategories, categoryActions, editorTitle,
+      totalBudget, categoryBudgets, allocation, categorySubTitle,
+      availableCategories, categoryActions, editorTitle,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
       goBudgetDetail, onCategorySelect, saveBudget, removeBudget,
       closeEditor, closeAllSwipes, goBack, settingStore
@@ -512,6 +629,83 @@ export default {
   color: var(--app-text-3);
 }
 
+/* 总预算底部的「剩余 / 日均可用」 */
+.total-foot {
+  display: flex;
+  align-items: center;
+  gap: 32rpx;
+  margin-top: 4rpx;
+}
+
+.total-foot-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+}
+
+.total-foot-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.total-foot-num {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 已分配合计 */
+.alloc {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.alloc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.alloc-label {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+}
+
+.alloc-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+}
+
+.alloc-num {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.alloc-total {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
+.alloc-tip {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.alloc-unallocated {
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+.alloc-warn {
+  font-size: 22rpx;
+  color: var(--app-danger);
+}
+
 .empty-hint {
   padding: 32rpx 0;
   text-align: center;
@@ -550,10 +744,33 @@ export default {
   justify-content: space-between;
 }
 
+/* 分类名前的小圆点：表示这是总预算下的一个子项 */
+.cat-budget-title {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.cat-budget-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .cat-budget-name {
   font-size: 27rpx;
   color: var(--app-text);
   font-weight: 500;
+}
+
+.cat-budget-remaining {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.cat-budget-remaining.danger {
+  color: var(--app-danger);
 }
 
 /* 右滑操作区：修改 / 删除 */

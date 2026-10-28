@@ -44,7 +44,9 @@ const REQUIRED_KEYS = [
   'category', 'tag', 'budget', 'theme', 'ai',
   'data', 'backup', 'about', 'cycle', 'account',
   'home', 'stats', 'mine', 'plus', 'edit',
-  'trash', 'check', 'close'
+  'trash', 'check', 'close',
+  // 深浅模式（主题外观页）
+  'auto', 'sun', 'moon'
 ]
 
 for (const key of REQUIRED_KEYS) {
