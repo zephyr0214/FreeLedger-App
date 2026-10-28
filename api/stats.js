@@ -1001,16 +1001,65 @@ export async function getBudgetUsage(monthKey) {
   const monthExpense = Number(totalRow ? totalRow.amt : 0)
 
   // 分类支出
+  //
+  // ★ 这里必须同时按「一级」和「二级」两个口径算 ★
+  //   budget.category_id 存的是用户在分类选择器里选的那个分类 ——
+  //   而选择器只让选**叶子分类**（二级）。
+  //   如果这里只用 COALESCE(c.parent_id, c.id) 归并到一级，
+  //   那么 key 全是一级 id，用它去查 catMap[某个二级 id] 永远是 0，
+  //   于是「分类预算统计有误，交易未统计在内」。
+  //
+  //   所以两套口径都查一遍：
+  //     catMapRoot  一级 id -> 该一级下所有交易的合计
+  //     catMapLeaf  二级 id -> 该二级自己的交易合计
+  //   取用时先看 lid 是不是二级（有 parent_id），
+  //   是就查 leaf，否则查 root。
   const catRows = await query(
-    `SELECT COALESCE(c.parent_id, c.id) AS root_id, SUM(t.amount_cents) AS amt
+    `SELECT COALESCE(c.parent_id, c.id) AS root_id,
+            t.category_id AS leaf_id,
+            SUM(t.amount_cents) AS amt
      FROM txn t LEFT JOIN category c ON c.id = t.category_id
      WHERE t.deleted_at IS NULL AND t.type='expense' AND t.month_key = ?
        AND COALESCE(t.exclude_from_budget, 0) = 0
-     GROUP BY root_id`,
+     GROUP BY root_id, leaf_id`,
     [mk]
   )
-  const catMap = {}
-  catRows.forEach((r) => { catMap[r.root_id] = Number(r.amt) || 0 })
+  const catMapRoot = {}
+  const catMapLeaf = {}
+  catRows.forEach((r) => {
+    const amt = Number(r.amt) || 0
+    if (r.root_id) catMapRoot[r.root_id] = (catMapRoot[r.root_id] || 0) + amt
+    if (r.leaf_id) catMapLeaf[r.leaf_id] = (catMapLeaf[r.leaf_id] || 0) + amt
+  })
+
+  /**
+   * 某个分类 id（一级或二级）对应的支出合计。
+   *
+   * ★ 为什么不能简单地「有 leaf 就用 leaf」★
+   *   一级分类也可能**直接**挂着交易（比如「其他/杂项」这种没有二级的），
+   *   那样 catMapLeaf['一级id'] 也会存在。
+   *   如果优先取 leaf，一级预算就只会统计到那几笔直接挂一级的交易，
+   *   把它下面所有二级的交易全漏掉 —— 这是写这个测试时才发现的坑。
+   *
+   *   正确做法：先判断这个 id 是不是「父分类」。
+   *   是父分类 -> 用 root 口径（含所有子孙）
+   *   是叶子   -> 用 leaf 口径（只算自己）
+   *
+   *   parentIds 是从 GROUP BY 结果里收集的：只要有任意一行的
+   *   root_id === leaf_id，说明这个 id 自己就是根（没有 parent）。
+   */
+  const parentIds = new Set()
+  catRows.forEach((r) => {
+    if (r.root_id && r.root_id === r.leaf_id) parentIds.add(r.root_id)
+  })
+
+  const usedOf = (catId) => {
+    if (!catId) return 0
+    if (parentIds.has(catId)) return catMapRoot[catId] || 0
+    return catMapLeaf[catId] !== undefined
+      ? catMapLeaf[catId]
+      : (catMapRoot[catId] || 0)
+  }
 
   // 分类名称
   const catIds = budgets.filter((b) => b.scope === 'category' && b.category_id).map((b) => b.category_id)
@@ -1025,7 +1074,7 @@ export async function getBudgetUsage(monthKey) {
 
   return budgets.map((b) => {
     const limit = Number(b.amount_cents) || 0
-    const used = b.scope === 'total' ? monthExpense : (catMap[b.category_id] || 0)
+    const used = b.scope === 'total' ? monthExpense : usedOf(b.category_id)
     const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0
     const remaining = limit - used
     const dailyAvailable = remain > 0 ? Math.max(Math.round(remaining / remain), 0) : 0
@@ -1145,24 +1194,64 @@ export async function getBudgetUsageRange(range) {
 
   // 区间内的月度支出（总支出 + 分类支出）
   // ★ 排除标记了「不计入预算」的交易 ★
+  //
+  // ★ 一级 / 二级两套口径都要留 ★
+  //   budget.category_id 存的是选择器里选的叶子（二级）分类，
+  //   只按 COALESCE(parent_id, id) 归并到一级的话，
+  //   拿二级 id 去查永远是 0 —— 分类预算的「已用」就恒为 0。
+  //   （和 getBudgetUsage 里同样的坑，两处必须一致。）
   const monthRows = await query(
-    `SELECT t.month_key AS mk, COALESCE(c.parent_id, c.id) AS root_id,
+    `SELECT t.month_key AS mk,
+            COALESCE(c.parent_id, c.id) AS root_id,
+            t.category_id AS leaf_id,
             COALESCE(SUM(t.amount_cents),0) AS amt
      FROM txn t LEFT JOIN category c ON c.id = t.category_id
      WHERE t.deleted_at IS NULL AND t.type='expense'
        AND COALESCE(t.exclude_from_budget, 0) = 0${withScope('', scope)}
-     GROUP BY t.month_key, root_id`,
+     GROUP BY t.month_key, root_id, leaf_id`,
     scope.params
   )
   const totalByMonth = {}
-  const catByMonth = {}
+  const catRootByMonth = {}
+  const catLeafByMonth = {}
   monthRows.forEach((r) => {
     const mk = r.mk
     const amt = Number(r.amt) || 0
     totalByMonth[mk] = (totalByMonth[mk] || 0) + amt
-    if (!catByMonth[mk]) catByMonth[mk] = {}
-    catByMonth[mk][r.root_id] = amt
+    if (r.root_id) {
+      if (!catRootByMonth[mk]) catRootByMonth[mk] = {}
+      catRootByMonth[mk][r.root_id] = (catRootByMonth[mk][r.root_id] || 0) + amt
+    }
+    if (r.leaf_id) {
+      if (!catLeafByMonth[mk]) catLeafByMonth[mk] = {}
+      catLeafByMonth[mk][r.leaf_id] = (catLeafByMonth[mk][r.leaf_id] || 0) + amt
+    }
   })
+
+  /**
+   * 某个月里，某个分类（一级或二级）的支出。
+   *
+   * ★ 必须区分父子，不能「有 leaf 就用 leaf」★
+   *   一级分类也可能直接挂交易（「其他/杂项」这类没有二级的），
+   *   那样 leaf 里也有它的 key；优先取 leaf 会把整棵子树漏掉。
+   *   判断依据：root_id === leaf_id 说明这个 id 自己是根。
+   */
+  const parentIds = new Set()
+  monthRows.forEach((r) => {
+    if (r.root_id && r.root_id === r.leaf_id) parentIds.add(r.root_id)
+  })
+
+  const usedOfMonth = (mk, catId) => {
+    if (!catId) return 0
+    if (parentIds.has(catId)) {
+      const root = catRootByMonth[mk]
+      return (root && root[catId]) || 0
+    }
+    const leaf = catLeafByMonth[mk]
+    if (leaf && leaf[catId] !== undefined) return leaf[catId]
+    const root = catRootByMonth[mk]
+    return (root && root[catId]) || 0
+  }
 
   // 分类名称
   const catIds = budgets.filter((b) => b.scope === 'category' && b.category_id).map((b) => b.category_id)
@@ -1201,7 +1290,7 @@ export async function getBudgetUsageRange(range) {
     if (b.scope === 'total') {
       for (const m of effective) used += totalByMonth[m] || 0
     } else {
-      for (const m of effective) used += (catByMonth[m] && catByMonth[m][b.category_id]) || 0
+      for (const m of effective) used += usedOfMonth(m, b.category_id)
     }
 
     const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0

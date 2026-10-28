@@ -184,7 +184,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { queryOne } from '@/api/db/index.js'
 import {
   exportToFile, listExportFiles, importFromFile, autoBackup,
-  listBackups, importPayload, toAbsolutePath, copyFileTo
+  listBackups, importPayload, toAbsolutePath, copyFileTo, resolveSharePath
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
@@ -329,29 +329,43 @@ export default {
     /**
      * 分享导出的文件。
      *
-     * ★ 必须传绝对路径 ★
-     *   plus.share.sendWithSystem 的 filePath 要的是 file:///... 这种绝对路径，
-     *   传 '_doc/export/xxx.json' 相对路径在多数 ROM 上直接失败 ——
-     *   用户看到的就是「发送失败」。
-     *   所以先用 toAbsolutePath() 转一次。
+     * ★ 为什么会「获取资源失败」★
+     *   plus.share.sendWithSystem 的 filePath 必须是可以直接打开的
+     *   file:// 绝对路径。之前传 '_doc/export/xxx.json' 这种相对路径，
+     *   系统分享解析不到资源，就报「获取资源失败」。
+     *
+     *   而且光转换还不够 —— 得先确认文件真的在磁盘上（写失败的情况要能
+     *   说清楚），所以这里用 resolveSharePath()：它先 resolve 文件，
+     *   拿到 fullPath 再做绝对路径转换。
      */
-    function shareFile(relPath) {
+    async function shareFile(relPath) {
       if (typeof plus === 'undefined') {
         uni.showToast({ title: '分享仅在 App 端可用', icon: 'none' })
         return
       }
 
-      const absPath = toAbsolutePath(relPath)
+      let absPath = ''
+      try {
+        absPath = await resolveSharePath(relPath)
+      } catch (e) {
+        await alertDialog({
+          title: '无法分享',
+          content: (e && e.message) || '导出文件不存在'
+        })
+        return
+      }
 
       try {
         plus.share.sendWithSystem(
           { type: 'file', filePath: absPath },
           () => {},
           (e) => {
-            // 分享失败时至少告诉用户文件在哪，别让人以为白导了
             uni.showModal({
-              title: '分享失败',
-              content: `系统分享没有成功（${(e && e.message) || '未知原因'}）。\n文件已保存到：\n${absPath}`,
+              title: '分享没有完成',
+              content:
+                `系统分享返回：${(e && e.message) || '未知原因'}\n\n` +
+                `文件本身是好的，位置在：\n${absPath}\n\n` +
+                '可以用文件管理器打开这个路径，或者用「复制到指定文件夹」挪到下载目录。',
               showCancel: false,
               confirmText: '知道了'
             })

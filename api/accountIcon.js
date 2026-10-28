@@ -128,18 +128,30 @@ export async function generateAccountIcon(name, typeName, opt = {}) {
     [
       {
         role: 'system',
-        content: '你是一个 SVG 绘图引擎。只输出符合要求的 SVG 代码，不输出任何其他内容。'
+        content:
+          '你是一个 SVG 绘图引擎。只输出符合要求的 SVG 代码，不输出任何其他内容。' +
+          '不要思考、不要解释、不要分步推理，直接给出最终 SVG。'
       },
-      { role: 'user', content: prompt }
+      {
+        role: 'user',
+        content:
+          '直接输出 SVG，不要任何前言或后记：\n\n' + prompt
+      }
     ],
     {
-      // ★ maxTokens 要留够 ★
-      //   一个带若干 path 的 SVG 轻松超过 400 token，
-      //   400 会被截断成半截 SVG → sanitizeSvg 拿不到 </svg> → 返回 null，
-      //   用户看到的就是「生成失败」。
-      maxTokens: 800,
-      temperature: 0.6,
-      timeoutMs: opt.timeoutMs || 30000
+      // ★ 明确关掉思考模式 ★
+      //   默认值就是 true，但这里显式写出来 ——
+      //   画图标是个「填空题」，不需要推理链，
+      //   开着思考模式会先吐一大段 thinking 再出结果，
+      //   耗时能翻两三倍（用户反馈「AI 图标绘制速度很慢」）。
+      disableThinking: true,
+      // maxTokens 要留够：一个带若干 path 的 SVG 轻松超过 400 token，
+      // 被截断成半截就拿不到 </svg>，sanitizeSvg 只能返回 null。
+      // 但也别开太大 —— 上限越大，个别网关的排队越久。
+      maxTokens: 700,
+      // 画图不需要随机性，温度压到很低能让输出更「确定」也更短
+      temperature: 0.2,
+      timeoutMs: opt.timeoutMs || 25000
     }
   )
 

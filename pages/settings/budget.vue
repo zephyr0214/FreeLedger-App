@@ -235,6 +235,17 @@
             </view>
           </view>
         </view>
+
+        <!--
+          ★ 删除入口 ★
+            用户反馈：「总预算和分类预算均没有设置删除功能，
+            要在总预算的修改和分类预算的编辑中添加删除功能」。
+            只在「编辑已有预算」时出现（editorBudgetId 非空），
+            新建时不显示。
+        -->
+        <view v-if="editorBudgetId" class="editor-danger">
+          <text class="danger-link" @click="onDeleteFromEditor">删除这个预算</text>
+        </view>
       </view>
     </wd-popup>
 
@@ -513,6 +524,41 @@ export default {
       }
     }
 
+    /**
+     * 从编辑弹层里删除当前这条预算。
+     *
+     * ★ 为什么总预算也要能删 ★
+     *   之前只有「设置/修改」，没有删除。
+     *   用户设错了一次就再也回不到「未设置」状态，
+     *   只能把金额改成一个很大的数来假装没有 —— 这显然不合理。
+     *
+     * 总预算和分类预算都支持（editorBudgetId 指向当前编辑的那条）。
+     */
+    async function onDeleteFromEditor() {
+      const id = editorBudgetId.value
+      if (!id) return
+
+      const isTotal = editorMode.value === 'total'
+      const ok = await confirmDialog({
+        title: isTotal ? '删除总预算？' : '删除这个分类预算？',
+        content: isTotal
+          ? '删除后本月不再有总支出上限。已产生的交易不受影响。'
+          : '删除后这个分类不再单独限额。已产生的交易不受影响。',
+        confirmText: '删除',
+        danger: true
+      })
+      if (!ok) return
+
+      try {
+        await deleteBudget(id)
+        closeEditor()
+        await load()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
+    }
+
     function goBack() {
       uni.navigateBack()
     }
@@ -535,11 +581,13 @@ export default {
 
     return {
       usages, categories, showEditor, editorMode, editorCategoryId, editorAmount,
+      editorBudgetId,
       showCatPicker, primaryColor, pageStyle, swipeStates,
       totalBudget, categoryBudgets, allocation, categorySubTitle,
       availableCategories, categoryActions, editorTitle,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
       goBudgetDetail, onCategorySelect, saveBudget, removeBudget,
+      onDeleteFromEditor,
       closeEditor, closeAllSwipes, goBack, settingStore
     }
   }
@@ -720,22 +768,36 @@ export default {
 .cat-budget-list {
   display: flex;
   flex-direction: column;
-  gap: 28rpx;
+  gap: 20rpx;
 }
 
-/* wd-swipe-action 的外层：每一行独立包一层 */
+/*
+  wd-swipe-action 的外层：每一行独立包一层
+
+  ★ 为什么要 overflow: hidden ★
+    这里给了圆角（border-radius），但如果不裁剪，
+    右滑滑出来的「修改 / 删除」两个色块是直角，
+    就会从圆角外面顶出去 —— 这就是用户说的「穿模」。
+    加上 overflow: hidden 之后，操作区被裁进圆角里，边缘就干净了。
+
+  ★ 为什么 padding 要移进 .cat-budget ★
+    外层的 padding 会把右滑操作区也推进来，
+    导致滑出来的按钮左边留一条底色空隙（看着像按钮没贴合）。
+    把内边距放到内容行上，操作区自己贴边。
+*/
 .budget-swipe {
   display: block;
   border-radius: 16rpx;
   background-color: var(--app-card-2);
-  padding: 0 20rpx;
+  overflow: hidden;
 }
 
 .cat-budget {
   display: flex;
   flex-direction: column;
   gap: 10rpx;
-  padding: 8rpx 0;
+  padding: 16rpx 20rpx;
+  background-color: var(--app-card-2);
 }
 
 .cat-budget-head {
@@ -836,6 +898,22 @@ export default {
 
 .editor-body {
   padding: 8rpx 28rpx 32rpx;
+}
+
+/*
+  编辑弹层底部的「删除这个预算」
+  单独一块区域，和上面的表单用分割线隔开，
+  文字用危险色 —— 和标签/分类页的删除入口同一套写法。
+*/
+.editor-danger {
+  padding: 28rpx;
+  border-top: 1rpx solid var(--app-line);
+  text-align: center;
+}
+
+.danger-link {
+  font-size: 28rpx;
+  color: var(--app-danger);
 }
 
 .editor-row {

@@ -172,23 +172,98 @@ function doCopy(srcEntry, dirEntry, fileName, targetDir, resolve, reject) {
  * ★ 为什么必须转 ★
  *   plus.share.sendWithSystem 的 filePath 要的是**绝对路径**，
  *   传 '_doc/export/xxx.json' 这种相对路径，
- *   多数 ROM 上直接失败（表现为「发送失败」）。
- *   先用 plus.io.convertLocalFileSystemURL 转成 file:///...
+ *   系统分享会报「获取资源失败」（拿不到这个资源）。
  *
- * @param {string} relPath 相对路径
- * @returns {string} 绝对路径（转换失败时原样返回）
+ * ★ 为什么 convertLocalFileSystemURL 不一定够 ★
+ *   它在不同基座/ROM 上返回的东西不一样：
+ *     有的返回 file:///storage/emulated/0/Android/data/<pkg>/doc/xxx.json
+ *     有的只返回 /storage/... 这样的裸路径（没有 file:// 前缀）
+ *     还有的（HBuilderX 标准基座）会原样把 _doc/xxx 返回回来
+ *   后两种都还是拿不到资源。
+ *
+ *   所以这里做三重兜底：
+ *     1. convertLocalFileSystemURL，结果带 file:// 就直接用
+ *     2. 结果不带 file:// 但以 / 开头 → 前面补 file://
+ *     3. 上面都不行 → 用 plus.io 的根目录 root.fullPath 自己拼
+ *
+ * @param {string} relPath 相对路径，如 '_doc/export/books_xxx.json'
+ * @returns {string} 绝对路径（尽力而为，转换不出来就原样返回）
  */
 export function toAbsolutePath(relPath) {
   if (typeof plus === 'undefined' || !relPath) return relPath || ''
+
+  const raw = String(relPath)
+
+  // 已经是 file:// 就原样返回
+  if (/^file:\/\//i.test(raw)) return raw
+
+  // ---- 1) 系统转换 ----
   try {
     if (plus.io && typeof plus.io.convertLocalFileSystemURL === 'function') {
-      const abs = plus.io.convertLocalFileSystemURL(relPath)
-      if (abs) return abs
+      const abs = plus.io.convertLocalFileSystemURL(raw)
+      if (abs && typeof abs === 'string') {
+        if (/^file:\/\//i.test(abs)) return abs
+        // 裸绝对路径 -> 补协议
+        if (abs.startsWith('/')) return 'file://' + abs
+      }
     }
   } catch (e) {
     console.warn('[backup] 路径转换失败:', e && e.message)
   }
-  return relPath
+
+  // ---- 2) 用 plus.io 的根目录自己拼 ----
+  //   plus.io 里 _doc 对应应用私有文档目录，
+  //   root.fullPath 一般是 file:///storage/emulated/0/Android/data/<pkg>/
+  try {
+    if (typeof plus.io !== 'undefined' && plus.io) {
+      const docDir = plus.io.PRIVATE_DOC || '_doc/'
+      const joined = raw.replace(/^_doc\//, docDir)
+      if (/^file:\/\//i.test(joined)) return joined
+    }
+  } catch (e) {}
+
+  // ---- 3) 实在转不出来 ----
+  //   返回原值，让调用方把「文件在哪」告诉用户（至少不至于白导）
+  return raw
+}
+
+/**
+ * 确保分享前文件真的在磁盘上，并把路径转成绝对路径。
+ *
+ * 分享报「获取资源失败」还有一个可能：文件压根没写成功。
+ * 所以这里先 resolve 一次，确认拿得到 fileEntry 再返回路径。
+ *
+ * @param {string} relPath 相对路径
+ * @returns {Promise<string>} 绝对路径
+ */
+export function resolveSharePath(relPath) {
+  return new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined') {
+      reject(new Error('分享仅在 App 端可用'))
+      return
+    }
+    if (!relPath) {
+      reject(new Error('文件路径为空'))
+      return
+    }
+
+    // 先确认文件存在
+    plus.io.resolveLocalFileSystemURL(
+      relPath,
+      (entry) => {
+        if (!entry || !entry.isFile) {
+          reject(new Error('导出文件不存在，请重新导出'))
+          return
+        }
+        // fullPath 在多数基座上是绝对路径，优先用它
+        let p = ''
+        try { p = entry.fullPath || '' } catch (e) {}
+        const abs = toAbsolutePath(p || relPath)
+        resolve(abs)
+      },
+      () => reject(new Error('导出文件不存在，请重新导出'))
+    )
+  })
 }
 
 /**
