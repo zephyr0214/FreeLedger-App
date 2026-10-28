@@ -6,3 +6,6 @@ dist/
 *.log
 .idea/
 .vscode/
+
+# HBuilderX 自动生成的隐私协议配置（每次打包都会重写）
+androidPrivacy.json
