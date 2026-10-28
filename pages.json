@@ -84,6 +84,13 @@
 			}
 		},
 		{
+			"path": "pages/settings/cycle",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "周期管理"
+			}
+		},
+		{
 			"path": "pages/settings/tag",
 			"style": {
 				"navigationStyle": "custom",

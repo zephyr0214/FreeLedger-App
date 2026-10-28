@@ -137,7 +137,7 @@
                 :key="t.key"
                 class="chip"
                 :class="{ active: filter.type === t.key }"
-                @click="filter.type = t.key"
+                @click="onTypeChange(t.key)"
               >
                 <text class="chip-text" :style="{ color: filter.type === t.key ? primaryColor : 'var(--app-text-2)' }">
                   {{ t.name }}
@@ -171,28 +171,69 @@
             </view>
           </view>
 
-          <!-- 分类 -->
+          <!-- 分类：两级联动
+               一级（父分类）→ 二级（子分类）
+               只选一级 = 该一级下所有二级；一级 + 二级 = 精确到二级 -->
           <view class="filter-section">
             <text class="filter-label">分类</text>
+
+            <!-- 一级分类 -->
             <view class="chip-wrap">
               <view
                 class="chip"
-                :class="{ active: !filter.categoryId }"
-                @click="filter.categoryId = ''"
+                :class="{ active: !filter.parentCategoryId }"
+                @click="onParentCategoryChange('')"
               >
-                <text class="chip-text" :style="{ color: !filter.categoryId ? primaryColor : 'var(--app-text-2)' }">全部</text>
+                <text class="chip-text" :style="{ color: !filter.parentCategoryId ? primaryColor : 'var(--app-text-2)' }">全部</text>
               </view>
               <view
                 v-for="cat in parentCategories"
                 :key="cat.id"
                 class="chip"
-                :class="{ active: filter.categoryId === cat.id }"
-                @click="filter.categoryId = cat.id"
+                :class="{ active: filter.parentCategoryId === cat.id }"
+                @click="onParentCategoryChange(cat.id)"
               >
-                <text class="chip-text" :style="{ color: filter.categoryId === cat.id ? primaryColor : 'var(--app-text-2)' }">
+                <text class="chip-text" :style="{ color: filter.parentCategoryId === cat.id ? primaryColor : 'var(--app-text-2)' }">
                   {{ cat.name }}
                 </text>
               </view>
+            </view>
+
+            <!-- 二级分类：随一级分类动态变化 -->
+            <view v-if="filter.parentCategoryId" class="subcat-wrap">
+              <view class="subcat-head">
+                <text class="subcat-label">二级分类</text>
+                <text
+                  v-if="filter.categoryId"
+                  class="subcat-clear"
+                  @click="onSubCategoryChange('')"
+                >清除</text>
+              </view>
+              <view class="chip-wrap">
+                <view
+                  class="chip chip-sub"
+                  :class="{ active: !filter.categoryId }"
+                  @click="onSubCategoryChange('')"
+                >
+                  <text class="chip-text" :style="{ color: !filter.categoryId ? primaryColor : 'var(--app-text-2)' }">
+                    全部
+                  </text>
+                </view>
+                <view
+                  v-for="cat in subCategories"
+                  :key="cat.id"
+                  class="chip chip-sub"
+                  :class="{ active: filter.categoryId === cat.id }"
+                  @click="onSubCategoryChange(cat.id)"
+                >
+                  <text class="chip-text" :style="{ color: filter.categoryId === cat.id ? primaryColor : 'var(--app-text-2)' }">
+                    {{ cat.name }}
+                  </text>
+                </view>
+              </view>
+              <text v-if="subCategories.length === 0" class="subcat-empty">
+                该分类下没有二级分类，将匹配全部子分类
+              </text>
             </view>
           </view>
 
@@ -282,7 +323,7 @@ import DateRangePicker from '@/components/DateRangePicker.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
-import { listTransactions, sumTransactions, deleteTransaction } from '@/api/transaction.js'
+import { listTransactions, sumTransactions, deleteTransaction, parseTxnQueryOptions } from '@/api/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey } from '@/utils/date.js'
@@ -311,13 +352,31 @@ export default {
     /** 日期选择器实例（打开筛选时要先收起它的下拉） */
     const datePickerRef = ref(null)
 
+    /**
+     * 分类缓存
+     *
+     * 分类按 type（expense / income）分别缓存，
+     * 切换「支出 / 收入」时按需加载 —— 这样类型与分类列表是联动的，
+     * 不会出现「选着收入却列着支出分类」。
+     */
     const categories = ref([])
+    const catCache = { expense: [], income: [] }
+    const catLoaded = { expense: false, income: false }
+
     const tags = ref([])
 
     const filter = reactive({
       type: 'all',
       accountId: '',
+      /** 选中的一级分类 id（'' = 不限） */
+      parentCategoryId: '',
+      /** 选中的二级分类 id（'' = 该一级下全部二级） */
       categoryId: '',
+      /**
+       * 是否把一级分类展开成「一级 + 所有二级」。
+       * 正常由界面状态推导；URL 带入时由 parseTxnQueryOptions 解析。
+       */
+      includeSubcategories: false,
       tagId: '',
       keyword: '',
       minYuan: '',
@@ -346,15 +405,30 @@ export default {
     })
 
 
+    /**
+     * 一级分类
+     *
+     * 列表本身已按当前类型过滤（见 syncCategories），
+     * 这里只取没有父级的那一层。
+     */
     const parentCategories = computed(() =>
-      categories.value.filter((c) => c.isParent && c.type !== 'income')
+      categories.value.filter((c) => c.isParent)
     )
+
+    /**
+     * 二级分类：随一级分类的选择动态更新
+     */
+    const subCategories = computed(() => {
+      const pid = filter.parentCategoryId
+      if (!pid) return []
+      return categories.value.filter((c) => c.parent_id === pid)
+    })
 
     const filterCount = computed(() => {
       let n = 0
       if (appliedFilter.type && appliedFilter.type !== 'all') n++
       if (appliedFilter.accountId) n++
-      if (appliedFilter.categoryId) n++
+      if (appliedFilter.parentCategoryId || appliedFilter.categoryId) n++
       if (appliedFilter.tagId) n++
       if (appliedFilter.keyword) n++
       if (appliedFilter.minYuan || appliedFilter.maxYuan) n++
@@ -377,6 +451,101 @@ export default {
       return Array.from(map.values())
     })
 
+    /* ------------------------------------------------------ 分类加载 */
+
+    /**
+     * 按类型加载分类（带缓存）
+     */
+    async function loadCategoryType(type) {
+      if (catLoaded[type]) return
+      catCache[type] = await listCategories(type)
+      catLoaded[type] = true
+    }
+
+    /**
+     * 让分类列表跟随筛选类型
+     *
+     * 支出 → 只列支出分类
+     * 收入 → 只列收入分类
+     * 全部 → 支出 + 收入都列
+     * 转账 → 转账没有分类，不列
+     */
+    async function syncCategories(type) {
+      const need = type === 'expense'
+        ? ['expense']
+        : type === 'income'
+          ? ['income']
+          : type === 'all'
+            ? ['expense', 'income']
+            : []
+      for (const t of need) await loadCategoryType(t)
+      const list = []
+      for (const t of need) list.push(...catCache[t])
+      categories.value = list
+    }
+
+    /* ------------------------------------------------------ 交互 */
+
+    /**
+     * 切换类型：分类列表要跟着换
+     *
+     * 换了类型以后，原来选的分类可能不再属于新类型
+     * （比如选了「支出 / 餐饮」，再切到「收入」就选不了餐饮了），
+     * 这时要把它清掉，否则查询会落空。
+     */
+    async function onTypeChange(type) {
+      filter.type = type
+      await syncCategories(type)
+
+      const pid = filter.parentCategoryId
+      if (pid) {
+        const still = categories.value.find((c) => c.id === pid)
+        if (!still) {
+          // 选中的父级属于另一种类型，这个类型下选不了它 —— 清掉
+          filter.parentCategoryId = ''
+          filter.categoryId = ''
+          filter.includeSubcategories = false
+          return
+        }
+      }
+      if (filter.categoryId) {
+        const still = categories.value.find((c) => c.id === filter.categoryId)
+        if (!still) filter.categoryId = ''
+      }
+      // 只选一级 = 该一级下所有二级
+      filter.includeSubcategories = !filter.categoryId && !!filter.parentCategoryId
+    }
+
+    /**
+     * 选一级分类
+     *
+     * 换了父级以后，之前选的二级多半已经不属于新的父级 —— 清空它。
+     * 只选一级（不选二级）表示「该一级下的所有二级」。
+     */
+    function onParentCategoryChange(id) {
+      filter.parentCategoryId = id
+      if (id) {
+        const sub = categories.value.find((c) => c.id === id)
+        // 选中的父级变了，二级若不属于新父级就清空
+        if (filter.categoryId) {
+          const child = categories.value.find((c) => c.id === filter.categoryId)
+          if (!child || child.parent_id !== id) filter.categoryId = ''
+        }
+        // 选中的父级在这个类型下不存在时，说明它属于另一种类型
+        if (!sub) filter.parentCategoryId = ''
+      } else {
+        filter.categoryId = ''
+      }
+      // 只选一级 = 该一级下所有二级
+      filter.includeSubcategories = !filter.categoryId && !!filter.parentCategoryId
+    }
+
+    /** 选二级分类（'' = 该一级下的全部二级） */
+    function onSubCategoryChange(id) {
+      filter.categoryId = id
+      filter.includeSubcategories = !id && !!filter.parentCategoryId
+    }
+
     /* ------------------------------------------------------ 查询 */
 
     function buildQuery() {
@@ -395,7 +564,22 @@ export default {
       }
       if (appliedFilter.type !== 'all') q.type = appliedFilter.type
       if (appliedFilter.accountId) q.accountId = appliedFilter.accountId
-      if (appliedFilter.categoryId) q.categoryId = appliedFilter.categoryId
+      /**
+       * 分类过滤
+       *
+       *   选到二级 → 精确匹配那个二级
+       *   只选一级 → 用子查询匹配「一级 + 它的所有二级」
+       *
+       * includeSubcategories 由「是否选到二级」推导，
+       * 不需要额外存一份状态。
+       */
+      if (appliedFilter.categoryId) {
+        q.categoryId = appliedFilter.categoryId
+        if (appliedFilter.includeSubcategories) q.includeSubcategories = true
+      } else if (appliedFilter.parentCategoryId) {
+        q.categoryId = appliedFilter.parentCategoryId
+        q.includeSubcategories = true
+      }
       if (appliedFilter.tagId) q.tagId = appliedFilter.tagId
       if (appliedFilter.keyword) q.keyword = appliedFilter.keyword
 
@@ -451,9 +635,12 @@ export default {
 
     function resetFilter() {
       Object.assign(filter, {
-        type: 'all', accountId: '', categoryId: '', tagId: '',
+        type: 'all', accountId: '', parentCategoryId: '', categoryId: '',
+        includeSubcategories: false, tagId: '',
         keyword: '', minYuan: '', maxYuan: ''
       })
+      // 重置后类型回到「全部」，分类列表也要跟着回到全量
+      syncCategories('all')
     }
 
     /** 三级联动选择变化：重新查询 */
@@ -531,23 +718,148 @@ export default {
       })
     }
 
+    /* ------------------------------------------------- URL 参数（深链） */
+
+    /**
+     * 从别处跳进来时带的查询参数
+     *
+     * 契约（见 api/transaction.js 的 parseTxnQueryOptions）：
+     *   ?accountId=acc_xxx            按账户筛选
+     *   ?categoryId=cat_xxx           按分类筛选（一级或二级都行）
+     *   ?includeSubcategories=1       categoryId 是一级分类时，匹配其所有二级
+     *   ?tagId=tag_xxx                按标签筛选
+     *   ?monthKey=2026-10             按月份筛选
+     *   ?type=expense|income|transfer 按类型筛选
+     *   ?day=2026-10-27               按某一天筛选（首页日历深链）
+     */
+    const urlOptions = ref(null)
+    /** 页面是否已经挂载完成（用来判断 onLoad 是不是来得比 onMounted 晚） */
+    const mounted = ref(false)
+
+    /**
+     * 把 URL 上的时间参数套到日期选择器上
+     *
+     *   ?day=2026-10-27  -> 那一天
+     *   ?monthKey=2026-10 -> 那个月
+     *   带筛选条件但没给时间 -> 放宽到全部时间
+     *                       （用户要的是「这个账户 / 这个分类下的全部流水」，
+     *                         只看当月会漏掉大半）
+     */
+    function applyDateFromOptions(q) {
+      if (q.day) {
+        dateRange.value = selectionFromDayKey(q.day)
+      } else if (q.monthKey) {
+        const [y, m] = q.monthKey.split('-').map(Number)
+        dateRange.value = { year: y, month: m, day: 0 }
+      } else if (q.hasFilter) {
+        dateRange.value = { year: 0, month: 0, day: 0 }
+      }
+    }
+
+    /**
+     * 应用 URL 上的筛选条件
+     *
+     * onLoad 与 onMounted 都会调它（幂等）——
+     * uni-app 里 onLoad 与组件 mounted 的先后顺序在不同平台不完全一致，
+     * 两边都调一次最保险。
+     */
+    async function applyUrlOptions(options) {
+      if (!options) return
+      const q = parseTxnQueryOptions(options)
+
+      // 类型
+      filter.type = q.type
+
+      // 账户 / 标签
+      filter.accountId = q.accountId
+      filter.tagId = q.tagId
+
+      // 时间范围
+      applyDateFromOptions(q)
+
+      // 分类：先记下，等分类加载完再解析它是一级还是二级
+      filter.categoryId = q.categoryId
+      filter.parentCategoryId = ''
+      filter.includeSubcategories = q.includeSubcategories
+
+      await syncCategories(filter.type)
+      // 解析分类归属时可能要查另一种类型的分类，所以两个缓存都备齐
+      await loadCategoryType('expense')
+      await loadCategoryType('income')
+      resolveUrlCategory(q.includeSubcategories)
+
+      // URL 带来的条件直接生效，不用再点「应用筛选」
+      Object.assign(appliedFilter, filter)
+    }
+
+    /**
+     * 解析 URL 里的 categoryId 到底是一级还是二级
+     *
+     *   传的是二级 → 选中该二级（一级也高亮）
+     *   传的是一级 → 选中该一级，不选二级，查询时匹配它的所有二级
+     *
+     * 两个类型的缓存都找一遍 —— URL 上的分类可能与 type 参数不同源
+     * （比如只传了 categoryId，type 仍是「全部」）。
+     */
+    function resolveUrlCategory(includeSub) {
+      const cid = filter.categoryId
+      if (!cid) {
+        filter.parentCategoryId = ''
+        return
+      }
+      const all = [...catCache.expense, ...catCache.income]
+      const cat = all.find((c) => c.id === cid)
+      if (!cat) {
+        // 分类不存在（已删除 / id 写错）—— 退回「不按分类筛」
+        filter.parentCategoryId = ''
+        filter.categoryId = ''
+        filter.includeSubcategories = false
+        return
+      }
+      if (cat.isParent) {
+        filter.parentCategoryId = cid
+        filter.categoryId = ''
+        filter.includeSubcategories = true
+      } else {
+        filter.parentCategoryId = cat.parent_id || ''
+        filter.categoryId = cid
+        // URL 明确带了 includeSubcategories=1 就尊重它
+        filter.includeSubcategories = !!includeSub
+      }
+    }
+
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load()
-      const [cats, tgs] = await Promise.all([listCategories(), listTags()])
-      categories.value = cats
+      const [tgs] = await Promise.all([listTags()])
       tags.value = tgs
+
+      // URL 上的条件要先生效，分类列表才知道该按哪个类型加载
+      if (urlOptions.value) {
+        await applyUrlOptions(urlOptions.value)
+      } else {
+        await syncCategories(filter.type)
+      }
+
+      mounted.value = true
       await loadFirstPage()
     })
 
     /**
-     * 深链：从首页月历点某一天进来时带 ?day=YYYY-MM-DD
-     * 没有 day 参数则显示当月（全部日）
+     * 深链：
+     *   ?day=YYYY-MM-DD               首页月历点某一天
+     *   ?accountId / ?categoryId / …  账户详情 / 分类 / 标签 / 预算页点「全部」
+     * 没有这些参数则显示当月（全部日）
      */
     onLoad((options) => {
-      const day = options && options.day
-      if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
-        dateRange.value = selectionFromDayKey(day)
+      urlOptions.value = options || {}
+
+      // 先同步日期（不依赖分类数据，可以立刻做）
+      applyDateFromOptions(parseTxnQueryOptions(options))
+
+      // onLoad 晚于 onMounted 的平台：这时才把完整条件补上并重新查一次
+      if (mounted.value) {
+        applyUrlOptions(options).then(() => loadFirstPage())
       }
     })
 
@@ -559,8 +871,9 @@ export default {
       settingStore, accountStore, statusBarHeight,
       dateRange, datePickerRef, list, summary, hasMore, loading, showFilter,
       filter, appliedFilter, typeOptions, categories, tags,
-      primaryColor, pageStyle, rangeLabel, parentCategories, filterCount, groups,
+      primaryColor, pageStyle, rangeLabel, parentCategories, subCategories, filterCount, groups,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
+      onTypeChange, onParentCategoryChange, onSubCategoryChange,
       iconChar, txnTitle, txnSub, timeLabel, goDetail, goBack, onLongPress
     }
   }
@@ -846,6 +1159,45 @@ export default {
 
 .chip-text {
   font-size: 24rpx;
+}
+
+/* 二级分类：缩进一级，视觉上从属于上面的一级 */
+.subcat-wrap {
+  margin-top: 18rpx;
+  padding-left: 20rpx;
+  border-left: 4rpx solid var(--app-line);
+}
+
+.subcat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.subcat-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.subcat-clear {
+  font-size: 22rpx;
+  color: var(--app-primary);
+}
+
+.chip-sub {
+  background-color: var(--app-card-2);
+}
+
+.chip-sub.active {
+  background-color: var(--app-primary-light);
+}
+
+.subcat-empty {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 21rpx;
+  color: var(--app-text-3);
 }
 
 .filter-input {

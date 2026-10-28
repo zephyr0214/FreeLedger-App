@@ -1,0 +1,78 @@
+feat(txn+settings): 筛选面板两级分类联动 + URL 筛选契约 + 周期管理页
+
+## 任务 A：筛选面板支持一级/二级分类
+
+筛选面板的分类区域改成两级联动：
+- 先选一级分类，再选该一级下的二级分类
+- 只选一级 = 该一级下所有二级；一级 + 二级 = 精确到二级
+- 二级列表随一级选择动态更新（subCategories computed）
+- 切换一级时，若之前选的二级不属于新父级则清空
+- 只用 --app-* CSS 变量，不写死色值
+
+底层查询（api/transaction.js）：
+- 新增 buildCategoryCondition(categoryId, includeSubcategories)
+  - 精确匹配：t.category_id = ?
+  - 含子分类：t.category_id IN (SELECT id FROM category
+    WHERE id = ? OR parent_id = ?)
+- listTransactions / sumTransactions 共用 buildFilterWhere，
+  保证列表与合计口径一致
+- 只有基础 SELECT + IN 子查询，无 MySQL 方言，
+  也不依赖 3.24+ 特性，Android 各版本内核都能跑
+
+## 任务 B：切换支出/收入时分类动态更新
+
+- 分类按 type（expense / income）分别缓存（catCache / catLoaded）
+- syncCategories(type) 按当前类型装载分类列表
+  支出->支出分类，收入->收入分类，全部->两者，转账->无分类
+- 切换类型后，若已选分类不属于新类型则清空
+
+## 任务 C：列表页支持 URL 参数带入筛选条件
+
+api/transaction.js 新增 parseTxnQueryOptions(options)，
+统一处理「onLoad 参数全是字符串」的类型转换与合法性校验：
+
+  ?accountId=acc_xxx            按账户筛选
+  ?categoryId=cat_xxx           按分类筛选（一级或二级都行）
+  ?includeSubcategories=1       categoryId 是一级时匹配其所有二级
+  ?tagId=tag_xxx                按标签筛选
+  ?monthKey=2026-10             按月份筛选
+  ?type=expense|income|transfer 按类型筛选
+  ?day=2026-10-27               按某一天筛选（首页日历深链）
+
+- 非法值一律当作「没传」（月份校验 01-12，日期校验真实存在）
+- includeSubcategories 支持 1 / true / yes / on
+- URL 传来的 categoryId 会自动判定是一级还是二级
+- 带了筛选条件但没给月份时，时间范围放宽到全部时间
+  （否则从详情页进来只看到当月那几笔）
+- onLoad 与 onMounted 都调 applyUrlOptions（幂等），
+  兼容两者先后顺序不一致的平台
+
+## 任务 D：新建「周期管理」页
+
+pages/settings/cycle.vue —— 管理周期性固定支出（房租、订阅、话费…）
+- 顶部 PageNav，右侧 #right 插槽放「+」按钮
+- 顶部「本月固定支出合计」汇总卡（周付 ×4.3、年付 ÷12、自定义按月数折算）
+- 底部 popup 弹层编辑（风格参考 pages/settings/tag.vue）
+- 支持增删改、启用/停用、扣款账户、备注
+- 列表部分抽成可复用组件 components/CycleList.vue
+  props: cycles；事件: item-tap / item-toggle / item-edit / item-delete
+  （事件名避开原生 select / toggle）
+
+数据存 settings 的 cycles 字段（api/settings.js）：
+- normalizeCycle(raw) 做规范化与校验
+- getCycles() / setCycles(cycles) 读写
+- getAllSettings 里给 out.cycles 做数组兜底
+
+周期数据结构：
+  { id, name, amountCents, icon, cycleType, interval,
+    dayOfMonth, monthOfYear, weekday, nextDate,
+    accountId, enabled, note }
+  cycleType: monthly | weekly | yearly | custom
+
+## 其他
+
+- pages.json 注册 pages/settings/cycle 路由
+- pages/settings/index.vue 增加「周期管理」入口
+- 新增 scripts/test-txn-filter.mjs（81 项断言），
+  用 node:sqlite 验证子查询口径、URL 参数解析、周期数据规范化
+- npm run verify 全绿
