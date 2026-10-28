@@ -8,6 +8,7 @@
  */
 
 import { openDb, query, DB_NAME, DB_PATH } from './index.js'
+import { alertDialog } from '@/utils/dialog.js'
 
 /**
  * @returns {Promise<{ok: boolean, steps: Array, text: string}>}
@@ -126,12 +127,10 @@ function safeGet(fn) {
 /** 供页面直接调用的模态框版本 */
 export async function showDbDiagnostics() {
   const report = await runDbDiagnostics()
-  return new Promise((resolve) => {
-    uni.showModal({
-      title: report.ok ? '数据库正常' : '数据库异常',
-      content: report.text,
-      showCancel: false,
-      success: () => resolve(report)
-    })
+  // ★ 用组件库重绘的弹窗（见 utils/dialog.js），不再用原生 showModal ★
+  await alertDialog({
+    title: report.ok ? '数据库正常' : '数据库异常',
+    content: report.text
   })
+  return report
 }

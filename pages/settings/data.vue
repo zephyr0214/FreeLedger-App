@@ -1,8 +1,13 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="数据管理" @back="goBack" />
 
-    <scroll-view class="page-scroll" scroll-y>
+    <scroll-view
+      class="page-scroll"
+      scroll-y
+      :scroll-into-view="scrollTarget"
+      :scroll-with-animation="true"
+    >
       <!-- 数据概况 -->
       <view class="stat-card">
         <view class="stat-item">
@@ -27,7 +32,7 @@
       </view>
 
       <!-- 导出 -->
-      <view class="section">
+      <view id="section-export" class="section">
         <text class="section-title">导出</text>
         <view class="card">
           <view class="card-row" @click="onExport(false)">
@@ -71,7 +76,7 @@
       </view>
 
       <!-- 备份 -->
-      <view class="section">
+      <view id="section-backup" class="section">
         <text class="section-title">备份</text>
         <view class="card">
           <view class="switch-row">
@@ -163,12 +168,16 @@
         </scroll-view>
       </view>
     </wd-popup>
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -180,9 +189,10 @@ import {
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
 import { truncateAll } from '@/api/db/index.js'
+import { confirmDialog, alertDialog, promptDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav },
+  components: { PageNav, AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -193,6 +203,55 @@ export default {
     const backupList = ref([])
     const showBackups = ref(false)
     const exportFiles = ref([])
+
+    /**
+     * scroll-view 的滚动目标（元素 id）。
+     *
+     * ★ 必须是 id，不是 class ★
+     *   scroll-into-view 靠 id 定位元素。
+     *   （项目里踩过这个坑：AI 页写成了 class，定位不到，一直停在顶部。）
+     */
+    const scrollTarget = ref('')
+
+    /** URL 上带的 tab 参数：'export' | 'backup' | '' */
+    const pendingTab = ref('')
+
+    /**
+     * 滚到指定区块。
+     *
+     * ★ 时序坑 ★
+     *   内容是异步加载的（onMounted 里 await loadCounts / loadBackups），
+     *   刚进页面时区块可能还没渲染出来，
+     *   这时设 scroll-into-view 是无效的（元素还不存在）。
+     *   所以要等 nextTick 再设，并留一个短延时兜底。
+     */
+    async function scrollToSection(id) {
+      if (!id) return
+      await nextTick()
+      scrollTarget.value = ''
+      // 再等一帧，确保上一次的清空已经生效
+      await nextTick()
+      scrollTarget.value = id
+      // 兜底：如果元素仍未渲染（内容还在异步加载），再试一次
+      setTimeout(() => {
+        if (scrollTarget.value !== id) scrollTarget.value = id
+      }, 300)
+    }
+
+    /**
+     * 按 URL 参数滚到对应区块。
+     *
+     * 'export' → 「导出」区块
+     * 'backup' → 「备份」区块
+     * 其它/没有 → 保持从顶部开始
+     */
+    async function applyTab(tab) {
+      if (tab === 'export') {
+        await scrollToSection('section-export')
+      } else if (tab === 'backup') {
+        await scrollToSection('section-backup')
+      }
+    }
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -223,14 +282,11 @@ export default {
 
     async function onExport(includeApiKey) {
       if (includeApiKey) {
-        const confirmed = await new Promise((resolve) => {
-          uni.showModal({
-            title: '包含 API Key',
-            content: '导出的文件会包含你的 API Key 明文。如果你会把文件分享或上传，请不要选择此项。',
-            confirmText: '仍要导出',
-            confirmColor: '#ee0a24',
-            success: (res) => resolve(res.confirm)
-          })
+        const confirmed = await confirmDialog({
+          title: '包含 API Key',
+          content: '导出的文件会包含你的 API Key 明文。如果你会把文件分享或上传，请不要选择此项。',
+          confirmText: '仍要导出',
+          danger: true
         })
         if (!confirmed) return
       }
@@ -242,18 +298,16 @@ export default {
 
         await setSettings({ lastExportAt: Date.now() })
 
-        uni.showModal({
+        const goShare = await confirmDialog({
           title: '导出成功',
           content: `文件：${res.filename}\n大小：${(res.size / 1024).toFixed(1)} KB\n路径：${res.path}`,
           confirmText: '去分享',
-          cancelText: '知道了',
-          success: (modalRes) => {
-            if (modalRes.confirm) shareFile(res.path)
-          }
+          cancelText: '知道了'
         })
+        if (goShare) shareFile(res.path)
       } catch (e) {
         uni.hideLoading()
-        uni.showModal({ title: '导出失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '导出失败', content: e.message })
       }
     }
 
@@ -279,11 +333,10 @@ export default {
       const files = await listExportFiles()
 
       if (files.length === 0) {
-        uni.showModal({
+        await alertDialog({
           title: '没有找到备份文件',
           content:
-            '请先把要导入的 JSON 文件放到以下目录，再回到这里导入：\n\n_doc/export/\n\n可通过文件管理器访问此路径，或先用本应用导出一份文件查看位置。',
-          showCancel: false
+            '请先把要导入的 JSON 文件放到以下目录，再回到这里导入：\n\n_doc/export/\n\n可通过文件管理器访问此路径，或先用本应用导出一份文件查看位置。'
         })
         return
       }
@@ -325,26 +378,22 @@ export default {
           report.backupPath ? `\n导入前备份：${report.backupPath}` : ''
         ].filter(Boolean)
 
-        uni.showModal({
+        await alertDialog({
           title: '导入完成',
-          content: lines.join('\n'),
-          showCancel: false
+          content: lines.join('\n')
         })
       } catch (e) {
         uni.hideLoading()
-        uni.showModal({ title: '导入失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '导入失败', content: e.message })
       }
     }
 
     async function onRestoreBackup(backup) {
-      const confirmed = await new Promise((resolve) => {
-        uni.showModal({
-          title: '从备份恢复？',
-          content: `将用 ${formatBackupTime(backup.time)} 的备份覆盖当前数据。当前数据会先自动备份一次。`,
-          confirmText: '恢复',
-          confirmColor: '#ee0a24',
-          success: (res) => resolve(res.confirm)
-        })
+      const confirmed = await confirmDialog({
+        title: '从备份恢复？',
+        content: `将用 ${formatBackupTime(backup.time)} 的备份覆盖当前数据。当前数据会先自动备份一次。`,
+        confirmText: '恢复',
+        danger: true
       })
       if (!confirmed) return
 
@@ -384,65 +433,56 @@ export default {
         const n = await recalcAllBalances()
         await accountStore.refresh()
         uni.hideLoading()
-        uni.showModal({
+        await alertDialog({
           title: '重算完成',
-          content: `已重算 ${n} 个账户的余额`,
-          showCancel: false
+          content: `已重算 ${n} 个账户的余额`
         })
       } catch (e) {
         uni.hideLoading()
-        uni.showModal({ title: '重算失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '重算失败', content: e.message })
       }
     }
 
     async function onClearAll() {
-      const confirmed = await new Promise((resolve) => {
-        uni.showModal({
-          title: '清空所有数据？',
-          content: '所有账户、交易、分类、标签、预算和设置都会被删除。执行前会自动备份一份到 _doc/backup/。',
-          confirmText: '继续',
-          confirmColor: '#ee0a24',
-          success: (res) => resolve(res.confirm)
-        })
+      const confirmed = await confirmDialog({
+        title: '清空所有数据？',
+        content: '所有账户、交易、分类、标签、预算和设置都会被删除。执行前会自动备份一份到 _doc/backup/。',
+        confirmText: '继续',
+        danger: true
       })
       if (!confirmed) return
 
       // 二次确认：输入确认字样
-      uni.showModal({
+      const input = await promptDialog({
         title: '最后确认',
-        editable: true,
-        placeholderText: '请输入「确认清空」',
-        success: async (res) => {
-          if (!res.confirm) return
-          if (String(res.content).trim() !== '确认清空') {
-            uni.showToast({ title: '确认字样不匹配，已取消', icon: 'none' })
-            return
-          }
-
-          uni.showLoading({ title: '清理中…' })
-          try {
-            await autoBackup('before-clear')
-            await truncateAll()
-            clearSettingsCache()
-            await settingStore.load()
-            await accountStore.refresh()
-            await txnStore.loadHome(true)
-            await loadCounts()
-            uni.hideLoading()
-            uni.showModal({
-              title: '已清空',
-              content: '数据已全部清除。应用将重新初始化默认分类。',
-              showCancel: false,
-              success: () => {
-                uni.reLaunch({ url: '/pages/index/index' })
-              }
-            })
-          } catch (e) {
-            uni.hideLoading()
-            uni.showModal({ title: '清空失败', content: e.message, showCancel: false })
-          }
-        }
+        placeholder: '请输入「确认清空」'
       })
+      // ★ 取消返回 null，输入的字样不匹配也当取消 ★
+      if (input === null) return
+      if (String(input).trim() !== '确认清空') {
+        uni.showToast({ title: '确认字样不匹配，已取消', icon: 'none' })
+        return
+      }
+
+      uni.showLoading({ title: '清理中…' })
+      try {
+        await autoBackup('before-clear')
+        await truncateAll()
+        clearSettingsCache()
+        await settingStore.load()
+        await accountStore.refresh()
+        await txnStore.loadHome(true)
+        await loadCounts()
+        uni.hideLoading()
+        await alertDialog({
+          title: '已清空',
+          content: '数据已全部清除。应用将重新初始化默认分类。'
+        })
+        uni.reLaunch({ url: '/pages/index/index' })
+      } catch (e) {
+        uni.hideLoading()
+        await alertDialog({ title: '清空失败', content: e.message })
+      }
     }
 
     /* ------------------------------------------------------ 辅助 */
@@ -458,6 +498,16 @@ export default {
       uni.navigateBack()
     }
 
+    /**
+     * 取路由参数 ?tab=export | ?tab=backup
+     *
+     * ★ 用 onLoad(options) 而不是 getCurrentPages() ★
+     *   options 由框架直接给，最可靠。
+     */
+    onLoad((options) => {
+      pendingTab.value = (options && options.tab) || ''
+    })
+
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       const settings = await getAllSettings()
@@ -465,11 +515,16 @@ export default {
       await loadCounts()
       await loadBackups()
       exportFiles.value = await listExportFiles()
+
+      // 内容加载完再滚，保证目标区块已经渲染出来
+      if (pendingTab.value) {
+        await applyTab(pendingTab.value)
+      }
     })
 
     return {
       counts, autoBackupOn, backupList, showBackups, exportFiles,
-      primaryColor, pageStyle,
+      primaryColor, pageStyle, scrollTarget,
       onExport, onImport, onRestoreBackup,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,

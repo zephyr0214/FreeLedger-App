@@ -96,17 +96,22 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
 <script>
 import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
+import { alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav },
+  components: { PageNav, AppDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -118,7 +123,7 @@ export default {
       try {
         await showDbDiagnostics()
       } catch (e) {
-        uni.showModal({ title: '自检失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '自检失败', content: e.message })
       }
     }
 

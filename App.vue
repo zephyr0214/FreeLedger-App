@@ -7,6 +7,7 @@ import { getAllSettings, setSettings } from '@/api/settings.js'
 import { autoBackup } from '@/api/backup.js'
 import { toDayKey } from '@/utils/date.js'
 import { enableNativeFollowSystem } from '@/utils/theme.js'
+import { confirmDialog } from '@/utils/dialog.js'
 
 export default {
   data() {
@@ -22,17 +23,21 @@ export default {
       await openDb()
     } catch (e) {
       console.error('[app] 数据库打开失败:', e.message)
-      uni.showModal({
+      /**
+       * ★ App.vue 在 App 端没有 template（不渲染任何东西）★
+       *   所以这里没法挂 <AppDialog />，
+       *   confirmDialog() 会走 utils/dialog.js 里的兜底路径（退回原生弹窗）。
+       *   启动期还没有任何页面，弹窗只能靠原生。
+       */
+      const runDiagnose = await confirmDialog({
         title: '创建数据库失败',
         content: e.message,
         confirmText: '运行自检',
-        cancelText: '忽略',
-        success: (res) => {
-          if (res.confirm) {
-            import('@/api/db/diagnose.js').then((m) => m.showDbDiagnostics())
-          }
-        }
+        cancelText: '忽略'
       })
+      if (runDiagnose) {
+        import('@/api/db/diagnose.js').then((m) => m.showDbDiagnostics())
+      }
       return
     }
 

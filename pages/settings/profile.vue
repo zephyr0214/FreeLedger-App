@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <!-- 复用导航头 -->
     <PageNav title="个人信息" @back="goBack">
@@ -76,16 +76,21 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
 <script>
 import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav },
+  components: { PageNav, AppDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -161,7 +166,7 @@ export default {
         uni.showToast({ title: '已保存', icon: 'success' })
         setTimeout(() => uni.navigateBack(), 500)
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 

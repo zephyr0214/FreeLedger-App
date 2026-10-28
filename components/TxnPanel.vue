@@ -280,11 +280,15 @@
       <view class="time-picker-anchor" />
     </wd-datetime-picker>
   </wd-popup>
+
+  <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+  <AppDialog />
 </template>
 
 <script>
 import { ref, reactive, computed, watch } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -295,10 +299,11 @@ import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combi
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage } from '@/utils/categorySort.js'
+import { alertDialog } from '@/utils/dialog.js'
 
 export default {
   name: 'TxnPanel',
-  components: { NumberKeyboard },
+  components: { NumberKeyboard, AppDialog },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -749,7 +754,7 @@ export default {
         visible.value = false
         showTabBar()
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 

@@ -116,6 +116,9 @@
 
     <!-- 编辑面板 -->
     <TxnPanel v-model="showPanel" :editing="txn" @saved="onSaved" />
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
@@ -124,14 +127,16 @@ import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } from '@/api/transaction.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { MoneyText, TxnPanel },
+  components: { MoneyText, TxnPanel, AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const txnStore = useTransactionStore()
@@ -209,7 +214,7 @@ export default {
         // 预算页面的数字要跟着变
         txnStore.loadHome(true)
       } catch (err) {
-        uni.showModal({ title: '设置失败', content: err.message, showCancel: false })
+        await alertDialog({ title: '设置失败', content: err.message })
         // 失败就把开关拨回去
         await load()
       }
@@ -224,24 +229,24 @@ export default {
       txnStore.loadHome(true)
     }
 
-    function onDelete() {
-      uni.showModal({
+    async function onDelete() {
+      const confirmed = await confirmDialog({
         title: '删除这笔记录？',
         content: '删除后会同步修正账户余额',
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            await deleteTransaction(txnId.value)
-            uni.showToast({ title: '已删除', icon: 'success' })
-            await txnStore.loadHome(true)
-            setTimeout(() => uni.navigateBack(), 600)
-          } catch (e) {
-            uni.showModal({ title: '删除失败', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      // ★ 取消就什么都不做 ★
+      if (!confirmed) return
+
+      try {
+        await deleteTransaction(txnId.value)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        await txnStore.loadHome(true)
+        setTimeout(() => uni.navigateBack(), 600)
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
     }
 
     function goBack() {

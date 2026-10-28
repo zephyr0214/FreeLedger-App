@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <PageNav title="AI 大模型" @back="goBack" />
 
@@ -124,17 +124,22 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
 <script>
 import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { testConnection, clearAiCache } from '@/api/ai.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav },
+  components: { PageNav, AppDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -171,16 +176,14 @@ export default {
           timeoutMs: Number(timeoutSec.value) * 1000
         })
         const res = await testConnection()
-        uni.showModal({
+        await alertDialog({
           title: '连接成功',
-          content: `模型已响应：${res.reply}`,
-          showCancel: false
+          content: `模型已响应：${res.reply}`
         })
       } catch (e) {
-        uni.showModal({
+        await alertDialog({
           title: '连接失败',
-          content: e.message,
-          showCancel: false
+          content: e.message
         })
       } finally {
         testing.value = false
@@ -199,20 +202,20 @@ export default {
         })
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 
-    function clearCache() {
-      uni.showModal({
+    async function clearCache() {
+      const confirmed = await confirmDialog({
         title: '清除 AI 缓存？',
-        content: '清除后下次进入会重新调用接口分析',
-        success: async (res) => {
-          if (!res.confirm) return
-          await clearAiCache()
-          uni.showToast({ title: '已清除', icon: 'success' })
-        }
+        content: '清除后下次进入会重新调用接口分析'
       })
+      // ★ 取消就什么都不做 ★
+      if (!confirmed) return
+
+      await clearAiCache()
+      uni.showToast({ title: '已清除', icon: 'success' })
     }
 
     function goBack() {

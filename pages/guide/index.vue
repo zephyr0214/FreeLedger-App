@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <view class="guide-page">
       <!-- 进度点 -->
@@ -120,16 +120,22 @@
         >{{ step === steps.length - 1 ? '开始记账' : '下一步' }}</wd-button>
       </view>
     </view>
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
 <script>
 import { ref, computed } from 'vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { yuanToCents } from '@/utils/money.js'
+import { alertDialog } from '@/utils/dialog.js'
 
 export default {
+  components: { AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -181,7 +187,7 @@ export default {
           await settingStore.update({ defaultAccountId: acc.id, firstRunDone: true })
           step.value++
         } catch (e) {
-          uni.showModal({ title: '创建失败', content: e.message, showCancel: false })
+          await alertDialog({ title: '创建失败', content: e.message })
         } finally {
           submitting.value = false
         }

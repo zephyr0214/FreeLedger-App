@@ -128,18 +128,24 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
 <script>
 import { ref, reactive, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { ACCOUNT_TYPES, isCreditType, adjustAccountBalance } from '@/api/account.js'
 import { yuanToCents } from '@/utils/money.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
+  components: { AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -243,27 +249,27 @@ export default {
         }
         setTimeout(() => uni.navigateBack(), 500)
       } catch (e) {
-        uni.showModal({ title: '保存失败', content: e.message, showCancel: false })
+        await alertDialog({ title: '保存失败', content: e.message })
       }
     }
 
-    function onDelete() {
-      uni.showModal({
+    async function onDelete() {
+      const confirmed = await confirmDialog({
         title: '删除账户？',
         content: '如果该账户下还有交易，将无法删除',
         confirmText: '删除',
-        confirmColor: '#ee0a24',
-        success: async (res) => {
-          if (!res.confirm) return
-          try {
-            await accountStore.remove(editId.value)
-            uni.showToast({ title: '已删除', icon: 'success' })
-            setTimeout(() => uni.navigateBack(), 500)
-          } catch (e) {
-            uni.showModal({ title: '无法删除', content: e.message, showCancel: false })
-          }
-        }
+        danger: true
       })
+      // ★ 取消就什么都不做 ★
+      if (!confirmed) return
+
+      try {
+        await accountStore.remove(editId.value)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        setTimeout(() => uni.navigateBack(), 500)
+      } catch (e) {
+        await alertDialog({ title: '无法删除', content: e.message })
+      }
     }
 
     function goBack() {

@@ -34,10 +34,14 @@
       </view>
     </view>
   </view>
+
+  <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+  <AppDialog />
 </template>
 
 <script>
 import { ref, computed, watch, nextTick } from 'vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -45,6 +49,7 @@ import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
 import { combineDayTime } from '@/utils/date.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
   name: 'QuickAddBar',
@@ -52,6 +57,7 @@ export default {
     modelValue: { type: Boolean, default: false }
   },
   emits: ['update:modelValue', 'saved', 'parsing-start', 'parsing-end'],
+  components: { AppDialog },
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -185,17 +191,17 @@ export default {
       // 没配 API Key 直接提示，避免无谓请求
       const ai = settingStore.settings.ai || {}
       if (!ai.apiKey) {
-        uni.showModal({
+        const goConfig = await confirmDialog({
           title: '需要先配置 AI',
           content: '智能记账需要调用大模型解析你的输入。请到「我的 → AI 大模型」填写 API Key。',
           confirmText: '去配置',
-          success: (res) => {
-            if (res.confirm) {
-              close()
-              uni.navigateTo({ url: '/pages/settings/ai' })
-            }
-          }
+          cancelText: '取消'
         })
+        // ★ 只有用户点了「去配置」才跳转，取消就什么都不做 ★
+        if (goConfig) {
+          close()
+          uni.navigateTo({ url: '/pages/settings/ai' })
+        }
         return
       }
 
@@ -275,18 +281,16 @@ export default {
         const notes = [...result.warnings, ...failures]
         if (notes.length > 0 && saved > 0) {
           setTimeout(() => {
-            uni.showModal({
+            alertDialog({
               title: '部分记录未保存',
-              content: notes.slice(0, 5).join('\n'),
-              showCancel: false
+              content: notes.slice(0, 5).join('\n')
             })
           }, 800)
         }
       } catch (e) {
-        uni.showModal({
+        await alertDialog({
           title: '识别失败',
-          content: e.message,
-          showCancel: false
+          content: e.message
         })
       } finally {
         submitting.value = false

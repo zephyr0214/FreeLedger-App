@@ -83,6 +83,9 @@
         <text class="send-text" :style="{ color: canSend ? '#ffffff' : 'var(--app-text-3)' }">发送</text>
       </view>
     </view>
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
@@ -90,17 +93,19 @@
 import { ref, computed, nextTick } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getAiSummary, getOverview, getMonthComparison } from '@/api/stats.js'
 import { askFinance } from '@/api/aiParse.js'
 import { toMonthKey, toDayKey, shiftDay, shiftMonth } from '@/utils/date.js'
+import { confirmDialog } from '@/utils/dialog.js'
 
 const HISTORY_KEY = 'aiChatHistory'
 
 export default {
-  components: { PageNav },
+  components: { PageNav, AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -268,17 +273,17 @@ export default {
       } catch (e) {}
     }
 
-    function clearHistory() {
-      uni.showModal({
-        title: '清空对话记录？',
-        success: (res) => {
-          if (!res.confirm) return
-          messages.value = []
-          try {
-            uni.removeStorageSync(HISTORY_KEY)
-          } catch (e) {}
-        }
+    async function clearHistory() {
+      const confirmed = await confirmDialog({
+        title: '清空对话记录？'
       })
+      // ★ 取消就什么都不做 ★
+      if (!confirmed) return
+
+      messages.value = []
+      try {
+        uni.removeStorageSync(HISTORY_KEY)
+      } catch (e) {}
     }
 
     function goBack() {
