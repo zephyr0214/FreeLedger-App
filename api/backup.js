@@ -531,201 +531,90 @@ function nameToTime(name) {
 /* ------------------------------------------------------------ 从文件导入 */
 
 /**
- * 调起系统文件选择器，让用户挑一个 JSON 文件。
+ * 列出应用可访问目录里的可导入 JSON 文件。
  *
- * ★ 为什么不能用 uni.chooseFile / plus.io.chooseFile ★
- *   - plus.io.chooseFile 在 IO 模块里根本不存在；
- *   - uni.chooseFile 只在 H5 / 小程序端可用，
- *     App 端调它会打开**相册**而不是文件管理器。
- *   所以 Android 端只能用 Native.js 起系统 Intent。
+ * ★ 为什么不用系统文件选择器 ★
+ *   用户实测（日志确认）：这个基座上 startActivityForResult 能调起，
+ *   但 onActivityResult 事件**从不回调**（plus.globalEvent 收不到），
+ *   90 秒后报「系统未回调」。所以 Native.js + ACTION_GET_CONTENT 那套
+ *   在这个基座上走不通。
  *
- * iOS 没有免插件的等价方案，直接报错说明，不静默失败。
+ *   uni.chooseFile 在 App 端只打开相册；plus.io.chooseFile 并不存在。
+ *   官方文档对 App 端的建议就是：
+ *     「App端如果想选择下载到 _doc、_downloads、_documents 等
+ *       plus.io 控制的目录下的文件，可通过 plus.io API，自己做选择框」
  *
- * @returns {Promise<string>} 落到沙盒里的路径
+ *   所以这里用 plus.io 扫这几个目录，把 .json 列出来给页面渲染，
+ *   用户在应用内挑一个。纯 plus.io、没有原生回调，稳定可靠。
+ *
+ * @returns {Promise<Array<{path,name,dir,time}>>} 按修改时间倒序
  */
-export function chooseImportFile() {
-  return new Promise((resolve, reject) => {
-    if (typeof plus === 'undefined') {
-      reject(new Error('选择文件仅在 App 端可用'))
-      return
-    }
-    logStep('chooseImportFile 开始', plus.os.name)
-    if (plus.os.name === 'Android') {
-      androidChooseFile(resolve, reject)
-    } else {
-      reject(new Error('iOS 暂不支持从系统文件里选文件，请用 Android 或在电脑上处理备份'))
-    }
-  })
-}
+export function listImportableFiles() {
+  const ROOTS = ['_doc/', '_downloads/', '_documents/']
+  const out = []
+  const seen = new Set()
 
-/** Android：ACTION_GET_CONTENT + onActivityResult */
-function androidChooseFile(resolve, reject) {
-  const REQUEST_CODE = 0x5b1
-
-  let settled = false
-  let listener = null
-
-  const cleanUp = () => {
-    if (listener) {
+  const getTime = (entry) =>
+    new Promise((res) => {
       try {
-        plus.globalEvent.removeEventListener('onActivityResult', listener)
-      } catch (e) {}
-      listener = null
-    }
-  }
-
-  const fail = (msg) => {
-    if (settled) return
-    settled = true
-    cleanUp()
-    reject(new Error(msg || '选择文件失败'))
-  }
-
-  try {
-    const main = plus.android.runtimeMainActivity()
-    const Intent = plus.android.importClass('android.content.Intent')
-    const intent = new Intent(Intent.ACTION_GET_CONTENT)
-
-    // setType 用 */* 保底：部分文件管理器会忽略 MIME 过滤
-    intent.setType('*/*')
-    intent.addCategory(Intent.CATEGORY_OPENABLE)
-    try {
-      intent.putExtra('android.intent.extra.MIME_TYPES', ['application/json', 'text/plain'])
-    } catch (e) {}
-
-    listener = (result) => {
-      try {
-        logStep('onActivityResult 收到', {
-          requestCode: result && result.requestCode,
-          resultCode: result && result.resultCode,
-          hasIntent: !!(result && result.intent)
-        })
-        if (Number(result.requestCode) !== REQUEST_CODE) return
-
-        // Activity.RESULT_OK === -1
-        if (Number(result.resultCode) !== -1) {
-          fail('已取消')
-          return
-        }
-
-        const data = result.intent
-        if (!data) {
-          fail('没有返回文件')
-          return
-        }
-
-        plus.android.importClass(data)
-        const uri = data.getData()
-        if (!uri) {
-          fail('没有选中文件')
-          return
-        }
-        logStep('拿到 uri', String(uri))
-
-        readUriIntoAppDir(uri)
-          .then((path) => {
-            logStep('readUriIntoAppDir 完成', path)
-            if (settled) return
-            settled = true
-            cleanUp()
-            resolve(path)
-          })
-          .catch((e) => {
-            logStep('readUriIntoAppDir 失败', (e && e.message) || '')
-            fail((e && e.message) || '读取选中文件失败')
-          })
+        entry.getMetadata(
+          (m) => res((m && m.modificationTime) || 0),
+          () => res(0)
+        )
       } catch (e) {
-        logStep('onActivityResult 异常', (e && e.message) || '')
-        fail((e && e.message) || '处理选择结果失败')
+        res(0)
       }
-    }
+    })
 
-    plus.globalEvent.addEventListener('onActivityResult', listener)
-    main.startActivityForResult(intent, REQUEST_CODE)
-    logStep('已启动系统文件选择（startActivityForResult）', REQUEST_CODE)
-
-    // 90 秒兜底：就算系统回调完全不来，也不能让用户无限转圈。
-    // 90 秒足够挑完一个文件，还没回来就是真出问题了，明确报错。
-    setTimeout(() => fail('选择文件超时（没收到系统回调，请重试）'), 90 * 1000)
-  } catch (e) {
-    logStep('androidChooseFile 启动异常', (e && e.message) || '')
-    fail((e && e.message) || '无法调起系统文件选择')
-  }
-}
-
-/**
- * 把 content:// Uri 的内容读出来，落进沙盒的 _doc/import/。
- *
- * 外部 Uri 走的是 Android 的 ContentProvider 体系，
- * plus.io 的 readTextFile 读不了，必须先转成沙盒里的普通文件。
- */
-function readUriIntoAppDir(uri) {
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now()
-    try {
-      const main = plus.android.runtimeMainActivity()
-      const resolver = main.getContentResolver()
-      plus.android.importClass(resolver)
-
-      let name = `import_${Date.now()}.json`
-      try {
-        const cursor = resolver.query(uri, null, null, null, null)
-        if (cursor) {
-          plus.android.importClass(cursor)
-          if (cursor.moveToFirst()) {
-            const idx = cursor.getColumnIndex('_display_name')
-            if (idx >= 0) {
-              const got = cursor.getString(idx)
-              if (got) name = String(got)
-            }
-          }
-          cursor.close()
-        }
-      } catch (e) {}
-      logStep('已拿到文件名', { name, 耗时ms: Date.now() - t0 })
-
-      const stream = resolver.openInputStream(uri)
-      if (!stream) {
-        reject(new Error('打不开选中的文件'))
+  const scan = (dirPath, depth) =>
+    new Promise((resolve) => {
+      if (depth > 4) {
+        resolve()
         return
       }
-      logStep('已打开输入流', { 耗时ms: Date.now() - t0 })
+      if (typeof plus === 'undefined' || !plus.io) {
+        resolve()
+        return
+      }
+      plus.io.resolveLocalFileSystemURL(
+        dirPath,
+        (entry) => {
+          const reader = entry.createReader()
+          reader.readEntries(
+            (entries) => {
+              const pending = []
+              for (const e of entries) {
+                if (e.isFile && /\.json$/i.test(e.name)) {
+                  const p = dirPath.endsWith('/') ? dirPath + e.name : dirPath + '/' + e.name
+                  if (!seen.has(p)) {
+                    seen.add(p)
+                    pending.push(
+                      getTime(e).then((time) =>
+                        out.push({ path: p, name: e.name, dir: dirPath, time })
+                      )
+                    )
+                  }
+                } else if (e.isDirectory) {
+                  const sub = dirPath.endsWith('/')
+                    ? dirPath + e.name + '/'
+                    : dirPath + '/' + e.name + '/'
+                  pending.push(scan(sub, depth + 1))
+                }
+              }
+              Promise.all(pending).then(resolve)
+            },
+            () => resolve()
+          )
+        },
+        () => resolve()
+      )
+    })
 
-      // ★ 一次性读完整个流 ★
-      //   之前用 BufferedReader + `while (line !== null) readLine()`，
-      //   但 plus.android 里 Java 的 null 不一定映射成 JS 的 null ——
-      //   EOF 时 readLine() 可能永远不满足 line !== null，
-      //   结果就是「选完文件一直转圈」。
-      //   改用 java.util.Scanner：useDelimiter('\\A') 表示「整个输入」，
-      //   next() 一次返回全部内容，没有逐行判空，不会卡死。
-      try { uni.showLoading({ title: '读取文件…' }) } catch (e) {}
-      const Scanner = plus.android.importClass('java.util.Scanner')
-      const scanner = new Scanner(stream, 'UTF-8')
-      scanner.useDelimiter('\\A')
-      const text = scanner.hasNext() ? String(scanner.next()) : ''
-      scanner.close()
-      stream.close()
-      logStep('Scanner 读取完成', { 字符数: text.length, 耗时ms: Date.now() - t0 })
-
-      writeTextFile('_doc/import/', name, text)
-        .then((rel) => {
-          logStep('写入沙盒完成', { rel, 耗时ms: Date.now() - t0 })
-          resolve(rel)
-        })
-        .catch((e) => reject(new Error('写入沙盒失败: ' + ((e && e.message) || ''))))
-    } catch (e) {
-      logStep('readUriIntoAppDir 异常', (e && e.message) || '')
-      reject(new Error((e && e.message) || '读取文件内容失败'))
-    }
-  })
+  return Promise.all(ROOTS.map((r) => scan(r, 0))).then(() =>
+    out.sort((a, b) => b.time - a.time)
+  )
 }
 
-/**
- * 从指定文件导入（覆盖当前数据）。
- *
- * @param {string} relPath 沙盒里的文件路径
- * @returns {Promise<object>} 导入报告
- */
 export async function importFromFile(relPath) {
   const text = await readTextFile(relPath)
   let payload
@@ -1068,4 +957,4 @@ function parseBackupName(name) {
     Number(d.slice(0, 4)), Number(d.slice(4, 6)) - 1, Number(d.slice(6, 8)),
     Number(t.slice(0, 2)), Number(t.slice(2, 4)), Number(t.slice(4, 6))
   ).getTime()
-}
+}

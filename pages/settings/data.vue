@@ -75,7 +75,7 @@
           <view class="card-row" @click="onImport">
             <view class="row-info">
               <text class="row-name">从文件导入</text>
-              <text class="row-desc">选一个导出的 JSON，覆盖当前数据（会先自动备份）</text>
+              <text class="row-desc">浏览应用文件夹，选一个 JSON 覆盖当前数据（先自动备份）</text>
             </view>
             <text class="row-arrow">›</text>
           </view>
@@ -207,6 +207,39 @@
       </view>
     </wd-popup>
 
+    <!-- 导入：应用内文件浏览（系统选择器在当前基座不回调，改用 plus.io 扫描） -->
+    <wd-popup v-model="showImportPicker" position="bottom" :safe-area-inset-bottom="true">
+      <view class="backup-panel">
+        <view class="panel-head">
+          <text class="panel-title">选择要导入的文件</text>
+          <text class="panel-close" @click="showImportPicker = false">关闭</text>
+        </view>
+
+        <view class="panel-tip">
+          <text class="panel-tip-text">扫描的是应用可访问的文件夹（_doc / _downloads / _documents），按修改时间排序。</text>
+        </view>
+
+        <view v-if="importFiles.length === 0" class="panel-empty">
+          <text class="panel-empty-text">没有找到可导入的 JSON 文件</text>
+        </view>
+
+        <scroll-view v-else class="backup-scroll" scroll-y>
+          <view
+            v-for="f in importFiles"
+            :key="f.path"
+            class="backup-row"
+            @click="onPickImportFile(f)"
+          >
+            <view class="backup-info">
+              <text class="backup-name">{{ formatImportTime(f.time) }}</text>
+              <text class="backup-file">{{ f.name }}</text>
+            </view>
+            <text class="backup-action">导入</text>
+          </view>
+        </scroll-view>
+      </view>
+    </wd-popup>
+
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
   </view>
@@ -224,7 +257,7 @@ import { queryOne } from '@/api/db/index.js'
 import {
   autoBackup, listBackups, restoreBackup,
   exportToFile, listExportFiles, deleteExportFile, shareExportFile,
-  chooseImportFile, importFromFile
+  listImportableFiles, importFromFile
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
@@ -244,6 +277,8 @@ export default {
     const showBackups = ref(false)
     const exportFiles = ref([])
     const showExportFiles = ref(false)
+    const importFiles = ref([])
+    const showImportPicker = ref(false)
 
     /**
      * scroll-view 的滚动目标（元素 id）。
@@ -432,12 +467,19 @@ export default {
     /* ------------------------------------------------------ 导入 */
 
     /**
-     * 从系统文件选择器选一个 JSON 导入。
+     * 从应用文件夹导入。
+     *
+     * ★ 为什么不是系统文件选择器 ★
+     *   用户实测（日志）：这个基座上 startActivityForResult 能调起，
+     *   但 onActivityResult 事件从不回调，90 秒后报「系统未回调」。
+     *   所以 Native.js + ACTION_GET_CONTENT 走不通。
+     *
+     *   官方文档对 App 端的建议是：选 _doc/_downloads/_documents 里的
+     *   文件，用 plus.io API 自己做选择框。这里就照着做：
+     *   扫这几个目录列出 .json，用户在应用内挑一个。
      *
      * ★ 导入是「覆盖」而不是「合并」★
-     *   合并要处理 id 冲突、updated_at 取新、重复判定……
-     *   对个人记账来说，导入的目的基本就是「换手机搬数据」或「回滚」，
-     *   覆盖语义更清楚。覆盖前 api 层会自动备份当前库，能反悔。
+     *   覆盖前 api 层会自动备份当前库，能反悔。
      */
     async function onImport() {
       const T0 = Date.now()
@@ -448,36 +490,36 @@ export default {
         console.log(`[自由记导入页面] ${stamp} ${tag}`, extra === undefined ? '' : extra)
       }
 
-      log('onImport 开始')
-      let picked = ''
+      log('onImport 开始（应用内浏览）')
+      uni.showLoading({ title: '扫描文件…' })
       try {
-        uni.showLoading({ title: '选择文件…' })
-        picked = await chooseImportFile()
+        importFiles.value = await listImportableFiles()
         uni.hideLoading()
-        log('chooseImportFile 返回', { picked, 耗时ms: Date.now() - T0 })
+        log('listImportableFiles 返回', { 数量: importFiles.value.length, 耗时ms: Date.now() - T0 })
       } catch (e) {
         uni.hideLoading()
-        log('chooseImportFile 失败', (e && e.message) || '')
-        // 用户主动取消不算错误，不用弹框打扰
-        if (/取消/.test(e.message)) return
-        await alertDialog({ title: '选择文件失败', content: e.message })
+        log('listImportableFiles 失败', (e && e.message) || '')
+        await alertDialog({ title: '扫描失败', content: (e && e.message) || '无法读取文件列表' })
         return
       }
+      showImportPicker.value = true
+    }
 
+    /** 用户在应用内文件列表里选中一个 */
+    async function onPickImportFile(file) {
+      showImportPicker.value = false
       const ok = await confirmDialog({
         title: '用这个文件覆盖当前数据？',
-        content: '导入会清空当前所有账户、交易、分类，再写入文件里的内容。\n导入前会自动备份一次，万一不对可以从备份恢复。',
+        content: `${file.name}\n\n导入会清空当前所有账户、交易、分类，再写入文件里的内容。\n导入前会自动备份一次，万一不对可以从备份恢复。`,
         confirmText: '导入',
         danger: true
       })
       if (!ok) return
 
-      log('确认覆盖')
       uni.showLoading({ title: '导入中…' })
       try {
-        const report = await importFromFile(picked)
+        const report = await importFromFile(file.path)
         uni.hideLoading()
-        log('importFromFile 完成', { 耗时ms: Date.now() - T0 })
 
         clearSettingsCache()
         await settingStore.load()
@@ -485,7 +527,6 @@ export default {
         await txnStore.loadHome(true)
         await loadCounts()
         await loadBackups()
-        log('刷新完成', { 耗时ms: Date.now() - T0 })
 
         await alertDialog({
           title: '导入完成',
@@ -498,7 +539,6 @@ export default {
         })
       } catch (e) {
         uni.hideLoading()
-        log('importFromFile 失败', (e && e.message) || '')
         await alertDialog({ title: '导入失败', content: e.message })
       }
     }
@@ -651,6 +691,14 @@ export default {
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
 
+    /** 可导入文件的修改时间 */
+    function formatImportTime(ts) {
+      if (!ts) return '未知时间'
+      const d = new Date(ts)
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+
     function goBack() {
       uni.navigateBack()
     }
@@ -681,12 +729,14 @@ export default {
     return {
       counts, autoBackupOn, backupList, showBackups,
       exportFiles, showExportFiles,
+      importFiles, showImportPicker,
       primaryColor, pageStyle, scrollTarget,
-      onExport, openExportFiles, onShareExport, onDeleteExport, onImport,
+      onExport, openExportFiles, onShareExport, onDeleteExport,
+      onImport, onPickImportFile,
       onRestoreBackup,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
-      formatBackupTime, formatExportTime, goBack, settingStore
+      formatBackupTime, formatExportTime, formatImportTime, goBack, settingStore
     }
   }
 }
@@ -889,6 +939,17 @@ export default {
 .backup-action {
   font-size: 24rpx;
   color: var(--app-primary);
+}
+
+/* 导入文件浏览弹层顶部的说明条 */
+.panel-tip {
+  padding: 12rpx 28rpx 20rpx;
+}
+
+.panel-tip-text {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  line-height: 1.5;
 }
 
 /* 导出历史每行右侧的两个操作：分享 / 删除 */
