@@ -49,9 +49,16 @@
             右滑父类行  -> 露出「编辑」「删除」
             右滑子类行  -> 露出「编辑」「删除」
         -->
+        <!--
+          ★ 固定分类不能右滑 ★
+            wd-swipe-action 的 disabled 属性直接禁掉滑动，
+            比「滑出来再提示」体验好 —— 固定分类本来就没有可改的东西，
+            滑出来只会被误触。
+        -->
         <wd-swipe-action
           v-model="swipeStates[parent.id]"
           class="cat-swipe"
+          :disabled="isReconcile(parent)"
         >
           <view class="parent-row" @click="toggleExpand(parent.id)">
             <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
@@ -78,12 +85,18 @@
               .stop 阻止冒泡到外层的 onClick('right')，避免重复触发。
           -->
           <template #right>
-            <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(parent)">
-              <text class="swipe-action-text">编辑</text>
+            <!-- 固定分类：滑出来只提示，不给操作按钮 -->
+            <view v-if="isReconcile(parent)" class="swipe-locked">
+              <text class="swipe-locked-text">固定分类</text>
             </view>
-            <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDelete(parent)">
-              <text class="swipe-action-text">删除</text>
-            </view>
+            <template v-else>
+              <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(parent)">
+                <text class="swipe-action-text">编辑</text>
+              </view>
+              <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDelete(parent)">
+                <text class="swipe-action-text">删除</text>
+              </view>
+            </template>
           </template>
         </wd-swipe-action>
 
@@ -94,6 +107,7 @@
             :key="child.id"
             v-model="swipeStates[child.id]"
             class="cat-swipe cat-swipe-child"
+            :disabled="isReconcile(parent)"
           >
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
@@ -634,6 +648,21 @@ export default {
   color: #ffffff;
   font-size: 26rpx;
   font-weight: 500;
+}
+
+/* 固定分类：滑出来只提示 */
+.swipe-locked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200rpx;
+  height: 100%;
+  background-color: var(--app-text-3);
+}
+
+.swipe-locked-text {
+  color: #ffffff;
+  font-size: 24rpx;
 }
 
 /* 右上角：新建一级分类 */
