@@ -29,11 +29,17 @@
       </view>
 
       <view v-for="parent in tree" :key="parent.id" class="cat-group">
+        <!--
+          ★ 交互约定（与标签管理页保持一致）★
+            点父类行  -> 展开/收起
+            点父类名字 -> 进分类详情页（看这个分类的流水与统计）
+            点「编辑」 -> 打开编辑弹层
+        -->
         <view class="parent-row" @click="toggleExpand(parent.id)">
           <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
             <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
           </view>
-          <text class="parent-name">{{ parent.name }}</text>
+          <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
           <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
           <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
           <text
@@ -43,15 +49,18 @@
         </view>
 
         <view v-if="expandedIds.includes(parent.id)" class="children">
+          <!--
+            点子分类名字 -> 进详情页
+            点「编辑」   -> 打开编辑弹层
+          -->
           <view
             v-for="child in parent.children"
             :key="child.id"
             class="child-row"
-            @click="openEdit(child)"
           >
             <view class="child-dot" :style="{ backgroundColor: child.color || primaryColor }" />
-            <text class="child-name">{{ child.name }}</text>
-            <text class="child-edit">编辑</text>
+            <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
+            <text class="child-edit" @click.stop="openEdit(child)">编辑</text>
           </view>
 
           <view v-if="!isReconcile(parent)" class="child-row child-add" @click="openCreate(parent)">
@@ -303,6 +312,18 @@ export default {
       })
     }
 
+    /**
+     * 进分类详情页。
+     *
+     * ★ 和账户详情 / 标签详情 / 预算详情 / 周期详情同一套结构 ★
+     *   详情页里会显示这个分类的汇总卡、本月收支和最近流水，
+     *   右上角「全部 ›」会带上分类筛选条件跳到交易列表页。
+     */
+    function goDetail(cat) {
+      if (!cat || !cat.id) return
+      uni.navigateTo({ url: `/pages/settings/category-detail?id=${cat.id}` })
+    }
+
     function goBack() {
       uni.navigateBack()
     }
@@ -318,7 +339,7 @@ export default {
       iconOptions, iconEmoji,
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit,
-      isReconcile,
+      isReconcile, goDetail,
       onSaveCategory, onDelete, goBack
     }
   }
