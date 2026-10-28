@@ -61,6 +61,15 @@ export const ICON_MAP = {
   creditcard: '💳', // 信用卡
   huabei:   '🌸',   // 花呗
   invest:   '💹',   // 投资
+  // ---- 二级分类用（每个二级分类都有自己的图标） ----
+  daily:      '🧴',   // 日用品
+  digital:    '💻',   // 数码
+  socialsec:  '🏥',   // 医保 / 社保
+  social:     '🤝',   // 团建 / 聚会
+  tuition:    '🎓',   // 学费
+  stationery: '✏️',   // 文具
+  party:      '🎊',   // 随份子
+  redpacket:  '🧧',   // 红包
   // 兜底
   more:     '📦'    // 其他
 }
@@ -102,6 +111,14 @@ export const ICON_OPTIONS = [
   { key: 'insurance', label: '保险' },
   { key: 'loan', label: '还款' },
   { key: 'tax', label: '税费' },
+  { key: 'daily', label: '日用品' },
+  { key: 'digital', label: '数码' },
+  { key: 'socialsec', label: '社保' },
+  { key: 'social', label: '聚会' },
+  { key: 'tuition', label: '学费' },
+  { key: 'stationery', label: '文具' },
+  { key: 'party', label: '随份子' },
+  { key: 'redpacket', label: '红包' },
   { key: 'more', label: '其他' }
 ]
 

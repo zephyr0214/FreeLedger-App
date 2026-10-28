@@ -10,7 +10,8 @@
 import {
   SCHEMA_V1, INDEXES_V1, SCHEMA_VERSION,
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
-  DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES
+  DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
+  childIcon, childColor
 } from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
 import { prefixedId } from '../../utils/id.js'
@@ -232,8 +233,94 @@ const MIGRATIONS = [
     //   详见 rebuildDefaultCategories()。
     version: 5,
     up: rebuildDefaultCategories
+  },
+  {
+    // ★ 二级分类改为独立图标 ★
+    //   v5 的分类表里，二级分类的 icon 直接继承了父级
+    //   （「早餐」「午餐」「晚餐」全是同一个 🍜）。
+    //   用户要求每个子类都能有自己的图标。
+    //
+    //   这里**不重建分类表** —— 重建会把用户的分类改动和历史交易引用
+    //   全部打乱（v5 迁移已经干过一次那样的事，代价太大）。
+    //   只按「一级分类名 + 二级分类名」把 icon 改对就行：
+    //   用户自己新建的分类不受影响（名字对不上就不动）。
+    //
+    //   详见 applyChildCategoryIcons()。
+    version: 6,
+    up: applyChildCategoryIcons
   }
 ]
+
+/**
+ * 迁移 v6 —— 给二级分类补上各自的图标
+ *
+ * ★ 为什么不重建分类表 ★
+ *   重建（v5 那种做法）会软删所有分类再新建，
+ *   历史交易的 category_id 会变成悬空引用，用户的自定义分类也会没。
+ *   这里只做最小改动：按名字找到对应的二级分类，把 icon 改对。
+ *
+ * ★ 怎么找到「对应的」二级分类 ★
+ *   一级分类名 + 二级分类名 一起当 key。
+ *   名字对不上（用户自己新建的、改过名的）就跳过 —— 不动用户的数据。
+ *
+ * ★ 为什么必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，会死锁。
+ *   （v2 / v4 / v5 都踩过这个坑，见那边的注释。）
+ */
+async function applyChildCategoryIcons() {
+  const now = Date.now()
+
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v6 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v6 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  let updated = 0
+
+  for (const type of ['expense', 'income']) {
+    const list = type === 'expense' ? DEFAULT_EXPENSE_CATEGORIES : DEFAULT_INCOME_CATEGORIES
+
+    for (const parent of list) {
+      // 找父级
+      const parents = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [parent.name, type]
+      )
+      if (!parents || parents.length === 0) continue
+      const parentId = parents[0].id
+
+      for (const child of parent.children) {
+        const childName = typeof child === 'string' ? child : child.name
+        const icon = childIcon(child, parent.icon)
+
+        const ok = await run(
+          `UPDATE category SET icon = ?, updated_at = ?
+           WHERE deleted_at IS NULL AND parent_id = ? AND name = ?`,
+          [icon, now, parentId, childName]
+        )
+        if (ok) updated++
+      }
+    }
+  }
+
+  console.log(`[db] migration v6: 二级分类图标已更新（${updated} 条）`)
+}
 
 /**
  * 迁移 v4 —— 把旧的一级「对账调整」拆成两个固定的一级分类
@@ -518,10 +605,19 @@ async function rebuildDefaultCategories() {
       created++
 
       for (let j = 0; j < item.children.length; j++) {
+        // ★ 二级分类有自己的图标（颜色继承父级）★
+        //   childIcon / childColor 兼容旧写法（纯字符串），
+        //   详见 api/db/schema.js 的说明。
+        const child = item.children[j]
+        const childName = typeof child === 'string' ? child : child.name
         const okChild = await run(
           `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
            VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-          [prefixedId('cat'), parentId, item.children[j], type, item.icon, item.color, j, now, now]
+          [
+            prefixedId('cat'), parentId, childName, type,
+            childIcon(child, item.icon), childColor(child, item.color),
+            j, now, now
+          ]
         )
         if (okChild) created++
       }

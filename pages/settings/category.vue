@@ -1,6 +1,13 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <PageNav title="分类管理" @back="goBack" />
+    <PageNav title="分类管理" @back="goBack">
+      <!-- 右上角：新建一级分类 -->
+      <template #right>
+        <view class="nav-add" @click="openCreate(null)">
+          <LineIcon name="plus" :size="36" :color="primaryColor" />
+        </view>
+      </template>
+    </PageNav>
 
     <!-- 类型切换 -->
     <view class="type-bar">
@@ -25,44 +32,91 @@
 
     <scroll-view class="page-scroll" scroll-y>
       <view v-if="tree.length === 0" class="empty-wrap">
-        <EmptyState emoji="📂" title="还没有分类" action-text="新建分类" @action="openCreate(null)" />
+        <EmptyState
+          emoji="📂"
+          title="还没有分类"
+          desc="点右上角的 + 新建一个一级分类"
+          action-text="新建分类"
+          @action="openCreate(null)"
+        />
       </view>
 
       <view v-for="parent in tree" :key="parent.id" class="cat-group">
         <!--
           ★ 交互约定（与标签管理页保持一致）★
-            点父类行  -> 展开/收起
-            点父类名字 -> 进分类详情页（看这个分类的流水与统计）
-            点「编辑」 -> 打开编辑弹层
+            点父类行    -> 展开/收起
+            点父类名字  -> 进分类详情页（看这个分类的流水与统计）
+            右滑父类行  -> 露出「编辑」「删除」
+            右滑子类行  -> 露出「编辑」「删除」
         -->
-        <view class="parent-row" @click="toggleExpand(parent.id)">
-          <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
-            <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
+        <wd-swipe-action
+          v-model="swipeStates[parent.id]"
+          class="cat-swipe"
+        >
+          <view class="parent-row" @click="toggleExpand(parent.id)">
+            <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
+              <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
+            </view>
+            <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
+            <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
+            <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
+            <text
+              class="expand-icon"
+              :class="{ expanded: expandedIds.includes(parent.id) }"
+            >›</text>
           </view>
-          <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
-          <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
-          <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
-          <text
-            class="expand-icon"
-            :class="{ expanded: expandedIds.includes(parent.id) }"
-          >›</text>
-        </view>
 
-        <view v-if="expandedIds.includes(parent.id)" class="children">
           <!--
-            点子分类名字 -> 进详情页
-            点「编辑」   -> 打开编辑弹层
+            右滑操作区：编辑 + 删除
+
+            ★ 为什么两个按钮各自绑 @click.stop ★
+              wd-swipe-action 的整个右滑区域只会 emit 一个
+              { value: 'right' } 事件，分不出是哪个按钮 ——
+              它的模板是 <view class="wd-swipe-action__right" @click="onClick('right')">，
+              里面放几个 view 都一样。
+              所以两个按钮各自绑 @click.stop，自己处理，
+              .stop 阻止冒泡到外层的 onClick('right')，避免重复触发。
           -->
-          <view
+          <template #right>
+            <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(parent)">
+              <text class="swipe-action-text">编辑</text>
+            </view>
+            <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDelete(parent)">
+              <text class="swipe-action-text">删除</text>
+            </view>
+          </template>
+        </wd-swipe-action>
+
+        <!-- 子分类 -->
+        <view v-if="expandedIds.includes(parent.id)" class="children">
+          <wd-swipe-action
             v-for="child in parent.children"
             :key="child.id"
-            class="child-row"
+            v-model="swipeStates[child.id]"
+            class="cat-swipe cat-swipe-child"
           >
-            <view class="child-dot" :style="{ backgroundColor: child.color || primaryColor }" />
-            <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
-            <text class="child-edit" @click.stop="openEdit(child)">编辑</text>
-          </view>
+            <view class="child-row">
+              <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
+              <view class="child-icon" :style="{ backgroundColor: (child.color || parent.color || primaryColor) + '22' }">
+                <text class="child-emoji">{{ iconEmoji(child.icon) }}</text>
+              </view>
+              <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
+            </view>
 
+            <template #right>
+              <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(child)">
+                <text class="swipe-action-text">编辑</text>
+              </view>
+              <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDelete(child)">
+                <text class="swipe-action-text">删除</text>
+              </view>
+            </template>
+          </wd-swipe-action>
+
+          <!--
+            「+ 添加子分类」保留：
+            加子分类是「在某个父类下加」，和右上角的「加一级分类」不是一回事。
+          -->
           <view v-if="!isReconcile(parent)" class="child-row child-add" @click="openCreate(parent)">
             <text class="child-add-text">+ 添加子分类</text>
           </view>
@@ -71,17 +125,7 @@
           <view v-if="isReconcile(parent)" class="child-actions">
             <text class="action-lock">固定分类，不可编辑或删除</text>
           </view>
-          <view v-else class="child-actions">
-            <text class="action-link" @click="openEdit(parent)">编辑父类</text>
-            <text class="action-link action-danger" @click="onDelete(parent)">删除父类</text>
-          </view>
         </view>
-      </view>
-
-      <view class="add-btn-wrap">
-        <wd-button size="large" plain type="primary" @click="openCreate(null)">
-          + 新建一级分类
-        </wd-button>
       </view>
 
       <view class="bottom-space" />
@@ -92,11 +136,11 @@
       <view class="editor">
         <view class="editor-head">
           <text class="editor-cancel" @click="showEditor = false">取消</text>
-          <text class="editor-title">{{ editingId ? '编辑分类' : '新建分类' }}</text>
+          <text class="editor-title">{{ editorTitle }}</text>
           <text class="editor-save" @click="onSaveCategory">保存</text>
         </view>
 
-        <view class="editor-body">
+        <scroll-view class="editor-body" scroll-y>
           <view class="editor-row">
             <text class="editor-label">名称</text>
             <input
@@ -108,7 +152,11 @@
             />
           </view>
 
-          <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
+          <!--
+            图标选择器：一级和二级都显示。
+            二级分类现在可以有自己的图标（v6 起）。
+          -->
+          <view class="editor-row editor-row-column">
             <text class="editor-label">图标</text>
             <scroll-view class="icon-scroll" scroll-y>
               <view class="icon-grid">
@@ -126,6 +174,7 @@
             </scroll-view>
           </view>
 
+          <!-- 颜色只有一级能改：二级继承父级的颜色 -->
           <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
             <text class="editor-label">颜色</text>
             <view class="color-grid">
@@ -139,7 +188,11 @@
               />
             </view>
           </view>
-        </view>
+          <view v-else class="editor-row editor-row-column">
+            <text class="editor-label">颜色</text>
+            <text class="editor-hint">子分类颜色跟随父级「{{ parentNameOf(editorForm.parent_id) }}」</text>
+          </view>
+        </scroll-view>
       </view>
     </wd-popup>
 
@@ -153,6 +206,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, createCategory, updateCategory, deleteCategory,
@@ -162,7 +216,7 @@ import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog },
+  components: { PageNav, EmptyState, AppDialog, LineIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -172,6 +226,12 @@ export default {
     const showEditor = ref(false)
     const editingId = ref('')
     const editorForm = reactive({ name: '', color: '', icon: 'more', parent_id: null })
+
+    /**
+     * wd-swipe-action 的展开状态。
+     * key 是分类 id，值是该行当前是否展开（右滑打开）。
+     */
+    const swipeStates = reactive({})
 
     const iconOptions = ICON_OPTIONS
 
@@ -189,6 +249,22 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
+    /** 弹层标题：新建一级 / 新建子分类 / 编辑 */
+    const editorTitle = computed(() => {
+      if (editingId.value) {
+        return editorForm.parent_id ? '编辑子分类' : '编辑一级分类'
+      }
+      return editorForm.parent_id ? '新建子分类' : '新建一级分类'
+    })
+
+    /** 某个父级分类的名字（编辑子分类时提示「颜色跟随父级 X」） */
+    function parentNameOf(parentId) {
+      if (!parentId) return ''
+      for (const p of tree.value) {
+        if (p.id === parentId) return p.name
+      }
+      return ''
+    }
 
     async function load() {
       tree.value = await listCategoryTree(activeType.value, true)
@@ -217,6 +293,10 @@ export default {
       return isReconcileCategory(cat)
     }
 
+    /**
+     * 新建分类
+     * @param {object|null} parent 传父级 = 新建子分类；传 null = 新建一级分类
+     */
     function openCreate(parent) {
       // 固定分类下不能再加子分类
       if (parent && isReconcile(parent)) {
@@ -226,7 +306,11 @@ export default {
       editingId.value = ''
       editorForm.name = ''
       editorForm.color = colors[0]
-      // 二级分类继承父级图标与颜色
+      /**
+       * 二级分类的图标不再强制继承父级了 ——
+       * 用户要能给每个子类单独配图标，默认给父级的，
+       * 但用户可以改。（颜色仍然继承父级。）
+       */
       editorForm.icon = parent ? (parent.icon || 'more') : 'more'
       if (parent && parent.color) editorForm.color = parent.color
       editorForm.parent_id = parent ? parent.id : null
@@ -293,21 +377,34 @@ export default {
       }
     }
 
+    /**
+     * 删除分类
+     *
+     * ★ 删除有交易的分类也允许 ★
+     *   用户要求：分类下的交易调整为「无分类」，交易本身不删。
+     *   deleteCategory 的具体行为由 api/category.js 负责
+     *   （把交易的 category_id 置 NULL，删一级时连带软删子分类）。
+     */
     async function onDelete(cat) {
       // 固定分类不能删
       if (isReconcile(cat)) {
         uni.showToast({ title: `「${cat.name}」是固定分类，不能删除`, icon: 'none' })
         return
       }
+      const isChild = !!cat.parent_id
       const ok = await confirmDialog({
         title: `删除「${cat.name}」？`,
-        content: '若该分类下已有交易则无法删除',
+        content: isChild
+          ? '该分类下的交易会变成「无分类」，交易记录本身不会删除'
+          : '该分类及其子分类下的交易会变成「无分类」，交易记录本身不会删除',
         confirmText: '删除',
         danger: true
       })
       if (!ok) return
       try {
         await deleteCategory(cat.id)
+        // 收起这一行的右滑
+        swipeStates[cat.id] = 'close'
         await load()
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
@@ -338,10 +435,10 @@ export default {
 
     return {
       settingStore, activeType, tree, expandedIds,
-      showEditor, editingId, editorForm, types, colors,
-      iconOptions, iconEmoji,
+      showEditor, editingId, editorForm, types, colors, swipeStates,
+      iconOptions, iconEmoji, editorTitle,
       primaryColor, pageStyle,
-      switchType, toggleExpand, openCreate, openEdit,
+      switchType, toggleExpand, openCreate, openEdit, parentNameOf,
       isReconcile, goDetail,
       onSaveCategory, onDelete, goBack
     }
@@ -388,11 +485,28 @@ export default {
   overflow: hidden;
 }
 
+/* wd-swipe-action 的外层：每一行独立包一层 */
+.cat-swipe {
+  display: block;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.cat-swipe:last-child {
+  border-bottom: none;
+}
+
+/* 子分类所在的那一层不画分隔线（由子行自己画） */
+.cat-swipe-child {
+  border-bottom: none;
+}
+
+/* 父类行 */
 .parent-row {
   display: flex;
   align-items: center;
   gap: 16rpx;
   padding: 26rpx 28rpx;
+  background-color: var(--app-card);
 }
 
 .parent-icon {
@@ -446,28 +560,41 @@ export default {
   transform: rotate(90deg);
 }
 
+/* 子分类区：缩进 + 左侧竖线，视觉上从属于父类 */
 .children {
   border-top: 1rpx solid var(--app-line);
-  padding: 8rpx 28rpx 16rpx;
+  padding: 8rpx 28rpx 16rpx 40rpx;
+  border-left: 4rpx solid var(--app-line);
+  margin-left: 40rpx;
 }
 
 .child-row {
   display: flex;
   align-items: center;
   gap: 14rpx;
-  padding: 18rpx 0;
+  padding: 16rpx 0;
   border-bottom: 1rpx solid var(--app-line);
+  background-color: var(--app-card);
 }
 
 .child-row:last-of-type {
   border-bottom: none;
 }
 
-.child-dot {
-  width: 12rpx;
-  height: 12rpx;
-  border-radius: 50%;
+/* 子类自己的图标（比父类小一号） */
+.child-icon {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+}
+
+.child-emoji {
+  font-size: 26rpx;
+  line-height: 1;
 }
 
 .child-name {
@@ -476,14 +603,9 @@ export default {
   color: var(--app-text-2);
 }
 
-.child-edit {
-  font-size: 22rpx;
-  color: var(--app-primary);
-}
-
 .child-add {
   justify-content: center;
-  padding: 16rpx 0;
+  padding: 18rpx 0;
   border-bottom: none;
 }
 
@@ -494,22 +616,33 @@ export default {
 
 .child-actions {
   display: flex;
-  gap: 32rpx;
   justify-content: center;
   padding-top: 12rpx;
 }
 
-.action-link {
-  font-size: 22rpx;
-  color: var(--app-text-3);
+/* 右滑操作区：编辑 / 删除 */
+.swipe-edit,
+.swipe-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 150rpx;
+  height: 100%;
 }
 
-.action-danger {
-  color: var(--app-danger);
+.swipe-action-text {
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 500;
 }
 
-.add-btn-wrap {
-  margin-top: 32rpx;
+/* 右上角：新建一级分类 */
+.nav-add {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .empty-wrap {
@@ -550,6 +683,7 @@ export default {
 }
 
 .editor-body {
+  max-height: 62vh;
   padding: 8rpx 28rpx 32rpx;
 }
 
@@ -582,8 +716,13 @@ export default {
 }
 
 .editor-placeholder {
-  color: var(--app-text-3);
   font-size: 28rpx;
+  color: var(--app-text-3);
+}
+
+.editor-hint {
+  font-size: 24rpx;
+  color: var(--app-text-3);
 }
 
 .color-grid {

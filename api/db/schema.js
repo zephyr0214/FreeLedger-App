@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 /**
  * 「对账」固定分类（v4 起）
@@ -48,23 +48,86 @@ export const RECONCILE_LEGACY_NAME = '对账调整'
  *   和 RECONCILE_CATEGORIES 一样的思路。
  *
  * ★ icon 字段的取值必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键 ★
- *   二级分类不单独配 icon，直接继承父级的。
  *
  * ★ 结构是一级 + 二级 ★
  *   一级是「统计口径」（餐饮食品、交通出行…），二级是用户真正记的那一项
- *   （正餐、饮品、零食/小吃…）。二级继承父级的 icon 和 color，
- *   所以每个一级只给一个图标一个颜色。
+ *   （正餐、饮品、零食/小吃…）。
+ *
+ * ★ 二级分类有自己的图标（v6 起）★
+ *   以前二级分类直接继承父级的 icon，用户没法给「早餐」单独配图标。
+ *   现在 children 里每一项都是 { name, icon } 对象：
+ *     - icon   独立图标
+ *     - color  省略时继承父级颜色
+ *   写成对象而不是纯字符串，是为了给以后「二级也自定义颜色」留口子；
+ *   读取时统一用 childIcon() / childColor() 两个 helper 兜住两种写法。
  */
 export const DEFAULT_EXPENSE_CATEGORIES = [
-  { name: '餐饮食品', icon: 'food',    color: '#FF976A', children: ['正餐', '饮品', '零食/小吃', '超市/零售'] },
-  { name: '交通出行', icon: 'car',     color: '#1989FA', children: ['公共交通/打车', '火车/飞机', '加油/停车'] },
-  { name: '居住住房', icon: 'home',    color: '#7D5FFF', children: ['房租/房贷/物业', '水电燃气', '话费/网费'] },
-  { name: '购物消费', icon: 'shop',    color: '#EE0A24', children: ['日用品', '服饰', '数码'] },
-  { name: '医疗健康', icon: 'medical', color: '#FF8F1F', children: ['买药/看病', '健身', '医保/社保'] },
-  { name: '社交娱乐', icon: 'game',    color: '#07C160', children: ['旅游', '娱乐', '团建'] },
-  { name: '学校学习', icon: 'book',    color: '#0A8F4A', children: ['学费', '书籍/课程/资料', '文具'] },
-  { name: '人情往来', icon: 'gift',    color: '#FF6B9D', children: ['随份子', '红包', '送礼'] },
-  { name: '其他/杂项', icon: 'more',   color: '#969799', children: [] }
+  {
+    name: '餐饮食品', icon: 'food', color: '#FF976A',
+    children: [
+      { name: '正餐', icon: 'food' },
+      { name: '饮品', icon: 'coffee' },
+      { name: '零食/小吃', icon: 'snack' },
+      { name: '超市/零售', icon: 'shop' }
+    ]
+  },
+  {
+    name: '交通出行', icon: 'car', color: '#1989FA',
+    children: [
+      { name: '公共交通/打车', icon: 'carfare' },
+      { name: '火车/飞机', icon: 'travel' },
+      { name: '加油/停车', icon: 'fuel' }
+    ]
+  },
+  {
+    name: '居住住房', icon: 'home', color: '#7D5FFF',
+    children: [
+      { name: '房租/房贷/物业', icon: 'rent' },
+      { name: '水电燃气', icon: 'water' },
+      { name: '话费/网费', icon: 'phone' }
+    ]
+  },
+  {
+    name: '购物消费', icon: 'shop', color: '#EE0A24',
+    children: [
+      { name: '日用品', icon: 'daily' },
+      { name: '服饰', icon: 'clothes' },
+      { name: '数码', icon: 'digital' }
+    ]
+  },
+  {
+    name: '医疗健康', icon: 'medical', color: '#FF8F1F',
+    children: [
+      { name: '买药/看病', icon: 'medical' },
+      { name: '健身', icon: 'fitness' },
+      { name: '医保/社保', icon: 'socialsec' }
+    ]
+  },
+  {
+    name: '社交娱乐', icon: 'game', color: '#07C160',
+    children: [
+      { name: '旅游', icon: 'travel' },
+      { name: '娱乐', icon: 'game' },
+      { name: '团建', icon: 'social' }
+    ]
+  },
+  {
+    name: '学校学习', icon: 'book', color: '#0A8F4A',
+    children: [
+      { name: '学费', icon: 'tuition' },
+      { name: '书籍/课程/资料', icon: 'book' },
+      { name: '文具', icon: 'stationery' }
+    ]
+  },
+  {
+    name: '人情往来', icon: 'gift', color: '#FF6B9D',
+    children: [
+      { name: '随份子', icon: 'party' },
+      { name: '红包', icon: 'redpacket' },
+      { name: '送礼', icon: 'gift' }
+    ]
+  },
+  { name: '其他/杂项', icon: 'more', color: '#969799', children: [] }
 ]
 
 export const DEFAULT_INCOME_CATEGORIES = [
@@ -78,6 +141,41 @@ export const DEFAULT_INCOME_CATEGORIES = [
   { name: '退款返还', icon: 'refund', color: '#26A69A', children: [] },
   { name: '父母补贴', icon: 'money',  color: '#FFD60A', children: [] }
 ]
+
+/**
+ * 取二级分类的图标
+ *
+ * 兼容两种写法：
+ *   { name: '正餐', icon: 'food' }   -> 'food'
+ *   '正餐'（旧写法，继承父级）      -> parentIcon
+ *
+ * @param {object|string} child 二级分类定义
+ * @param {string} parentIcon 父级图标（兜底）
+ * @returns {string}
+ */
+export function childIcon(child, parentIcon) {
+  if (child && typeof child === 'object') {
+    return child.icon || parentIcon
+  }
+  return parentIcon
+}
+
+/**
+ * 取二级分类的颜色
+ *
+ * 二级默认继承父级颜色；以后要做「二级自定义颜色」时，
+ * 只要在 child 上写 color 就会自动生效。
+ *
+ * @param {object|string} child 二级分类定义
+ * @param {string} parentColor 父级颜色（兜底）
+ * @returns {string}
+ */
+export function childColor(child, parentColor) {
+  if (child && typeof child === 'object' && child.color) {
+    return child.color
+  }
+  return parentColor
+}
 
 /**
  * 分类别名 —— 速记解析用

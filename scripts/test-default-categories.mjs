@@ -16,6 +16,7 @@ import {
   isReconcileCategory,
   RECONCILE_NAMES
 } from '../api/category.js'
+import { childIcon, childColor } from '../api/db/schema.js'
 import { ICON_MAP, ICON_OPTIONS } from '../utils/icons.js'
 
 let pass = 0
@@ -32,6 +33,11 @@ function check(name, actual, expected) {
   }
 }
 
+/** 取二级分类的名字列表（兼容 { name, icon } 对象与纯字符串两种写法） */
+function childNames(children) {
+  return children.map((c) => (typeof c === 'string' ? c : c.name))
+}
+
 console.log('=== 支出默认分类结构 ===')
 
 check(
@@ -42,42 +48,42 @@ check(
 
 check(
   '餐饮食品的二级',
-  DEFAULT_EXPENSE_CATEGORIES[0].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[0].children),
   ['正餐', '饮品', '零食/小吃', '超市/零售']
 )
 check(
   '交通出行的二级',
-  DEFAULT_EXPENSE_CATEGORIES[1].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[1].children),
   ['公共交通/打车', '火车/飞机', '加油/停车']
 )
 check(
   '居住住房的二级',
-  DEFAULT_EXPENSE_CATEGORIES[2].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[2].children),
   ['房租/房贷/物业', '水电燃气', '话费/网费']
 )
 check(
   '购物消费的二级',
-  DEFAULT_EXPENSE_CATEGORIES[3].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[3].children),
   ['日用品', '服饰', '数码']
 )
 check(
   '医疗健康的二级',
-  DEFAULT_EXPENSE_CATEGORIES[4].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[4].children),
   ['买药/看病', '健身', '医保/社保']
 )
 check(
   '社交娱乐的二级',
-  DEFAULT_EXPENSE_CATEGORIES[5].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[5].children),
   ['旅游', '娱乐', '团建']
 )
 check(
   '学校学习的二级',
-  DEFAULT_EXPENSE_CATEGORIES[6].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[6].children),
   ['学费', '书籍/课程/资料', '文具']
 )
 check(
   '人情往来的二级',
-  DEFAULT_EXPENSE_CATEGORIES[7].children,
+  childNames(DEFAULT_EXPENSE_CATEGORIES[7].children),
   ['随份子', '红包', '送礼']
 )
 check('其他/杂项没有二级', DEFAULT_EXPENSE_CATEGORIES[8].children, [])
@@ -105,7 +111,7 @@ check(
 )
 check(
   '没有一级分类的二级与它重名',
-  DEFAULT_INCOME_CATEGORIES.filter((c) => c.children.includes('奖金补贴')).length,
+  DEFAULT_INCOME_CATEGORIES.filter((c) => childNames(c.children).includes('奖金补贴')).length,
   0
 )
 
@@ -118,6 +124,39 @@ for (const c of allCats) {
   check(`${c.name} 的 icon 存在于 ICON_MAP`, typeof ICON_MAP[c.icon] === 'string', true)
   check(`${c.name} 的 icon 在可选列表里`, optionKeys.has(c.icon), true)
 }
+
+console.log('=== 二级分类：自己的图标 ===')
+
+/**
+ * ★ 二级分类现在有自己的图标（v6 起）★
+ *   以前二级直接继承父级，一级下挂十几个子类全是同一个图标。
+ *   现在每个二级都能单独配一个贴切的图标。
+ */
+for (const c of allCats) {
+  for (const child of c.children) {
+    const name = typeof child === 'string' ? child : child.name
+    const icon = childIcon(child, c.icon)
+
+    check(`${c.name}/${name} 的 icon 存在于 ICON_MAP`, typeof ICON_MAP[icon] === 'string', true)
+    check(`${c.name}/${name} 的 icon 在可选列表里`, optionKeys.has(icon), true)
+    // 颜色继承父级
+    check(`${c.name}/${name} 的颜色继承父级`, childColor(child, c.color), c.color)
+  }
+}
+
+// ★ 二级分类的图标不能全是父级的图标（那等于没分开）★
+for (const c of allCats) {
+  if (c.children.length < 2) continue
+  const icons = c.children.map((ch) => childIcon(ch, c.icon))
+  check(`${c.name} 的二级图标不是全都一样`, new Set(icons).size > 1, true)
+}
+
+// 纯字符串写法（兼容旧结构）依然能用
+check('纯字符串子分类继承父级图标', childIcon('正餐', 'food'), 'food')
+check('纯字符串子分类继承父级颜色', childColor('正餐', '#FF976A'), '#FF976A')
+check('对象子分类用自己的图标', childIcon({ name: '正餐', icon: 'food' }, 'more'), 'food')
+check('对象子分类没写图标时用父级的', childIcon({ name: '正餐' }, 'more'), 'more')
+check('对象子分类写了自己的颜色就用自己的', childColor({ name: 'x', color: '#123456' }, '#FF976A'), '#123456')
 
 console.log('=== 颜色：合法 + 同类型内不重复 ===')
 

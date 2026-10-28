@@ -234,7 +234,11 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
   const children = db.prepare(
     'SELECT name FROM category WHERE deleted_at IS NULL AND parent_id = ? ORDER BY sort'
   ).all(food.id).map((r) => r.name)
-  check('餐饮食品的二级分类', children, DEFAULT_EXPENSE_CATEGORIES[0].children)
+  check(
+    '餐饮食品的二级分类',
+    children,
+    DEFAULT_EXPENSE_CATEGORIES[0].children.map((c) => (typeof c === 'string' ? c : c.name))
+  )
 
   // ---- 旧分类被软删除（不是硬删，可撤销） ----
   const oldFood = db.prepare("SELECT deleted_at FROM category WHERE id = 'cat_food'").get()

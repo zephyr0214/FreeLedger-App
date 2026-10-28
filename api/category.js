@@ -6,7 +6,8 @@ import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
-  DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS
+  DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
+  childIcon, childColor
 } from './db/schema.js'
 
 /**
@@ -20,12 +21,12 @@ import {
  *   schema.js 不依赖任何模块，是唯一能放「两边共用」的地方。
  *
  * icon 字段的取值必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键。
- * 二级分类不单独配 icon，直接继承父级的。
+ * ★ 二级分类有自己的图标（v6 起）★
+ *   children 里每一项是 { name, icon }，颜色继承父级。
  *
  * ★ 结构是一级 + 二级 ★
  *   一级是「统计口径」（餐饮食品、交通出行…），二级是用户真正记的那一项
  *   （正餐、饮品、零食/小吃…）。
- *   二级分类的 icon / color 都继承父级，所以每个一级只给一个图标一个颜色。
  *
  * ★ 颜色取自 App 现有的 Material 风格调色板 ★
  *   同一类型内保证一级分类颜色互不相同，一眼能分清。
@@ -300,11 +301,20 @@ async function insertDefaultCategories(exec, makeId, now) {
       )
       n++
 
+      // ★ 二级分类有自己的图标（颜色继承父级）★
+      //   childIcon / childColor 兼容旧写法（纯字符串），
+      //   详见 api/db/schema.js 的说明。
       for (let j = 0; j < item.children.length; j++) {
+        const child = item.children[j]
+        const childName = typeof child === 'string' ? child : child.name
         await exec(
           `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
            VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-          [makeId(), parentId, item.children[j], type, item.icon, item.color, j, now, now]
+          [
+            makeId(), parentId, childName, type,
+            childIcon(child, item.icon), childColor(child, item.color),
+            j, now, now
+          ]
         )
         n++
       }
