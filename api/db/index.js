@@ -7,7 +7,9 @@
  *   3. 事务必须手动 begin/commit，散落在业务层极易漏掉导致余额错乱
  */
 
-import { SCHEMA_V1, INDEXES_V1, SCHEMA_VERSION } from './schema.js'
+import { SCHEMA_V1, INDEXES_V1, SCHEMA_VERSION, RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME } from './schema.js'
+// ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
+import { prefixedId } from '../../utils/id.js'
 
 const DB_NAME = 'books'
 const DB_PATH = '_doc/books.db'
@@ -200,8 +202,179 @@ const MIGRATIONS = [
         }
       }
     }
+  },
+  {
+    // ★ 「对账调整」拆成两个固定的一级分类 ★
+    //   旧结构：expense 下有一个一级「对账调整」，下面挂二级
+    //          「对账支出」「对账收入」（income 下同理）。
+    //   新结构：expense 下直接是一级「对账支出」，
+    //          income 下直接是一级「对账收入」，
+    //          两条都是固定分类（分类管理里不可改名/改图标/删除）。
+    //
+    //   详见 migrateReconcileCategories()。
+    version: 4,
+    up: migrateReconcileCategories
   }
 ]
+
+/**
+ * 迁移 v4 —— 把旧的一级「对账调整」拆成两个固定的一级分类
+ *
+ * ★ 这里必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，
+ *   那样会等自己（opening 那个 Promise 还没 resolve），直接死锁。
+ *   （v2 的 fixNoonTimestamps 已经踩过这个坑，见那边的注释。）
+ *
+ * ★ 目标结构 ★
+ *   expense:  一级「对账支出」（parent_id = NULL）
+ *   income:   一级「对账收入」（parent_id = NULL）
+ *
+ * ★ 处理步骤（对每个 type 各做一遍）★
+ *   1. 先记下旧一级「对账调整」和它下面的二级分类
+ *      ★ 必须在改名之前取 ★
+ *        改名之后旧一级就叫「对账支出」了，
+ *        再按旧名字去查子分类就查不到了。
+ *   2. 找目标名的一级分类：
+ *      - 已经有 -> 直接复用它的 id（幂等的关键）
+ *      - 没有 -> 把旧的一级改名成目标名（保留 id，历史交易的引用不用改）
+ *      - 旧的一级也没有 -> 新建一个
+ *   3. 旧一级下面的二级分类：
+ *      - 名字和目标名相同（expense 下的「对账支出」二级）-> 软删除
+ *      - 引用了它的交易（txn.category_id）-> 改指向目标 id
+ *   4. 直接引用旧一级 id 的交易 -> 也改指向目标 id
+ *
+ * ★ 幂等 ★
+ *   跑第二遍时：目标一级已经存在（步骤 2 复用），
+ *   旧一级已改名或已软删除（步骤 1 查不到 active 的旧一级），
+ *   旧二级已软删除（步骤 3 跳过），
+ *   txn.category_id 已经指向目标 id（步骤 4 已是目标）—— 结果完全一样。
+ */
+async function migrateReconcileCategories() {
+  const now = Date.now()
+
+  /** 底层查询（迁移里不能走 query()，会死锁） */
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v4 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  /** 底层写入（迁移里不能走 execute()，会死锁） */
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v4 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  for (const def of RECONCILE_CATEGORIES) {
+    const type = def.type
+    const targetName = def.name
+
+    // ---- 1) 先记下旧一级和它的子分类（必须在改名之前取）----
+    //     旧一级只看「没被软删除」的 —— 软删除的记录不能再被改名复活。
+    const legacyRows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [RECONCILE_LEGACY_NAME, type]
+    )
+    if (legacyRows === null) continue
+
+    const legacyIds = legacyRows.map((r) => r.id).filter(Boolean)
+
+    // 收集所有（不管有没有被软删除的）旧一级的子分类 ——
+    // 历史数据里可能有「一级被软删除但二级还活着」的残留，一并收掉。
+    const allLegacyRows = await select(
+      'SELECT id FROM category WHERE name = ? AND type = ? AND parent_id IS NULL',
+      [RECONCILE_LEGACY_NAME, type]
+    )
+    if (allLegacyRows === null) continue
+
+    let childRows = []
+    for (const row of allLegacyRows) {
+      if (!row.id) continue
+      const rows = await select(
+        'SELECT id, name FROM category WHERE deleted_at IS NULL AND parent_id = ?',
+        [row.id]
+      )
+      if (rows === null) continue
+      childRows = childRows.concat(rows)
+    }
+
+    // ---- 2) 目标一级分类 ----
+    const targetRows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [targetName, type]
+    )
+    if (targetRows === null) continue
+
+    let targetId = targetRows.length > 0 ? targetRows[0].id : null
+
+    if (targetId) {
+      // 目标名已经被占用（同名的一级已存在）
+      // -> 旧的一级「对账调整」软删除，它下面的二级也软删除，
+      //    引用它们 id 的交易在步骤 3/4 里改指到目标。
+      for (const legacyId of legacyIds) {
+        await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, legacyId])
+      }
+    } else if (legacyIds.length > 0) {
+      // 目标名没被占用 -> 把旧的一级直接改名（保留 id，历史引用不用改）
+      const legacyId = legacyIds[0]
+      const ok = await run(
+        'UPDATE category SET name = ?, parent_id = NULL, icon = ?, color = ?, updated_at = ? WHERE id = ?',
+        [targetName, def.icon, def.color, now, legacyId]
+      )
+      if (ok) {
+        targetId = legacyId
+        // 重名的旧一级（异常数据）软删除
+        for (const extra of legacyIds.slice(1)) {
+          await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, extra])
+        }
+      }
+    }
+
+    if (!targetId) {
+      // 老库里根本没有对账分类 -> 直接建一个目标一级
+      const newId = prefixedId('cat')
+      const ok = await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,NULL,?,?,?,?,999,0,?,?,NULL)`,
+        [newId, targetName, type, def.icon, def.color, now, now]
+      )
+      if (!ok) continue
+      targetId = newId
+    }
+
+    // ---- 3) 旧一级下面的二级：软删除，引用改指向目标 ----
+    //   旧结构里这些二级（「对账支出」「对账收入」）是挂在「对账调整」下面的，
+    //   现在由目标一级直接承担，旧的二级全部软删除（软删除而不是硬删，
+    //   撤销功能还能用）。
+    for (const child of childRows) {
+      const childId = child.id
+      if (!childId || childId === targetId) continue
+
+      await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, childId])
+
+      // 引用它的交易改指向目标一级
+      await run('UPDATE txn SET category_id = ? WHERE category_id = ?', [targetId, childId])
+    }
+
+    // ---- 4) 直接引用旧一级 id 的交易 -> 也改指向目标 ----
+    for (const legacyId of legacyIds) {
+      if (legacyId === targetId) continue
+      await run('UPDATE txn SET category_id = ? WHERE category_id = ?', [targetId, legacyId])
+    }
+  }
+
+  console.log('[db] migration v4: 对账分类已拆分为「对账支出」「对账收入」两个一级分类')
+}
 
 /**
  * 回填历史记录的时刻（12:00 -> 实际创建时刻）

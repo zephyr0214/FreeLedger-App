@@ -8,7 +8,33 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
+
+/**
+ * 「对账」固定分类（v4 起）
+ *
+ * 用户直接改账户余额时，差额必须记一笔「对账支出 / 对账收入」，
+ * 这样余额公式（期初 + 收入 - 支出）才成立、账也对得上。
+ *
+ * 这两条是**固定的一级分类**（parent_id = NULL）：
+ *   - 分类管理里不能改名、不能改图标/颜色、不能删除
+ *   - expense 类型下叫「对账支出」，income 类型下叫「对账收入」
+ *
+ * 放在 schema.js 是为了让 api/category.js 和 api/db/index.js（迁移 v4）
+ * 共用同一份定义，避免两处各写一遍、改了一处忘了另一处。
+ */
+export const RECONCILE_CATEGORIES = [
+  { type: 'expense', name: '对账支出', icon: 'more', color: '#969799' },
+  { type: 'income', name: '对账收入', icon: 'more', color: '#969799' }
+]
+
+/**
+ * 旧结构的一级分类名（v3 及以前）
+ *
+ * 旧结构是「对账调整」一级 → 下面挂「对账支出」「对账收入」两个二级。
+ * 迁移 v4 负责把它拆成两个独立的一级分类。
+ */
+export const RECONCILE_LEGACY_NAME = '对账调整'
 
 export const SCHEMA_V1 = [
   // ---------------------------------------------------------------- 账户

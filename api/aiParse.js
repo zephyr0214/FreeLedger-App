@@ -712,11 +712,17 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
       item.accountFromAi = false
     }
 
-    // 分类兜底：支出/收入没给分类 → 用「其他」
+    // 分类兜底：支出/收入没给分类 → 用「其他/杂项」这类兜底分类
+    //   ★ 不能只认「其他」一个名字 ★
+    //     默认分类改版后一级叫「其他/杂项」，
+    //     而用户自己建的也可能叫「其它」「未分类」。
+    //     这里按「名字含其他/杂项」来找，找不到再退到任意一个无二级的兜底分类。
     if (item.type !== 'transfer' && !item.category_id) {
-      const other = ctx.categories.find(
-        (c) => !c.parent_id && c.name === '其他' && c.type === item.type
-      )
+      const sameType = ctx.categories.filter((c) => c.type === item.type && !c.parent_id)
+      const other =
+        sameType.find((c) => /其他|其它|杂项/.test(c.name)) ||
+        sameType.find((c) => /未分类|不明/.test(c.name)) ||
+        null
       if (other) {
         item.category_id = other.id
         item.category_name = other.name

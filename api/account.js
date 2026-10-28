@@ -236,7 +236,10 @@ export async function adjustAccountBalance(accountId, targetCents, opts = {}) {
   const type = delta > 0 ? 'income' : 'expense'
   const amount = Math.abs(delta)
 
-  // 确保「对账调整」分类存在
+  // 确保「对账支出」「对账收入」两个固定一级分类存在
+  //   v4 起这两个分类是一级的（parent_id = NULL），
+  //   但 txn.category_id 指向一级分类完全合法 ——
+  //   日常「其他/杂项」这种没有二级的一级分类就是这么用的。
   const cats = await ensureReconcileCategory()
   const categoryId = type === 'income' ? cats.incomeId : cats.expenseId
 

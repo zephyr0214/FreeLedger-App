@@ -34,7 +34,8 @@
             <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
           </view>
           <text class="parent-name">{{ parent.name }}</text>
-          <text class="parent-count">{{ parent.children.length }} 个子类</text>
+          <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
+          <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
           <text
             class="expand-icon"
             :class="{ expanded: expandedIds.includes(parent.id) }"
@@ -53,11 +54,15 @@
             <text class="child-edit">编辑</text>
           </view>
 
-          <view class="child-row child-add" @click="openCreate(parent)">
+          <view v-if="!isReconcile(parent)" class="child-row child-add" @click="openCreate(parent)">
             <text class="child-add-text">+ 添加子分类</text>
           </view>
 
-          <view class="child-actions">
+          <!-- 固定分类（对账支出 / 对账收入）不能编辑也不能删除 -->
+          <view v-if="isReconcile(parent)" class="child-actions">
+            <text class="action-lock">固定分类，不可编辑或删除</text>
+          </view>
+          <view v-else class="child-actions">
             <text class="action-link" @click="openEdit(parent)">编辑父类</text>
             <text class="action-link action-danger" @click="onDelete(parent)">删除父类</text>
           </view>
@@ -137,7 +142,8 @@ import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
-  listCategoryTree, createCategory, updateCategory, deleteCategory
+  listCategoryTree, createCategory, updateCategory, deleteCategory,
+  isReconcileCategory
 } from '@/api/category.js'
 import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
 
@@ -192,7 +198,17 @@ export default {
       }
     }
 
+    /** 是不是「对账支出」「对账收入」这类固定分类（不可删改） */
+    function isReconcile(cat) {
+      return isReconcileCategory(cat)
+    }
+
     function openCreate(parent) {
+      // 固定分类下不能再加子分类
+      if (parent && isReconcile(parent)) {
+        uni.showToast({ title: '固定分类不能添加子分类', icon: 'none' })
+        return
+      }
       editingId.value = ''
       editorForm.name = ''
       editorForm.color = colors[0]
@@ -204,6 +220,11 @@ export default {
     }
 
     function openEdit(cat) {
+      // 固定分类不能改 —— 改名、图标、颜色都不行
+      if (isReconcile(cat)) {
+        uni.showToast({ title: `「${cat.name}」是固定分类，不能修改`, icon: 'none' })
+        return
+      }
       editingId.value = cat.id
       editorForm.name = cat.name
       editorForm.color = cat.color || colors[0]
@@ -216,6 +237,22 @@ export default {
       if (!editorForm.name.trim()) {
         uni.showToast({ title: '请填写名称', icon: 'none' })
         return
+      }
+
+      // 编辑固定分类 -> 直接拦掉
+      //   ★ 不用 flatMap ★
+      //     flatMap 要 Chrome 69+/Safari 12+，老 Android WebView 上没有。
+      const all = tree.value.slice()
+      for (const p of tree.value) {
+        for (const c of p.children) all.push(c)
+      }
+      if (editingId.value) {
+        const target = all.find((c) => c.id === editingId.value)
+        if (isReconcile(target)) {
+          uni.showToast({ title: `「${target.name}」是固定分类，不能修改`, icon: 'none' })
+          showEditor.value = false
+          return
+        }
       }
 
       try {
@@ -243,6 +280,11 @@ export default {
     }
 
     function onDelete(cat) {
+      // 固定分类不能删
+      if (isReconcile(cat)) {
+        uni.showToast({ title: `「${cat.name}」是固定分类，不能删除`, icon: 'none' })
+        return
+      }
       uni.showModal({
         title: `删除「${cat.name}」？`,
         content: '若该分类下已有交易则无法删除',
@@ -276,6 +318,7 @@ export default {
       iconOptions, iconEmoji,
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit,
+      isReconcile,
       onSaveCategory, onDelete, goBack
     }
   }
@@ -351,6 +394,20 @@ export default {
 }
 
 .parent-count {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+/* 固定分类（对账支出 / 对账收入）的标记 */
+.parent-locked {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+  background-color: var(--app-card-2);
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+}
+
+.action-lock {
   font-size: 22rpx;
   color: var(--app-text-3);
 }
