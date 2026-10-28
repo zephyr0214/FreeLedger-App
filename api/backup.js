@@ -97,18 +97,39 @@ function makeStamp() {
 /**
  * 低级文件写入（plus.io）
  *
- * ★ 修过一个「第一次成功、第二次失败」的 bug ★
- *   原实现先 resolveLocalFileSystemURL(dir)：
- *     - 目录不存在 → 走失败回调，递归建目录（这条路径是好的）
- *     - 目录已存在 → entry 是**目录本身**，然后在它上面调
- *       entry.getDirectory('', ...) —— 空目录名在部分 Android ROM 上
- *       直接报错，于是第二次导出就失败了。
- *   现在改成：
- *     1. 先用 resolveLocalFileSystemURL 拿 _doc/ 根
- *     2. 用 getDirectory(相对路径, { create: true }) 一次性建出（或拿到）目录
- *        getDirectory 的 create:true 本来就是幂等的，目录存在就直接返回
- *     3. 再 getFile + createWriter
- *   一条路径走到底，不再分「存在/不存在」两种情况。
+ * ═════════════════════════════════════════════════════════════
+ * ★ 修过一个「备份写坏了，恢复时报『不是有效的 JSON』」的 bug ★
+ *
+ * 现象：点「恢复」报「备份文件不是有效的 JSON」，
+ *      但文件明明是本 App 自己写出来的。
+ *
+ * 根因
+ *   原实现是这样覆盖已有文件的：
+ *       writer.truncate(0)   // 截断到 0
+ *       writer.write(content) // 从当前位置写
+ *
+ *   ★ truncate(0) 在 Android 上不靠谱 ★
+ *   plus.io 的 FileWriter.truncate 是 5+ 的实现，
+ *   DCloud 官方论坛明确说过这是 Android 平台的 bug：
+ *   「seek方法指定到特定位置pos后写入数据应该覆盖pos位置后的所有数据」
+ *   「Android平台临时解决方法只能先删除原来文件避免」。
+ *
+ *   而且还有第二个坑：即使 truncate 生效了，
+ *   write 的**起始位置**可能不在 0 ——
+ *   新建 writer 时位置是 0，但对已有文件 createWriter 后位置是未定义的。
+ *   结果就是新内容写在了旧内容后面，或者中间，
+ *   读回来就不是合法的 JSON 了。
+ *
+ * 修法（按官方推荐）
+ *   同名文件先 remove 掉，再 create 写全新的 ——
+ *   这样文件必然是空的、写入位置必然是 0，
+ *   不依赖 truncate/seek 在各 ROM 上的行为差异。
+ *
+ * 附带的另一个修复
+ *   writer.onwriteend 才是「写完了」的信号；
+ *   onwrite 在部分 ROM 上会随分块写入多次触发，
+ *   提前 resolve 会让调用方以为写完了，实际文件还没写完 ——
+ *   紧接着去读就会读到半截文件。
  *
  * @param {string} dir 目录（相对 _doc/ 或以 _doc/ 开头），如 '_doc/backup/'
  * @param {string} filename 文件名
@@ -118,7 +139,7 @@ function makeStamp() {
 export function writeTextFile(dir, filename, content) {
   return new Promise((resolve, reject) => {
     if (typeof plus === 'undefined') {
-      reject(new Error('文件导出仅在 App 端可用'))
+      reject(new Error('文件写入仅在 App 端可用'))
       return
     }
 
@@ -129,22 +150,22 @@ export function writeTextFile(dir, filename, content) {
       .replace(/^\/+/, '')
       .replace(/\/+$/, '')
 
-    const writeInto = (parentEntry) => {
-      const onDir = (dirEntry) => {
+    /** 真正写文件（目录已就绪） */
+    const writeInto = (dirEntry) => {
+      /** 新建一个空文件并写入 */
+      const doWrite = () => {
         dirEntry.getFile(
           filename,
           { create: true },
-          (fileEntry) => {
-            fileEntry.createWriter(
+          (freshEntry) => {
+            freshEntry.createWriter(
               (writer) => {
-                // ★ onwriteend 比 onwrite 更可靠 ★
-                //   onwrite 在部分 ROM 上会被多次触发（分块写入），
-                //   提前 resolve 会让调用方拿到一个还没写完的文件，
-                //   紧接着的分享/读取就会失败。
+                // ★ onwriteend 才是写完的信号 ★
                 writer.onwriteend = () => resolve(fullPath)
-                writer.onerror = (e) => reject(new Error('写入失败: ' + ((e && e.message) || '')))
-                // 已有同名文件时先截断，否则会残留上一次的尾部内容
-                try { writer.truncate(0) } catch (err) {}
+                writer.onerror = (e) =>
+                  reject(new Error('写入失败: ' + ((e && e.message) || '')))
+                // 位置归零（新建文件本来就在 0，这里只是保险）
+                try { writer.seek(0) } catch (err) {}
                 writer.write(content)
               },
               () => reject(new Error('创建写入流失败'))
@@ -154,21 +175,41 @@ export function writeTextFile(dir, filename, content) {
         )
       }
 
-      if (!relDir) {
-        onDir(parentEntry)
-        return
+      // ★ 先删掉已有文件，再重新写 ★
+      //   见函数头的说明：Android 上 truncate/seek 不可靠，
+      //   「删了重写」是唯一在各 ROM 上都确定正确的做法。
+      //   getFile(create:false) 找不到会走失败回调，正好用来判断有没有旧文件。
+      try {
+        dirEntry.getFile(
+          filename,
+          { create: false },
+          (oldFile) => {
+            oldFile.remove(
+              () => doWrite(),
+              () => doWrite()   // 删不掉也照样写
+            )
+          },
+          () => doWrite()       // 没有旧文件
+        )
+      } catch (e) {
+        doWrite()
       }
-      parentEntry.getDirectory(
-        relDir,
-        { create: true },
-        onDir,
-        () => reject(new Error(`无法创建目录 ${relDir}`))
-      )
     }
 
     plus.io.resolveLocalFileSystemURL(
       '_doc/',
-      (root) => writeInto(root),
+      (root) => {
+        if (!relDir) {
+          writeInto(root)
+          return
+        }
+        root.getDirectory(
+          relDir,
+          { create: true },
+          writeInto,
+          () => reject(new Error(`无法创建目录 ${relDir}`))
+        )
+      },
       () => reject(new Error('无法访问 _doc 目录'))
     )
   })
@@ -187,7 +228,22 @@ export function readTextFile(path) {
         entry.file(
           (file) => {
             const reader = new plus.io.FileReader()
-            reader.onloadend = (e) => resolve(e.target.result)
+            // ★ 结果可能挂在三个不同的属性上 ★
+            //   不同基座/版本里 onloadend 的事件对象不一样：
+            //     e.target.result / e.result / reader.result
+            //   只取 e.target.result 的话，部分机型上拿到 undefined，
+            //   后面的 JSON.parse 就报「不是有效的 JSON」。
+            reader.onloadend = (e) => {
+              const result =
+                (e && e.target && e.target.result !== undefined && e.target.result) ||
+                (e && e.result !== undefined && e.result) ||
+                reader.result
+              if (typeof result !== 'string') {
+                reject(new Error('读取文件内容失败（内容不是文本）'))
+                return
+              }
+              resolve(result)
+            }
             reader.onerror = () => reject(new Error('读取文件失败'))
             reader.readAsText(file, 'utf-8')
           },
@@ -197,6 +253,25 @@ export function readTextFile(path) {
       () => reject(new Error('文件不存在或路径无效: ' + path))
     )
   })
+}
+
+/**
+ * 宽松地解析 JSON —— 容忍 BOM 和首尾空白。
+ *
+ * ★ 为什么需要 ★
+ *   某些 ROM 的 readAsText 会在文件开头带上 UTF-8 BOM（\uFEFF），
+ *   而 JSON.parse 对 BOM 是直接报错的：
+ *     JSON.parse('\uFEFF{}')  ->  SyntaxError
+ *   表现就是「明明是自己写的文件，却说不是有效的 JSON」。
+ *
+ * @param {string} text 文本
+ * @returns {object} 解析结果
+ */
+export function parseJsonLoose(text) {
+  if (typeof text !== 'string') throw new Error('内容不是文本')
+  // 去掉 BOM（U+FEFF）和首尾空白
+  const cleaned = text.replace(/^\uFEFF/, '').trim()
+  return JSON.parse(cleaned)
 }
 
 /* ------------------------------------------------------------------ 恢复 */
@@ -422,12 +497,19 @@ export async function autoBackup(reason = 'auto') {
  * @returns {Promise<object>} 恢复报告
  */
 export async function restoreBackup(relPath) {
-  const json = await readTextFile(relPath)
+  const text = await readTextFile(relPath)
   let payload
   try {
-    payload = JSON.parse(json)
+    payload = parseJsonLoose(text)
   } catch (e) {
-    throw new Error('备份文件不是有效的 JSON')
+    // ★ 报错要说清楚到底是哪种情况 ★
+    //   「不是有效的 JSON」这种话用户没法处理，
+    //   实际可能是：文件被截断了（BOM/半个文件）、编码不对、文件根本不是备份。
+    const size = typeof text === 'string' ? text.length : 0
+    throw new Error(
+      `备份文件解析失败（读到 ${size} 个字符）。` +
+      '可能是文件写入不完整，或这个文件不是本应用生成的备份。'
+    )
   }
   return importPayload(payload, { mode: 'overwrite' })
 }
