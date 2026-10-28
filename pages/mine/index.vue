@@ -119,7 +119,7 @@ export default {
      * 配置条目，分两组。
      *
      * ★ 记账功能设置 ★
-     *   分类管理、标签管理、预算管理、AI 智能配置
+     *   分类管理、标签管理、预算管理、记账按钮设置、AI 智能配置
      *   —— 都是「怎么记账」相关的配置。
      *
      * ★ 系统设置 ★
@@ -143,6 +143,13 @@ export default {
           { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
           { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
           { key: 'budget', icon: 'budget', name: '预算管理', value: budgetLabel.value, route: '/pages/settings/budget' },
+          {
+            key: 'quickAdd',
+            icon: 'plus',
+            name: '记账按钮设置',
+            value: quickAddLabel.value,
+            route: '/pages/settings/quick-add'
+          },
           { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' }
         ]
       },
@@ -169,6 +176,16 @@ export default {
       const n = budgetCount.value
       if (n === 0) return '未设置'
       return `${n} 项`
+    })
+
+    /**
+     * 记账按钮设置的副标题：长按/短按分别触发什么。
+     *
+     * 一眼看懂当前配置，不用进设置页才知道。
+     */
+    const quickAddLabel = computed(() => {
+      const nameOf = (a) => (a === 'ai' ? 'AI' : a === 'manual' ? '手动' : '无')
+      return `短按${nameOf(settingStore.quickAddTapAction)} / 长按${nameOf(settingStore.quickAddHoldAction)}`
     })
 
     async function loadStats() {
@@ -229,7 +246,7 @@ export default {
     return {
       settingStore, accountStore, stats, backupHint, budgetCount,
       primaryColor, pageStyle, menuGroups,
-      themeLabel, aiLabel, budgetLabel,
+      themeLabel, aiLabel, budgetLabel, quickAddLabel,
       onMenuClick, goProfile, goAbout
     }
   }
