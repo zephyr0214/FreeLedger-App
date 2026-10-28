@@ -10,9 +10,15 @@
         <view class="balance-card">
           <view class="bal-head">
             <view class="bal-icon" :style="{ backgroundColor: (account.color || primaryColor) + '22' }">
-              <!-- AI 画的 SVG 图标（data URI），没有就退回首字符 -->
+              <!-- 预设图标 key 用 LineIcon；旧的 AI SVG 仍按图片显示 -->
+              <LineIcon
+                v-if="account.icon && !isSvgIcon(account.icon)"
+                :name="account.icon"
+                :size="26"
+                :color="account.color || primaryColor"
+              />
               <image
-                v-if="isSvgIcon(account.icon)"
+                v-else-if="isSvgIcon(account.icon)"
                 :src="account.icon"
                 class="bal-icon-img"
                 mode="aspectFit"
@@ -118,6 +124,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
@@ -125,7 +132,7 @@ import { isSvgIcon } from '@/api/accountIcon.js'
 import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList },
+  components: { MoneyText, DetailShell, RecentTxnList, LineIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

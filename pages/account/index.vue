@@ -75,9 +75,19 @@
           >
             <view class="acc-item" @click="goDetail(acc.id)">
               <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
-                <!-- AI 画的 SVG 图标（data URI），没有就退回首字符 -->
+                <!--
+                  账户图标：新数据存的是预设 key（用 LineIcon 渲染）；
+                  旧数据可能是 AI 生成的 SVG data URI，仍按图片显示。
+                  两者都没有就退回首字符。
+                -->
+                <LineIcon
+                  v-if="acc.icon && !isSvgIcon(acc.icon)"
+                  :name="acc.icon"
+                  :size="22"
+                  :color="acc.color || primaryColor"
+                />
                 <image
-                  v-if="isSvgIcon(acc.icon)"
+                  v-else-if="isSvgIcon(acc.icon)"
                   :src="acc.icon"
                   class="acc-icon-img"
                   mode="aspectFit"
@@ -147,6 +157,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import SmoothLineChart from '@/components/SmoothLineChart.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
@@ -154,7 +165,7 @@ import { isSvgIcon } from '@/api/accountIcon.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction },
+  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, LineIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

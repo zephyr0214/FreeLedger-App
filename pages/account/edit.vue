@@ -9,14 +9,25 @@
     </view>
 
     <scroll-view class="page-scroll" scroll-y>
-      <!-- 账户标识：保存时由大模型按名称绘制 -->
+      <!--
+        账户图标：从预设里挑一个
+
+        ★ 为什么不再让 AI 画 ★
+          用户原话：「ai 生成图标又报错了，修改下逻辑吧，
+          删除生成图标功能，给定几个待选项，让用户选择图标」。
+          AI 画图在真机上反复出问题（max_tokens 截断、推理模型不吃
+          关闭思考的参数、页面销毁后回调崩溃…），
+          而这个功能的收益远不如它的不稳定带来的麻烦。
+          改成预设图标：立刻可选、零失败、完全可控。
+      -->
       <view class="icon-preview-wrap">
         <view class="icon-preview" :style="{ backgroundColor: (form.color || primaryColor) + '22' }">
-          <image
-            v-if="svgIcon"
-            :src="svgIcon"
-            class="icon-preview-img"
-            mode="aspectFit"
+          <!-- 选中的预设图标；没选就退回首字符 -->
+          <LineIcon
+            v-if="form.icon"
+            :name="form.icon"
+            :size="30"
+            :color="form.color || primaryColor"
           />
           <text
             v-else
@@ -24,9 +35,27 @@
             :style="{ color: form.color || primaryColor }"
           >{{ form.name.trim().slice(0, 1) || '?' }}</text>
         </view>
-        <text class="icon-preview-tip">
-          {{ svgIcon ? '保存时由 AI 按账户名称绘制的标识' : '保存时会自动生成专属图标' }}
-        </text>
+        <text class="icon-preview-tip">选一个图标，或留空用首字符</text>
+      </view>
+
+      <!-- 图标选择器 -->
+      <view class="form-card">
+        <view class="form-row form-row-column">
+          <text class="form-label">账户图标</text>
+          <view class="icon-grid">
+            <view
+              v-for="ic in ACCOUNT_ICONS"
+              :key="ic.key"
+              class="icon-cell"
+              :class="{ active: form.icon === ic.key }"
+              :style="form.icon === ic.key ? { backgroundColor: (form.color || primaryColor) + '22' } : {}"
+              @click="form.icon = (form.icon === ic.key ? '' : ic.key)"
+            >
+              <LineIcon :name="ic.key" :size="22" :color="form.icon === ic.key ? (form.color || primaryColor) : 'var(--app-text-2)'" />
+            </view>
+          </view>
+          <text class="form-hint">再点一次取消选择 → 用账户名首字符</text>
+        </view>
       </view>
 
       <!-- 名称与类型 -->
@@ -158,17 +187,42 @@
 import { ref, reactive, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import AppDialog from '@/components/AppDialog.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { ACCOUNT_TYPES, isCreditType, adjustAccountBalance } from '@/api/account.js'
-import { generateAccountIcon, isSvgIcon } from '@/api/accountIcon.js'
+import { isSvgIcon } from '@/api/accountIcon.js'
 import { yuanToCents } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { AppDialog },
+  components: { AppDialog, LineIcon },
   setup() {
     const settingStore = useSettingStore()
+
+    /**
+     * 可选的账户图标。
+     *
+     * 覆盖记账 App 里常见的账户形态：
+     *   银行卡 / 信用卡 / 钱包 / 现金 / 支付宝 / 微信 / 花呗 / 投资 / 房子 / 车 / 手机 / 礼物
+     *
+     * 都取自 utils/lineIcons.js 已有的 key（线性描边风格，和其他页面统一），
+     * 不引入新图标资源。
+     */
+    const ACCOUNT_ICONS = [
+      { key: 'account', label: '银行卡' },
+      { key: 'creditcard', label: '信用卡' },
+      { key: 'cash', label: '现金' },
+      { key: 'wechat', label: '网络支付' },
+      { key: 'huabei', label: '先享后付' },
+      { key: 'invest', label: '投资' },
+      { key: 'home', label: '房产' },
+      { key: 'car', label: '车辆' },
+      { key: 'phone', label: '手机' },
+      { key: 'gift', label: '礼品' },
+      { key: 'budget', label: '储值' },
+      { key: 'more', label: '其它' }
+    ]
     const accountStore = useAccountStore()
 
     const statusBarHeight = uni.getSystemInfoSync().statusBarHeight || 20
@@ -185,25 +239,27 @@ export default {
       bill_day: 1,
       repay_day: 20,
       card_tail: '',
-      color: ''
+      color: '',
+      /**
+       * 选中的预设图标 key（空串 = 用账户名首字符）。
+       *
+       * 之前这里是 AI 生成的 SVG data URI 字符串。
+       * 改成预设 key 之后，数据库里 icon 字段存的就是
+       * 'account' / 'creditcard' 这样的短 key，
+       * 渲染时走 LineIcon（和其他页面同一套线性图标），
+       * 既统一又不用为每个账户存一大串 SVG。
+       */
+      icon: ''
     })
 
     /**
-     * AI 生成的 SVG 图标（data URI）。
-     * 编辑已有账户时，如果之前存的就是 SVG，直接显示。
+     * 旧数据兼容：如果之前 AI 生成过 SVG，它存在 icon 字段里是个 data URI。
+     * 迁移策略是「显示但不保留」—— 用户重新挑一个预设即可，
+     * 不做自动转换（没人能可靠地把任意 SVG 映射回预设 key）。
      */
-    const svgIcon = ref('')
+    const legacySvgIcon = ref('')
 
-    /**
-     * 页面是否还活着。
-     *
-     * ★ 为什么需要它 ★
-     *   AI 画图标要十几秒，用户等不及会自己按返回。
-     *   页面卸载后，await 后面的代码仍在跑，
-     *   一旦调用 uni.showToast / hideLoading 这类会走 Vue 实例的接口，
-     *   就报 Cannot read properties of undefined (reading '$')。
-     *   所以卸载时置 false，之后跳过所有 UI 副作用。
-     */
+    /** 页面是否还活着（保存流程里判断，避免卸载后调 UI 接口） */
     const alive = ref(true)
     onUnmounted(() => { alive.value = false })
 
@@ -233,8 +289,13 @@ export default {
       form.bill_day = acc.bill_day || 1
       form.repay_day = acc.repay_day || 20
       form.card_tail = acc.card_tail || ''
-      // 之前存的如果是 AI 画的 SVG，直接显示
-      svgIcon.value = isSvgIcon(acc.icon) ? acc.icon : ''
+      // 图标：新数据存的是预设 key；旧数据可能是 AI 生成的 data URI
+      if (isSvgIcon(acc.icon)) {
+        legacySvgIcon.value = acc.icon
+        form.icon = ''
+      } else {
+        form.icon = acc.icon || ''
+      }
     }
 
     async function onSave() {
@@ -255,14 +316,12 @@ export default {
           : null,
         bill_day: isCredit.value ? form.bill_day : null,
         repay_day: isCredit.value ? form.repay_day : null,
-        card_tail: form.card_tail || null
+        card_tail: form.card_tail || null,
+        // 预设图标 key（空串 = 用首字符）
+        icon: form.icon || null
       }
 
       try {
-        // ★ 画图标 ★
-        //   先把账户存下来（不让模型拖住保存），
-        //   再补一次更新把图标写进去 —— 顺序反过来的话，
-        //   模型超时会导致整个保存流程卡住，用户以为 App 死了。
         if (isEdit.value) {
           // 编辑：差额记成「对账调整」交易
           //   余额公式（期初 + 收入 - 支出）保持成立，
@@ -292,77 +351,11 @@ export default {
           if (accountStore.list.length === 1) {
             await settingStore.update({ defaultAccountId: acc.id })
           }
-
-          // ★ 画图标：必须 await，不能 fire-and-forget ★
-          //   之前是「发起请求 → 500ms 后 navigateBack」，
-          //   请求回来时页面已经销毁了，回调里碰 Vue 实例就报
-          //   Cannot read properties of undefined (reading '$')。
-          //   现在改成等它画完（最多 30 秒）再返回；
-          //   失败也不影响已保存的账户，只是图标退回首字符。
-          await drawIconFor(acc.id, payload.name, payload.type)
-
           uni.showToast({ title: '已添加', icon: 'success' })
         }
         setTimeout(() => uni.navigateBack(), 500)
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
-      }
-    }
-
-    /**
-     * 调用大模型为账户画一个 SVG 图标，然后写回账户。
-     *
-     * ★ 为什么要给进度提示 ★
-     *   模型画图要几秒到十几秒，这期间界面毫无反应的话，
-     *   用户会以为「保存键没生效」然后反复点。
-     *
-     * ★ 失败不影响账户 ★
-     *   账户在上一步已经存好了。图标画不出来（没配 Key / 超时 /
-     *   模型返回垃圾）就退回首字符，只用 toast 轻轻带过。
-     *
-     * ★ 为什么每个 await 之后都要重新判 _alive ★
-     *   用户真机上遇到：
-     *     Uncaught TypeError: Cannot read properties of undefined (reading '$')
-     *   这个 '$' 是 Vue 内部实例标记（uni-app-view.umd.js 里的 _ctx.$...）。
-     *
-     *   成因：AI 请求要十几秒，用户等不及就按返回键了。
-     *   页面已经卸载，但 await 后面的代码还在跑，
-     *   一旦碰到 uni.showToast / showLoading 之类会走 Vue 实例的调用，
-     *   就炸在 '$' 上。光「await 完再 navigateBack」不够 ——
-     *   因为用户可能**自己**提前返回。
-     *
-     *   所以：组件卸载时把 _alive 置 false，
-     *   之后所有 UI 副作用都跳过（图标照样写库，只是不弹提示）。
-     *
-     * @returns {Promise<boolean>} 是否成功写入图标
-     */
-    async function drawIconFor(accountId, name, type) {
-      const typeMeta = ACCOUNT_TYPES.find((t) => t.key === type)
-      const typeName = typeMeta ? typeMeta.name : '账户'
-
-      uni.showLoading({ title: 'AI 绘制图标…', mask: true })
-      try {
-        const uri = await generateAccountIcon(name, typeName)
-        if (!uri) {
-          if (alive.value) uni.hideLoading()
-          return false
-        }
-        // 写库不依赖页面，即使页面已卸载也要完成 ——
-        // 否则用户下次进来看到图标还是首字符，等于白算。
-        await accountStore.update(accountId, { icon: uri })
-        if (alive.value) uni.hideLoading()
-        return true
-      } catch (e) {
-        if (alive.value) {
-          uni.hideLoading()
-          uni.showToast({
-            title: `图标未能生成：${(e && e.message) || '未知原因'}`,
-            icon: 'none',
-            duration: 2600
-          })
-        }
-        console.warn('[account] 生成图标失败（不影响保存）:', e && e.message)
-        return false
       }
     }
 
@@ -405,9 +398,9 @@ export default {
     })
 
     return {
-      ACCOUNT_TYPES,
+      ACCOUNT_TYPES, ACCOUNT_ICONS, LineIcon,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
-      isCredit, dayRange, svgIcon,
+      isCredit, dayRange, legacySvgIcon,
       onToggleInclude, onSave, onDelete, goBack, settingStore
     }
   }
@@ -487,6 +480,37 @@ export default {
 .icon-preview-tip {
   font-size: 22rpx;
   color: var(--app-text-3);
+}
+
+/* 图标选择器：一行 6 个 */
+.icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  width: 100%;
+  margin-top: 4rpx;
+}
+
+.icon-cell {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--app-card-2);
+}
+
+.icon-cell.active {
+  /* 选中态的背景色由模板内联注入（跟账户色一致） */
+}
+
+.form-hint {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  line-height: 1.6;
+  width: 100%;
+  margin-top: 4rpx;
 }
 
 .form-card {
