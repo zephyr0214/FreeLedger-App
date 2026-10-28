@@ -63,46 +63,61 @@
 
         <view v-else class="cat-budget-list">
           <!--
-            ★ 交互约定 ★
-              点整行      -> 进预算详情页（看额度/已用/剩余/进度条）
-              点「修改」   -> 打开金额编辑弹层（原来的入口没丢）
-              点「删除」   -> 原来的删除确认弹层（没丢）
-              长按        -> 同样打开编辑弹层（快捷方式）
-            行内原有的「修改 / 删除」两个按钮都保留，
-            只是给整行让出了「看详情」这个点击。
+            ★ 交互约定（与分类页 / 标签页保持一致）★
+              点整行    -> 进预算详情页（看额度/已用/剩余/进度条）
+              右滑      -> 露出「修改」「删除」
+
+            ★ 为什么把行内的「修改 / 删除」文字按钮换成右滑 ★
+              行内按钮和右边的进度数字挤在一起，视觉很乱；
+              而且小屏幕上容易误触。
+              改成右滑露出操作区后，列表本身干净多了。
           -->
-          <view
+          <wd-swipe-action
             v-for="b in categoryBudgets"
             :key="b.id"
-            class="cat-budget"
-            @click="goBudgetDetail(b)"
-            @longpress="editCategoryBudget(b)"
+            v-model="swipeStates[b.id]"
+            class="budget-swipe"
           >
-            <view class="cat-budget-head">
-              <text class="cat-budget-name">{{ b.name }}</text>
-              <view class="cat-budget-ops">
-                <text class="cat-budget-edit" @click.stop="editCategoryBudget(b)">修改</text>
-                <text class="cat-budget-del" @click.stop="removeBudget(b)">删除</text>
+            <view class="cat-budget" @click="goBudgetDetail(b)">
+              <view class="cat-budget-head">
+                <text class="cat-budget-name">{{ b.name }}</text>
+              </view>
+              <view class="usage-head">
+                <MoneyText :cents="b.used" :size="30" :weight="500" color="var(--app-text)" />
+                <text class="usage-limit">/ {{ (b.limit / 100).toFixed(0) }}</text>
+                <text
+                  class="usage-pct"
+                  :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }"
+                >{{ b.percent }}%</text>
+              </view>
+              <view class="usage-bar">
+                <view
+                  class="usage-fill"
+                  :style="{
+                    width: Math.min(b.percent, 100) + '%',
+                    backgroundColor: b.over ? 'var(--app-danger)' : primaryColor
+                  }"
+                />
               </view>
             </view>
-            <view class="usage-head">
-              <MoneyText :cents="b.used" :size="30" :weight="500" color="var(--app-text)" />
-              <text class="usage-limit">/ {{ (b.limit / 100).toFixed(0) }}</text>
-              <text
-                class="usage-pct"
-                :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }"
-              >{{ b.percent }}%</text>
-            </view>
-            <view class="usage-bar">
-              <view
-                class="usage-fill"
-                :style="{
-                  width: Math.min(b.percent, 100) + '%',
-                  backgroundColor: b.over ? 'var(--app-danger)' : primaryColor
-                }"
-              />
-            </view>
-          </view>
+
+            <!--
+              右滑操作区：修改 + 删除
+
+              ★ 为什么两个按钮各自绑 @click.stop ★
+                wd-swipe-action 的整个右滑区域只会 emit 一个
+                { value: 'right' } 事件，分不出是哪个按钮。
+                所以两个按钮各自绑 @click.stop，自己处理。
+            -->
+            <template #right>
+              <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="editCategoryBudget(b)">
+                <text class="swipe-action-text">修改</text>
+              </view>
+              <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="removeBudget(b)">
+                <text class="swipe-action-text">删除</text>
+              </view>
+            </template>
+          </wd-swipe-action>
         </view>
       </view>
 
@@ -120,7 +135,7 @@
     <wd-popup v-model="showEditor" position="bottom" :safe-area-inset-bottom="true">
       <view class="editor">
         <view class="editor-head">
-          <text class="editor-cancel" @click="showEditor = false">取消</text>
+          <text class="editor-cancel" @click="closeEditor">取消</text>
           <text class="editor-title">{{ editorTitle }}</text>
           <text class="editor-save" @click="saveBudget">保存</text>
         </view>
@@ -178,6 +193,7 @@
 
 <script>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -203,6 +219,38 @@ export default {
     const editorBudgetId = ref('')
     const editorAmount = ref('')
     const showCatPicker = ref(false)
+
+    /**
+     * wd-swipe-action 的展开状态。
+     * key 是预算 id，值是该行当前是否展开（右滑打开）。
+     */
+    const swipeStates = reactive({})
+
+    /**
+     * 收起某一行（或所有行）的右滑操作区
+     *
+     * ★ 为什么必须手动收 ★
+     *   组件自己会在滑回去时 emit 'close'，
+     *   但「右滑 -> 点修改 -> 弹层打开 -> 弹层关掉」这条路径上，
+     *   那一行还保持着右滑展开状态，
+     *   用户看到的是「编辑完了，右边还挂着两个按钮」。
+     *
+     * @param {string} id 预算 id；不传则收起所有
+     */
+    function closeSwipe(id) {
+      if (id) {
+        swipeStates[id] = 'close'
+        return
+      }
+      for (const key of Object.keys(swipeStates)) {
+        swipeStates[key] = 'close'
+      }
+    }
+
+    /** 收起所有行的右滑操作区 */
+    function closeAllSwipes() {
+      closeSwipe()
+    }
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -264,6 +312,17 @@ export default {
       showEditor.value = true
     }
 
+    /**
+     * 关闭编辑弹层
+     *
+     * ★ 这里要把右滑收起来 ★
+     *   用户从右滑进到编辑弹层，弹层关掉后那一行不该还挂着操作区。
+     */
+    function closeEditor() {
+      showEditor.value = false
+      closeAllSwipes()
+    }
+
     function openCategoryPicker() {
       if (availableCategories.value.length === 0) {
         uni.showToast({ title: '没有可设置的分类了', icon: 'none' })
@@ -311,7 +370,7 @@ export default {
             start_month: toMonthKey()
           })
         }
-        showEditor.value = false
+        closeEditor()
         await load()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
@@ -326,6 +385,8 @@ export default {
         confirmText: '删除',
         danger: true
       })
+      // 确认框关掉了（不管是确认还是取消），右滑都收起来
+      closeAllSwipes()
       if (!ok) return
       try {
         await deleteBudget(b.id)
@@ -345,12 +406,24 @@ export default {
       await load()
     })
 
+    /**
+     * 页面重新显示
+     *
+     * ★ 从详情页返回时要把右滑收起来 ★
+     *   点分类名进详情页前那一行可能正滑着，
+     *   返回后看到还挂着的操作区会以为「没退出来」。
+     */
+    onShow(() => {
+      closeAllSwipes()
+    })
+
     return {
       usages, categories, showEditor, editorMode, editorCategoryId, editorAmount,
-      showCatPicker, primaryColor, pageStyle,
+      showCatPicker, primaryColor, pageStyle, swipeStates,
       totalBudget, categoryBudgets, availableCategories, categoryActions, editorTitle,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
-      goBudgetDetail, onCategorySelect, saveBudget, removeBudget, goBack, settingStore
+      goBudgetDetail, onCategorySelect, saveBudget, removeBudget,
+      closeEditor, closeAllSwipes, goBack, settingStore
     }
   }
 }
@@ -456,10 +529,19 @@ export default {
   gap: 28rpx;
 }
 
+/* wd-swipe-action 的外层：每一行独立包一层 */
+.budget-swipe {
+  display: block;
+  border-radius: 16rpx;
+  background-color: var(--app-card-2);
+  padding: 0 20rpx;
+}
+
 .cat-budget {
   display: flex;
   flex-direction: column;
   gap: 10rpx;
+  padding: 8rpx 0;
 }
 
 .cat-budget-head {
@@ -474,19 +556,20 @@ export default {
   font-weight: 500;
 }
 
-.cat-budget-ops {
+/* 右滑操作区：修改 / 删除 */
+.swipe-edit,
+.swipe-delete {
   display: flex;
-  gap: 24rpx;
+  align-items: center;
+  justify-content: center;
+  width: 150rpx;
+  height: 100%;
 }
 
-.cat-budget-edit {
-  font-size: 23rpx;
-  color: var(--app-primary);
-}
-
-.cat-budget-del {
-  font-size: 23rpx;
-  color: var(--app-danger);
+.swipe-action-text {
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 500;
 }
 
 .tip-card {

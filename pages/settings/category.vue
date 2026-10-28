@@ -66,8 +66,15 @@
             </view>
             <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
             <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
-            <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
+            <text v-else-if="parent.children.length > 0" class="parent-count">
+              {{ parent.children.length }} 个子类
+            </text>
+            <!--
+              没有子类的分类不显示展开箭头 ——
+              箭头点了没反应，看起来像坏了。
+            -->
             <text
+              v-if="parent.children.length > 0"
               class="expand-icon"
               :class="{ expanded: expandedIds.includes(parent.id) }"
             >›</text>
@@ -149,7 +156,7 @@
     <wd-popup v-model="showEditor" position="bottom" :safe-area-inset-bottom="true">
       <view class="editor">
         <view class="editor-head">
-          <text class="editor-cancel" @click="showEditor = false">取消</text>
+          <text class="editor-cancel" @click="closeEditor">取消</text>
           <text class="editor-title">{{ editorTitle }}</text>
           <text class="editor-save" @click="onSaveCategory">保存</text>
         </view>
@@ -207,6 +214,21 @@
             <text class="editor-hint">子分类颜色跟随父级「{{ parentNameOf(editorForm.parent_id) }}」</text>
           </view>
         </scroll-view>
+
+        <!--
+          删除入口（只在编辑已有分类时显示）
+
+          ★ 为什么弹层里也要能删 ★
+            用户反馈：「编辑里面也不可以删除，这是什么逻辑？」
+            进了编辑弹层就想把这一项改掉或删掉，
+            还得先关掉弹层再去右滑找删除，太绕。
+
+          ★ 固定分类不显示 ★
+            「对账支出」「对账收入」是余额对账的记账口径，不能删。
+        -->
+        <view v-if="editingId && !isEditingReconcile" class="editor-danger">
+          <text class="danger-link" @click="onDeleteFromEditor">删除这个分类</text>
+        </view>
       </view>
     </wd-popup>
 
@@ -217,6 +239,7 @@
 
 <script>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -246,6 +269,37 @@ export default {
      * key 是分类 id，值是该行当前是否展开（右滑打开）。
      */
     const swipeStates = reactive({})
+
+    /**
+     * 收起某一行（或某些行）的右滑操作区
+     *
+     * ★ 为什么必须手动收 ★
+     *   wd-swipe-action 的 v-model 值有三种：
+     *     'left' | 'right' 展开，'close' 收起。
+     *   组件自己会在滑回去时 emit 'close'，
+     *   但「点了编辑 -> 弹层打开 -> 弹层关掉」这条路径上，
+     *   那一行还保持着右滑展开状态，
+     *   用户看到的是「编辑完了，右边还挂着两个按钮」。
+     *
+     *   所以在弹层关闭、删除确认、切类型、页面 onShow
+     *   这几个时机都要主动收一下。
+     *
+     * @param {string} id 分类 id；不传则收起所有
+     */
+    function closeSwipe(id) {
+      if (id) {
+        swipeStates[id] = 'close'
+        return
+      }
+      for (const key of Object.keys(swipeStates)) {
+        swipeStates[key] = 'close'
+      }
+    }
+
+    /** 收起所有行的右滑操作区 */
+    function closeAllSwipes() {
+      closeSwipe()
+    }
 
     const iconOptions = ICON_OPTIONS
 
@@ -280,17 +334,39 @@ export default {
       return ''
     }
 
+    /**
+     * 当前正在编辑的是不是固定分类
+     *
+     * 固定分类（对账支出 / 对账收入）不显示弹层里的「删除这个分类」。
+     */
+    const isEditingReconcile = computed(() => {
+      if (!editingId.value) return false
+      for (const p of tree.value) {
+        if (p.id === editingId.value) return isReconcileCategory(p)
+        for (const c of p.children) {
+          if (c.id === editingId.value) return isReconcileCategory(c)
+        }
+      }
+      return false
+    })
+
     async function load() {
       tree.value = await listCategoryTree(activeType.value, true)
-      // 默认展开第一个
-      if (tree.value.length > 0 && expandedIds.value.length === 0) {
-        expandedIds.value = [tree.value[0].id]
-      }
     }
 
+    /**
+     * 切换支出 / 收入。
+     *
+     * ★ 切类型后要把所有展开状态清掉 ★
+     *   两件事：
+     *     1. 子类全部收起 —— 新的一类是另一套内容，
+     *        把上一套的展开状态带过来会显得莫名其妙；
+     *     2. 右滑按钮全部收起 —— 不然会看到半展开的操作区。
+     */
     function switchType(key) {
       activeType.value = key
       expandedIds.value = []
+      closeAllSwipes()
       load()
     }
 
@@ -345,6 +421,17 @@ export default {
       showEditor.value = true
     }
 
+    /**
+     * 关闭编辑弹层
+     *
+     * ★ 这里要把右滑收起来 ★
+     *   用户从右滑进到编辑弹层，弹层关掉后那一行不该还挂着操作区。
+     */
+    function closeEditor() {
+      showEditor.value = false
+      closeAllSwipes()
+    }
+
     async function onSaveCategory() {
       if (!editorForm.name.trim()) {
         uni.showToast({ title: '请填写名称', icon: 'none' })
@@ -362,7 +449,7 @@ export default {
         const target = all.find((c) => c.id === editingId.value)
         if (isReconcile(target)) {
           uni.showToast({ title: `「${target.name}」是固定分类，不能修改`, icon: 'none' })
-          showEditor.value = false
+          closeEditor()
           return
         }
       }
@@ -383,7 +470,7 @@ export default {
             icon: editorForm.icon
           })
         }
-        showEditor.value = false
+        closeEditor()
         await load()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
@@ -398,8 +485,12 @@ export default {
      *   用户要求：分类下的交易调整为「无分类」，交易本身不删。
      *   deleteCategory 的具体行为由 api/category.js 负责
      *   （把交易的 category_id 置 NULL，删一级时连带软删子分类）。
+     *
+     * @param {object} cat 要删的分类
+     * @param {boolean} fromEditor true = 从编辑弹层里点的删除
+     *   （弹层要跟着一起关掉）
      */
-    async function onDelete(cat) {
+    async function onDelete(cat, fromEditor) {
       // 固定分类不能删
       if (isReconcile(cat)) {
         uni.showToast({ title: `「${cat.name}」是固定分类，不能删除`, icon: 'none' })
@@ -414,16 +505,40 @@ export default {
         confirmText: '删除',
         danger: true
       })
+      // 确认框关掉了（不管是确认还是取消），右滑都收起来
+      closeAllSwipes()
       if (!ok) return
       try {
         await deleteCategory(cat.id)
-        // 收起这一行的右滑
-        swipeStates[cat.id] = 'close'
+        if (fromEditor) showEditor.value = false
         await load()
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '无法删除', content: e.message })
       }
+    }
+
+    /**
+     * 编辑弹层里的「删除这个分类」
+     *
+     * ★ 为什么弹层里也要有删除入口 ★
+     *   用户反馈：「编辑里面也不可以删除，这是什么逻辑？」
+     *   进了编辑弹层就想把这一项改掉或删掉，
+     *   还得先关掉弹层再去右滑找删除，太绕。
+     */
+    function onDeleteFromEditor() {
+      if (!editingId.value) return
+      const all = tree.value.slice()
+      for (const p of tree.value) {
+        for (const c of p.children) all.push(c)
+      }
+      const target = all.find((c) => c.id === editingId.value)
+      if (!target) return
+      if (isReconcile(target)) {
+        uni.showToast({ title: `「${target.name}」是固定分类，不能删除`, icon: 'none' })
+        return
+      }
+      onDelete(target, true)
     }
 
     /**
@@ -447,13 +562,24 @@ export default {
       await load()
     })
 
+    /**
+     * 页面重新显示
+     *
+     * ★ 从详情页返回时要把右滑收起来 ★
+     *   点分类名进详情页前那一行可能正滑着，
+     *   返回后看到还挂着的操作区会以为「没退出来」。
+     */
+    onShow(() => {
+      closeAllSwipes()
+    })
+
     return {
       settingStore, activeType, tree, expandedIds,
       showEditor, editingId, editorForm, types, colors, swipeStates,
-      iconOptions, iconEmoji, editorTitle,
+      iconOptions, iconEmoji, editorTitle, isEditingReconcile,
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit, parentNameOf,
-      isReconcile, goDetail,
+      isReconcile, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
       onSaveCategory, onDelete, goBack
     }
   }
@@ -522,7 +648,6 @@ export default {
   padding: 26rpx 28rpx;
   background-color: var(--app-card);
 }
-
 .parent-icon {
   width: 68rpx;
   height: 68rpx;
@@ -574,21 +699,31 @@ export default {
   transform: rotate(90deg);
 }
 
-/* 子分类区：缩进 + 左侧竖线，视觉上从属于父类 */
+/*
+  子分类区
+
+  ★ 原来这里有一条 4rpx 的左侧竖线 + 40rpx 缩进 ★
+    用户反馈「左边一条竖线真丑陋」——
+    那种画法像代码编辑器里的缩进参考线，不像 App 列表。
+
+  现在的层级表达（干净的二级列表）：
+    1. 子类区整体用 --app-card-2 背景 —— 一眼能看出「这一块是二级的」
+    2. 子类行左缩进 28rpx —— 位置本身就说明从属关系
+    3. 子类图标比父类小一号（48rpx vs 68rpx）
+    4. 子类文字用次级色（--app-text-2），父类用主色（--app-text）
+  没有竖线、没有粗边框、没有大符号。
+*/
 .children {
-  border-top: 1rpx solid var(--app-line);
-  padding: 8rpx 28rpx 16rpx 40rpx;
-  border-left: 4rpx solid var(--app-line);
-  margin-left: 40rpx;
+  background-color: var(--app-card-2);
+  padding: 4rpx 28rpx 4rpx 56rpx;
 }
 
 .child-row {
   display: flex;
   align-items: center;
-  gap: 14rpx;
-  padding: 16rpx 0;
+  gap: 16rpx;
+  padding: 20rpx 0;
   border-bottom: 1rpx solid var(--app-line);
-  background-color: var(--app-card);
 }
 
 .child-row:last-of-type {
@@ -618,8 +753,8 @@ export default {
 }
 
 .child-add {
-  justify-content: center;
-  padding: 18rpx 0;
+  justify-content: flex-start;
+  padding: 20rpx 0;
   border-bottom: none;
 }
 
@@ -631,7 +766,7 @@ export default {
 .child-actions {
   display: flex;
   justify-content: center;
-  padding-top: 12rpx;
+  padding: 20rpx 0 8rpx;
 }
 
 /* 右滑操作区：编辑 / 删除 */
@@ -752,6 +887,19 @@ export default {
 .editor-hint {
   font-size: 24rpx;
   color: var(--app-text-3);
+}
+
+/* 编辑弹层底部的删除入口 */
+.editor-danger {
+  text-align: center;
+  padding: 24rpx 0 40rpx;
+  border-top: 1rpx solid var(--app-line);
+  margin-top: 8rpx;
+}
+
+.danger-link {
+  font-size: 26rpx;
+  color: var(--app-danger);
 }
 
 .color-grid {
