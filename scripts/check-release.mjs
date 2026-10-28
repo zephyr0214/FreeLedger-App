@@ -28,26 +28,45 @@ console.log('=== 1. manifest.json ===')
     const mods = Object.keys((m['app-plus'] || {}).modules || {})
     console.log('     modules:', mods.join(', ') || '(空)')
 
+    // 存储权限：本应用的备份只写 App 私有目录 _doc/，完全用不到
+    const STORAGE = [
+      'WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE',
+      'READ_MEDIA_IMAGES', 'MANAGE_EXTERNAL_STORAGE'
+    ]
+
     /* ★ 权限重复检测（云打包失败的头号原因）★
        现象：
          Element uses-permission#android.permission.WRITE_EXTERNAL_STORAGE
          duplicated with element declared at AndroidManifest.xml:6:1-76
          Validation failed, exiting
 
-       根因：同一条权限在两个地方各出现一次 ——
+       根因：同一条权限出现两次 ——
          1) 这里的 distribute.android.permissions
-         2) HBuilderX「SDK 配置 -> 权限」里勾选的（会回写到同一个文件）
+         2) DCloud 基础 SDK / 三方 SDK 自动带的那条
        Gradle 的 manifest merger 遇到同名 uses-permission 就直接失败。
 
-       ★ 特别注意 ★
-       HBuilderX 每次打包都会用界面上的勾选状态**重写** manifest.json，
-       所以「在文件里删掉」是不够的 —— 必须去界面里取消勾选。
-       这个检查是为了让你在打包前就能发现界面里还勾着。
+       ★ 正确的解法不是「不写 permissions」★
+         那不解决冲突 —— SDK 带来的那条还在。
+         官方给的解法是「强制移除的权限」：
+           app-plus.permission.remove
+           （部分 HBuilderX 版本用 app-plus.distribute.android.permissionRemove）
+         明确把 SDK 带的那条去掉，两边就不会撞了。
+
+       所以这里检查三件事：
+         a) permissions 里有没有和 remove 列表重复的（自己和自己冲突）
+         b) permissions 里有没有该被 remove 掉的（写了但没移除 -> 打包必挂）
+         c) remove 列表里有没有和 permissions 重复的（同样是自己和自己冲突）
     */
     const perms = (((m['app-plus'] || {}).distribute || {}).android || {}).permissions || []
     const names = perms
       .map((p) => (p.match(/android\.permission\.([A-Z_]+)/) || [])[1])
       .filter(Boolean)
+
+    // 强制移除的权限（两个字段名都认）
+    const removeList = [
+      ...(((m['app-plus'] || {}).permission) || {}).remove || [],
+      ...((((m['app-plus'] || {}).distribute || {}).android) || {}).permissionRemove || []
+    ].map((n) => String(n).replace(/^android\.permission\./, ''))
 
     // 出现次数 > 1 的就是重复声明
     const seen = {}
@@ -57,18 +76,29 @@ console.log('=== 1. manifest.json ===')
       if (seen[n] === 2) dup.push(n)
     })
     dup.length
-      ? warn('★ 权限重复声明（云打包会失败）: ' + dup.join(', ') +
-        '。请到 HBuilderX「SDK 配置 -> 权限」里取消勾选对应的项。')
-      : ok(`权限无重复（${names.length} 条）`)
+      ? warn('★ permissions 里有重复声明（云打包会失败）: ' + dup.join(', '))
+      : ok(`permissions 无重复（${names.length} 条）`)
 
-    // 存储权限：导出/分享已删，用不到，别勾
-    const STORAGE = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'READ_MEDIA_IMAGES', 'MANAGE_EXTERNAL_STORAGE']
-    const storageOn = names.filter((n) => STORAGE.includes(n))
-    storageOn.length
-      ? warn('★ 声明了用不到的存储权限: ' + storageOn.join(', ') +
-        '。备份只写 App 私有目录(_doc/)，不需要存储权限；' +
-        '留着的另一个害处是会和 HBuilderX 界面勾选撞车。')
-      : ok('没有多余的存储权限')
+    // ★ 关键检查：permissions 里写了、但没在 remove 里去掉 = 打包必挂 ★
+    const notRemoved = names.filter((n) =>
+      STORAGE.includes(n) && !removeList.includes(n)
+    )
+    notRemoved.length
+      ? warn('★ permissions 里声明了存储权限但没有在「强制移除的权限」里去掉: ' +
+        notRemoved.join(', ') + '。云打包会报 duplicated —— ' +
+        '要么从 permissions 里删掉，要么加进 app-plus.permission.remove。')
+      : ok('存储权限都已正确移除')
+
+    // remove 里不该出现 permissions 里已有的（自己和自己冲突）
+    const both = names.filter((n) => removeList.includes(n))
+    both.length
+      ? warn('★ 同一条权限既在 permissions 里、又在强制移除列表里: ' + both.join(', '))
+      : ok('强制移除列表和 permissions 没有交集')
+
+    if (!removeList.length) {
+      console.log('     提示: 没有配置「强制移除的权限」。' +
+        '如果云打包报 duplicated，就是基础 SDK 带的那条存储权限没被去掉。')
+    }
 
     console.log('     权限数:', perms.length)
     const hasInternet = perms.some((p) => p.includes('INTERNET'))
@@ -198,20 +228,29 @@ console.log('  · modules 里只声明了 SQLite —— 导出/分享功能已�
 console.log('  · 卸载应用会删除全部数据，备份只在 _doc/backup/（本机）')
 console.log('  · tabBar 图标路径没变但内容变过 —— 必须重新打包才生效')
 
-console.log('\n  ★★ HBuilderX 的「SDK 配置」面板会覆盖 manifest.json ★★')
-console.log('  HBuilderX 每次打包都会用界面上勾选的配置**重写** manifest.json：')
-console.log('    - 「权限」里勾了什么，distribute.android.permissions 就是什么')
-console.log('    - 「模块配置」里勾了什么，modules 就是什么')
-console.log('  所以光改文件没用 —— 必须在界面上取消勾选，否则每次打包都会写回来。')
+console.log('\n  ★★ 关于「权限重复」这个云打包错误 ★★')
+console.log('  报错长这样：')
+console.log('    Element uses-permission#android.permission.WRITE_EXTERNAL_STORAGE')
+console.log('    duplicated with element declared at AndroidManifest.xml:6:1-76')
+console.log('    Validation failed, exiting')
 console.log('')
-console.log('  打包前请在 HBuilderX 里确认（manifest.json 右上角「打包」按钮旁的')
-console.log('  「基础配置 / App权限配置 / App SDK配置」三个页签）：')
-console.log('    ① App权限配置：取消勾选 存储/读写外部存储/相册/媒体 相关权限')
-console.log('       （本应用的备份只写 App 私有目录 _doc/，完全用不到外部存储）')
-console.log('    ② App SDK配置：取消勾选 分享/Share 相关的 SDK')
-console.log('       （导出/分享功能已整块删掉了）')
-console.log('    ③ 如果这些项之前勾着而你已取消，manifest.json 会自动被改回来，')
-console.log('       本检查也会跟着报出来 —— 看到 ❌ 就是界面里还勾着。')
+console.log('  原因：DCloud 基础 SDK 会自动带上存储权限，')
+console.log('  而 manifest.json 的 permissions 里又手写了一条同名��，')
+console.log('  两条 uses-permission 合并 -> Gradle 直接失败。')
+console.log('')
+console.log('  ★ 解法 ★')
+console.log('  不是「不写 permissions」（那不解决冲突，SDK 带的那条还在），')
+console.log('  而是「用强制移除把 SDK 带的那条去掉」—— 本项目已配好：')
+console.log('    app-plus.permission.remove')
+console.log('    app-plus.distribute.android.permissionRemove')
+console.log('  两个字段名都写了（不同 HBuilderX 版本位置不同）。')
+console.log('')
+console.log('  ★ HBuilderX 界面会覆盖 manifest.json ★')
+console.log('  HBuilderX 每次打包都会用「SDK 配置」面板上的勾选状态重写 manifest.json：')
+console.log('    - 「权限」里勾了什么 -> distribute.android.permissions 就是什么')
+console.log('    - 「模块配置」里勾了什么 -> modules 就是什么')
+console.log('  所以如果界面里还勾着存储权限，打包前请先取消勾选，')
+console.log('  否则文件里的配置会被写回去，本检查也会跟着报出来。')
 
 console.log(issues === 0 ? '\n✅ 检查通过，可以云打包' : `\n❌ 发现 ${issues} 个问题`)
 process.exit(issues ? 1 : 0)
