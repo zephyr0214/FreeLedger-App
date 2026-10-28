@@ -124,40 +124,52 @@ export async function generateAccountIcon(name, typeName, opt = {}) {
     .replace('{NAME}', String(name || '').slice(0, 30))
     .replace('{TYPE}', String(typeName || '账户'))
 
-  const reply = await chat(
-    [
-      {
-        role: 'system',
-        content:
-          '你是一个 SVG 绘图引擎。只输出符合要求的 SVG 代码，不输出任何其他内容。' +
-          '不要思考、不要解释、不要分步推理，直接给出最终 SVG。'
-      },
-      {
-        role: 'user',
-        content:
-          '直接输出 SVG，不要任何前言或后记：\n\n' + prompt
-      }
-    ],
+  const messages = [
     {
-      // ★ 明确关掉思考模式 ★
-      //   默认值就是 true，但这里显式写出来 ——
-      //   画图标是个「填空题」，不需要推理链，
-      //   开着思考模式会先吐一大段 thinking 再出结果，
-      //   耗时能翻两三倍（用户反馈「AI 图标绘制速度很慢」）。
-      disableThinking: true,
-      // maxTokens 要留够：一个带若干 path 的 SVG 轻松超过 400 token，
-      // 被截断成半截就拿不到 </svg>，sanitizeSvg 只能返回 null。
-      // 但也别开太大 —— 上限越大，个别网关的排队越久。
-      maxTokens: 700,
-      // 画图不需要随机性，温度压到很低能让输出更「确定」也更短
-      temperature: 0.2,
-      timeoutMs: opt.timeoutMs || 25000
-    }
-  )
+      role: 'system',
+      content:
+        '你是一个 SVG 绘图引擎。只输出符合要求的 SVG 代码，不输出任何其他内容。' +
+        '不要思考、不要解释、不要分步推理，直接给出最终 SVG。'
+    },
+    { role: 'user', content: '直接输出 SVG，不要任何前言或后记：\n\n' + prompt }
+  ]
 
-  const svg = sanitizeSvg(reply)
-  if (!svg) return null
-  return svgToDataUri(svg)
+  /**
+   * ★ 为什么要有 maxTokens 递增重试 ★
+   *   用户真机上遇到：
+   *     AI 返回内容为空：模型输出被 max_tokens 截断（正文为空）
+   *
+   *   这是推理型模型（deepseek-reasoner / o1 这类）的典型表现：
+   *   即使传了 thinking:{type:'disabled'}，
+   *   它仍然会先消耗一大段 token 在「想」上面（这个行为模型自己控制，
+   *   服务端参数关不掉），等轮到输出正文时 max_tokens 已经用完了。
+   *
+   *   所以这里做两件事：
+   *     1. 首次给一个够大的预算（1600）
+   *     2. 如果返回「空正文 / 被截断」，翻倍重试一次（3200）
+   *   两次都失败才算真失败 —— 比一次就放弃靠谱得多。
+   */
+  const budgets = [1600, 3200]
+
+  for (let i = 0; i < budgets.length; i++) {
+    const reply = await chat(messages, {
+      disableThinking: true,
+      maxTokens: budgets[i],
+      // 画图不需要随机性，低温输出更短更确定，也更省 token
+      temperature: 0.2,
+      timeoutMs: opt.timeoutMs || 30000
+    })
+
+    const svg = sanitizeSvg(reply)
+    if (svg) return svgToDataUri(svg)
+
+    // 还有预算就再来一次
+    if (i < budgets.length - 1) {
+      console.warn(`[accountIcon] 第 ${i + 1} 次没拿到完整 SVG（maxTokens=${budgets[i]}），加倍重试`)
+    }
+  }
+
+  return null
 }
 
 /**

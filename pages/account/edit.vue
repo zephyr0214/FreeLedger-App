@@ -155,7 +155,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -193,6 +193,19 @@ export default {
      * 编辑已有账户时，如果之前存的就是 SVG，直接显示。
      */
     const svgIcon = ref('')
+
+    /**
+     * 页面是否还活着。
+     *
+     * ★ 为什么需要它 ★
+     *   AI 画图标要十几秒，用户等不及会自己按返回。
+     *   页面卸载后，await 后面的代码仍在跑，
+     *   一旦调用 uni.showToast / hideLoading 这类会走 Vue 实例的接口，
+     *   就报 Cannot read properties of undefined (reading '$')。
+     *   所以卸载时置 false，之后跳过所有 UI 副作用。
+     */
+    const alive = ref(true)
+    onUnmounted(() => { alive.value = false })
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -307,6 +320,20 @@ export default {
      *   账户在上一步已经存好了。图标画不出来（没配 Key / 超时 /
      *   模型返回垃圾）就退回首字符，只用 toast 轻轻带过。
      *
+     * ★ 为什么每个 await 之后都要重新判 _alive ★
+     *   用户真机上遇到：
+     *     Uncaught TypeError: Cannot read properties of undefined (reading '$')
+     *   这个 '$' 是 Vue 内部实例标记（uni-app-view.umd.js 里的 _ctx.$...）。
+     *
+     *   成因：AI 请求要十几秒，用户等不及就按返回键了。
+     *   页面已经卸载，但 await 后面的代码还在跑，
+     *   一旦碰到 uni.showToast / showLoading 之类会走 Vue 实例的调用，
+     *   就炸在 '$' 上。光「await 完再 navigateBack」不够 ——
+     *   因为用户可能**自己**提前返回。
+     *
+     *   所以：组件卸载时把 _alive 置 false，
+     *   之后所有 UI 副作用都跳过（图标照样写库，只是不弹提示）。
+     *
      * @returns {Promise<boolean>} 是否成功写入图标
      */
     async function drawIconFor(accountId, name, type) {
@@ -317,21 +344,24 @@ export default {
       try {
         const uri = await generateAccountIcon(name, typeName)
         if (!uri) {
-          uni.hideLoading()
+          if (alive.value) uni.hideLoading()
           return false
         }
+        // 写库不依赖页面，即使页面已卸载也要完成 ——
+        // 否则用户下次进来看到图标还是首字符，等于白算。
         await accountStore.update(accountId, { icon: uri })
-        uni.hideLoading()
+        if (alive.value) uni.hideLoading()
         return true
       } catch (e) {
-        uni.hideLoading()
+        if (alive.value) {
+          uni.hideLoading()
+          uni.showToast({
+            title: `图标未能生成：${(e && e.message) || '未知原因'}`,
+            icon: 'none',
+            duration: 2600
+          })
+        }
         console.warn('[account] 生成图标失败（不影响保存）:', e && e.message)
-        // 只在真正失败时说一句，避免用户以为图标功能不存在
-        uni.showToast({
-          title: `图标未能生成：${(e && e.message) || '未知原因'}`,
-          icon: 'none',
-          duration: 2600
-        })
         return false
       }
     }

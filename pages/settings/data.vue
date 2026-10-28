@@ -50,6 +50,15 @@
             </view>
             <text class="row-arrow">›</text>
           </view>
+
+          <!-- 已导出的文件列表：可以逐个分享/删除 -->
+          <view class="card-row" @click="showExportFiles = true">
+            <view class="row-info">
+              <text class="row-name">管理已导出的文件</text>
+              <text class="row-desc">{{ exportFiles.length }} 个文件，可分享或删除</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
         </view>
       </view>
 
@@ -168,6 +177,33 @@
         </scroll-view>
       </view>
     </wd-popup>
+
+    <!-- 已导出文件管理弹层：可逐个分享或删除 -->
+    <wd-popup v-model="showExportFiles" position="bottom" :safe-area-inset-bottom="true">
+      <view class="backup-panel">
+        <view class="panel-head">
+          <text class="panel-title">已导出的文件</text>
+          <text class="panel-close" @click="showExportFiles = false">关闭</text>
+        </view>
+
+        <view v-if="exportFiles.length === 0" class="panel-empty">
+          <text class="panel-empty-text">还没有导出过文件</text>
+        </view>
+
+        <scroll-view v-else class="backup-scroll" scroll-y>
+          <view v-for="f in exportFiles" :key="f.name" class="backup-row export-row">
+            <view class="backup-info">
+              <text class="backup-file">{{ f.name }}</text>
+            </view>
+            <view class="export-ops">
+              <text class="export-op" :style="{ color: primaryColor }" @click="onShareExport(f)">分享</text>
+              <text class="export-op export-op-danger" @click="onDeleteExport(f)">删除</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+    </wd-popup>
+
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
   </view>
@@ -184,7 +220,8 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { queryOne } from '@/api/db/index.js'
 import {
   exportToFile, listExportFiles, importFromFile, autoBackup,
-  listBackups, importPayload, toAbsolutePath, copyFileTo, resolveSharePath
+  listBackups, importPayload, toAbsolutePath, copyFileTo, resolveSharePath,
+  prepareShareFile, deleteExportFile, chooseFileFromSystem
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
@@ -202,6 +239,7 @@ export default {
     const autoBackupEnabled = ref(true)
     const backupList = ref([])
     const showBackups = ref(false)
+    const showExportFiles = ref(false)
     const exportFiles = ref([])
 
     /**
@@ -329,25 +367,29 @@ export default {
     /**
      * 分享导出的文件。
      *
-     * ★ 为什么会「获取资源失败」★
-     *   plus.share.sendWithSystem 的 filePath 必须是可以直接打开的
-     *   file:// 绝对路径。之前传 '_doc/export/xxx.json' 这种相对路径，
-     *   系统分享解析不到资源，就报「获取资源失败」。
+     * ★ 「获取资源失败」的真正原因是分区存储，不是路径格式 ★
+     *   Android 11+ 之后，App 私有目录
+     *   （Android/data/<pkg>/doc/export/）下的文件只有本 App 能读。
+     *   微信拿到这个 file:// 路径没有权限打开，就报「获取资源失败」。
      *
-     *   而且光转换还不够 —— 得先确认文件真的在磁盘上（写失败的情况要能
-     *   说清楚），所以这里用 resolveSharePath()：它先 resolve 文件，
-     *   拿到 fullPath 再做绝对路径转换。
+     *   所以分享前必须先把文件搬到**公共下载目录**，
+     *   再分享公共目录里的那份 —— prepareShareFile() 做这件事：
+     *     Android：复制到 _downloads/ 再分享
+     *     iOS：沙盒文件分享时系统会临时授权，不用搬
      */
-    async function shareFile(relPath) {
+    async function shareFile(relPath, filename) {
       if (typeof plus === 'undefined') {
         uni.showToast({ title: '分享仅在 App 端可用', icon: 'none' })
         return
       }
 
       let absPath = ''
+      uni.showLoading({ title: '准备分享…', mask: true })
       try {
-        absPath = await resolveSharePath(relPath)
+        absPath = await prepareShareFile(relPath, filename)
+        uni.hideLoading()
       } catch (e) {
+        uni.hideLoading()
         await alertDialog({
           title: '无法分享',
           content: (e && e.message) || '导出文件不存在'
@@ -364,8 +406,8 @@ export default {
               title: '分享没有完成',
               content:
                 `系统分享返回：${(e && e.message) || '未知原因'}\n\n` +
-                `文件本身是好的，位置在：\n${absPath}\n\n` +
-                '可以用文件管理器打开这个路径，或者用「复制到指定文件夹」挪到下载目录。',
+                `文件已放在公共下载目录：\n${absPath}\n\n` +
+                '可以用文件管理器打开下载目录，从那里发给对方。',
               showCancel: false,
               confirmText: '知道了'
             })
@@ -378,6 +420,33 @@ export default {
           showCancel: false,
           confirmText: '知道了'
         })
+      }
+    }
+
+    /* -------------------------------------------- 已导出文件管理 */
+
+    /** 分享列表里的某个文件 */
+    async function onShareExport(f) {
+      showExportFiles.value = false
+      await shareFile(f.path, f.name)
+    }
+
+    /** 删除列表里的某个文件 */
+    async function onDeleteExport(f) {
+      const ok = await confirmDialog({
+        title: '删除这个文件？',
+        content: `${f.name}\n\n只是删掉这份导出文件，账本数据不受影响。`,
+        confirmText: '删除',
+        danger: true
+      })
+      if (!ok) return
+
+      try {
+        await deleteExportFile(f.path)
+        exportFiles.value = await listExportFiles()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e && e.message })
       }
     }
 
@@ -476,7 +545,66 @@ export default {
       })
     }
 
+    /**
+     * 导入。
+     *
+     * ★ 用户要求：调起系统文件选择器，自己挑文件位置 ★
+     *   之前是「扫几个固定目录 → 让用户从列表里选」，
+     *   文件不在那几个目录里就完全没法导入 —— 体验很受限。
+     *
+     *   现在直接调系统文件管理器（Android 用 Native.js 起 Intent），
+     *   用户可以在任意位置挑：下载、网盘、微信文件、U 盘……
+     *
+     * ★ 兜底 ★
+     *   系统选择器调不起来（比如 iOS 没原生插件）时，
+     *   退回原来的「固定目录列表」，至少还有条路能走。
+     */
     async function onImport(mode) {
+      const title = mode === 'merge' ? '合并导入' : '覆盖导入'
+      const tip =
+        mode === 'merge'
+          ? '保留现有数据，按 ID 去重后追加。'
+          : '⚠️ 会清空当前所有数据后导入，执行前会自动备份。'
+
+      // 先问一句确认，避免误触
+      const go = await confirmDialog({
+        title,
+        content: `${tip}\n\n接下来会打开系统文件选择器，请选择要导入的 .json 文件。`,
+        confirmText: '选择文件'
+      })
+      if (!go) return
+
+      uni.showLoading({ title: '打开文件选择…', mask: true })
+      let path = ''
+      try {
+        path = await chooseFileFromSystem()
+        uni.hideLoading()
+      } catch (e) {
+        uni.hideLoading()
+        const msg = (e && e.message) || ''
+
+        // 用户主动取消 —— 不用报错
+        if (/取消|cancel/i.test(msg)) return
+
+        // 调不起来 -> 退回固定目录方案
+        await alertDialog({
+          title: '无法打开系统文件选择',
+          content: `${msg}\n\n将改用「从固定目录选择」：之后会列出 App 导出目录、下载目录里的 .json 文件。`
+        })
+        await importFromDirs(mode, tip)
+        return
+      }
+
+      await doImport(path, mode)
+    }
+
+    /**
+     * 兜底：从固定目录里选文件（旧的方案）。
+     *
+     * 保留它是因为 iOS 上没法免插件调起文件选择器，
+     * 有这条退路至少不会完全卡死。
+     */
+    async function importFromDirs(mode, tip) {
       uni.showLoading({ title: '查找文件…' })
       let files = []
       try {
@@ -499,17 +627,10 @@ export default {
         return
       }
 
-      // 标出文件来自哪个目录，避免同名文件分不清
       const label = (f) => {
         const d = IMPORT_DIRS.find((x) => x.key === f.dir)
         return `${f.name}（${d ? d.label : f.dir}）`
       }
-
-      const title = mode === 'merge' ? '选择要合并的文件' : '选择要覆盖的文件'
-      const tip =
-        mode === 'merge'
-          ? '保留现有数据，按 ID 去重后追加。'
-          : '⚠️ 会清空当前所有数据后导入，执行前会自动备份。'
 
       uni.showActionSheet({
         alertText: tip,
@@ -688,9 +809,10 @@ export default {
     })
 
     return {
-      counts, autoBackupOn, backupList, showBackups, exportFiles,
+      counts, autoBackupOn, backupList, showBackups, exportFiles, showExportFiles,
       primaryColor, pageStyle, scrollTarget,
       onExport, onImport, onRestoreBackup,
+      onShareExport, onDeleteExport,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
       formatBackupTime, goBack, settingStore
@@ -702,6 +824,28 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
+}
+
+/* 已导出文件列表：每行右侧两个操作 */
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.export-ops {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  flex-shrink: 0;
+}
+
+.export-op {
+  font-size: 26rpx;
+}
+
+.export-op-danger {
+  color: var(--app-danger);
 }
 
 /* 统计卡 */
