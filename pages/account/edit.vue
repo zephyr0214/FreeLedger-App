@@ -23,7 +23,7 @@
       <view class="icon-preview-wrap">
         <view class="icon-preview" :style="{ backgroundColor: (form.color || primaryColor) + '22' }">
           <!-- 选中的预设图标；没选就退回首字符 -->
-          <LineIcon
+          <AccountIcon
             v-if="form.icon"
             :name="form.icon"
             :size="30"
@@ -65,7 +65,7 @@
                     这就是「图标要点击之后才看得见」的原因：
                     点中时传的是真实主题色，才显出来。
                 -->
-                <LineIcon
+                <AccountIcon
                   :name="ic.key"
                   :size="24"
                   :color="form.icon === ic.key ? (form.color || primaryColor) : iconInk"
@@ -206,65 +206,25 @@
 import { ref, reactive, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import AppDialog from '@/components/AppDialog.vue'
-import LineIcon from '@/components/LineIcon.vue'
+import AccountIcon from '@/components/AccountIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { ACCOUNT_TYPES, isCreditType, adjustAccountBalance } from '@/api/account.js'
 import { isSvgIcon } from '@/api/accountIcon.js'
+import { ACCOUNT_ICONS } from '@/utils/accountIcons.js'
 import { yuanToCents } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { AppDialog, LineIcon },
+  components: { AppDialog, AccountIcon },
   setup() {
     const settingStore = useSettingStore()
-
-    /**
-     * 可选的账户图标：3 行 × 6 列 = 18 个。
-     *
-     * ★ 为什么是这 18 个 ★
-     *   用户要求：「基础的微信、支付宝、各个银行的要有」。
-     *   所以把「支付平台」和「银行」都覆盖到，再补上常见的
-     *   现金 / 储值 / 投资 / 资产 / 收入类，一共 18 个正好 3×6 排满。
-     *
-     *   ⚠️ 这些**不是**复刻各家 logo（那是商标），
-     *   而是语义化的通用符号：
-     *     微信   -> 双对话气泡
-     *     支付宝 -> 圆形徽章 + 「支」字骨架
-     *     银行   -> 古典柱式建筑（全世界的银行都用这个符号，能覆盖所有银行）
-     *   这样既有辨识度，又不涉及具体品牌图形。
-     *
-     * 全部取自 utils/lineIcons.js（线性描边，和其他页面统一）。
-     */
-    const ACCOUNT_ICONS = [
-      // --- 第 1 行：支付平台 + 银行 ---
-      { key: 'wechat', label: '微信' },
-      { key: 'alipay', label: '支付宝' },
-      { key: 'bank', label: '银行' },
-      { key: 'creditcard', label: '信用卡' },
-      { key: 'account', label: '钱包' },
-      { key: 'piggy', label: '储蓄' },
-      // --- 第 2 行：资金与理财 ---
-      { key: 'cash', label: '现金' },
-      { key: 'safe', label: '定期' },
-      { key: 'invest', label: '投资' },
-      { key: 'huabei', label: '先享后付' },
-      { key: 'prepaid', label: '储值卡' },
-      { key: 'salary', label: '工资卡' },
-      // --- 第 3 行：资产与其它 ---
-      { key: 'home', label: '房产' },
-      { key: 'car', label: '车辆' },
-      { key: 'phone', label: '手机' },
-      { key: 'gift', label: '礼品' },
-      { key: 'stats', label: '账目' },
-      { key: 'more', label: '其它' }
-    ]
 
     /**
      * 未选中图标的描边色。
      *
      * ★ 必须是真实 hex，不能是 CSS 变量 ★
-     *   LineIcon 把 SVG 编成 data URI 加载，那是独立图片文档，
+     *   AccountIcon 把 SVG 编成 data URI 加载，那是独立图片文档，
      *   `var(--app-text-2)` 在那里不存在 -> stroke 无效 -> 图标透明。
      *   这正是「图标要点了才看得见」的 bug 根因。
      *
@@ -446,7 +406,7 @@ export default {
     })
 
     return {
-      ACCOUNT_TYPES, ACCOUNT_ICONS, LineIcon, iconInk,
+      ACCOUNT_TYPES, ACCOUNT_ICONS, AccountIcon, iconInk,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
       isCredit, dayRange, legacySvgIcon,
       onToggleInclude, onSave, onDelete, goBack, settingStore
