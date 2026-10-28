@@ -36,7 +36,25 @@ export default {
       return
     }
 
-    // 2) 加载设置
+    // 2) 开启原生 UI 跟随系统深浅色
+    //    ★ 必须在 settingStore.load() 之前 ★
+    //      setUIStyle('auto') 让原生层先进入「跟随系统」状态；
+    //      紧接着 store.load() → applyTheme() → applyNativeTheme()
+    //      会按用户实际选的模式（浅/深/跟随）再设一次，
+    //      这次设的值才是最终生效的值。
+    //    顺序反过来的话，load() 里设好的样式会被这里的 'auto' 覆盖掉，
+    //    表现就是「选了浅色，但原生层还按系统走」。
+    //
+    //    另外 setUIStyle('auto') 是监听主题切换事件的前提
+    //    （官方文档：「在 App 上需要先调用 plus.nativeUI.setUIStyle('auto')
+    //    开启跟随系统主题切换的功能，才能监听到主题切换事件」）。
+    try {
+      enableNativeFollowSystem()
+    } catch (e) {
+      console.warn('[app] setUIStyle 失败:', e.message)
+    }
+
+    // 3) 加载设置
     const settingStore = useSettingStore()
     try {
       await settingStore.load()
@@ -71,15 +89,8 @@ export default {
       console.warn('[app] 自动备份失败:', e.message)
     }
 
-    // 6) 开启原生 UI 跟随系统深浅色 + 监听系统主题变化
-    //    setUIStyle('auto') 必须先调，否则收不到主题切换事件
-    //    （官方文档：「在 App 上需要先调用 plus.nativeUI.setUIStyle('auto')
-    //     开启跟随系统主题切换的功能，才能监听到主题切换事件」）
-    try {
-      enableNativeFollowSystem()
-    } catch (e) {
-      console.warn('[app] setUIStyle 失败:', e.message)
-    }
+    // 6) 监听系统主题变化
+    //    setUIStyle('auto') 已在前面调过（它同时是收到事件的前提）
     this.bindThemeListener()
   },
 

@@ -12,7 +12,7 @@
 
 import {
   buildCssVars, buildWotCssVars, wotThemeClass, refreshTabBarTheme, THEME_PRESETS,
-  isSystemDark, resolveDark, watchSystemTheme, THEME_MODE
+  isSystemDark, resolveDark, watchSystemTheme, THEME_MODE, applyNativeTheme
 } from '../utils/theme.js'
 
 let pass = 0
@@ -182,6 +182,74 @@ console.log('=== 系统主题监听 ===')
   check('返回取消函数', typeof off, 'function')
   off()
   delete globalThis.uni
+}
+
+console.log('=== 原生层主题跟随 ===')
+
+/**
+ * ★ 这是「跟随系统 → 深色 → 浅色，切回浅色没生效」那个 bug 的回归测试 ★
+ *
+ * 根因
+ *   原生层（状态栏 / 原生 tabBar / 窗口背景）只在启动时设过一次
+ *   setUIStyle('auto')，之后就再也不管了。
+ *   于是用户手动选「深色」时，App 内容变深了但原生层还跟着系统；
+ *   再切回「浅色」，App 内容变浅了、原生层还是原来的深色 ——
+ *   两边不一致，看上去就像「浅色没生效」。
+ *
+ * 修法
+ *   applyNativeTheme(dark, mode) 按模式把原生层设成
+ *   system→'auto' / light→'light' / dark→'dark'。
+ */
+{
+  const calls = []
+  globalThis.uni = {
+    getSystemInfoSync: () => ({ osTheme: 'dark' }),
+    setStatusBarStyle: (opt) => calls.push({ type: 'statusbar', opt })
+  }
+  globalThis.plus = {
+    nativeUI: {
+      setUIStyle: (style) => calls.push({ type: 'uistyle', style })
+    },
+    navigator: {
+      setStatusBarStyle: (style) => calls.push({ type: 'statusbar', style })
+    }
+  }
+
+  const uis = () => calls.filter((c) => c.type === 'uistyle').map((c) => c.style)
+
+  // 跟随系统 → 原生层 auto
+  applyNativeTheme(true, THEME_MODE.SYSTEM)
+  check('跟随系统 -> 原生 auto', uis().includes('auto'), true)
+
+  // 手动深色 → 原生层必须变成 dark（不能还停在 auto）
+  calls.length = 0
+  applyNativeTheme(true, THEME_MODE.DARK)
+  check('手动深色 -> 原生 dark', uis().includes('dark'), true)
+
+  // ★ 手动浅色 → 原生层必须变成 light ★
+  //   这正是「切回浅色没生效」那一步
+  calls.length = 0
+  applyNativeTheme(false, THEME_MODE.LIGHT)
+  check('手动浅色 -> 原生 light', uis().includes('light'), true)
+
+  // 状态栏文字色也要跟着：深色背景用浅色文字
+  calls.length = 0
+  applyNativeTheme(true, THEME_MODE.DARK)
+  const sb = calls.find((c) => c.type === 'statusbar')
+  check('深色时状态栏用浅色文字', sb ? sb.opt.style : null, 'light')
+
+  calls.length = 0
+  applyNativeTheme(false, THEME_MODE.LIGHT)
+  const sb2 = calls.find((c) => c.type === 'statusbar')
+  check('浅色时状态栏用深色文字', sb2 ? sb2.opt.style : null, 'dark')
+
+  // 重复设置同一种样式不应该重复调（避免原生层反复重绘）
+  calls.length = 0
+  applyNativeTheme(false, THEME_MODE.LIGHT)
+  check('重复设置不重复调原生 API', calls.filter((c) => c.type === 'uistyle').length, 0)
+
+  delete globalThis.uni
+  delete globalThis.plus
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

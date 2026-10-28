@@ -1,6 +1,15 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <AppHeader @avatar-click="goProfile" />
+    <AppHeader @avatar-click="goProfile">
+      <!--
+        右上角：关于与说明
+        样式和首页 / 统计页的「AI 助手」胶囊完全一致，
+        三个页面的头部按钮风格统一。
+      -->
+      <template #right>
+        <HeaderAction @action-click="goAbout">关于与说明</HeaderAction>
+      </template>
+    </AppHeader>
 
     <scroll-view class="page-scroll" scroll-y>
       <!-- 个人信息卡 -->
@@ -34,12 +43,16 @@
         </view>
       </view>
 
-      <!-- 菜单分组 -->
-      <view v-for="group in menuGroups" :key="group.title" class="menu-group">
-        <text class="menu-title">{{ group.title }}</text>
+      <!--
+        配置条目
+        ★ 账户管理的入口已删除 ★
+          账户已经在底部 tabBar 里了，再放一个入口是重复的。
+      -->
+      <view class="menu-group">
+        <text class="menu-title">配置</text>
         <view class="menu-list">
           <view
-            v-for="item in group.items"
+            v-for="item in configItems"
             :key="item.key"
             class="menu-item"
             @click="onMenuClick(item)"
@@ -58,8 +71,6 @@
 
       <view class="bottom-space" />
     </scroll-view>
-
-
   </view>
 </template>
 
@@ -67,14 +78,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { getOverview } from '@/api/stats.js'
 import { queryOne } from '@/api/db/index.js'
 import { daysSinceLastExport } from '@/api/backup.js'
 
 export default {
-  components: { AppHeader },
+  components: { AppHeader, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -82,40 +93,30 @@ export default {
     const stats = ref({ txnCount: 0, accountCount: 0, dayCount: 0 })
     const exportHint = ref('')
     const budgetCount = ref(0)
+    const cycleCount = ref(0)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-
-    const menuGroups = computed(() => [
-      {
-        title: '记账配置',
-        items: [
-          { key: 'category', icon: '📂', name: '分类管理' },
-          { key: 'tag', icon: '🏷️', name: '标签管理' },
-          { key: 'account', icon: '💳', name: '账户管理', value: `${stats.value.accountCount} 个` },
-          { key: 'budget', icon: '🎯', name: '预算管理', value: budgetLabel.value }
-        ]
-      },
-      {
-        title: '外观',
-        items: [
-          { key: 'theme', icon: '🎨', name: '主题外观', value: themeLabel.value }
-        ]
-      },
-      {
-        title: '智能',
-        items: [
-          { key: 'ai', icon: '🤖', name: 'AI 大模型设置', value: aiLabel.value }
-        ]
-      },
-      {
-        title: '数据',
-        items: [
-          { key: 'data', icon: '💾', name: '导出 / 导入 / 备份', value: exportHint.value },
-          { key: 'about', icon: 'ℹ️', name: '关于与说明' }
-        ]
-      }
+    /**
+     * 配置条目。
+     *
+     * ★ 顺序按用户要求 ★
+     *   分类管理、标签管理、预算管理、周期管理、主题外观、
+     *   AI 智能配置、导出/导入、备份
+     *
+     * 导出/导入 和 备份 是两个独立条目 —— 它们在同一个页面
+     * （/pages/settings/data）里，但入口分开，各自更明确。
+     */
+    const configItems = computed(() => [
+      { key: 'category', icon: '📂', name: '分类管理', route: '/pages/settings/category' },
+      { key: 'tag', icon: '🏷️', name: '标签管理', route: '/pages/settings/tag' },
+      { key: 'budget', icon: '🎯', name: '预算管理', value: budgetLabel.value, route: '/pages/settings/budget' },
+      { key: 'cycle', icon: '🔄', name: '周期管理', value: cycleLabel.value, route: '/pages/settings/cycle' },
+      { key: 'theme', icon: '🎨', name: '主题外观', value: themeLabel.value, route: '/pages/settings/theme' },
+      { key: 'ai', icon: '🤖', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' },
+      { key: 'export', icon: '📤', name: '导出 / 导入', value: exportHint.value, route: '/pages/settings/data?tab=export' },
+      { key: 'backup', icon: '💾', name: '备份', value: backupLabel.value, route: '/pages/settings/data?tab=backup' }
     ])
 
     const themeLabel = computed(() => {
@@ -134,6 +135,18 @@ export default {
       return `${n} 项`
     })
 
+    /** 周期管理入口的副标题：已设几个固定支出周期 */
+    const cycleLabel = computed(() => {
+      const n = cycleCount.value
+      if (n === 0) return '未设置'
+      return `${n} 项`
+    })
+
+    /** 备份入口的副标题：自动备份开关状态 */
+    const backupLabel = computed(() => {
+      return settingStore.settings.autoBackup ? '自动' : '手动'
+    })
+
     async function loadStats() {
       try {
         const txnRow = await queryOne('SELECT COUNT(*) AS c FROM txn WHERE deleted_at IS NULL')
@@ -148,6 +161,10 @@ export default {
         }
         budgetCount.value = Number(budgetRow ? budgetRow.c : 0)
 
+        // 周期数量：读 settings 里的 cycles 数组
+        const cycles = settingStore.settings.cycles
+        cycleCount.value = Array.isArray(cycles) ? cycles.length : 0
+
         const days = await daysSinceLastExport()
         if (days === Infinity) exportHint.value = '从未导出'
         else if (days === 0) exportHint.value = '今天已导出'
@@ -158,27 +175,18 @@ export default {
     }
 
     function onMenuClick(item) {
-      const routes = {
-        category: '/pages/settings/category',
-        tag: '/pages/settings/tag',
-        account: '/pages/account/index',
-        budget: '/pages/settings/budget',
-        theme: '/pages/settings/theme',
-        ai: '/pages/settings/ai',
-        data: '/pages/settings/data',
-        about: '/pages/settings/about'
-      }
-      if (item.key === 'account') {
-        uni.switchTab({ url: routes.account })
-        return
-      }
-      if (routes[item.key]) {
-        uni.navigateTo({ url: routes[item.key] })
+      if (item.route) {
+        uni.navigateTo({ url: item.route })
       }
     }
 
     function goProfile() {
       uni.navigateTo({ url: '/pages/settings/profile' })
+    }
+
+    /** 右上角：关于与说明 */
+    function goAbout() {
+      uni.navigateTo({ url: '/pages/settings/about' })
     }
 
     onMounted(async () => {
@@ -199,9 +207,10 @@ export default {
     })
 
     return {
-      settingStore, accountStore, stats, exportHint, budgetCount, budgetLabel,
-      primaryColor, pageStyle, menuGroups, themeLabel, aiLabel,
-      onMenuClick, goProfile
+      settingStore, accountStore, stats, exportHint, budgetCount, cycleCount,
+      primaryColor, pageStyle, configItems,
+      themeLabel, aiLabel, budgetLabel, cycleLabel, backupLabel,
+      onMenuClick, goProfile, goAbout
     }
   }
 }

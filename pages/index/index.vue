@@ -17,9 +17,7 @@
     <block v-else>
       <AppHeader @avatar-click="goSettings">
         <template #right>
-          <view class="ai-btn" @click="goAiChat">
-            <text class="ai-btn-text">AI 助手</text>
-          </view>
+          <HeaderAction @action-click="goAiChat">AI 助手</HeaderAction>
         </template>
       </AppHeader>
 
@@ -286,6 +284,7 @@ import FabButton from '@/components/FabButton.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
 import QuickAddBar from '@/components/QuickAddBar.vue'
 import CalendarGrid from '@/components/CalendarGrid.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -294,7 +293,7 @@ import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/uti
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, FabButton, TxnPanel, QuickAddBar, CalendarGrid },
+  components: { AppHeader, MoneyText, EmptyState, FabButton, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -585,17 +584,8 @@ export default {
   padding: 0 32rpx;
 }
 
-/* AI 助手按钮：与账户页的「+ 添加账户」同一套样式，文字用主题色 */
-.ai-btn {
-  padding: 8rpx 20rpx;
-  border-radius: 20rpx;
-  background-color: var(--app-card);
-}
-
-.ai-btn-text {
-  font-size: 24rpx;
-  color: var(--app-primary);
-}
+/* AI 助手按钮已抽成 components/HeaderAction.vue，
+   首页 / 统计页 / 账户页 / 我的页 共用同一套样式 */
 
 .guide-area {
   padding-top: 120rpx;

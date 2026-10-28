@@ -12,7 +12,8 @@ import { getAllSettings, setSettings } from '@/api/settings.js'
 import {
   THEME_PRESETS, THEME_MODE, resolveDark, buildCssVars, buildWotThemeVars,
   buildWotCssVars, wotThemeClass, applyTabBarTheme, refreshTabBarTheme,
-  applyNavigationBarTheme, isSystemDark, getPreset, watchSystemTheme
+  applyNavigationBarTheme, isSystemDark, getPreset, watchSystemTheme,
+  applyNativeTheme
 } from '@/utils/theme.js'
 
 export const useSettingStore = defineStore('setting', {
@@ -118,6 +119,12 @@ export const useSettingStore = defineStore('setting', {
         // tabBar 也要跟着刷
         this.markTabBarThemeDirty()
       }
+
+      // ★ 原生层始终跟着当前模式走 ★
+      //   mode='system' 时样式是 'auto'（原生层自己跟系统），
+      //   这里调用会被 lastNativeStyle 去重挡掉，不会重复设置。
+      //   但如果用户刚从「深色」切到「跟随系统」，这里能保证原生层也切回 auto。
+      applyNativeTheme(this.isDark, this.settings.themeMode)
     },
 
     /**
@@ -135,6 +142,10 @@ export const useSettingStore = defineStore('setting', {
       this.systemDark = isSystemDark()
       this.isDark = resolveDark(this.settings.themeMode)
       applyNavigationBarTheme(this.isDark)
+      // ★ 原生层也要跟着变 ★
+      //   否则 App 内容是深色、状态栏/原生 tabBar 还是浅色，
+      //   或者反过来 —— 切回浅色时就会看着「没生效」。
+      applyNativeTheme(this.isDark, this.settings.themeMode)
     },
 
     /**

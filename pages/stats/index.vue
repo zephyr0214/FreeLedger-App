@@ -3,9 +3,7 @@
     <AppHeader @avatar-click="goSettings">
       <template #right>
         <!-- AI 对话入口：和首页一样，通向同一个子页面 -->
-        <view class="ai-btn" @click="goAiChat">
-          <text class="ai-btn-text">AI 助手</text>
-        </view>
+        <HeaderAction @action-click="goAiChat">AI 助手</HeaderAction>
       </template>
     </AppHeader>
 
@@ -331,6 +329,7 @@ import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   getOverviewRange, getSubCategoryStatsRange,
@@ -343,7 +342,7 @@ import {
 } from '@/utils/date.js'
 
 export default {
-  components: { AppHeader, MoneyText, DateRangePicker },
+  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
 
@@ -751,17 +750,7 @@ export default {
   color: var(--app-text-3);
 }
 
-/* AI 对话入口（和首页同一套样式） */
-.ai-btn {
-  padding: 8rpx 20rpx;
-  border-radius: 20rpx;
-  background-color: var(--app-card);
-}
-
-.ai-btn-text {
-  font-size: 24rpx;
-  color: var(--app-primary);
-}
+/* AI 对话入口已抽成 components/HeaderAction.vue，四页共用同一套样式 */
 
 /* 饼图小标题（按账户 / 按账户类别） */
 .pie-title {

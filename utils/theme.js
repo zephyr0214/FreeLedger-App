@@ -82,10 +82,89 @@ export function enableNativeFollowSystem() {
     if (typeof plus !== 'undefined' && plus.nativeUI &&
         typeof plus.nativeUI.setUIStyle === 'function') {
       plus.nativeUI.setUIStyle('auto')
+      // 记住当前原生样式，
+      // 这样后面 applyNativeTheme 能发现「不一致」并重新设置一次
+      lastNativeStyle = 'auto'
     }
   } catch (e) {
     console.warn('[theme] setUIStyle 失败:', e && e.message)
   }
+}
+
+/**
+ * 上一次设置给原生 UI 的样式。
+ * 用来避免重复设置（setUIStyle 会触发原生层重绘，频繁调用有卡顿风险）。
+ */
+let lastNativeStyle = ''
+
+/**
+ * ★ 把原生 UI 的深浅色和 App 自己的深浅色对齐 ★
+ *
+ * 背景
+ *   以前只在启动时调了一次 setUIStyle('auto')，让原生层「跟随系统」。
+ *   于是当用户在 App 里手动选「始终深色 / 始终浅色」时：
+ *     - App 自己的内容（CSS 变量 + wot-theme-dark class）变了
+ *     - 原生层（状态栏文字色、原生 tabBar 底色、窗口背景）还跟着系统
+ *   两边一旦不一致，就会出现「切回浅色没生效」的错觉：
+ *   比如系统是深色，用户从「跟随系统」切到「深色」再切到「浅色」，
+ *   App 内容确实变浅了，但状态栏 / 原生 tabBar 仍是深色，
+ *   看上去就像「浅色没生效」。
+ *
+ * 做法
+ *   按 mode 决定原生样式：
+ *     system -> 'auto'（跟随系统）
+ *     light  -> 'light'
+ *     dark   -> 'dark'
+ *
+ * @param {boolean} dark  App 当前是否深色
+ * @param {string} mode   system | light | dark
+ */
+export function applyNativeTheme(dark, mode) {
+  const style = mode === THEME_MODE.SYSTEM ? 'auto' : (dark ? 'dark' : 'light')
+
+  // 已经是这个样式了就不用重复设
+  if (style === lastNativeStyle) return
+  lastNativeStyle = style
+
+  try {
+    if (typeof plus !== 'undefined' && plus.nativeUI &&
+        typeof plus.nativeUI.setUIStyle === 'function') {
+      plus.nativeUI.setUIStyle(style)
+    }
+  } catch (e) {
+    console.warn('[theme] setUIStyle 失败:', e && e.message)
+  }
+
+  applyStatusBarStyle(dark)
+}
+
+/**
+ * 状态栏文字颜色。
+ *
+ * ★ navigationStyle: custom 下 uni.setNavigationBarColor 无效 ★
+ *   那个 API 只管原生导航栏，而本项目所有页面都是自定义导航栏，
+ *   状态栏由原生层绘制，要改它的文字颜色得用原生 API。
+ *
+ *   参数语义：'dark' = 深色文字（浅色背景用），'light' = 浅色文字（深色背景用）。
+ */
+export function applyStatusBarStyle(dark) {
+  const style = dark ? 'light' : 'dark'
+
+  // 优先用 uni 的接口
+  try {
+    if (typeof uni !== 'undefined' && typeof uni.setStatusBarStyle === 'function') {
+      uni.setStatusBarStyle({ style })
+      return
+    }
+  } catch (e) {}
+
+  // 兜底用 plus 的
+  try {
+    if (typeof plus !== 'undefined' && plus.navigator &&
+        typeof plus.navigator.setStatusBarStyle === 'function') {
+      plus.navigator.setStatusBarStyle(style)
+    }
+  } catch (e) {}
 }
 
 /**

@@ -2,9 +2,7 @@
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader @avatar-click="goSettings">
       <template #right>
-        <view class="add-btn" @click="goAddAccount">
-          <text class="add-text">+ 添加账户</text>
-        </view>
+        <HeaderAction @action-click="goAddAccount">+ 添加账户</HeaderAction>
       </template>
     </AppHeader>
 
@@ -137,13 +135,14 @@ import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import SmoothLineChart from '@/components/SmoothLineChart.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart },
+  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -299,16 +298,7 @@ export default {
   padding: 0 32rpx;
 }
 
-.add-btn {
-  padding: 8rpx 20rpx;
-  border-radius: 20rpx;
-  background-color: var(--app-card);
-}
-
-.add-text {
-  font-size: 24rpx;
-  color: var(--app-primary);
-}
+/* 「+ 添加账户」按钮已抽成 components/HeaderAction.vue，四页共用同一套样式 */
 
 /* 总资产卡（总资产金额 + 趋势折线，同一个面板） */
 .asset-card {
