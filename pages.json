@@ -98,6 +98,34 @@
 			}
 		},
 		{
+			"path": "pages/settings/category-detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "分类详情"
+			}
+		},
+		{
+			"path": "pages/settings/tag-detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "标签详情"
+			}
+		},
+		{
+			"path": "pages/settings/budget-detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "预算详情"
+			}
+		},
+		{
+			"path": "pages/settings/cycle-detail",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "周期详情"
+			}
+		},
+		{
 			"path": "pages/settings/theme",
 			"style": {
 				"navigationStyle": "custom",

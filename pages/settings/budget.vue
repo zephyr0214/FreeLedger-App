@@ -62,12 +62,27 @@
         </view>
 
         <view v-else class="cat-budget-list">
-          <view v-for="b in categoryBudgets" :key="b.id" class="cat-budget">
+          <!--
+            ★ 交互约定 ★
+              点整行      -> 进预算详情页（看额度/已用/剩余/进度条）
+              点「修改」   -> 打开金额编辑弹层（原来的入口没丢）
+              点「删除」   -> 原来的删除确认弹层（没丢）
+              长按        -> 同样打开编辑弹层（快捷方式）
+            行内原有的「修改 / 删除」两个按钮都保留，
+            只是给整行让出了「看详情」这个点击。
+          -->
+          <view
+            v-for="b in categoryBudgets"
+            :key="b.id"
+            class="cat-budget"
+            @click="goBudgetDetail(b)"
+            @longpress="editCategoryBudget(b)"
+          >
             <view class="cat-budget-head">
               <text class="cat-budget-name">{{ b.name }}</text>
               <view class="cat-budget-ops">
-                <text class="cat-budget-edit" @click="editCategoryBudget(b)">修改</text>
-                <text class="cat-budget-del" @click="removeBudget(b)">删除</text>
+                <text class="cat-budget-edit" @click.stop="editCategoryBudget(b)">修改</text>
+                <text class="cat-budget-del" @click.stop="removeBudget(b)">删除</text>
               </view>
             </view>
             <view class="usage-head">
@@ -252,6 +267,11 @@ export default {
       showCatPicker.value = true
     }
 
+    /** 点整行 -> 预算详情页 */
+    function goBudgetDetail(b) {
+      uni.navigateTo({ url: `/pages/settings/budget-detail?id=${b.id}` })
+    }
+
     function onCategorySelect({ index }) {
       const c = availableCategories.value[index]
       if (!c) return
@@ -327,7 +347,7 @@ export default {
       showCatPicker, primaryColor, pageStyle,
       totalBudget, categoryBudgets, availableCategories, categoryActions, editorTitle,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
-      onCategorySelect, saveBudget, removeBudget, goBack, settingStore
+      goBudgetDetail, onCategorySelect, saveBudget, removeBudget, goBack, settingStore
     }
   }
 }

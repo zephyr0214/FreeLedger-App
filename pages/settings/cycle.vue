@@ -444,9 +444,17 @@ export default {
       await persist()
     }
 
+    /**
+     * 点整行 -> 周期详情页
+     *
+     * ★ 为什么整行不再直接进编辑弹层 ★
+     *   周期也走统一的「详情页」结构（汇总卡 + 本月收支 + 最近流水），
+     *   点条目进详情页可以看这个周期的金额、下次扣款日和历史支出。
+     *   编辑仍然保留在每一行右侧的「编辑」按钮上（以及停用/删除），
+     *   所以原来的编辑能力没有丢，只是不再和「看详情」抢同一个点击。
+     */
     function onSelect(c) {
-      // 点整行 = 编辑
-      openEdit(c)
+      uni.navigateTo({ url: `/pages/settings/cycle-detail?id=${c.id}` })
     }
 
     function onDelete(c) {

@@ -1,154 +1,131 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <view class="nav-bar" :style="{ paddingTop: statusBarHeight + 'px' }">
-      <view class="nav-inner">
-        <text class="nav-back" @click="goBack">‹</text>
-        <text class="nav-title">账户详情</text>
+    <DetailShell title="账户详情" @back="goBack">
+      <template #right>
         <text class="nav-action" @click="goEdit">编辑</text>
-      </view>
-    </view>
+      </template>
 
-    <scroll-view v-if="account" class="page-scroll" scroll-y>
-      <!-- 余额头 -->
-      <view class="balance-card">
-        <view class="bal-head">
-          <view class="bal-icon" :style="{ backgroundColor: (account.color || primaryColor) + '22' }">
-            <text class="bal-icon-text" :style="{ color: account.color || primaryColor }">
-              {{ account.name.slice(0, 1) }}
-            </text>
-          </view>
-          <view class="bal-info">
-            <view class="bal-name-row">
-              <text class="bal-name">{{ account.name }}</text>
-              <text v-if="account.card_tail" class="bal-tail">*{{ account.card_tail }}</text>
+      <template v-if="account">
+        <!-- 余额头 -->
+        <view class="balance-card">
+          <view class="bal-head">
+            <view class="bal-icon" :style="{ backgroundColor: (account.color || primaryColor) + '22' }">
+              <text class="bal-icon-text" :style="{ color: account.color || primaryColor }">
+                {{ account.name.slice(0, 1) }}
+              </text>
             </view>
-            <text class="bal-type">{{ account.typeName }}</text>
+            <view class="bal-info">
+              <view class="bal-name-row">
+                <text class="bal-name">{{ account.name }}</text>
+                <text v-if="account.card_tail" class="bal-tail">*{{ account.card_tail }}</text>
+              </view>
+              <text class="bal-type">{{ account.typeName }}</text>
+            </view>
           </view>
-        </view>
 
-        <text class="bal-label">当前余额</text>
-        <MoneyText
-          :cents="account.balance_cents"
-          :size="80"
-          :weight="600"
-          :color="account.balance_cents < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
-        />
-
-        <!-- 信用卡信息 -->
-        <view v-if="account.isCredit && account.credit_limit_cents" class="credit-info">
-          <view class="credit-row">
-            <text class="credit-label">信用额度</text>
-            <MoneyText :cents="account.credit_limit_cents" :size="26" color="var(--app-text-2)" />
-          </view>
-          <view class="credit-row">
-            <text class="credit-label">已用额度</text>
-            <text class="credit-value">
-              {{ usedPercent }}%
-            </text>
-          </view>
-          <view class="credit-bar">
-            <view
-              class="credit-fill"
-              :style="{
-                width: Math.min(usedPercent, 100) + '%',
-                backgroundColor: usedPercent > 80 ? 'var(--app-danger)' : primaryColor
-              }"
-            />
-          </view>
-          <view v-if="account.repay_day" class="credit-row">
-            <text class="credit-label">还款日</text>
-            <text class="credit-value">{{ account.repay_day }} 号（{{ repayCountdown }}）</text>
-          </view>
-        </view>
-      </view>
-
-      <!-- 本月收支 -->
-      <view class="month-card">
-        <view class="month-item">
-          <text class="month-label">本月支出</text>
-          <MoneyText :cents="monthStats.expense" :size="32" :weight="500" color="var(--app-text)" />
-        </view>
-        <view class="month-divider" />
-        <view class="month-item">
-          <text class="month-label">本月收入</text>
-          <MoneyText :cents="monthStats.income" :size="32" :weight="500" color="var(--app-success)" />
-        </view>
-      </view>
-
-      <!-- 流水 -->
-      <view class="section-head">
-        <text class="section-title">最近流水</text>
-        <text class="section-more" @click="goAllTxn">全部 ›</text>
-      </view>
-
-      <view v-if="txnList.length === 0" class="empty-wrap">
-        <EmptyState emoji="📭" title="暂无流水" desc="这个账户还没有交易记录" compact />
-      </view>
-
-      <view v-else class="txn-list">
-        <view
-          v-for="txn in txnList"
-          :key="txn.id"
-          class="txn-item"
-          @click="goTxnDetail(txn.id)"
-        >
-          <view
-            class="txn-icon"
-            :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
-          >
-            <text class="txn-icon-text" :style="{ color: txn.category_color || '#969799' }">
-              {{ iconChar(txn) }}
-            </text>
-          </view>
-          <view class="txn-info">
-            <text class="txn-name">{{ txnTitle(txn) }}</text>
-            <text class="txn-sub">{{ shortDay(txn.occurred_day) }}</text>
-          </view>
+          <text class="bal-label">当前余额</text>
           <MoneyText
-            :cents="txnAmount(txn)"
-            :size="28"
-            :weight="500"
-            :sign="true"
-            :color="txnAmount(txn) > 0 ? 'var(--app-success)' : 'var(--app-text)'"
+            :cents="account.balance_cents"
+            :size="80"
+            :weight="600"
+            :color="account.balance_cents < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
           />
+
+          <!-- 信用卡信息 -->
+          <view v-if="account.isCredit && account.credit_limit_cents" class="credit-info">
+            <view class="credit-row">
+              <text class="credit-label">信用额度</text>
+              <MoneyText :cents="account.credit_limit_cents" :size="26" color="var(--app-text-2)" />
+            </view>
+            <view class="credit-row">
+              <text class="credit-label">已用额度</text>
+              <text class="credit-value">
+                {{ usedPercent }}%
+              </text>
+            </view>
+            <view class="credit-bar">
+              <view
+                class="credit-fill"
+                :style="{
+                  width: Math.min(usedPercent, 100) + '%',
+                  backgroundColor: usedPercent > 80 ? 'var(--app-danger)' : primaryColor
+                }"
+              />
+            </view>
+            <view v-if="account.repay_day" class="credit-row">
+              <text class="credit-label">还款日</text>
+              <text class="credit-value">{{ account.repay_day }} 号（{{ repayCountdown }}）</text>
+            </view>
+          </view>
         </view>
+
+        <!-- 本月收支 -->
+        <view class="month-card">
+          <view class="month-item">
+            <text class="month-label">本月支出</text>
+            <MoneyText :cents="monthStats.expense" :size="32" :weight="500" color="var(--app-text)" />
+          </view>
+          <view class="month-divider" />
+          <view class="month-item">
+            <text class="month-label">本月收入</text>
+            <MoneyText :cents="monthStats.income" :size="32" :weight="500" color="var(--app-success)" />
+          </view>
+        </view>
+
+        <!-- 最近流水（按日期分组，10 条） -->
+        <RecentTxnList
+          :txns="txnList"
+          :loading="loading"
+          :account-id="accountId"
+          empty-text="这个账户还没有交易记录"
+          show-more
+          @more="goAllTxn"
+        />
+      </template>
+
+      <view v-else class="loading-wrap">
+        <text class="loading-text">加载中…</text>
       </view>
-
-      <view class="bottom-space" />
-    </scroll-view>
-
-    <view v-else class="loading-wrap">
-      <text class="loading-text">加载中…</text>
-    </view>
+    </DetailShell>
   </view>
 </template>
 
 <script>
+/**
+ * 账户详情 —— 详情页结构的样板
+ *
+ * ★ 结构 ★
+ *   DetailShell（顶部导航 + 滚动区）
+ *     余额卡
+ *     本月收支卡
+ *     RecentTxnList（按日期分组的最近流水 + 「全部 ›」）
+ *
+ * 分类 / 标签 / 预算 / 周期这 4 个详情页都照这个结构写。
+ */
 import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
-import EmptyState from '@/components/EmptyState.vue'
+import DetailShell from '@/components/DetailShell.vue'
+import RecentTxnList from '@/components/RecentTxnList.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
-import { daysUntilMonthDay, toMonthKey, formatDayHeader } from '@/utils/date.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
 
 export default {
-  components: { MoneyText, EmptyState },
+  components: { MoneyText, DetailShell, RecentTxnList },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
 
-    const statusBarHeight = uni.getSystemInfoSync().statusBarHeight || 20
     const accountId = ref('')
     const account = ref(null)
     const txnList = ref([])
     const monthStats = ref({ expense: 0, income: 0 })
+    const loading = ref(false)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
-
 
     const usedPercent = computed(() => {
       if (!account.value || !account.value.credit_limit_cents) return 0
@@ -163,59 +140,37 @@ export default {
       return `${d} 天后`
     })
 
-    function iconChar(txn) {
-      if (txn.type === 'transfer') return '⇄'
-      return txn.category_icon
-        ? iconEmoji(txn.category_icon)
-        : guessIconByName(txn.category_name)
-    }
-
-    function txnTitle(txn) {
-      if (txn.type === 'transfer') {
-        return txn.account_id === accountId.value
-          ? `转出至 ${txn.to_account_name || '-'}`
-          : `来自 ${txn.account_name || '-'}`
-      }
-      return txn.category_name || '未分类'
-    }
-
-    /** 从该账户视角看的方向：支出为负，收入/转入为正 */
-    function txnAmount(txn) {
-      if (txn.type === 'income') return txn.amount_cents
-      if (txn.type === 'transfer') {
-        return txn.account_id === accountId.value ? -txn.amount_cents : txn.amount_cents
-      }
-      return -txn.amount_cents
-    }
-
-    function shortDay(dayKey) {
-      const [, m, d] = dayKey.split('-')
-      return `${Number(m)}/${Number(d)}`
-    }
-
     async function load() {
       const acc = await accountStore.getById(accountId.value)
       if (!acc) return
       account.value = acc
 
-      const [list, sum] = await Promise.all([
-        listTransactions({ accountId: accountId.value, limit: 30 }),
-        sumTransactions({ accountId: accountId.value, monthKey: toMonthKey() })
-      ])
-      txnList.value = list
-      monthStats.value = { expense: sum.expense, income: sum.income }
+      loading.value = true
+      try {
+        // 只取最近 10 条：RecentTxnList 按日期分组后也是显示这 10 条
+        const [list, sum] = await Promise.all([
+          listTransactions({ accountId: accountId.value, limit: 10 }),
+          sumTransactions({ accountId: accountId.value, monthKey: toMonthKey() })
+        ])
+        txnList.value = list
+        monthStats.value = { expense: sum.expense, income: sum.income }
+      } finally {
+        loading.value = false
+      }
     }
 
     function goEdit() {
       uni.navigateTo({ url: `/pages/account/edit?id=${accountId.value}` })
     }
 
-    function goTxnDetail(id) {
-      uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
-    }
-
+    /**
+     * 「全部 ›」-> 交易列表，并带上账户筛选条件
+     *
+     * URL 契约见 api/transaction.js 的 parseTxnQueryOptions：
+     *   ?accountId=acc_xxx 按账户筛选
+     */
     function goAllTxn() {
-      uni.navigateTo({ url: '/pages/txn/list' })
+      uni.navigateTo({ url: `/pages/txn/list?accountId=${accountId.value}` })
     }
 
     function goBack() {
@@ -239,52 +194,19 @@ export default {
     })
 
     return {
-      settingStore, statusBarHeight, account, txnList, monthStats,
+      settingStore, accountId, account, txnList, monthStats, loading,
       primaryColor, pageStyle, usedPercent, repayCountdown,
-      iconChar, txnTitle, txnAmount, shortDay,
-      goEdit, goTxnDetail, goAllTxn, goBack
+      goEdit, goAllTxn, goBack
     }
   }
 }
 </script>
 
 <style scoped>
-.nav-bar {
-  background-color: var(--app-bg);
-  flex-shrink: 0;
-}
-
-.nav-inner {
-  height: 88rpx;
-  display: flex;
-  align-items: center;
-  padding: 0 24rpx;
-}
-
-.nav-back {
-  font-size: 48rpx;
-  color: var(--app-text);
-  width: 100rpx;
-  line-height: 1;
-}
-
-.nav-title {
-  flex: 1;
-  text-align: center;
-  font-size: 32rpx;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
 .nav-action {
   font-size: 28rpx;
   color: var(--app-primary);
-  width: 100rpx;
   text-align: right;
-}
-
-.page-scroll {
-  padding: 0 32rpx;
 }
 
 /* 余额卡 */
@@ -420,83 +342,6 @@ export default {
   background-color: var(--app-line);
 }
 
-/* 区块 */
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 32rpx;
-  margin-bottom: 12rpx;
-  padding: 0 4rpx;
-}
-
-.section-title {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.section-more {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.txn-list {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  overflow: hidden;
-}
-
-.txn-item {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  padding: 24rpx 28rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.txn-item:last-child {
-  border-bottom: none;
-}
-
-.txn-icon {
-  width: 68rpx;
-  height: 68rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.txn-icon-text {
-  font-size: 26rpx;
-  font-weight: 500;
-}
-
-.txn-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  min-width: 0;
-}
-
-.txn-name {
-  font-size: 26rpx;
-  color: var(--app-text);
-}
-
-.txn-sub {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-}
-
-.empty-wrap {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-}
-
 .loading-wrap {
   padding-top: 200rpx;
   text-align: center;
@@ -506,5 +351,4 @@ export default {
   font-size: 26rpx;
   color: var(--app-text-3);
 }
-
 </style>

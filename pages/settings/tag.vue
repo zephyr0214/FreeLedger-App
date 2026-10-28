@@ -21,10 +21,21 @@
       </view>
 
       <view v-else class="tag-list">
-        <view v-for="tag in tags" :key="tag.id" class="tag-row" @click="openEdit(tag)">
+        <!--
+          ★ 交互约定 ★
+            点整行  -> 进标签详情页（看这个标签的流水与统计）
+            点「编辑」-> 打开编辑弹层（原来的 openEdit 入口没丢）
+            长按    -> 同样打开编辑弹层（快捷方式）
+          为什么编辑要挪到「编辑按钮 + 长按」：
+            详情页要能通过列表项直接进入，编辑就不能再占着整行的点击。
+            保留一个显眼的文字按钮比只靠长按更不容易被用户发现，
+            所以两个入口都留着，长按只是加速手段。
+        -->
+        <view v-for="tag in tags" :key="tag.id" class="tag-row" @click="goDetail(tag)" @longpress="openEdit(tag)">
           <view class="tag-dot" :style="{ backgroundColor: tag.color || primaryColor }" />
           <text class="tag-name">{{ tag.name }}</text>
           <text class="tag-count">{{ tag.count }} 笔</text>
+          <text class="tag-edit" @click.stop="openEdit(tag)">编辑</text>
           <text class="tag-arrow">›</text>
         </view>
       </view>
@@ -136,6 +147,11 @@ export default {
       showEditor.value = true
     }
 
+    /** 点整行 -> 标签详情页 */
+    function goDetail(tag) {
+      uni.navigateTo({ url: `/pages/settings/tag-detail?id=${tag.id}` })
+    }
+
     async function onSave() {
       if (!form.name.trim()) {
         uni.showToast({ title: '请填写名称', icon: 'none' })
@@ -187,7 +203,7 @@ export default {
     return {
       settingStore, tags, showEditor, editingId, form, colors,
       primaryColor, pageStyle,
-      openCreate, openEdit, onSave, onDelete, goBack
+      openCreate, openEdit, goDetail, onSave, onDelete, goBack
     }
   }
 }
@@ -252,6 +268,12 @@ export default {
 .tag-count {
   font-size: 22rpx;
   color: var(--app-text-3);
+}
+
+.tag-edit {
+  font-size: 22rpx;
+  color: var(--app-primary);
+  padding: 4rpx 12rpx;
 }
 
 .tag-arrow {
