@@ -75,11 +75,11 @@
             <view class="txn-info">
               <view class="txn-name-row">
                 <text class="txn-name">{{ txnTitle(txn) }}</text>
-                <view v-if="txn.tag_ids && txn.tag_ids.length" class="tag-mini">
-                  <text class="tag-mini-text">{{ txn.tag_ids.length }}标签</text>
-                </view>
               </view>
-              <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
+              <view class="txn-sub-row">
+                <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
+                <text v-if="txnTags(txn)" class="txn-tags">{{ txnTags(txn) }}</text>
+              </view>
             </view>
 
             <view class="txn-right">
@@ -128,18 +128,19 @@
         </view>
 
         <scroll-view class="filter-body" scroll-y>
-          <!-- 类型 -->
+          <!-- 类型：只有 4 个选项，做成一行分段控件（不占用下拉框） -->
           <view class="filter-section">
             <text class="filter-label">类型</text>
-            <view class="chip-wrap">
+            <view class="seg">
               <view
                 v-for="t in typeOptions"
                 :key="t.key"
-                class="chip"
+                class="seg-item"
                 :class="{ active: filter.type === t.key }"
+                :style="{ backgroundColor: filter.type === t.key ? primaryColor : 'transparent' }"
                 @click="onTypeChange(t.key)"
               >
-                <text class="chip-text" :style="{ color: filter.type === t.key ? primaryColor : 'var(--app-text-2)' }">
+                <text class="seg-text" :style="{ color: filter.type === t.key ? '#ffffff' : 'var(--app-text-2)' }">
                   {{ t.name }}
                 </text>
               </view>
@@ -148,116 +149,61 @@
 
           <!-- 账户 -->
           <view class="filter-section">
-            <text class="filter-label">账户</text>
-            <view class="chip-wrap">
-              <view
-                class="chip"
-                :class="{ active: !filter.accountId }"
-                @click="filter.accountId = ''"
-              >
-                <text class="chip-text" :style="{ color: !filter.accountId ? primaryColor : 'var(--app-text-2)' }">全部</text>
-              </view>
-              <view
-                v-for="acc in accountStore.list"
-                :key="acc.id"
-                class="chip"
-                :class="{ active: filter.accountId === acc.id }"
-                @click="filter.accountId = acc.id"
-              >
-                <text class="chip-text" :style="{ color: filter.accountId === acc.id ? primaryColor : 'var(--app-text-2)' }">
-                  {{ acc.name }}
+            <view class="filter-row" @click="openPicker('account')">
+              <text class="filter-row-label">账户</text>
+              <view class="filter-row-right">
+                <text class="filter-row-value" :class="{ placeholder: !filter.accountId }">
+                  {{ accountLabel }}
                 </text>
+                <text class="filter-row-arrow">›</text>
               </view>
             </view>
           </view>
 
-          <!-- 分类：两级联动
-               一级（父分类）→ 二级（子分类）
+          <!-- 分类（一级）
+               一级 + 二级两级联动：
                只选一级 = 该一级下所有二级；一级 + 二级 = 精确到二级 -->
           <view class="filter-section">
-            <text class="filter-label">分类</text>
-
-            <!-- 一级分类 -->
-            <view class="chip-wrap">
-              <view
-                class="chip"
-                :class="{ active: !filter.parentCategoryId }"
-                @click="onParentCategoryChange('')"
-              >
-                <text class="chip-text" :style="{ color: !filter.parentCategoryId ? primaryColor : 'var(--app-text-2)' }">全部</text>
-              </view>
-              <view
-                v-for="cat in parentCategories"
-                :key="cat.id"
-                class="chip"
-                :class="{ active: filter.parentCategoryId === cat.id }"
-                @click="onParentCategoryChange(cat.id)"
-              >
-                <text class="chip-text" :style="{ color: filter.parentCategoryId === cat.id ? primaryColor : 'var(--app-text-2)' }">
-                  {{ cat.name }}
+            <view class="filter-row" @click="openPicker('parent')">
+              <text class="filter-row-label">分类</text>
+              <view class="filter-row-right">
+                <text class="filter-row-value" :class="{ placeholder: !filter.parentCategoryId }">
+                  {{ parentCategoryLabel }}
                 </text>
+                <text class="filter-row-arrow">›</text>
               </view>
             </view>
+          </view>
 
-            <!-- 二级分类：随一级分类动态变化 -->
-            <view v-if="filter.parentCategoryId" class="subcat-wrap">
-              <view class="subcat-head">
-                <text class="subcat-label">二级分类</text>
-                <text
-                  v-if="filter.categoryId"
-                  class="subcat-clear"
-                  @click="onSubCategoryChange('')"
-                >清除</text>
+          <!-- 二级分类：随一级分类动态变化 -->
+          <view class="filter-section">
+            <view
+              class="filter-row"
+              :class="{ disabled: !filter.parentCategoryId }"
+              @click="openPicker('sub')"
+            >
+              <text class="filter-row-label">二级分类</text>
+              <view class="filter-row-right">
+                <text class="filter-row-value" :class="{ placeholder: !filter.categoryId }">
+                  {{ subCategoryLabel }}
+                </text>
+                <text class="filter-row-arrow">›</text>
               </view>
-              <view class="chip-wrap">
-                <view
-                  class="chip chip-sub"
-                  :class="{ active: !filter.categoryId }"
-                  @click="onSubCategoryChange('')"
-                >
-                  <text class="chip-text" :style="{ color: !filter.categoryId ? primaryColor : 'var(--app-text-2)' }">
-                    全部
-                  </text>
-                </view>
-                <view
-                  v-for="cat in subCategories"
-                  :key="cat.id"
-                  class="chip chip-sub"
-                  :class="{ active: filter.categoryId === cat.id }"
-                  @click="onSubCategoryChange(cat.id)"
-                >
-                  <text class="chip-text" :style="{ color: filter.categoryId === cat.id ? primaryColor : 'var(--app-text-2)' }">
-                    {{ cat.name }}
-                  </text>
-                </view>
-              </view>
-              <text v-if="subCategories.length === 0" class="subcat-empty">
-                该分类下没有二级分类，将匹配全部子分类
-              </text>
             </view>
+            <text v-if="filter.parentCategoryId && subCategories.length === 0" class="filter-hint">
+              该分类下没有二级分类，将匹配全部子分类
+            </text>
           </view>
 
           <!-- 标签 -->
           <view class="filter-section">
-            <text class="filter-label">标签</text>
-            <view class="chip-wrap">
-              <view
-                class="chip"
-                :class="{ active: !filter.tagId }"
-                @click="filter.tagId = ''"
-              >
-                <text class="chip-text" :style="{ color: !filter.tagId ? primaryColor : 'var(--app-text-2)' }">全部</text>
-              </view>
-              <view
-                v-for="t in tags"
-                :key="t.id"
-                class="chip"
-                :class="{ active: filter.tagId === t.id }"
-                @click="filter.tagId = t.id"
-              >
-                <text class="chip-text" :style="{ color: filter.tagId === t.id ? primaryColor : 'var(--app-text-2)' }">
-                  {{ t.name }}
+            <view class="filter-row" @click="openPicker('tag')">
+              <text class="filter-row-label">标签</text>
+              <view class="filter-row-right">
+                <text class="filter-row-value" :class="{ placeholder: !filter.tagId }">
+                  {{ tagLabel }}
                 </text>
+                <text class="filter-row-arrow">›</text>
               </view>
             </view>
           </view>
@@ -311,6 +257,16 @@
         </view>
       </view>
     </wd-popup>
+
+    <!-- 选项选择器：账户 / 一级分类 / 二级分类 / 标签 共用一个底部选项表 -->
+    <wd-action-sheet
+      v-model="showPicker"
+      :title="pickerTitle"
+      :actions="pickerActions"
+      :z-index="120"
+      cancel-text="取消"
+      @select="onPickerSelect"
+    />
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
@@ -391,6 +347,88 @@ export default {
     // 已应用的筛选（与面板里的编辑态分离）
     const appliedFilter = reactive({ ...filter })
 
+    /* ------------------------------------------------- 下拉选择器 */
+
+    /**
+     * 下拉框形式的筛选
+     *
+     * 面板里的每一项（账户 / 一级分类 / 二级分类 / 标签）都是
+     * 「左标签 + 右当前值 + ›」的一行，点一下弹出选项列表。
+     * 四个下拉共用一个 wd-action-sheet（底部选项表），
+     * 切换的是 pickerKind 指向的那一组选项。
+     */
+    /** 当前打开的是哪个下拉：account | parent | sub | tag */
+    const pickerKind = ref('')
+    const showPicker = ref(false)
+
+    const PICKER_TITLES = {
+      account: '选择账户',
+      parent: '选择分类',
+      sub: '选择二级分类',
+      tag: '选择标签'
+    }
+
+    const pickerTitle = computed(() => PICKER_TITLES[pickerKind.value] || '请选择')
+
+    /**
+     * 当前下拉的选项列表
+     *
+     * wd-action-sheet 的 actions 只认 { name, subname, color, disabled, loading }，
+     * 所以每项统一转成 { name, value } 的形状，value 放在自定义字段里传回。
+     */
+    const pickerActions = computed(() => {
+      const kind = pickerKind.value
+      if (kind === 'account') {
+        const list = [{ name: '全部账户', value: '' }]
+        for (const acc of accountStore.list) list.push({ name: acc.name, value: acc.id })
+        return list
+      }
+      if (kind === 'parent') {
+        const list = [{ name: '全部分类', value: '' }]
+        for (const cat of parentCategories.value) list.push({ name: cat.name, value: cat.id })
+        return list
+      }
+      if (kind === 'sub') {
+        const list = [{ name: '全部', value: '' }]
+        for (const cat of subCategories.value) list.push({ name: cat.name, value: cat.id })
+        return list
+      }
+      if (kind === 'tag') {
+        const list = [{ name: '全部标签', value: '' }]
+        for (const t of tags.value) list.push({ name: t.name, value: t.id })
+        return list
+      }
+      return []
+    })
+
+    /** 打开某个下拉 */
+    function openPicker(kind) {
+      // 二级分类必须先选一级分类
+      if (kind === 'sub' && !filter.parentCategoryId) {
+        uni.showToast({ title: '请先选择一级分类', icon: 'none' })
+        return
+      }
+      pickerKind.value = kind
+      showPicker.value = true
+    }
+
+    /** 选中某个下拉里的选项 */
+    function onPickerSelect(e) {
+      const item = e && e.item ? e.item : null
+      if (!item) return
+      const value = item.value
+      const kind = pickerKind.value
+      if (kind === 'account') {
+        filter.accountId = value
+      } else if (kind === 'parent') {
+        onParentCategoryChange(value)
+      } else if (kind === 'sub') {
+        onSubCategoryChange(value)
+      } else if (kind === 'tag') {
+        filter.tagId = value
+      }
+    }
+
     const typeOptions = [
       { key: 'all', name: '全部' },
       { key: 'expense', name: '支出' },
@@ -427,6 +465,37 @@ export default {
       const pid = filter.parentCategoryId
       if (!pid) return []
       return categories.value.filter((c) => c.parent_id === pid)
+    })
+
+    /* ------------------------------------------------- 下拉当前值文案 */
+
+    /** 账户当前值 */
+    const accountLabel = computed(() => {
+      if (!filter.accountId) return '全部'
+      const acc = accountStore.list.find((a) => a.id === filter.accountId)
+      return acc ? acc.name : '全部'
+    })
+
+    /** 一级分类当前值 */
+    const parentCategoryLabel = computed(() => {
+      if (!filter.parentCategoryId) return '全部'
+      const cat = categories.value.find((c) => c.id === filter.parentCategoryId)
+      return cat ? cat.name : '全部'
+    })
+
+    /** 二级分类当前值 */
+    const subCategoryLabel = computed(() => {
+      if (!filter.parentCategoryId) return '请先选择一级分类'
+      if (!filter.categoryId) return '全部'
+      const cat = categories.value.find((c) => c.id === filter.categoryId)
+      return cat ? cat.name : '全部'
+    })
+
+    /** 标签当前值 */
+    const tagLabel = computed(() => {
+      if (!filter.tagId) return '全部'
+      const t = tags.value.find((x) => x.id === filter.tagId)
+      return t ? t.name : '全部'
     })
 
     const filterCount = computed(() => {
@@ -693,6 +762,37 @@ export default {
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
+    /**
+     * 标签 id -> 名字 的映射
+     *
+     * 交易里只存了 tag_id（tag_ids），要显示名字得靠本页已加载的标签表反查。
+     * 建一张 map，避免每行都去 list 里线性找。
+     */
+    const tagNameMap = computed(() => {
+      const m = {}
+      for (const t of tags.value) m[t.id] = t.name
+      return m
+    })
+
+    /**
+     * 这笔交易的标签名（纯文字，不带背景块）
+     *
+     * 多个标签用「、」连接；超过 2 个只显示前两个 + 「+N」，
+     * 免得一行被标签撑高。
+     */
+    function txnTags(txn) {
+      const ids = txn.tag_ids
+      if (!ids || !ids.length) return ''
+      const names = []
+      for (const id of ids) {
+        const name = tagNameMap.value[id]
+        if (name) names.push(name)
+      }
+      if (!names.length) return ''
+      if (names.length <= 2) return names.join('、')
+      return `${names.slice(0, 2).join('、')} +${names.length - 2}`
+    }
+
     function timeLabel(ts) {
       return formatTime(ts)
     }
@@ -877,9 +977,13 @@ export default {
       dateRange, datePickerRef, list, summary, hasMore, loading, showFilter,
       filter, appliedFilter, typeOptions, categories, tags,
       primaryColor, pageStyle, rangeLabel, parentCategories, subCategories, filterCount, groups,
+      // 下拉选择器
+      showPicker, pickerTitle, pickerActions, openPicker, onPickerSelect,
+      // 下拉当前值
+      accountLabel, parentCategoryLabel, subCategoryLabel, tagLabel,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
       onTypeChange, onParentCategoryChange, onSubCategoryChange,
-      iconChar, txnTitle, txnSub, timeLabel, goDetail, goBack, onLongPress
+      iconChar, txnTitle, txnSub, txnTags, timeLabel, goDetail, goBack, onLongPress
     }
   }
 }
@@ -1056,20 +1160,25 @@ export default {
   font-weight: 500;
 }
 
-.tag-mini {
-  background-color: var(--app-primary-light);
-  border-radius: 8rpx;
-  padding: 2rpx 10rpx;
-}
-
-.tag-mini-text {
-  font-size: 18rpx;
-  color: var(--app-primary);
+/* 副标题行：备注 + 标签名（纯文字，不撑高整行） */
+.txn-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
 }
 
 .txn-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.txn-tags {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
 .txn-right {
@@ -1146,59 +1255,78 @@ export default {
   margin-bottom: 14rpx;
 }
 
-.chip-wrap {
+/* 类型分段控件 */
+.seg {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-}
-
-.chip {
-  padding: 10rpx 22rpx;
-  border-radius: 20rpx;
+  align-items: center;
   background-color: var(--app-card);
+  border-radius: 16rpx;
+  padding: 6rpx;
 }
 
-.chip.active {
-  background-color: var(--app-primary-light);
+.seg-item {
+  flex: 1;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12rpx;
 }
 
-.chip-text {
-  font-size: 24rpx;
+.seg-text {
+  font-size: 26rpx;
 }
 
-/* 二级分类：缩进一级，视觉上从属于上面的一级 */
-.subcat-wrap {
-  margin-top: 18rpx;
-  padding-left: 20rpx;
-  border-left: 4rpx solid var(--app-line);
-}
-
-.subcat-head {
+/* 下拉行：左标签 + 右当前值 + 箭头 */
+.filter-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12rpx;
+  min-height: 88rpx;
+  padding: 20rpx 24rpx;
+  background-color: var(--app-card);
+  border-radius: 16rpx;
 }
 
-.subcat-label {
-  font-size: 22rpx;
+.filter-row.disabled {
+  opacity: 0.5;
+}
+
+.filter-row-label {
+  font-size: 26rpx;
+  color: var(--app-text-2);
+  flex-shrink: 0;
+}
+
+.filter-row-right {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.filter-row-value {
+  font-size: 26rpx;
+  color: var(--app-text);
+  max-width: 380rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.filter-row-value.placeholder {
   color: var(--app-text-3);
 }
 
-.subcat-clear {
-  font-size: 22rpx;
-  color: var(--app-primary);
+.filter-row-arrow {
+  font-size: 28rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
-.chip-sub {
-  background-color: var(--app-card-2);
-}
-
-.chip-sub.active {
-  background-color: var(--app-primary-light);
-}
-
-.subcat-empty {
+.filter-hint {
   display: block;
   margin-top: 10rpx;
   font-size: 21rpx;

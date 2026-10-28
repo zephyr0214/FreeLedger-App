@@ -359,6 +359,20 @@ export function buildWotThemeVars(presetKey) {
   }
 }
 
+/**
+ * tabBar 文字与图标的配色
+ *
+ * ★ 未选中态刻意加深 ★
+ *   原来浅色用 #969799（在白底上几乎糊成一片），
+ *   未选中 / 选中之间的对比太弱，切换 tab 时体感不明显。
+ *   现在浅色用 #646566（与 --app-text-2 一致），
+ *   深色用 #A1A1A6（与 --app-text-2 深色值一致），
+ *   配合更粗的图标（见 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH），
+ *   切换时的视觉差异就明显了。
+ */
+export const TABBAR_FONT_COLOR_LIGHT = '#646566'
+export const TABBAR_FONT_COLOR_DARK = '#A1A1A6'
+
 /** tabBar 四个 tab 的路径与资源名 */
 const TABBAR_ITEMS = [
   { index: 0, name: 'home' },
@@ -389,7 +403,7 @@ export function applyTabBarTheme(presetKey, dark) {
 
   try {
     uni.setTabBarStyle({
-      color: dark ? '#8E8E93' : '#969799',
+      color: dark ? TABBAR_FONT_COLOR_DARK : TABBAR_FONT_COLOR_LIGHT,
       selectedColor: p.primary,
       backgroundColor: dark ? '#1C1C1E' : '#FFFFFF',
       borderStyle: dark ? 'black' : 'white'
@@ -431,7 +445,7 @@ export function refreshTabBarTheme(presetKey, dark, force = false) {
     // 先用默认值冲一次缓存
     try {
       uni.setTabBarStyle({
-        color: '#969799',
+        color: TABBAR_FONT_COLOR_LIGHT,
         selectedColor: '#07C160',
         backgroundColor: '#FFFFFF',
         borderStyle: 'white'

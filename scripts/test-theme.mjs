@@ -12,7 +12,8 @@
 
 import {
   buildCssVars, buildWotCssVars, wotThemeClass, refreshTabBarTheme, THEME_PRESETS,
-  isSystemDark, resolveDark, watchSystemTheme, THEME_MODE, applyNativeTheme
+  isSystemDark, resolveDark, watchSystemTheme, THEME_MODE, applyNativeTheme,
+  TABBAR_FONT_COLOR_LIGHT, TABBAR_FONT_COLOR_DARK
 } from '../utils/theme.js'
 
 let pass = 0
@@ -119,6 +120,22 @@ check('选中图标按主题色', (() => {
   const item = calls.find((c) => c.type === 'item')
   return item.opt.selectedIconPath
 })(), 'static/tabbar/home-active-purple.png')
+
+/* ---------------- tabBar 文字色：未选中态要够深 ----------------
+ * 原来浅色用 #969799，白底上几乎糊成一片，
+ * 未选中 / 选中的对比太弱，切换 tab 时体感不明显。
+ * 现在浅色 #646566、深色 #A1A1A6。
+ */
+check('浅色下 tabBar 文字色加深', TABBAR_FONT_COLOR_LIGHT, '#646566')
+check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
+
+calls.length = 0
+refreshTabBarTheme('green', false, false)
+check('setTabBarStyle 用的是加深的浅色文字色', calls.find((c) => c.type === 'style').opt.color, '#646566')
+
+calls.length = 0
+refreshTabBarTheme('green', true, false)
+check('深色下 setTabBarStyle 用深色文字色', calls.find((c) => c.type === 'style').opt.color, '#A1A1A6')
 
 delete globalThis.uni
 

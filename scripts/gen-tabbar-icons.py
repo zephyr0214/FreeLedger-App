@@ -37,9 +37,22 @@ OUT_DIR = os.path.join(ROOT, "static", "tabbar")
 # tabBar 图标建议 81x81（3 倍图），uni-app 自动缩放
 SIZE = 81
 
+# ★ 描边宽度（加粗）★
+#   字体图标本身的笔画偏细，放到 81px 的图上看就是「线条太细」，
+#   切换 tab 时体感不明显。这里给字形加一圈同色描边，等效于「加粗」，
+#   比单纯放大字号更稳（放大字号会让图标撑出画布、比例失调）。
+#
+#   Pillow 的 stroke_width 单位是像素（不是比例），
+#   2 在 81px 的图上已经能明显看出加粗，3 就偏臃肿了。
+STROKE_WIDTH = 2
+
 # 未选中态：浅色主题用深灰，深色主题用浅灰
-NORMAL_LIGHT = (150, 151, 153)     # #969799
-NORMAL_DARK = (142, 142, 147)      # #8E8E93
+# ★ 比原来深一档 ★
+#   原来浅色用 #969799，跟白色底几乎糊在一起，
+#   未选中 / 选中的对比太弱，切换时看不出区别。
+#   现在浅色用 #646566（与 --app-text-2 一致），深色用 #A1A1A6。
+NORMAL_LIGHT = (100, 101, 103)    # #646566
+NORMAL_DARK = (161, 161, 166)     # #A1A1A6
 
 # 选中态：与 utils/theme.js 的 THEME_PRESETS 保持一致
 PRESET_COLORS = {
@@ -83,7 +96,11 @@ def pick_icon(candidates, codemap):
 
 
 def render(char, color, out_path):
-    """把单个字符渲染成透明背景 PNG，并居中"""
+    """把单个字符渲染成透明背景 PNG，并居中
+
+    加粗的做法：先按 STROKE_WIDTH 描边画一遍（fill 与 stroke 同色），
+    再叠一层正常填充 —— 描边让笔画变粗，填充把描边造成的镂空补回来。
+    """
     image = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
@@ -94,13 +111,20 @@ def render(char, color, out_path):
         print(f"FONT LOAD FAILED: {e}")
         return False
 
-    bbox = draw.textbbox((0, 0), char, font=font)
+    bbox = draw.textbbox((0, 0), char, font=font, stroke_width=STROKE_WIDTH)
     w = bbox[2] - bbox[0]
     h = bbox[3] - bbox[1]
     x = (SIZE - w) / 2 - bbox[0]
     y = (SIZE - h) / 2 - bbox[1]
 
+    # 第一遍：带描边（加粗）
+    draw.text(
+        (x, y), char, font=font, fill=color,
+        stroke_width=STROKE_WIDTH, stroke_fill=color
+    )
+    # 第二遍：正常填充（把描边挤出来的镂空补上，字形更实）
     draw.text((x, y), char, font=font, fill=color)
+
     image.save(out_path, "PNG")
     return True
 

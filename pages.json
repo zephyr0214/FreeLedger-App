@@ -193,6 +193,9 @@
 		"selectedColor": "@tabSelectedColor",
 		"backgroundColor": "@tabBgColor",
 		"borderStyle": "@tabBorderStyle",
+		"fontSize": "11px",
+		"iconWidth": "24px",
+		"spacing": "4px",
 		"list": [
 			{
 				"pagePath": "pages/index/index",
