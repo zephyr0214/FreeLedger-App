@@ -63,16 +63,34 @@ for (const name of ['exportToFile', 'exportToJson', 'listExportFiles', 'deleteEx
 }
 check('导出目录是 _doc/export/', /EXPORT_DIR\s*=\s*'_doc\/export\/'/.test(src), true)
 
-console.log('=== api/backup.js：分享走系统面板 ===')
+console.log('=== api/backup.js：分享走 Native.js + FileProvider ===')
 
 check('shareExportFile 已导出', typeof backup.shareExportFile, 'function')
-check('用的是 uni.shareWithSystem', /uni\.shareWithSystem\s*\(/.test(stripComments(src)), true)
-check('类型是 file', /type:\s*'file'/.test(stripComments(src)), true)
+
+// ★ 关键：这个基座的 shareWithSystem 只支持 text/image（实测报
+//   「shareWithSystem:fail 分享参数type不正确。只支持text、image」），
+//   所以**不能**再传 type:'file' 给它。文件分享必须走原生。
+const code = stripComments(src)
+
+check('没有把 type:file 传给 shareWithSystem', /shareWithSystem\s*\(\s*\{[^}]*type:\s*'file'/.test(code), false)
+check('没有用 filePaths 分享', /filePaths/.test(code), false)
+
+// ★ 文件分享走 FileProvider，生成 content:// URI，再起 ACTION_SEND ★
+check('用 DCloud 自带 FileProvider', /io\.dcloud\.common\.util\.DCloud_FileProvider/.test(code), true)
+check('authority 是 包名.dc.fileprovider', /\.dc\.fileprovider/.test(code), true)
+check('用 FileProvider.getUriForFile', /getUriForFile/.test(code), true)
+check('用 ACTION_SEND', /Intent\.ACTION_SEND/.test(code), true)
+check('带 EXTRA_STREAM', /EXTRA_STREAM/.test(code), true)
+check('授权读权限', /FLAG_GRANT_READ_URI_PERMISSION/.test(code), true)
+check('调系统选择器', /createChooser/.test(code), true)
 
 // ★ 不能再退回 plus.share ★
-const code = stripComments(src)
 check('没有用 plus.share 分享文件', /plus\.share\./.test(code), false)
 check('没有给路径补 file:// 前缀', /'file:\/\/'|\"file:\/\//.test(code), false)
+
+// ★ 降级：FileProvider 失败时按文本分享，数据不至于出不去 ★
+check('有文本分享降级', /shareAsText/.test(code), true)
+check('文本分享用 type:text', /type:\s*'text'/.test(code), true)
 
 console.log('=== api/backup.js：导入走系统文件选择器 ===')
 

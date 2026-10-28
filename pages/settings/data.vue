@@ -348,8 +348,15 @@ export default {
 
         uni.showLoading({ title: '打开分享…' })
         try {
-          await shareExportFile(res.path)
+          const r = await shareExportFile(res.path)
           uni.hideLoading()
+          // 降级成文本分享时，给用户说清楚
+          if (r && r.used === 'text') {
+            uni.showToast({
+              title: '已按文本分享（文件方式不可用）',
+              icon: 'none'
+            })
+          }
         } catch (e) {
           uni.hideLoading()
           await alertDialog({
@@ -378,14 +385,20 @@ export default {
      *   老版本走 plus.share，传 file:// 路径给微信 ——
      *   Android 7+ 的 FileUriExposedException 会直接拦掉，
      *   所以永远是「获取资源失败」。
-     *   现在改用 uni.shareWithSystem（系统分享面板），
-     *   新版基座内部会把路径转成 content:// URI，不再有这个坎。
+     *   现在走 Native.js：DCloud 自带 FileProvider 生成 content:// URI，
+     *   再起 ACTION_SEND，把**真正的文件**交给微信/系统分享面板。
      */
     async function onShareExport(file) {
       uni.showLoading({ title: '打开分享…' })
       try {
-        await shareExportFile(file.path)
+        const r = await shareExportFile(file.path)
         uni.hideLoading()
+        if (r && r.used === 'text') {
+          uni.showToast({
+            title: '已按文本分享（文件方式不可用）',
+            icon: 'none'
+          })
+        }
       } catch (e) {
         uni.hideLoading()
         await alertDialog({ title: '分享没成功', content: e.message })

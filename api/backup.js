@@ -381,17 +381,27 @@ export function deleteExportFile(relPath) {
 /**
  * 调起系统分享面板，把导出的文件分享出去。
  *
- * ★ 为什么用 uni.shareWithSystem 而不是 plus.share ★
- *   1. plus.share 需要 manifest 里声明 Share 模块并打包微信 SDK，
- *      而我们为了减包体已经把它去掉了；
- *   2. 更关键的是 —— 老版本走 plus.share 传 file:// 路径，
- *      在 Android 7+ 会撞 FileUriExposedException，
- *      微信一律报「获取资源失败」（这个问题之前折腾了三轮）。
- *   uni.shareWithSystem 调的是**系统级分享面板**，
- *   新版基座会自己把路径转成 content:// URI，不依赖第三方 SDK。
+ * ★ 为什么不用 uni.shareWithSystem 分享文件 ★
+ *   实测（用户反馈）：这个基座版本的 shareWithSystem **只支持 text / image**，
+ *   传 type: 'file' 会直接报
+ *     shareWithSystem:fail 分享参数type不正确。只支持text、image
+ *   所以文件分享只能走原生：Native.js 起 ACTION_SEND Intent。
+ *
+ * ★ 为什么必须用 FileProvider 生成 content:// URI ★
+ *   Android 7.0+ 禁止把 file:// URI 传给其他 App（FileUriExposedException），
+ *   微信收到 file:// 一律报「获取资源失败」。
+ *   必须用 FileProvider 把文件换成 content:// URI 再传。
+ *   DCloud 基座自带 io.dcloud.common.util.DCloud_FileProvider，
+ *   authority 固定为「应用包名 + .dc.fileprovider」。
+ *
+ * ★ 降级 ★
+ *   万一 FileProvider 没声明 / 包名取不到，退而求其次：
+ *   把 JSON 内容当**文本**用 shareWithSystem 分享出去
+ *   （系统面板发文本给微信没问题，接收方能复制保存）。
+ *   这样至少数据能出去，不至于完全没分享入口。
  *
  * @param {string} relPath 导出文件的相对路径
- * @returns {Promise<boolean>}
+ * @returns {Promise<{used: 'file'|'text'}>}
  */
 export function shareExportFile(relPath) {
   return new Promise((resolve, reject) => {
@@ -399,35 +409,90 @@ export function shareExportFile(relPath) {
       reject(new Error('分享仅在 App 端可用'))
       return
     }
+
+    if (plus.os.name === 'Android') {
+      shareViaFileProvider(relPath)
+        .then((r) => resolve(r))
+        .catch((e) => {
+          // FileProvider 路线失败 → 降级成文本分享
+          shareAsText(relPath)
+            .then((r) => resolve(r))
+            .catch(() => reject(e))
+        })
+    } else {
+      // iOS：没有免插件的文件分享，降级成文本分享
+      shareAsText(relPath)
+        .then((r) => resolve(r))
+        .catch((e) => reject(e))
+    }
+  })
+}
+
+/** Android：用 DCloud 自带 FileProvider 生成 content:// URI，ACTION_SEND 分享 */
+function shareViaFileProvider(relPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const main = plus.android.runtimeMainActivity()
+      const pkg = main.getPackageName()
+      const authority = `${pkg}.dc.fileprovider`
+
+      const File = plus.android.importClass('java.io.File')
+      const FileProvider = plus.android.importClass('io.dcloud.common.util.DCloud_FileProvider')
+      const Intent = plus.android.importClass('android.content.Intent')
+
+      const abs = toAbsolutePath(relPath)
+      const file = new File(abs)
+      if (!file.exists()) {
+        reject(new Error('文件不存在：' + abs))
+        return
+      }
+
+      const uri = FileProvider.getUriForFile(main, authority, file)
+
+      const intent = new Intent(Intent.ACTION_SEND)
+      intent.setType('application/json')
+      intent.putExtra(Intent.EXTRA_STREAM, uri)
+      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+      main.startActivity(Intent.createChooser(intent, '分享导出文件'))
+      resolve({ used: 'file' })
+    } catch (e) {
+      reject(new Error((e && e.message) || '调起系统分享失败'))
+    }
+  })
+}
+
+/** 降级：把 JSON 内容当文本分享（系统面板发文本给微信是没问题的） */
+function shareAsText(relPath) {
+  return new Promise((resolve, reject) => {
     if (typeof uni === 'undefined' || typeof uni.shareWithSystem !== 'function') {
       reject(new Error('当前基座不支持系统分享'))
       return
     }
-
-    const abs = toAbsolutePath(relPath)
-    let settled = false
-
-    uni.shareWithSystem({
-      type: 'file',
-      filePaths: [abs],
-      success: () => {
-        if (settled) return
-        settled = true
-        resolve(true)
-      },
-      fail: (err) => {
-        if (settled) return
-        settled = true
-        reject(new Error((err && (err.errMsg || err.message)) || '调起分享面板失败'))
-      }
-    })
-
-    // 有些机型的回调不会来（面板被划掉等），超时后不再挂着
-    setTimeout(() => {
-      if (settled) return
-      settled = true
-      resolve(true)
-    }, 1500)
+    readTextFile(relPath)
+      .then((text) => {
+        let settled = false
+        uni.shareWithSystem({
+          type: 'text',
+          summary: text.slice(0, 5000),
+          success: () => {
+            if (settled) return
+            settled = true
+            resolve({ used: 'text' })
+          },
+          fail: (err) => {
+            if (settled) return
+            settled = true
+            reject(new Error((err && (err.errMsg || err.message)) || '调起分享面板失败'))
+          }
+        })
+        setTimeout(() => {
+          if (settled) return
+          settled = true
+          resolve({ used: 'text' })
+        }, 1500)
+      })
+      .catch((e) => reject(e))
   })
 }
 
