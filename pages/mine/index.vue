@@ -44,20 +44,37 @@
       </view>
 
       <!--
-        配置条目
+        配置条目分两组
+
+        ★ 记账功能设置 ★
+          分类、标签、预算、AI 智能配置
+          —— 都是「怎么记账」相关的，属于账本本身的配置。
+
+        ★ 系统设置 ★
+          主题外观、数据与备份
+          —— 都是「App 本身怎么表现」，跟记账内容无关。
+
         ★ 账户管理的入口已删除 ★
           账户已经在底部 tabBar 里了，再放一个入口是重复的。
+        ★ 周期管理已删除 ★
+          按用户要求移除。
       -->
-      <view class="menu-group">
-        <text class="menu-title">配置</text>
+      <view v-for="group in menuGroups" :key="group.title" class="menu-group">
+        <text class="menu-title">{{ group.title }}</text>
         <view class="menu-list">
           <view
-            v-for="item in configItems"
+            v-for="item in group.items"
             :key="item.key"
             class="menu-item"
             @click="onMenuClick(item)"
           >
-            <text class="menu-icon">{{ item.icon }}</text>
+            <!-- 线性简约图标，不用 emoji -->
+            <LineIcon
+              :name="item.icon"
+              :size="20"
+              :color="primaryColor"
+              class="menu-icon"
+            />
             <text class="menu-name">{{ item.name }}</text>
             <text v-if="item.value" class="menu-value">{{ item.value }}</text>
             <text class="menu-arrow">›</text>
@@ -79,13 +96,14 @@ import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { queryOne } from '@/api/db/index.js'
 import { daysSinceLastExport } from '@/api/backup.js'
 
 export default {
-  components: { AppHeader, HeaderAction },
+  components: { AppHeader, HeaderAction, LineIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -93,30 +111,48 @@ export default {
     const stats = ref({ txnCount: 0, accountCount: 0, dayCount: 0 })
     const exportHint = ref('')
     const budgetCount = ref(0)
-    const cycleCount = ref(0)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
     /**
-     * 配置条目。
+     * 配置条目，分两组。
      *
-     * ★ 顺序按用户要求 ★
-     *   分类管理、标签管理、预算管理、周期管理、主题外观、
-     *   AI 智能配置、导出/导入、备份
+     * ★ 记账功能设置 ★
+     *   分类管理、标签管理、预算管理、AI 智能配置
+     *   —— 都是「怎么记账」相关的配置。
      *
-     * 导出/导入 和 备份 是两个独立条目 —— 它们在同一个页面
-     * （/pages/settings/data）里，但入口分开，各自更明确。
+     * ★ 系统设置 ★
+     *   主题外观、数据与备份
+     *   —— App 本身的表现设置，跟记账内容无关。
+     *
+     * ★ 「导出/导入」和「备份」合并成一个条目 ★
+     *   它们本来在同一个页面（/pages/settings/data）里，
+     *   拆成两个入口反而让人以为是两回事。合成「数据与备份」，
+     *   进页面后按区块看。
+     *
+     * ★ 周期管理已删除 ★（按用户要求）
+     * ★ 账户管理已删除 ★（tabBar 里已经有了）
+     *
+     * icon 字段是 utils/lineIcons.js 里的 key（线性描边图标，不是 emoji）
      */
-    const configItems = computed(() => [
-      { key: 'category', icon: '📂', name: '分类管理', route: '/pages/settings/category' },
-      { key: 'tag', icon: '🏷️', name: '标签管理', route: '/pages/settings/tag' },
-      { key: 'budget', icon: '🎯', name: '预算管理', value: budgetLabel.value, route: '/pages/settings/budget' },
-      { key: 'cycle', icon: '🔄', name: '周期管理', value: cycleLabel.value, route: '/pages/settings/cycle' },
-      { key: 'theme', icon: '🎨', name: '主题外观', value: themeLabel.value, route: '/pages/settings/theme' },
-      { key: 'ai', icon: '🤖', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' },
-      { key: 'export', icon: '📤', name: '导出 / 导入', value: exportHint.value, route: '/pages/settings/data?tab=export' },
-      { key: 'backup', icon: '💾', name: '备份', value: backupLabel.value, route: '/pages/settings/data?tab=backup' }
+    const menuGroups = computed(() => [
+      {
+        title: '记账功能设置',
+        items: [
+          { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
+          { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
+          { key: 'budget', icon: 'budget', name: '预算管理', value: budgetLabel.value, route: '/pages/settings/budget' },
+          { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' }
+        ]
+      },
+      {
+        title: '系统设置',
+        items: [
+          { key: 'theme', icon: 'theme', name: '主题外观', value: themeLabel.value, route: '/pages/settings/theme' },
+          { key: 'data', icon: 'data', name: '数据与备份', value: exportHint.value, route: '/pages/settings/data' }
+        ]
+      }
     ])
 
     const themeLabel = computed(() => {
@@ -135,18 +171,6 @@ export default {
       return `${n} 项`
     })
 
-    /** 周期管理入口的副标题：已设几个固定支出周期 */
-    const cycleLabel = computed(() => {
-      const n = cycleCount.value
-      if (n === 0) return '未设置'
-      return `${n} 项`
-    })
-
-    /** 备份入口的副标题：自动备份开关状态 */
-    const backupLabel = computed(() => {
-      return settingStore.settings.autoBackup ? '自动' : '手动'
-    })
-
     async function loadStats() {
       try {
         const txnRow = await queryOne('SELECT COUNT(*) AS c FROM txn WHERE deleted_at IS NULL')
@@ -160,10 +184,6 @@ export default {
           dayCount: Number(dayRow ? dayRow.c : 0)
         }
         budgetCount.value = Number(budgetRow ? budgetRow.c : 0)
-
-        // 周期数量：读 settings 里的 cycles 数组
-        const cycles = settingStore.settings.cycles
-        cycleCount.value = Array.isArray(cycles) ? cycles.length : 0
 
         const days = await daysSinceLastExport()
         if (days === Infinity) exportHint.value = '从未导出'
@@ -207,9 +227,9 @@ export default {
     })
 
     return {
-      settingStore, accountStore, stats, exportHint, budgetCount, cycleCount,
-      primaryColor, pageStyle, configItems,
-      themeLabel, aiLabel, budgetLabel, cycleLabel, backupLabel,
+      settingStore, accountStore, stats, exportHint, budgetCount,
+      primaryColor, pageStyle, menuGroups,
+      themeLabel, aiLabel, budgetLabel,
       onMenuClick, goProfile, goAbout
     }
   }
@@ -345,8 +365,18 @@ export default {
   border-bottom: none;
 }
 
+/*
+  菜单图标：线性描边图标（components/LineIcon.vue）
+  固定一个 40rpx 的方框，图标在里面居中 ——
+  这样每个条目的图标对齐，不会因为图形本身宽窄不一而参差不齐。
+
+  ★ 尺寸换算 ★
+    LineIcon 的 size 单位是 px（20px ≈ 40rpx，按 750rpx 设计稿算），
+    外框也用 rpx，两者对得上。
+*/
 .menu-icon {
-  font-size: 32rpx;
+  width: 40rpx;
+  height: 40rpx;
   flex-shrink: 0;
 }
 

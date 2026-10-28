@@ -10,7 +10,18 @@
         <view class="balance-card">
           <view class="bal-head">
             <view class="bal-icon" :style="{ backgroundColor: (account.color || primaryColor) + '22' }">
-              <text class="bal-icon-text" :style="{ color: account.color || primaryColor }">
+              <!-- AI 画的 SVG 图标（data URI），没有就退回首字符 -->
+              <image
+                v-if="isSvgIcon(account.icon)"
+                :src="account.icon"
+                class="bal-icon-img"
+                mode="aspectFit"
+              />
+              <text
+                v-else
+                class="bal-icon-text"
+                :style="{ color: account.color || primaryColor }"
+              >
                 {{ account.name.slice(0, 1) }}
               </text>
             </view>
@@ -110,6 +121,7 @@ import RecentTxnList from '@/components/RecentTxnList.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
+import { isSvgIcon } from '@/api/accountIcon.js'
 import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
 
 export default {
@@ -195,7 +207,7 @@ export default {
 
     return {
       settingStore, accountId, account, txnList, monthStats, loading,
-      primaryColor, pageStyle, usedPercent, repayCountdown,
+      primaryColor, pageStyle, usedPercent, repayCountdown, isSvgIcon,
       goEdit, goAllTxn, goBack
     }
   }
@@ -232,6 +244,13 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+/* AI 画的 SVG 图标 */
+.bal-icon-img {
+  width: 60rpx;
+  height: 60rpx;
 }
 
 .bal-icon-text {

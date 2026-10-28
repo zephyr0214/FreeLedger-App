@@ -57,7 +57,6 @@ export default {
         items: [
           { key: 'category', icon: '📂', name: '分类管理', route: '/pages/settings/category' },
           { key: 'tag', icon: '🏷️', name: '标签管理', route: '/pages/settings/tag' },
-          { key: 'cycle', icon: '🔁', name: '周期管理', route: '/pages/settings/cycle' },
           {
             key: 'defaultAccount',
             icon: '💳',

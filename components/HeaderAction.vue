@@ -10,15 +10,18 @@
       改一处忘另一处就会出现「风格不统一」。
       抽成组件后，样式只有这一份，天然一致。
 
-    用法：
-      <AppHeader @avatar-click="goProfile">
-        <template #right>
-          <HeaderAction @click="goAbout">关于与说明</HeaderAction>
-        </template>
-      </AppHeader>
+    ★ 文字有两种给法 ★
+      1. 默认插槽（推荐）：
+         <HeaderAction @action-click="goAbout">关于与说明</HeaderAction>
+      2. text prop：
+         <HeaderAction text="关于与说明" @action-click="goAbout" />
+
+      两种都支持。插槽优先，没给插槽就用 text prop。
+      （之前只支持 prop，调用方习惯性写成插槽形式，
+        结果文字全都不显示 —— 插槽没有默认插槽兜底就被丢弃了。）
   -->
   <view class="header-action" @click="onClick">
-    <text class="header-action-text">{{ text }}</text>
+    <text class="header-action-text"><slot>{{ text }}</slot></text>
   </view>
 </template>
 
@@ -26,7 +29,7 @@
 export default {
   name: 'HeaderAction',
   props: {
-    /** 按钮文字 */
+    /** 按钮文字（不给插槽时用这个） */
     text: { type: String, default: '' }
   },
   emits: ['action-click'],
@@ -45,10 +48,19 @@ export default {
   border-radius: 20rpx;
   background-color: var(--app-card);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .header-action-text {
   font-size: 24rpx;
   color: var(--app-primary);
+  line-height: 1.4;
+  /* ★ 防止文字被压扁 ★
+     flex 容器里的 text 默认可以收缩，
+     父级 header-center 是 flex:1，会把这一列挤窄，
+     文字就看不见了。加上 flex-shrink:0 + white-space:nowrap。 */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 </style>

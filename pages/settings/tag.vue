@@ -1,6 +1,13 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <PageNav title="标签管理" @back="goBack" />
+    <PageNav title="标签管理" @back="goBack">
+      <!-- 右上角：新增标签 -->
+      <template #right>
+        <view class="nav-add" @click="openCreate">
+          <LineIcon name="plus" :size="20" :color="primaryColor" />
+        </view>
+      </template>
+    </PageNav>
 
     <scroll-view class="page-scroll" scroll-y>
       <view class="hint-card">
@@ -23,27 +30,51 @@
       <view v-else class="tag-list">
         <!--
           ★ 交互约定 ★
-            点整行  -> 进标签详情页（看这个标签的流水与统计）
-            点「编辑」-> 打开编辑弹层（原来的 openEdit 入口没丢）
-            长按    -> 同样打开编辑弹层（快捷方式）
-          为什么编辑要挪到「编辑按钮 + 长按」：
-            详情页要能通过列表项直接进入，编辑就不能再占着整行的点击。
-            保留一个显眼的文字按钮比只靠长按更不容易被用户发现，
-            所以两个入口都留着，长按只是加速手段。
-        -->
-        <view v-for="tag in tags" :key="tag.id" class="tag-row" @click="goDetail(tag)" @longpress="openEdit(tag)">
-          <view class="tag-dot" :style="{ backgroundColor: tag.color || primaryColor }" />
-          <text class="tag-name">{{ tag.name }}</text>
-          <text class="tag-count">{{ tag.count }} 笔</text>
-          <text class="tag-edit" @click.stop="openEdit(tag)">编辑</text>
-          <text class="tag-arrow">›</text>
-        </view>
-      </view>
+            点整行    -> 进标签详情页（看这个标签的流水与统计）
+            右滑      -> 露出「编辑」和「删除」两个操作
+            点「编辑」 -> 打开编辑弹层
+            点「删除」 -> 二次确认后删除
 
-      <view class="add-wrap">
-        <wd-button size="large" plain type="primary" @click="openCreate">
-          + 新建标签
-        </wd-button>
+          ★ 为什么编辑改成右滑 ★
+            列表右侧原本放了一个「编辑」文字按钮，
+            和右侧的「›」箭头挤在一起，视觉很乱；
+            而且行内按钮在小屏幕上容易误触。
+            改成右滑露出操作区（和账户页的「设为默认」同一套交互），
+            列表本身更干净。
+        -->
+        <wd-swipe-action
+          v-for="tag in tags"
+          :key="tag.id"
+          v-model="swipeStates[tag.id]"
+          class="tag-swipe"
+        >
+          <view class="tag-row" @click="goDetail(tag)">
+            <view class="tag-dot" :style="{ backgroundColor: tag.color || primaryColor }" />
+            <text class="tag-name">{{ tag.name }}</text>
+            <text class="tag-count">{{ tag.count }} 笔</text>
+            <text class="tag-arrow">›</text>
+          </view>
+
+          <!--
+            右滑操作区：编辑 + 删除
+
+            ★ 为什么这里用插槽内容自己的 @click.stop ★
+              wd-swipe-action 的整个右滑区域只会 emit 一个
+              { value: 'right' } 事件，分不出是哪个按钮 ——
+              它的模板是 <view class="wd-swipe-action__right" @click="onClick('right')">
+              里面放几个 view 都一样。
+              所以两个按钮各自绑 @click.stop，自己处理。
+              .stop 阻止冒泡到外层的 onClick('right')，避免重复触发。
+          -->
+          <template #right>
+            <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(tag)">
+              <text class="swipe-action-text">编辑</text>
+            </view>
+            <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDeleteTag(tag)">
+              <text class="swipe-action-text">删除</text>
+            </view>
+          </template>
+        </wd-swipe-action>
       </view>
 
       <view class="bottom-space" />
@@ -101,13 +132,14 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
 import { query } from '@/api/db/index.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog },
+  components: { PageNav, EmptyState, AppDialog, LineIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -115,6 +147,12 @@ export default {
     const showEditor = ref(false)
     const editingId = ref('')
     const form = reactive({ name: '', color: '' })
+
+    /**
+     * wd-swipe-action 的展开状态。
+     * key 是标签 id，值是该行当前是否展开（右滑打开）。
+     */
+    const swipeStates = reactive({})
 
     const colors = [
       '#1989FA', '#07C160', '#FF976A', '#7D5FFF',
@@ -124,6 +162,29 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
+    /**
+     * 右滑「删除」按钮。
+     *
+     * 标签本身是软删除（deleted_at），
+     * 相关交易不会被删，只是取消标签关联。
+     */
+    async function onDeleteTag(tag) {
+      if (!tag || !tag.id) return
+      const ok = await confirmDialog({
+        title: `删除标签「${tag.name}」？`,
+        content: '相关交易不会被删除，只是取消标签关联',
+        confirmText: '删除',
+        danger: true
+      })
+      if (!ok) return
+      try {
+        await deleteTag(tag.id)
+        await load()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
+    }
 
     async function load() {
       const list = await listTags()
@@ -204,9 +265,9 @@ export default {
     })
 
     return {
-      settingStore, tags, showEditor, editingId, form, colors,
+      settingStore, tags, showEditor, editingId, form, colors, swipeStates,
       primaryColor, pageStyle,
-      openCreate, openEdit, goDetail, onSave, onDelete, goBack
+      openCreate, openEdit, goDetail, onSave, onDelete, onDeleteTag, goBack
     }
   }
 }
@@ -243,12 +304,21 @@ export default {
   overflow: hidden;
 }
 
+/*
+  wd-swipe-action 的外层。
+  组件需要知道内容区的圆角裁剪，所以外层也要跟着圆角。
+*/
+.tag-swipe {
+  display: block;
+}
+
 .tag-row {
   display: flex;
   align-items: center;
   gap: 16rpx;
   padding: 28rpx;
   border-bottom: 1rpx solid var(--app-line);
+  background-color: var(--app-card);
 }
 
 .tag-row:last-child {
@@ -273,19 +343,34 @@ export default {
   color: var(--app-text-3);
 }
 
-.tag-edit {
-  font-size: 22rpx;
-  color: var(--app-primary);
-  padding: 4rpx 12rpx;
-}
-
 .tag-arrow {
   font-size: 32rpx;
   color: var(--app-text-3);
 }
 
-.add-wrap {
-  margin-top: 32rpx;
+/* 右滑操作区：编辑 / 删除 */
+.swipe-edit,
+.swipe-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 150rpx;
+  height: 100%;
+}
+
+.swipe-action-text {
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+/* 右上角：新增（尺寸换算：20px ≈ 40rpx） */
+.nav-add {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 编辑器 */

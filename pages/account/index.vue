@@ -75,7 +75,18 @@
           >
             <view class="acc-item" @click="goDetail(acc.id)">
               <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
-                <text class="acc-icon-text" :style="{ color: acc.color || primaryColor }">
+                <!-- AI 画的 SVG 图标（data URI），没有就退回首字符 -->
+                <image
+                  v-if="isSvgIcon(acc.icon)"
+                  :src="acc.icon"
+                  class="acc-icon-img"
+                  mode="aspectFit"
+                />
+                <text
+                  v-else
+                  class="acc-icon-text"
+                  :style="{ color: acc.color || primaryColor }"
+                >
                   {{ acc.name.slice(0, 1) }}
                 </text>
               </view>
@@ -139,6 +150,7 @@ import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
+import { isSvgIcon } from '@/api/accountIcon.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
@@ -285,7 +297,7 @@ export default {
     return {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints, swipeStates,
-      primaryColor, pageStyle, defaultAccountId,
+      primaryColor, pageStyle, defaultAccountId, isSvgIcon,
       switchRange, formatGroupSum, formatAmount, setDefault, onSwipeClick,
       goAddAccount, goDetail, goSettings
     }
@@ -416,6 +428,13 @@ export default {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* AI 画的 SVG 图标 */
+.acc-icon-img {
+  width: 52rpx;
+  height: 52rpx;
 }
 
 .acc-icon-text {

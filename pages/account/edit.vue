@@ -9,6 +9,26 @@
     </view>
 
     <scroll-view class="page-scroll" scroll-y>
+      <!-- 账户标识：保存时由大模型按名称绘制 -->
+      <view class="icon-preview-wrap">
+        <view class="icon-preview" :style="{ backgroundColor: (form.color || primaryColor) + '22' }">
+          <image
+            v-if="svgIcon"
+            :src="svgIcon"
+            class="icon-preview-img"
+            mode="aspectFit"
+          />
+          <text
+            v-else
+            class="icon-preview-text"
+            :style="{ color: form.color || primaryColor }"
+          >{{ form.name.trim().slice(0, 1) || '?' }}</text>
+        </view>
+        <text class="icon-preview-tip">
+          {{ svgIcon ? '保存时由 AI 按账户名称绘制的标识' : '保存时会自动生成专属图标' }}
+        </text>
+      </view>
+
       <!-- 名称与类型 -->
       <view class="form-card">
         <view class="form-row">
@@ -141,6 +161,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { ACCOUNT_TYPES, isCreditType, adjustAccountBalance } from '@/api/account.js'
+import { generateAccountIcon, isSvgIcon } from '@/api/accountIcon.js'
 import { yuanToCents } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
@@ -163,8 +184,15 @@ export default {
       creditLimitYuan: '',
       bill_day: 1,
       repay_day: 20,
-      card_tail: ''
+      card_tail: '',
+      color: ''
     })
+
+    /**
+     * AI 生成的 SVG 图标（data URI）。
+     * 编辑已有账户时，如果之前存的就是 SVG，直接显示。
+     */
+    const svgIcon = ref('')
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -192,6 +220,8 @@ export default {
       form.bill_day = acc.bill_day || 1
       form.repay_day = acc.repay_day || 20
       form.card_tail = acc.card_tail || ''
+      // 之前存的如果是 AI 画的 SVG，直接显示
+      svgIcon.value = isSvgIcon(acc.icon) ? acc.icon : ''
     }
 
     async function onSave() {
@@ -216,8 +246,12 @@ export default {
       }
 
       try {
+        // ★ 画图标 ★
+        //   先把账户存下来（不让模型拖住保存），
+        //   再补一次更新把图标写进去 —— 顺序反过来的话，
+        //   模型超时会导致整个保存流程卡住，用户以为 App 死了。
         if (isEdit.value) {
-          // ★ 编辑：差额记成「对账调整」交易 ★
+          // 编辑：差额记成「对账调整」交易
           //   余额公式（期初 + 收入 - 支出）保持成立，
           //   用户在流水里能看到这笔调整。
           await accountStore.update(editId.value, payload)
@@ -246,10 +280,32 @@ export default {
             await settingStore.update({ defaultAccountId: acc.id })
           }
           uni.showToast({ title: '已添加', icon: 'success' })
+
+          // 画图标（不阻塞导航，失败也不影响已保存的账户）
+          drawIconFor(acc.id, payload.name, payload.type)
         }
         setTimeout(() => uni.navigateBack(), 500)
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
+      }
+    }
+
+    /**
+     * 调用大模型为账户画一个 SVG 图标，然后写回账户。
+     *
+     * ★ 失败一律静默 ★
+     *   没配 API Key / 超时 / 模型返回垃圾 —— 三种情况都不该打扰用户，
+     *   账户已经存好了，图标退回到首字符就行。
+     *   唯一要避免的是「保存按钮点了没反应」那种体验。
+     */
+    async function drawIconFor(accountId, name, type) {
+      try {
+        const typeMeta = ACCOUNT_TYPES.find((t) => t.key === type)
+        const uri = await generateAccountIcon(name, typeMeta ? typeMeta.name : '账户')
+        if (!uri) return
+        await accountStore.update(accountId, { icon: uri })
+      } catch (e) {
+        console.warn('[account] 生成图标失败（不影响保存）:', e && e.message)
       }
     }
 
@@ -294,7 +350,7 @@ export default {
     return {
       ACCOUNT_TYPES,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
-      isCredit, dayRange,
+      isCredit, dayRange, svgIcon,
       onToggleInclude, onSave, onDelete, goBack, settingStore
     }
   }
@@ -339,6 +395,41 @@ export default {
 
 .page-scroll {
   padding: 0 32rpx;
+}
+
+/* 账户标识预览 */
+.icon-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 16rpx;
+  padding: 32rpx 0 8rpx;
+}
+
+.icon-preview {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.icon-preview-img {
+  width: 80rpx;
+  height: 80rpx;
+}
+
+.icon-preview-text {
+  font-size: 52rpx;
+  font-weight: 600;
+}
+
+.icon-preview-tip {
+  font-size: 22rpx;
+  color: var(--app-text-3);
 }
 
 .form-card {
