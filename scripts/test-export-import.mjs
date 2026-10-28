@@ -102,6 +102,10 @@ check('用 startActivityForResult', /startActivityForResult/.test(code), true)
 check('监听 onActivityResult', /onActivityResult/.test(code), true)
 // content:// 要先落到沙盒才能读
 check('把 Uri 内容写进沙盒', /_doc\/import\//.test(code), true)
+// ★ 读取用 Scanner 一次读完，不能再用 while(line!==null) readLine ——
+//   plus.android 里 Java 的 null 未必是 JS 的 null，会死循环（无限转圈）★
+check('用 Scanner 读取', /java\.util\.Scanner/.test(code), true)
+check('没有逐行 readLine 判空循环', /while\s*\(\s*line\s*!==\s*null\s*\)/.test(code), false)
 // 不能退回 uni.chooseFile（App 端会打开相册）
 check('没有用 uni.chooseFile', /uni\.chooseFile/.test(code), false)
 

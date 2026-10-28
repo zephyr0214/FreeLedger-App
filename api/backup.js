@@ -611,7 +611,9 @@ function androidChooseFile(resolve, reject) {
     plus.globalEvent.addEventListener('onActivityResult', listener)
     main.startActivityForResult(intent, REQUEST_CODE)
 
-    setTimeout(() => fail('选择文件超时（没收到系统回调）'), 5 * 60 * 1000)
+    // 90 秒兜底：就算系统回调完全不来，也不能让用户无限转圈。
+    // 90 秒足够挑完一个文件，还没回来就是真出问题了，明确报错。
+    setTimeout(() => fail('选择文件超时（没收到系统回调，请重试）'), 90 * 1000)
   } catch (e) {
     fail((e && e.message) || '无法调起系统文件选择')
   }
@@ -652,20 +654,21 @@ function readUriIntoAppDir(uri) {
         return
       }
 
-      const BufferedReader = plus.android.importClass('java.io.BufferedReader')
-      const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
-      const reader = new BufferedReader(new InputStreamReader(stream, 'UTF-8'))
-
-      const lines = []
-      let line = reader.readLine()
-      while (line !== null) {
-        lines.push(line)
-        line = reader.readLine()
-      }
-      reader.close()
+      // ★ 一次性读完整个流 ★
+      //   之前用 BufferedReader + `while (line !== null) readLine()`，
+      //   但 plus.android 里 Java 的 null 不一定映射成 JS 的 null ——
+      //   EOF 时 readLine() 可能永远不满足 line !== null，
+      //   结果就是「选完文件一直转圈」。
+      //   改用 java.util.Scanner：useDelimiter('\\A') 表示「整个输入」，
+      //   next() 一次返回全部内容，没有逐行判空，不会卡死。
+      const Scanner = plus.android.importClass('java.util.Scanner')
+      const scanner = new Scanner(stream, 'UTF-8')
+      scanner.useDelimiter('\\A')
+      const text = scanner.hasNext() ? String(scanner.next()) : ''
+      scanner.close()
       stream.close()
 
-      writeTextFile('_doc/import/', name, lines.join('\n'))
+      writeTextFile('_doc/import/', name, text)
         .then((rel) => resolve(rel))
         .catch((e) => reject(new Error('写入沙盒失败: ' + ((e && e.message) || ''))))
     } catch (e) {
