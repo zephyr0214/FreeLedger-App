@@ -18,6 +18,8 @@ const BACKUP_APP_ID = 'books'
 const BACKUP_SCHEMA_VERSION = 1
 const MAX_AUTO_BACKUPS = 5
 const BACKUP_DIR = '_doc/backup/'
+/** 导出文件目录：用户主动导出、可分享的文件都放这里 */
+const EXPORT_DIR = '_doc/export/'
 
 /* ------------------------------------------------------------------ 导出 */
 
@@ -272,6 +274,359 @@ export function parseJsonLoose(text) {
   // 去掉 BOM（U+FEFF）和首尾空白
   const cleaned = text.replace(/^\uFEFF/, '').trim()
   return JSON.parse(cleaned)
+}
+
+/* ------------------------------------------------------ 导出文件与分享 */
+
+/**
+ * 把相对路径转成系统能识别的绝对路径。
+ *
+ * ★ 为什么需要 ★
+ *   分享给别的 App 时必须给绝对路径
+ *   （如 /storage/emulated/0/Android/data/xxx/apps/yyy/doc/export/a.json），
+ *   plus.io 的 _doc/xxx 是 DCloud 的虚拟路径，系统不认。
+ *   plus.io.convertLocalFileSystemURL 负责这层映射。
+ *
+ * @param {string} relPath 相对路径（_doc/export/x.json）
+ * @returns {string} 绝对路径
+ */
+export function toAbsolutePath(relPath) {
+  if (!relPath) return ''
+  // 本来就是绝对路径就直接返回
+  if (/^\//.test(relPath)) return relPath
+  try {
+    if (typeof plus !== 'undefined' && plus.io) {
+      const abs = plus.io.convertLocalFileSystemURL(relPath)
+      if (abs) return abs
+    }
+  } catch (e) {}
+  return relPath
+}
+
+/**
+ * 导出一份数据到文件。
+ *
+ * 落在 _doc/export/ 下，文件名带时间戳，可以导出很多份互不覆盖。
+ *
+ * @param {object} opt { includeApiKey, includeDeleted }
+ * @returns {Promise<{path, name, bytes, time}>}
+ */
+export async function exportToFile(opt = {}) {
+  const json = await exportToJson(opt)
+  const name = `books_${makeStamp()}.json`
+  const path = await writeTextFile(EXPORT_DIR, name, json)
+  return { path, name, bytes: json.length, time: Date.now() }
+}
+
+/** 列出导出目录里的文件（新的排前面） */
+export function listExportFiles() {
+  return new Promise((resolve) => {
+    if (typeof plus === 'undefined') {
+      resolve([])
+      return
+    }
+    plus.io.resolveLocalFileSystemURL(
+      EXPORT_DIR,
+      (entry) => {
+        const reader = entry.createReader()
+        reader.readEntries(
+          (entries) => {
+            const files = entries
+              .filter((e) => e.isFile && /\.json$/i.test(e.name))
+              .map((e) => ({
+                name: e.name,
+                path: `${EXPORT_DIR}${e.name}`,
+                // 文件名里的时间戳，用来排序和显示
+                time: nameToTime(e.name)
+              }))
+              .sort((a, b) => b.time - a.time)
+            resolve(files)
+          },
+          () => resolve([])
+        )
+      },
+      () => resolve([])
+    )
+  })
+}
+
+/**
+ * 删除一个导出文件。
+ *
+ * ★ 用户要求 ★
+ *   「要支持对导出历史进行删除」——
+ *   导出目录会越攒越多，必须能自己清。
+ *
+ * @param {string} relPath
+ */
+export function deleteExportFile(relPath) {
+  return new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined') {
+      reject(new Error('文件删除仅在 App 端可用'))
+      return
+    }
+    plus.io.resolveLocalFileSystemURL(
+      relPath,
+      (entry) => {
+        entry.remove(
+          () => resolve(true),
+          () => reject(new Error('删除失败'))
+        )
+      },
+      () => reject(new Error('文件不存在'))
+    )
+  })
+}
+
+/**
+ * 调起系统分享面板，把导出的文件分享出去。
+ *
+ * ★ 为什么用 uni.shareWithSystem 而不是 plus.share ★
+ *   1. plus.share 需要 manifest 里声明 Share 模块并打包微信 SDK，
+ *      而我们为了减包体已经把它去掉了；
+ *   2. 更关键的是 —— 老版本走 plus.share 传 file:// 路径，
+ *      在 Android 7+ 会撞 FileUriExposedException，
+ *      微信一律报「获取资源失败」（这个问题之前折腾了三轮）。
+ *   uni.shareWithSystem 调的是**系统级分享面板**，
+ *   新版基座会自己把路径转成 content:// URI，不依赖第三方 SDK。
+ *
+ * @param {string} relPath 导出文件的相对路径
+ * @returns {Promise<boolean>}
+ */
+export function shareExportFile(relPath) {
+  return new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined') {
+      reject(new Error('分享仅在 App 端可用'))
+      return
+    }
+    if (typeof uni === 'undefined' || typeof uni.shareWithSystem !== 'function') {
+      reject(new Error('当前基座不支持系统分享'))
+      return
+    }
+
+    const abs = toAbsolutePath(relPath)
+    let settled = false
+
+    uni.shareWithSystem({
+      type: 'file',
+      filePaths: [abs],
+      success: () => {
+        if (settled) return
+        settled = true
+        resolve(true)
+      },
+      fail: (err) => {
+        if (settled) return
+        settled = true
+        reject(new Error((err && (err.errMsg || err.message)) || '调起分享面板失败'))
+      }
+    })
+
+    // 有些机型的回调不会来（面板被划掉等），超时后不再挂着
+    setTimeout(() => {
+      if (settled) return
+      settled = true
+      resolve(true)
+    }, 1500)
+  })
+}
+
+/** 从导出文件名里解析出时间（解析不出来就用文件本身的时间兜底） */
+function nameToTime(name) {
+  const m = String(name).match(/(\d{8})_(\d{6})(\d{2})?/)
+  if (!m) return 0
+  const d = m[1]
+  const t = m[2]
+  return new Date(
+    Number(d.slice(0, 4)), Number(d.slice(4, 6)) - 1, Number(d.slice(6, 8)),
+    Number(t.slice(0, 2)), Number(t.slice(2, 4)), Number(t.slice(4, 6))
+  ).getTime()
+}
+
+/* ------------------------------------------------------------ 从文件导入 */
+
+/**
+ * 调起系统文件选择器，让用户挑一个 JSON 文件。
+ *
+ * ★ 为什么不能用 uni.chooseFile / plus.io.chooseFile ★
+ *   - plus.io.chooseFile 在 IO 模块里根本不存在；
+ *   - uni.chooseFile 只在 H5 / 小程序端可用，
+ *     App 端调它会打开**相册**而不是文件管理器。
+ *   所以 Android 端只能用 Native.js 起系统 Intent。
+ *
+ * iOS 没有免插件的等价方案，直接报错说明，不静默失败。
+ *
+ * @returns {Promise<string>} 落到沙盒里的路径
+ */
+export function chooseImportFile() {
+  return new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined') {
+      reject(new Error('选择文件仅在 App 端可用'))
+      return
+    }
+    if (plus.os.name === 'Android') {
+      androidChooseFile(resolve, reject)
+    } else {
+      reject(new Error('iOS 暂不支持从系统文件里选文件，请用 Android 或在电脑上处理备份'))
+    }
+  })
+}
+
+/** Android：ACTION_GET_CONTENT + onActivityResult */
+function androidChooseFile(resolve, reject) {
+  const REQUEST_CODE = 0x5b1
+
+  let settled = false
+  let listener = null
+
+  const cleanUp = () => {
+    if (listener) {
+      try {
+        plus.globalEvent.removeEventListener('onActivityResult', listener)
+      } catch (e) {}
+      listener = null
+    }
+  }
+
+  const fail = (msg) => {
+    if (settled) return
+    settled = true
+    cleanUp()
+    reject(new Error(msg || '选择文件失败'))
+  }
+
+  try {
+    const main = plus.android.runtimeMainActivity()
+    const Intent = plus.android.importClass('android.content.Intent')
+    const intent = new Intent(Intent.ACTION_GET_CONTENT)
+
+    // setType 用 */* 保底：部分文件管理器会忽略 MIME 过滤
+    intent.setType('*/*')
+    intent.addCategory(Intent.CATEGORY_OPENABLE)
+    try {
+      intent.putExtra('android.intent.extra.MIME_TYPES', ['application/json', 'text/plain'])
+    } catch (e) {}
+
+    listener = (result) => {
+      try {
+        if (Number(result.requestCode) !== REQUEST_CODE) return
+
+        // Activity.RESULT_OK === -1
+        if (Number(result.resultCode) !== -1) {
+          fail('已取消')
+          return
+        }
+
+        const data = result.intent
+        if (!data) {
+          fail('没有返回文件')
+          return
+        }
+
+        plus.android.importClass(data)
+        const uri = data.getData()
+        if (!uri) {
+          fail('没有选中文件')
+          return
+        }
+
+        readUriIntoAppDir(uri)
+          .then((path) => {
+            if (settled) return
+            settled = true
+            cleanUp()
+            resolve(path)
+          })
+          .catch((e) => fail((e && e.message) || '读取选中文件失败'))
+      } catch (e) {
+        fail((e && e.message) || '处理选择结果失败')
+      }
+    }
+
+    plus.globalEvent.addEventListener('onActivityResult', listener)
+    main.startActivityForResult(intent, REQUEST_CODE)
+
+    setTimeout(() => fail('选择文件超时（没收到系统回调）'), 5 * 60 * 1000)
+  } catch (e) {
+    fail((e && e.message) || '无法调起系统文件选择')
+  }
+}
+
+/**
+ * 把 content:// Uri 的内容读出来，落进沙盒的 _doc/import/。
+ *
+ * 外部 Uri 走的是 Android 的 ContentProvider 体系，
+ * plus.io 的 readTextFile 读不了，必须先转成沙盒里的普通文件。
+ */
+function readUriIntoAppDir(uri) {
+  return new Promise((resolve, reject) => {
+    try {
+      const main = plus.android.runtimeMainActivity()
+      const resolver = main.getContentResolver()
+      plus.android.importClass(resolver)
+
+      let name = `import_${Date.now()}.json`
+      try {
+        const cursor = resolver.query(uri, null, null, null, null)
+        if (cursor) {
+          plus.android.importClass(cursor)
+          if (cursor.moveToFirst()) {
+            const idx = cursor.getColumnIndex('_display_name')
+            if (idx >= 0) {
+              const got = cursor.getString(idx)
+              if (got) name = String(got)
+            }
+          }
+          cursor.close()
+        }
+      } catch (e) {}
+
+      const stream = resolver.openInputStream(uri)
+      if (!stream) {
+        reject(new Error('打不开选中的文件'))
+        return
+      }
+
+      const BufferedReader = plus.android.importClass('java.io.BufferedReader')
+      const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
+      const reader = new BufferedReader(new InputStreamReader(stream, 'UTF-8'))
+
+      const lines = []
+      let line = reader.readLine()
+      while (line !== null) {
+        lines.push(line)
+        line = reader.readLine()
+      }
+      reader.close()
+      stream.close()
+
+      writeTextFile('_doc/import/', name, lines.join('\n'))
+        .then((rel) => resolve(rel))
+        .catch((e) => reject(new Error('写入沙盒失败: ' + ((e && e.message) || ''))))
+    } catch (e) {
+      reject(new Error((e && e.message) || '读取文件内容失败'))
+    }
+  })
+}
+
+/**
+ * 从指定文件导入（覆盖当前数据）。
+ *
+ * @param {string} relPath 沙盒里的文件路径
+ * @returns {Promise<object>} 导入报告
+ */
+export async function importFromFile(relPath) {
+  const text = await readTextFile(relPath)
+  let payload
+  try {
+    payload = parseJsonLoose(text)
+  } catch (e) {
+    throw new Error(
+      `文件解析失败（读到 ${typeof text === 'string' ? text.length : 0} 个字符）。` +
+      '可能是文件不完整，或这个文件不是本应用导出的备份。'
+    )
+  }
+  return importPayload(payload, { mode: 'overwrite' })
 }
 
 /* ------------------------------------------------------------------ 恢复 */

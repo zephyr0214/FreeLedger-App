@@ -27,64 +27,31 @@
         },
         /* 模块配置 */
         "modules" : {
-            "SQLite" : {}
-        },
-        /* ★ 强制移除的权限 ★
-           官方文档：「如果应用使用了三方SDK（uts插件或uni原生插件）
-           默认包含了一些Android权限，而实际可能不需要用到，
-           则可以在 manifest.json 中的『安卓/iOS权限配置』
-           ->『Android云打包权限配置』->『强制移除的权限』中添加要移除的权限」
-
-           ★ 这就是「权限重复」报错的正解 ★
-           云打包时，DCloud 的基础 SDK 会自动带上 WRITE_EXTERNAL_STORAGE 等权限；
-           而 permissions 里手写的同名条目 + SDK 自带的那条
-           -> 两条 uses-permission -> Gradle manifest merger 报 duplicated。
-
-           所以正确做法不是「不写 permissions」（那不解决冲突），
-           而是「写 permissions 的同时，用 permission.remove 明确把 SDK 带的那条去掉」。
-
-           本应用的备份只写 App 私有目录 _doc/，完全用不到外部存储，
-           三个存储权限都该去掉。 */
-        "permission" : {
-            "remove" : [
-                "android.permission.READ_EXTERNAL_STORAGE",
-                "android.permission.WRITE_EXTERNAL_STORAGE",
-                "android.permission.READ_MEDIA_IMAGES"
-            ]
+            "SQLite" : {},
+            /* 系统文件选择：导入时调起文件管理器。
+               走的是 Native.js（Intents），不需要额外模块，
+               但需要文件读权限，见下面 permissions。 */
+            "File" : {}
         },
         /* 应用发布信息 */
         "distribute" : {
             /* android打包配置 */
             "android" : {
-                /* ★ 这里只声明真正需要的权限 ★
-                   不要在这里写存储权限：
-                   基础 SDK 已经带了一份，再写一份就是重复声明。
-                   要去掉 SDK 带的那份，用上面的 app-plus.permission.remove。 */
                 "permissions" : [
                     "<uses-permission android:name=\"android.permission.INTERNET\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
                     "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"
-                ],
-                /* 同一个「强制移除」的另一个字段名。
-                   不同 HBuilderX 版本写的位置不一样，两个都配上，
-                   哪个生效就用哪个，不会互相冲突。 */
-                "permissionRemove" : [
-                    "android.permission.READ_EXTERNAL_STORAGE",
-                    "android.permission.WRITE_EXTERNAL_STORAGE",
-                    "android.permission.READ_MEDIA_IMAGES"
                 ]
             },
             /* ios打包配置 */
             "ios" : {
                 "dSYMs" : false
             },
-            /* SDK配置
-               ★ 不要加 share ★
-                 导出/分享功能已经整块删掉了，
-                 加了只会让云打包多打一套微信/QQ SDK 进去，白白增大包体。
-                 权限相关的问题看上面的 app-plus.permission.remove。 */
-            "sdkConfigs" : {},
+            /* SDK配置 */
+            "sdkConfigs" : {
+                "share" : {}
+            },
             "icons" : {
                 "android" : {
                     "hdpi" : "unpackage/res/icons/72x72.png",

@@ -13,6 +13,8 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 let issues = 0
 const warn = (msg) => { issues++; console.log('  ❌ ' + msg) }
 const ok = (msg) => console.log('  ✅ ' + msg)
+/** 只是提示，不计入失败 —— 这类问题改不了文件，或在别处控制 */
+const info = (msg) => console.log('  ℹ ' + msg)
 
 console.log('=== 1. manifest.json ===')
 {
@@ -104,23 +106,23 @@ console.log('=== 1. manifest.json ===')
     const hasInternet = perms.some((p) => p.includes('INTERNET'))
     hasInternet ? ok('有 INTERNET 权限（AI 功能需要）') : warn('★ 缺 INTERNET 权限，AI 功能会用不了')
 
-    /* ★ 分享相关的模块/SDK 也要检查 ★
-       导出/分享功能已删。如果 HBuilderX 界面还勾着「分享」，
-       它会被回写进 manifest，云打包就会多打一套微信/QQ SDK 进去。
-    */
+    /* ★ 分享/文件相关的模块：只做提示，不算错误 ★
+       这两个由 HBuilderX 界面勾选决定，而且每次打包都会被它重写回来 ——
+       改文件没用。它们也不影响能不能编译，只是多一点包体，
+       所以这里打印出来提醒，但不当作失败。 */
     const UNUSED_MODULES = ['Share', 'File']
     const unusedMods = UNUSED_MODULES.filter((k) => mods.includes(k))
     unusedMods.length
-      ? warn('★ modules 里还有用不到的: ' + unusedMods.join(', ') +
-        '。导出/分享已删，请到 HBuilderX「SDK 配置」里取消勾选。')
-      : ok('modules 里没有用不到的模块')
+      ? info('modules 里有 ' + unusedMods.join(', ') +
+        '（由 HBuilderX 界面控制，本应用不依赖；想减包体就在「App SDK配置」里取消勾选）')
+      : ok('modules 里没有多余的模块')
 
     const sdkKeys = Object.keys((((m['app-plus'] || {}).distribute || {}).sdkConfigs) || {})
     const unusedSdk = sdkKeys.filter((k) => k === 'share')
     unusedSdk.length
-      ? warn('★ sdkConfigs 里还有: ' + unusedSdk.join(', ') +
-        '。导出/分享已删，请到 HBuilderX「SDK 配置」里取消勾选。')
-      : ok('sdkConfigs 里没有用不到的 SDK')
+      ? info('sdkConfigs 里有 share（分享走系统面板 uni.shareWithSystem，不依赖它；' +
+        '想减包体就在「App SDK配置」里取消勾选）')
+      : ok('sdkConfigs 里没有多余的 SDK')
 
     // 图标
     const icons = (((m['app-plus'] || {}).distribute || {}).icons || {}).android || {}

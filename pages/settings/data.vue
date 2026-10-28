@@ -32,15 +32,55 @@
       </view>
 
       <!--
-        ★ 导出 / 导入 已删除 ★
-          用户要求：「删除导入/导出的功能及其相关代码，只留下备份」。
-          这两块会带来一堆麻烦（分享要 FileProvider、微信读不到
-          App 私有目录、导入要调起系统文件选择器…），
-          而备份在内部用的就是同一套序列化逻辑，
-          只是落在 App 私有目录、不需要用户手工搬运文件。
+        ★ 导出 / 导入 ★
+          用户要求恢复：「数据预备份新增导出和导入功能，导出支持分享，
+          导入要调用手机的文件选择选择文件导入，
+          要支持对导出历史进行删除」。
 
-          备份相关的一切都还在：自动备份 / 立即备份 / 备份记录 / 从备份恢复。
+        和之前删掉的那版相比，这次的做法变了：
+          分享 —— 用 uni.shareWithSystem（系统分享面板），
+                  不再走 plus.share + 微信 SDK。老版本传 file:// 路径
+                  在 Android 7+ 会撞 FileUriExposedException，
+                  微信一律报「获取资源失败」；系统分享面板没这个问题。
+          导入 —— Android 用 Native.js 起 ACTION_GET_CONTENT，
+                  真正的系统文件选择器（老版也是这么做的，能用）。
       -->
+
+      <!-- 导出 -->
+      <view id="section-export" class="section">
+        <text class="section-title">导出</text>
+        <view class="card">
+          <view class="card-row" @click="onExport">
+            <view class="row-info">
+              <text class="row-name">导出为 JSON 文件</text>
+              <text class="row-desc">生成一份可分享、可存到电脑的备份文件</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+
+          <view class="card-row" @click="openExportFiles">
+            <view class="row-info">
+              <text class="row-name">导出历史</text>
+              <text class="row-desc">{{ exportFiles.length }} 个文件，可分享或删除</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 导入 -->
+      <view id="section-import" class="section">
+        <text class="section-title">导入</text>
+        <view class="card">
+          <view class="card-row" @click="onImport">
+            <view class="row-info">
+              <text class="row-name">从文件导入</text>
+              <text class="row-desc">选一个导出的 JSON，覆盖当前数据（会先自动备份）</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </view>
+      </view>
 
       <!-- 备份 -->
       <view id="section-backup" class="section">
@@ -136,6 +176,37 @@
       </view>
     </wd-popup>
 
+    <!-- 导出历史弹层：可逐个分享或删除 -->
+    <wd-popup v-model="showExportFiles" position="bottom" :safe-area-inset-bottom="true">
+      <view class="backup-panel">
+        <view class="panel-head">
+          <text class="panel-title">导出历史</text>
+          <text class="panel-close" @click="showExportFiles = false">关闭</text>
+        </view>
+
+        <view v-if="exportFiles.length === 0" class="panel-empty">
+          <text class="panel-empty-text">还没有导出过文件</text>
+        </view>
+
+        <scroll-view v-else class="backup-scroll" scroll-y>
+          <view
+            v-for="f in exportFiles"
+            :key="f.name"
+            class="backup-row"
+          >
+            <view class="backup-info">
+              <text class="backup-name">{{ formatExportTime(f.time) }}</text>
+              <text class="backup-file">{{ f.name }}</text>
+            </view>
+            <view class="export-ops">
+              <text class="export-op" :style="{ color: primaryColor }" @click="onShareExport(f)">分享</text>
+              <text class="export-op export-op-danger" @click="onDeleteExport(f)">删除</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+    </wd-popup>
+
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
   </view>
@@ -150,7 +221,11 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { queryOne } from '@/api/db/index.js'
-import { autoBackup, listBackups, restoreBackup } from '@/api/backup.js'
+import {
+  autoBackup, listBackups, restoreBackup,
+  exportToFile, listExportFiles, deleteExportFile, shareExportFile,
+  chooseImportFile, importFromFile
+} from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
 import { truncateAll } from '@/api/db/index.js'
@@ -167,6 +242,8 @@ export default {
     const autoBackupEnabled = ref(true)
     const backupList = ref([])
     const showBackups = ref(false)
+    const exportFiles = ref([])
+    const showExportFiles = ref(false)
 
     /**
      * scroll-view 的滚动目标（元素 id）。
@@ -242,16 +319,162 @@ export default {
 
     /* ------------------------------------------------------ 导出 */
 
+    async function loadExportFiles() {
+      exportFiles.value = await listExportFiles()
+    }
 
     /**
-     * 分享导出的文件。
+     * 导出一次。
      *
-     * ★ 「获取资源失败」的完整诊断历程 ★
-     *   v1 补 file:// 前缀        -> 失败（私有目录无权限）
-     *   v2 复制到 _downloads/     -> 失败（Android 7+ 禁 file:// 外传）
-     *   v3 声明 Share 模块        -> 仍失败（模块只是让 plus.share 存在，
-     *                                     传过去的还是 file://）
+     * 只负责「生成文件」，不自动分享 ——
+     * 用户可能只是想在手机上留一份，或者稍后从「导出历史」里再分享/删除。
+     * 生成完直接问一句要不要分享，省得还要多点一次。
+     */
+    async function onExport() {
+      uni.showLoading({ title: '导出中…' })
+      try {
+        // API Key 默认不导出（防误分享把 key 带出去）
+        const res = await exportToFile({ includeApiKey: false })
+        uni.hideLoading()
+        await loadExportFiles()
+
+        const wantsShare = await confirmDialog({
+          title: '导出成功',
+          content: `已生成 ${res.name}。要现在分享出去吗？`,
+          confirmText: '分享',
+          cancelText: '稍后'
+        })
+        if (!wantsShare) return
+
+        uni.showLoading({ title: '打开分享…' })
+        try {
+          await shareExportFile(res.path)
+          uni.hideLoading()
+        } catch (e) {
+          uni.hideLoading()
+          await alertDialog({
+            title: '分享没成功',
+            content: `${e.message}\n\n文件已经生成，可以在「导出历史」里再试一次，或把它删掉重新导出。`
+          })
+        }
+      } catch (e) {
+        uni.hideLoading()
+        await alertDialog({ title: '导出失败', content: e.message })
+      }
+    }
+
+    /** 打开导出历史（顺便刷新一下列表） */
+    async function openExportFiles() {
+      await loadExportFiles()
+      showExportFiles.value = true
+    }
+
+    /* ------------------------------------------------------ 分享 */
+
+    /**
+     * 分享「导出历史」里的某个文件。
      *
+     * ★ 这次为什么能成 ★
+     *   老版本走 plus.share，传 file:// 路径给微信 ——
+     *   Android 7+ 的 FileUriExposedException 会直接拦掉，
+     *   所以永远是「获取资源失败」。
+     *   现在改用 uni.shareWithSystem（系统分享面板），
+     *   新版基座内部会把路径转成 content:// URI，不再有这个坎。
+     */
+    async function onShareExport(file) {
+      uni.showLoading({ title: '打开分享…' })
+      try {
+        await shareExportFile(file.path)
+        uni.hideLoading()
+      } catch (e) {
+        uni.hideLoading()
+        await alertDialog({ title: '分享没成功', content: e.message })
+      }
+    }
+
+    /**
+     * 删除「导出历史」里的某个文件。
+     *
+     * 用户要求：「要支持对导出历史进行删除」——
+     * 导出目录会越攒越多，得能自己清。
+     */
+    async function onDeleteExport(file) {
+      const ok = await confirmDialog({
+        title: '删除这个导出文件？',
+        content: `将删除 ${file.name}。不影响 App 内的数据。`,
+        confirmText: '删除',
+        danger: true
+      })
+      if (!ok) return
+
+      try {
+        await deleteExportFile(file.path)
+        await loadExportFiles()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
+    }
+
+    /* ------------------------------------------------------ 导入 */
+
+    /**
+     * 从系统文件选择器选一个 JSON 导入。
+     *
+     * ★ 导入是「覆盖」而不是「合并」★
+     *   合并要处理 id 冲突、updated_at 取新、重复判定……
+     *   对个人记账来说，导入的目的基本就是「换手机搬数据」或「回滚」，
+     *   覆盖语义更清楚。覆盖前 api 层会自动备份当前库，能反悔。
+     */
+    async function onImport() {
+      let picked = ''
+      try {
+        uni.showLoading({ title: '选择文件…' })
+        picked = await chooseImportFile()
+        uni.hideLoading()
+      } catch (e) {
+        uni.hideLoading()
+        // 用户主动取消不算错误，不用弹框打扰
+        if (/取消/.test(e.message)) return
+        await alertDialog({ title: '选择文件失败', content: e.message })
+        return
+      }
+
+      const ok = await confirmDialog({
+        title: '用这个文件覆盖当前数据？',
+        content: '导入会清空当前所有账户、交易、分类，再写入文件里的内容。\n导入前会自动备份一次，万一不对可以从备份恢复。',
+        confirmText: '导入',
+        danger: true
+      })
+      if (!ok) return
+
+      uni.showLoading({ title: '导入中…' })
+      try {
+        const report = await importFromFile(picked)
+        uni.hideLoading()
+
+        clearSettingsCache()
+        await settingStore.load()
+        await accountStore.refresh()
+        await txnStore.loadHome(true)
+        await loadCounts()
+        await loadBackups()
+
+        await alertDialog({
+          title: '导入完成',
+          content: [
+            `账户 ${report.accounts} 个`,
+            `交易 ${report.transactions} 笔`,
+            `分类 ${report.categories} 个`,
+            `标签 ${report.tags} 个`
+          ].join('\n')
+        })
+      } catch (e) {
+        uni.hideLoading()
+        await alertDialog({ title: '导入失败', content: e.message })
+      }
+    }
+
     /**
      * 从备份文件恢复数据。
      *
@@ -392,6 +615,14 @@ export default {
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
 
+    /** 导出历史里的时间显示（文件名里解析出来的，可能解析不出） */
+    function formatExportTime(ts) {
+      if (!ts) return '未知时间'
+      const d = new Date(ts)
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+
     function goBack() {
       uni.navigateBack()
     }
@@ -421,11 +652,13 @@ export default {
 
     return {
       counts, autoBackupOn, backupList, showBackups,
+      exportFiles, showExportFiles,
       primaryColor, pageStyle, scrollTarget,
+      onExport, openExportFiles, onShareExport, onDeleteExport, onImport,
       onRestoreBackup,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
-      formatBackupTime, goBack, settingStore
+      formatBackupTime, formatExportTime, goBack, settingStore
     }
   }
 }
@@ -628,5 +861,23 @@ export default {
 .backup-action {
   font-size: 24rpx;
   color: var(--app-primary);
+}
+
+/* 导出历史每行右侧的两个操作：分享 / 删除 */
+.export-ops {
+  display: flex;
+  align-items: center;
+  gap: 32rpx;
+  flex-shrink: 0;
+  margin-left: 16rpx;
+}
+
+.export-op {
+  font-size: 24rpx;
+  padding: 8rpx 0;
+}
+
+.export-op-danger {
+  color: var(--app-danger);
 }
 </style>

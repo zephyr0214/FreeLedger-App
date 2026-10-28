@@ -66,15 +66,20 @@
             </view>
             <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
             <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
-            <text v-else-if="parent.children.length > 0" class="parent-count">
-              {{ parent.children.length }} 个子类
-            </text>
             <!--
-              没有子类的分类不显示展开箭头 ——
-              箭头点了没反应，看起来像坏了。
+              ★ 没有子类也显示「0 个子类 ›」★
+                之前是 children.length > 0 才显示，
+                结果「还没建过子类的一级分类」看起来是个终点 ——
+                没有箭头、没有数量，用户不知道这里还能加子类，
+                只能去猜「+ 添加子分类」藏在哪。
+
+                现在统一显示数量（没有就是 0），
+                点开就能看到「+ 添加子分类」，路径和已有子类的分类完全一致。
+                固定分类（对账支出/对账收入）除外 —— 它们本来就不能加子类。
             -->
+            <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
             <text
-              v-if="parent.children.length > 0"
+              v-if="!isReconcile(parent)"
               class="expand-icon"
               :class="{ expanded: expandedIds.includes(parent.id) }"
             >›</text>

@@ -315,6 +315,26 @@ export default {
     /** 滑到底部时隐藏悬浮按钮，避免遮挡最后一条内容 */
     const fabHidden = ref(false)
 
+    /**
+     * 本月是否有任何交易记录。
+     *
+     * ★ 为什么要判断这个 ★
+     *   「滑到底部隐藏悬浮按钮」是为了不挡住最后一条内容。
+     *   但本月没有任何数据时，页面本身就短 ——
+     *   随便滑一下就到底了，悬浮按钮立刻消失，
+     *   用户正想点「+」记账却发现按钮不见了，很别扭。
+     *
+     *   所以：本月无数据时不启用「滑到底隐藏」这条规则，
+     *   按钮一直待在那儿，随时可以点。
+     *
+     * dailyTotals 是「按天汇总」的 map，键是日期（YYYY-MM-DD），
+     * 有键就说明那天有交易；一个键都没有 = 本月没记过账。
+     */
+    const isMonthEmpty = computed(() => {
+      const daily = txnStore.dailyTotals || {}
+      return Object.keys(daily).length === 0
+    })
+
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
@@ -407,6 +427,14 @@ export default {
       const scrollTop = detail.scrollTop || 0
       const scrollHeight = detail.scrollHeight || 0
       if (!scrollHeight || !scrollViewHeight.value) return
+
+      // ★ 本月无数据时不隐藏 ★
+      //   页面短，滑一下就到「底」了，按钮跟着消失反而碍事。
+      //   见 isMonthEmpty 的说明。
+      if (isMonthEmpty.value) {
+        if (fabHidden.value) fabHidden.value = false
+        return
+      }
 
       // 距离底部还剩多少
       const remain = scrollHeight - scrollTop - scrollViewHeight.value
