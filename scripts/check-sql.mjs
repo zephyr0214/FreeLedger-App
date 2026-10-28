@@ -83,7 +83,10 @@ for (const file of files) {
 /** 从代码中抽取看起来像 SQL 的字符串块（反引号模板或单双引号） */
 function extractSqlBlocks(code) {
   const blocks = []
-  // 反引号模板字符串
+
+  // ---- 1) 反引号模板字符串 ----
+  //    模板里可能含 ${...}，里面又可能有引号，
+  //    所以模板要单独扫，不能和普通引号混在一起扫。
   const templateRe = /`([^`]*)`/g
   let m
   while ((m = templateRe.exec(code)) !== null) {
@@ -94,16 +97,45 @@ function extractSqlBlocks(code) {
       blocks.push({ text: stripped, line: countLines(code.slice(0, m.index)) + 1 })
     }
   }
-  // 普通引号字符串
+
+  // ---- 2) 普通引号字符串 ----
+  //    ★ 必须在「屏蔽掉模板和注释」的代码上扫 ★
+  //    否则模板里 ${...} 表达式中的引号、注释里的撇号都会被当成字符串起点，
+  //    引号一配对就错位成一大段，把中间无关的代码当成一个「SQL 字符串」，
+  //    于是误报出根本不存在的 NOW() / ON CONFLICT。
+  //    （踩过的坑：bindParams 里的 .replace(/'/g, "''") 把整个文件的对齐带偏了。）
+  const masked = maskTemplatesAndComments(code)
   const quoteRe = /(['"])((?:\\.|(?!\1)[^\\])*)\1/g
-  while ((m = quoteRe.exec(code)) !== null) {
+  while ((m = quoteRe.exec(masked)) !== null) {
     const text = m[2]
     const stripped = stripSqlComments(text)
     if (looksLikeSql(stripped)) {
       blocks.push({ text: stripped, line: countLines(code.slice(0, m.index)) + 1 })
     }
   }
+
   return blocks
+}
+
+/**
+ * 把模板字符串和注释「屏蔽」掉 —— 用等长空格替换，保持行号不变。
+ *
+ * 为什么要屏蔽：
+ *   引号配对一旦错位，后面所有引号字符串都会被误判。
+ *   模板字符串的 ${} 里和注释里都可能藏着引号，
+ *   它们不是「字符串字面量」，不该参与配对。
+ */
+function maskTemplatesAndComments(code) {
+  let out = code
+
+  // 注释：块注释 /* */ 和行注释 //
+  out = out.replace(/\/\*[\s\S]*?\*\//g, (s) => ' '.repeat(s.length))
+  out = out.replace(/\/\/[^\n]*/g, (s) => ' '.repeat(s.length))
+
+  // 模板字符串：整个替换成空格（包括 ${} 里的内容）
+  out = out.replace(/`[^`]*`/g, (s) => ' '.repeat(s.length))
+
+  return out
 }
 
 // 去掉 SQL 注释：块注释与 -- 行注释
@@ -112,7 +144,20 @@ function stripSqlComments(text) {
   return text
     .replace(blockRe, '')
     .replace(/--[^\n]*/g, '')
-    .replace(/(^|\s)\*[^\n]*/g, '$1')   // 去掉块注释续行的星号内容
+    /**
+     * 去掉 JS 块注释的续行（形如 " * 说明文字"）。
+     *
+     * ★ 必须只在行首匹配 ★
+     *   原来的写法是「空格 + 星号 anywhere」，
+     *   结果把 SQL 里的 "SELECT 星号 FROM t" 也当成注释续行给删了，
+     *   于是 DAY() / MONTH() / YEAR() / DATE_FORMAT() 这几条规则
+     *   根本匹配不到（星号后面那段被整段删掉了）。
+     *   也就是说这几条规则一直在「装作在工作」，实际从来没生效过。
+     *
+     *   改成 ^\s*\* 之后，只有真正以星号开头的行才会被去掉，
+     *   SQL 的 SELECT 星号 不受影响。
+     */
+    .replace(/^\s*\*[^\n]*/gm, '')
 }
 
 function looksLikeSql(text) {
