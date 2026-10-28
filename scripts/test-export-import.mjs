@@ -135,7 +135,7 @@ check('有 SQLite 模块', /"SQLite"\s*:/.test(manifest), true)
 const mods = (manifest.match(/"modules"\s*:\s*\{([\s\S]*?)\n\s*\}/) || [])[1] || ''
 console.log('     当前 modules:', mods.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim())
 
-console.log('=== 页面：导出 / 导入 / 导出历史 ===')
+console.log('=== 页面：导出 / 导入 / 数据管理 ===')
 
 const data = stripComments(read('pages/settings/data.vue'))
 
@@ -143,27 +143,36 @@ check('有「导出」区块', /section-export/.test(data), true)
 check('有「导入」区块', /section-import/.test(data), true)
 check('有导出按钮', /onExport/.test(data), true)
 check('有导入按钮', /onImport/.test(data), true)
-check('有导出历史列表状态', /exportFiles/.test(data), true)
-check('有导出历史弹层状态', /showExportFiles/.test(data), true)
-check('能分享导出文件', /onShareExport/.test(data), true)
-check('能删除导出文件', /onDeleteExport/.test(data), true)
+
+// ★ 数据管理：合并备份 + 导出，每个 JSON 可恢复 / 删除 ★
+check('有「数据管理」区块', /section-data/.test(data), true)
+check('有数据管理列表状态', /dataFiles/.test(data), true)
+check('有数据管理弹层状态', /showDataManager/.test(data), true)
+check('能打开数据管理', /onOpenDataManager/.test(data), true)
+check('能恢复数据', /onRestoreData/.test(data), true)
+check('能删除数据', /onDeleteData/.test(data), true)
+check('合并备份+导出', /listBackups\(\).*listExportFiles\(\)/s.test(data), true)
+
+// ★ 旧的「导出历史」「备份记录」两个入口已删除 ★
+check('没有导出历史入口', /openExportFiles/.test(data), false)
+check('没有 onShareExport', /onShareExport/.test(data), false)
+check('没有 onDeleteExport', /onDeleteExport/.test(data), false)
+check('没有查看备份记录入口', /查看备份记录/.test(data), false)
+check('没有 onRestoreBackup', /onRestoreBackup/.test(data), false)
+check('没有 showBackups 弹层', /showBackups/.test(data), false)
+check('没有 showExportFiles 弹层', /showExportFiles/.test(data), false)
+
 // ★ 导入是应用内文件浏览（系统选择器回调不触发，改用 plus.io 扫描）★
 check('有导入文件列表状态', /importFiles/.test(data), true)
 check('有导入浏览弹层状态', /showImportPicker/.test(data), true)
 check('能挑一个文件导入', /onPickImportFile/.test(data), true)
 check('导入前扫描文件', /listImportableFiles/.test(data), true)
 
-// 导出历史里两个操作都要出现
-check('导出历史里有「分享」', /分享/.test(data), true)
-check('导出历史里有「删除」', /删除/.test(data), true)
-
 console.log('=== 页面：备份的 UI 也还在 ===')
 
 check('有「备份」区块', /section-backup/.test(data), true)
 check('有自动备份开关', /onToggleAutoBackup/.test(data), true)
 check('有立即备份', /onManualBackup/.test(data), true)
-check('有备份记录', /showBackups/.test(data), true)
-check('有从备份恢复', /onRestoreBackup/.test(data), true)
 
 console.log('=== 导入是「覆盖」语义，且会先备份 ===')
 

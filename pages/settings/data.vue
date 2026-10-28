@@ -57,14 +57,6 @@
             </view>
             <text class="row-arrow">›</text>
           </view>
-
-          <view class="card-row" @click="openExportFiles">
-            <view class="row-info">
-              <text class="row-name">导出历史</text>
-              <text class="row-desc">{{ exportFiles.length }} 个文件，可分享或删除</text>
-            </view>
-            <text class="row-arrow">›</text>
-          </view>
         </view>
       </view>
 
@@ -76,6 +68,20 @@
             <view class="row-info">
               <text class="row-name">从文件导入</text>
               <text class="row-desc">浏览应用文件夹，选一个 JSON 覆盖当前数据（先自动备份）</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 数据管理：列出备份 + 导出的所有 JSON，可逐个恢复 / 删除 -->
+      <view id="section-data" class="section">
+        <text class="section-title">数据管理</text>
+        <view class="card">
+          <view class="card-row" @click="onOpenDataManager">
+            <view class="row-info">
+              <text class="row-name">备份与导出文件</text>
+              <text class="row-desc">{{ dataFiles.length }} 个 JSON 文件，可恢复或删除</text>
             </view>
             <text class="row-arrow">›</text>
           </view>
@@ -101,14 +107,6 @@
           <view class="card-row" @click="onManualBackup">
             <view class="row-info">
               <text class="row-name">立即备份一次</text>
-            </view>
-            <text class="row-arrow">›</text>
-          </view>
-
-          <view class="card-row" @click="showBackups = true">
-            <view class="row-info">
-              <text class="row-name">查看备份记录</text>
-              <text class="row-desc">{{ backupList.length }} 份备份</text>
             </view>
             <text class="row-arrow">›</text>
           </view>
@@ -140,67 +138,45 @@
       <view class="tip-card">
         <text class="tip-text">
           数据全部保存在本机的 SQLite 数据库中，路径为 _doc/books.db。
-          备份位于 _doc/backup/，保留最近 5 份，可在「查看备份记录」中恢复。
+          备份位于 _doc/backup/，导出位于 _doc/export/，可在「数据管理」里恢复或删除。
         </text>
       </view>
 
       <view class="bottom-space" />
     </scroll-view>
 
-    <!-- 备份记录弹层 -->
-    <wd-popup v-model="showBackups" position="bottom" :safe-area-inset-bottom="true">
+    <!-- 数据管理弹层：列出备份 + 导出的所有 JSON，每个可恢复 / 删除 -->
+    <wd-popup v-model="showDataManager" position="bottom" :safe-area-inset-bottom="true">
       <view class="backup-panel">
         <view class="panel-head">
-          <text class="panel-title">备份记录</text>
-          <text class="panel-close" @click="showBackups = false">关闭</text>
+          <text class="panel-title">数据管理</text>
+          <text class="panel-close" @click="showDataManager = false">关闭</text>
         </view>
 
-        <view v-if="backupList.length === 0" class="panel-empty">
-          <text class="panel-empty-text">还没有备份</text>
+        <view class="panel-tip">
+          <text class="panel-tip-text">扫描 _doc/backup（备份）和 _doc/export（导出）里的 JSON 文件，可逐个恢复或删除。</text>
+        </view>
+
+        <view v-if="dataFiles.length === 0" class="panel-empty">
+          <text class="panel-empty-text">还没有任何备份或导出文件</text>
         </view>
 
         <scroll-view v-else class="backup-scroll" scroll-y>
           <view
-            v-for="b in backupList"
-            :key="b.name"
-            class="backup-row"
-            @click="onRestoreBackup(b)"
-          >
-            <view class="backup-info">
-              <text class="backup-name">{{ formatBackupTime(b.time) }}</text>
-              <text class="backup-file">{{ b.name }}</text>
-            </view>
-            <text class="backup-action">恢复</text>
-          </view>
-        </scroll-view>
-      </view>
-    </wd-popup>
-
-    <!-- 导出历史弹层：可逐个分享或删除 -->
-    <wd-popup v-model="showExportFiles" position="bottom" :safe-area-inset-bottom="true">
-      <view class="backup-panel">
-        <view class="panel-head">
-          <text class="panel-title">导出历史</text>
-          <text class="panel-close" @click="showExportFiles = false">关闭</text>
-        </view>
-
-        <view v-if="exportFiles.length === 0" class="panel-empty">
-          <text class="panel-empty-text">还没有导出过文件</text>
-        </view>
-
-        <scroll-view v-else class="backup-scroll" scroll-y>
-          <view
-            v-for="f in exportFiles"
-            :key="f.name"
+            v-for="f in dataFiles"
+            :key="f.path"
             class="backup-row"
           >
             <view class="backup-info">
-              <text class="backup-name">{{ formatExportTime(f.time) }}</text>
+              <text class="backup-name">
+                <text :class="f.kind === 'backup' ? 'data-kind data-kind-backup' : 'data-kind data-kind-export'">{{ f.kind === 'backup' ? '备份' : '导出' }}</text>
+                {{ formatDataTime(f.time) }}
+              </text>
               <text class="backup-file">{{ f.name }}</text>
             </view>
             <view class="export-ops">
-              <text class="export-op" :style="{ color: primaryColor }" @click="onShareExport(f)">分享</text>
-              <text class="export-op export-op-danger" @click="onDeleteExport(f)">删除</text>
+              <text class="export-op" :style="{ color: primaryColor }" @click="onRestoreData(f)">恢复</text>
+              <text class="export-op export-op-danger" @click="onDeleteData(f)">删除</text>
             </view>
           </view>
         </scroll-view>
@@ -274,11 +250,12 @@ export default {
     const counts = ref({ transactions: 0, accounts: 0, categories: 0, tags: 0 })
     const autoBackupEnabled = ref(true)
     const backupList = ref([])
-    const showBackups = ref(false)
     const exportFiles = ref([])
-    const showExportFiles = ref(false)
     const importFiles = ref([])
     const showImportPicker = ref(false)
+    /** 数据管理：备份 + 导出合并列表，每个 { path, name, time, kind } */
+    const dataFiles = ref([])
+    const showDataManager = ref(false)
 
     /**
      * scroll-view 的滚动目标（元素 id）。
@@ -405,50 +382,79 @@ export default {
       }
     }
 
-    /** 打开导出历史（顺便刷新一下列表） */
-    async function openExportFiles() {
-      await loadExportFiles()
-      showExportFiles.value = true
+    /* ------------------------------------------------------ 数据管理 */
+
+    /** 合并备份 + 导出 两个目录的 JSON，标记 kind，按时间倒序 */
+    async function loadDataManager() {
+      const [backs, exports] = await Promise.all([listBackups(), listExportFiles()])
+      const all = [
+        ...backs.map((f) => ({ ...f, kind: 'backup' })),
+        ...exports.map((f) => ({ ...f, kind: 'export' }))
+      ]
+      all.sort((a, b) => (b.time || 0) - (a.time || 0))
+      dataFiles.value = all
+      return all
     }
 
-    /* ------------------------------------------------------ 分享 */
-
-    /**
-     * 分享「导出历史」里的某个文件。
-     *
-     * ★ 这次为什么能成 ★
-     *   老版本走 plus.share，传 file:// 路径给微信 ——
-     *   Android 7+ 的 FileUriExposedException 会直接拦掉，
-     *   所以永远是「获取资源失败」。
-     *   现在走 Native.js：DCloud 自带 FileProvider 生成 content:// URI，
-     *   再起 ACTION_SEND，把**真正的文件**交给微信/系统分享面板。
-     */
-    async function onShareExport(file) {
-      uni.showLoading({ title: '打开分享…' })
+    /** 打开「数据管理」弹层（顺便刷新列表） */
+    async function onOpenDataManager() {
+      uni.showLoading({ title: '扫描…' })
       try {
-        const r = await shareExportFile(file.path)
+        await loadDataManager()
         uni.hideLoading()
-        if (r && r.used === 'text') {
-          uni.showToast({
-            title: '已按文本分享（文件方式不可用）',
-            icon: 'none'
-          })
-        }
       } catch (e) {
         uni.hideLoading()
-        await alertDialog({ title: '分享没成功', content: e.message })
+        await alertDialog({ title: '扫描失败', content: (e && e.message) || '无法读取文件列表' })
+        return
+      }
+      showDataManager.value = true
+    }
+
+    /**
+     * 恢复某个备份/导出文件（覆盖当前数据）。
+     * 备份和导出都是完整快照，恢复语义一致。
+     */
+    async function onRestoreData(file) {
+      const ok = await confirmDialog({
+        title: '用这个文件恢复数据？',
+        content: `将用 ${formatDataTime(file.time)} 的${file.kind === 'backup' ? '备份' : '导出'}覆盖当前数据。\n当前数据会先自动备份一次，万一不对可以再恢复回来。`,
+        confirmText: '恢复',
+        danger: true
+      })
+      if (!ok) return
+
+      showDataManager.value = false
+      uni.showLoading({ title: '恢复中…' })
+      try {
+        const report = await restoreBackup(file.path)
+        uni.hideLoading()
+
+        clearSettingsCache()
+        await settingStore.load()
+        await accountStore.refresh()
+        await txnStore.loadHome(true)
+        await loadCounts()
+        await loadDataManager()
+
+        await alertDialog({
+          title: '恢复完成',
+          content: [
+            `账户 ${report.accounts} 个`,
+            `交易 ${report.transactions} 笔`,
+            `分类 ${report.categories} 个`,
+            `标签 ${report.tags} 个`
+          ].join('\n')
+        })
+      } catch (e) {
+        uni.hideLoading()
+        await alertDialog({ title: '恢复失败', content: e.message })
       }
     }
 
-    /**
-     * 删除「导出历史」里的某个文件。
-     *
-     * 用户要求：「要支持对导出历史进行删除」——
-     * 导出目录会越攒越多，得能自己清。
-     */
-    async function onDeleteExport(file) {
+    /** 删除某个备份/导出文件（不影响 App 内数据） */
+    async function onDeleteData(file) {
       const ok = await confirmDialog({
-        title: '删除这个导出文件？',
+        title: '删除这个文件？',
         content: `将删除 ${file.name}。不影响 App 内的数据。`,
         confirmText: '删除',
         danger: true
@@ -457,7 +463,7 @@ export default {
 
       try {
         await deleteExportFile(file.path)
-        await loadExportFiles()
+        await loadDataManager()
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '删除失败', content: e.message })
@@ -540,53 +546,6 @@ export default {
       } catch (e) {
         uni.hideLoading()
         await alertDialog({ title: '导入失败', content: e.message })
-      }
-    }
-
-    /**
-     * 从备份文件恢复数据。
-     *
-     * ★ 之前这里有个 doImport(path, mode) ★
-     *   它同时管「导入外部文件」和「从备份恢复」两件事。
-     *   外部导入功能被删后只剩后者，
-     *   所以收敛到 api/backup.js 的 restoreBackup()，页面只管调它 + 刷 UI。
-     */
-    async function onRestoreBackup(backup) {
-      const confirmed = await confirmDialog({
-        title: '从备份恢复？',
-        content: `将用 ${formatBackupTime(backup.time)} 的备份覆盖当前数据。当前数据会先自动备份一次。`,
-        confirmText: '恢复',
-        danger: true
-      })
-      if (!confirmed) return
-
-      showBackups.value = false
-      uni.showLoading({ title: '恢复中…' })
-      try {
-        const report = await restoreBackup(backup.path)
-        uni.hideLoading()
-
-        clearSettingsCache()
-        await settingStore.load()
-        await accountStore.refresh()
-        await txnStore.loadHome(true)
-        await loadCounts()
-        await loadBackups()
-
-        const lines = [
-          `账户 ${report.accounts} 个`,
-          `交易 ${report.transactions} 笔`,
-          `分类 ${report.categories} 个`,
-          `标签 ${report.tags} 个`
-        ].filter(Boolean)
-
-        await alertDialog({
-          title: '恢复完成',
-          content: lines.join('\n')
-        })
-      } catch (e) {
-        uni.hideLoading()
-        await alertDialog({ title: '恢复失败', content: e.message })
       }
     }
 
@@ -676,15 +635,8 @@ export default {
 
     /* ------------------------------------------------------ 辅助 */
 
-    function formatBackupTime(ts) {
-      if (!ts) return '未知时间'
-      const d = new Date(ts)
-      const pad = (n) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
-
-    /** 导出历史里的时间显示（文件名里解析出来的，可能解析不出） */
-    function formatExportTime(ts) {
+    /** 数据管理里的时间显示（备份文件名解析 / 导出文件名解析 / 修改时间） */
+    function formatDataTime(ts) {
       if (!ts) return '未知时间'
       const d = new Date(ts)
       const pad = (n) => String(n).padStart(2, '0')
@@ -727,16 +679,16 @@ export default {
     })
 
     return {
-      counts, autoBackupOn, backupList, showBackups,
-      exportFiles, showExportFiles,
+      counts, autoBackupOn, backupList, exportFiles,
       importFiles, showImportPicker,
+      dataFiles, showDataManager,
       primaryColor, pageStyle, scrollTarget,
-      onExport, openExportFiles, onShareExport, onDeleteExport,
+      onExport,
       onImport, onPickImportFile,
-      onRestoreBackup,
+      onOpenDataManager, onRestoreData, onDeleteData,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
-      formatBackupTime, formatExportTime, formatImportTime, goBack, settingStore
+      formatDataTime, formatImportTime, goBack, settingStore
     }
   }
 }
@@ -968,5 +920,24 @@ export default {
 
 .export-op-danger {
   color: var(--app-danger);
+}
+
+/* 数据管理里的类型标签：备份 / 导出 */
+.data-kind {
+  font-size: 20rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  border: 1rpx solid;
+  margin-right: 10rpx;
+}
+
+.data-kind-backup {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+.data-kind-export {
+  color: var(--app-text-2);
+  border-color: var(--app-text-2);
 }
 </style>
