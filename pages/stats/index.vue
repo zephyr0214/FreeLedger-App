@@ -83,18 +83,18 @@
             </view>
           </view>
 
-          <!-- 下方：色点 + 分类名 + 笔数 + 总金额（不再显示占比和进度条） -->
+          <!-- 下方：色点 + 分类名 + 笔数 + 总金额
+               ★ 一级/二级都用这一套 ★
+                 二级模式下不再带「所属一级分类」那行副标题，
+                 和一级模式一样紧凑：一行一个分类，显示全部、不省略。 -->
           <view class="rank-list">
             <view
-              v-for="(cat, i) in categoryStats.slice(0, 10)"
+              v-for="cat in categoryStats"
               :key="cat.id"
               class="rank-item"
             >
               <view class="rank-dot" :style="{ backgroundColor: cat.color }" />
-              <view class="rank-label-col">
-                <text class="rank-name">{{ cat.name }}</text>
-                <text v-if="categoryLevel === 'sub'" class="rank-sub">{{ cat.parentName }}</text>
-              </view>
+              <text class="rank-name">{{ cat.name }}</text>
               <view class="rank-count">
                 <text class="rank-count-num">{{ cat.count }}</text>
                 <text class="rank-count-unit">笔</text>
@@ -268,18 +268,25 @@
           <text class="empty-text">{{ rangeLabel }}暂无数据</text>
         </view>
         <view v-else class="simple-list">
+          <!--
+            ★ 紧凑一行 ★
+              去掉「笔数」和「所属一级分类」，
+              右侧「日均 + 笔均」同一行显示，不显示金额。
+              一级/二级两种模式长得一样，只是数据层级不同。
+          -->
           <view v-for="c in categoryAverages" :key="c.id" class="simple-item cat-avg-item">
             <view class="rank-dot" :style="{ backgroundColor: c.color }" />
-            <view class="cat-avg-name">
-              <text class="simple-name">{{ c.name }}</text>
-              <!-- 二级分类时显示所属一级分类；一级分类时不显示 -->
-              <text v-if="averageLevel === 'sub'" class="cat-avg-hint">{{ c.parentName }} · {{ c.count }} 笔</text>
-              <text v-else class="cat-avg-hint">{{ c.count }} 笔</text>
-            </view>
-            <!-- 笔均：字在上方，金额在下方 -->
+            <text class="simple-name">{{ c.name }}</text>
+            <!-- 右侧：日均 + 笔均 同一行（小标签 + 数值并排），不显示金额 -->
             <view class="cat-avg-values">
-              <text class="cat-avg-label">笔均</text>
-              <MoneyText :cents="c.avgPerTxn" :size="26" color="var(--app-text)" />
+              <view class="cat-avg-value">
+                <text class="cat-avg-label">日均</text>
+                <MoneyText :cents="c.avgPerDay" :size="26" color="var(--app-text)" />
+              </view>
+              <view class="cat-avg-value">
+                <text class="cat-avg-label">笔均</text>
+                <MoneyText :cents="c.avgPerTxn" :size="26" color="var(--app-text)" />
+              </view>
             </view>
           </view>
         </view>
@@ -963,31 +970,6 @@ export default {
   white-space: nowrap;
 }
 
-/* 分类名 + 所属一级分类（两行），占满剩余空间 */
-.rank-label-col {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2rpx;
-  overflow: hidden;
-}
-
-.rank-label-col .rank-name {
-  flex: none;
-  width: 100%;
-  /* text 上省略号要 block 布局才生效 */
-  display: block;
-}
-
-.rank-sub {
-  font-size: 19rpx;
-  color: var(--app-text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* 笔数：数字 + 「笔」，右对齐到金额前面 */
 .rank-count {
   display: flex;
@@ -1037,6 +1019,10 @@ export default {
   font-size: 26rpx;
   color: var(--app-text);
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .simple-count {
@@ -1052,30 +1038,25 @@ export default {
   flex-shrink: 0;
 }
 
-/* 各分类平均：名称 + 笔均/日均 */
+/* 各分类平均：名称 + 日均/笔均 同一行 */
 .cat-avg-item {
   gap: 14rpx;
   align-items: center;
 }
 
-.cat-avg-name {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  min-width: 0;
-}
-
-.cat-avg-hint {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-}
-
-/* 笔均：字在上方，金额在下方 */
+/* 右侧：日均、笔均横向并排（小标签 + 数值在同一行） */
 .cat-avg-values {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 20rpx;
+  flex-shrink: 0;
+}
+
+/* 单个值：小标签 + 数值 */
+.cat-avg-value {
+  display: flex;
+  align-items: baseline;
   gap: 4rpx;
   flex-shrink: 0;
 }
