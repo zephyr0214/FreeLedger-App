@@ -36,14 +36,16 @@
             </view>
           </view>
 
-          <!-- 上方：并联显示本月支出 / 本月收入 -->
+          <!-- 上方：今日支出 / 本月支出
+               ★ 两个都是「支出」，所以不显示正负号 ★
+                 这里金额本身就是支出额，加「-」只会让人以为是负数。
+                 用户的诉求是看清"今天花了多少 / 这月花了多少"。 -->
           <view class="ov-top">
             <view class="ov-top-item">
-              <text class="ov-top-label">本月支出</text>
+              <text class="ov-top-label">今日支出</text>
               <view class="ov-top-amount">
-                <text class="ov-top-sign">-</text>
                 <MoneyText
-                  :cents="overview.monthExpense"
+                  :cents="overview.todayExpense"
                   :size="44"
                   :weight="600"
                   color="var(--app-text)"
@@ -52,11 +54,10 @@
             </view>
             <view class="ov-top-divider" />
             <view class="ov-top-item">
-              <text class="ov-top-label">本月收入</text>
+              <text class="ov-top-label">本月支出</text>
               <view class="ov-top-amount">
-                <text class="ov-top-sign">+</text>
                 <MoneyText
-                  :cents="overview.monthIncome"
+                  :cents="overview.monthExpense"
                   :size="44"
                   :weight="600"
                   color="var(--app-text)"
@@ -65,16 +66,17 @@
             </view>
           </view>
 
-          <!-- 中间：今日支出 / 今日收入 / 本月结余 -->
+          <!-- 下方：今日收入 / 本月收入 / 本月结余
+               ★ 结余按正负着色 ★ 正数绿、负数红，一眼看出盈亏 -->
           <view class="ov-split">
-            <view class="ov-item">
-              <text class="ov-item-label">今日支出</text>
-              <MoneyText :cents="overview.todayExpense" :size="30" :weight="500" color="var(--app-text)" />
-            </view>
-            <view class="ov-divider" />
             <view class="ov-item">
               <text class="ov-item-label">今日收入</text>
               <MoneyText :cents="overview.todayIncome" :size="30" :weight="500" color="var(--app-text)" />
+            </view>
+            <view class="ov-divider" />
+            <view class="ov-item">
+              <text class="ov-item-label">本月收入</text>
+              <MoneyText :cents="overview.monthIncome" :size="30" :weight="500" color="var(--app-text)" />
             </view>
             <view class="ov-divider" />
             <view class="ov-item">
@@ -83,7 +85,8 @@
                 :cents="overview.monthBalance"
                 :size="30"
                 :weight="500"
-                :color="overview.monthBalance >= 0 ? 'var(--app-text)' : 'var(--app-danger)'"
+                sign
+                :color="overview.monthBalance >= 0 ? 'var(--app-success)' : 'var(--app-danger)'"
               />
             </view>
           </view>
@@ -697,7 +700,7 @@ export default {
   color: var(--app-text-2);
 }
 
-/* 上方并联：本月支出 / 本月收入
+/* 上方并联：今日支出 / 本月支出
    整组相对卡片居中，而不是各自撑满一半 */
 .ov-top {
   display: flex;
@@ -721,18 +724,14 @@ export default {
   color: var(--app-text-2);
 }
 
-/* 金额行：正负号 + 金额 */
+/* 金额行：只放金额本身
+   ★ 不再套「+ / -」符号 ★
+     上方两项都是「支出额」，前面加「-」会让人以为是负数，
+     跟下面带正负号的结余摆在一起更容易混淆。 */
 .ov-top-amount {
   display: flex;
   align-items: baseline;
   gap: 2rpx;
-}
-
-.ov-top-sign {
-  font-size: 40rpx;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--app-text-2);
 }
 
 .ov-top-divider {
@@ -742,7 +741,7 @@ export default {
   margin: 0 40rpx;
 }
 
-/* 中间三个：今日支出 / 本月结余 / 预算剩余 */
+/* 下方三项：今日收入 / 本月收入 / 本月结余 */
 .ov-split {
   display: flex;
   align-items: center;
