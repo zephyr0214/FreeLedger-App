@@ -65,7 +65,10 @@
           账户已经在底部 tabBar 里了，再放一个入口是重复的。
       -->
 
-      <!-- 记账功能：2×2 宫格，一个大卡片里排 4 个小卡 -->
+      <!-- 记账功能：2×2 宫格，一个大卡片里排 4 个小卡
+           ★ 每格内部是横向排列 ★
+             图标在左、文字居中偏左、› 在最右 ——
+             和下面的列表条目同一个读法，只是两列并排。 -->
       <view class="menu-group">
         <text class="menu-title">记账功能</text>
         <view class="feature-grid">
@@ -75,10 +78,14 @@
             class="feature-tile"
             @click="onMenuClick(item)"
           >
-            <view class="feature-icon-wrap" :style="{ backgroundColor: settingStore.primaryLight }">
-              <LineIcon :name="item.icon" :size="24" :color="primaryColor" />
-            </view>
+            <LineIcon
+              :name="item.icon"
+              :size="20"
+              :color="primaryColor"
+              class="feature-icon"
+            />
             <text class="feature-name">{{ item.name }}</text>
+            <text class="feature-arrow">›</text>
           </view>
         </view>
       </view>
@@ -440,18 +447,17 @@ export default {
 }
 
 /*
- * 单个格子：浅色底 + 图标 + 名称。
- * 格子底色用卡片色，格子之间露出的 1rpx 是 grid 的 gap（--app-line），
- * 形成很细的分隔线 —— 比给每个格子加 border 更干净，
- * 也不会出现「最后一行多一条边」的问题。
+ * 单个格子：横排 —— 图标 · 文字 · ›
+ *
+ * ★ 和列表条目同一套读法 ★
+ *   只是两列并排，所以内边距比列表窄一些，
+ *   否则「分类管理」四个字 + 图标 + 箭头在半个屏幕宽里会挤。
  */
 .feature-tile {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 14rpx;
-  padding: 36rpx 16rpx;
+  gap: 12rpx;
+  padding: 28rpx 20rpx;
   background-color: var(--app-card);
 }
 
@@ -461,22 +467,32 @@ export default {
 }
 
 /*
- * 图标外框：浅主题色圆形底 + 主题色描边图标。
- * 底色由内联 style 给（settingStore.primaryLight），
- * 这样换主题色时自动跟着变。
+ * 图标：与列表条目同尺寸（40rpx 方框 / 20px），
+ * 换成弹性宽度把剩余空间让给文字和箭头。
  */
-.feature-icon-wrap {
-  width: 76rpx;
-  height: 76rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.feature-icon {
+  width: 40rpx;
+  height: 40rpx;
+  flex-shrink: 0;
 }
 
+/* 文字占满中间，把 › 顶到最右 */
 .feature-name {
+  flex: 1;
   font-size: 26rpx;
   color: var(--app-text);
+  /* 名字过长时省略，不要撑破格子 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 右侧箭头：与列表条目的 menu-arrow 同一视觉 */
+.feature-arrow {
+  font-size: 28rpx;
+  color: var(--app-text-3);
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .menu-list {
