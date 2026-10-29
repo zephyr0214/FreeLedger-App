@@ -4,10 +4,11 @@
  *   node scripts/test-donut.mjs
  *
  * 覆盖 utils/donut.js：
- *   1. 扇区 path 数量、引导线数量、文字数量
+ *   1. 扇区 path 数量、引导线数量（直线 line）、文字数量
  *   2. 文字内容（名称 + 占比）、低于 1% 不标注
- *   3. 左右两列对齐、竖向间距、不越界
- *   4. 空数据 / 单段 / 分段边界 / data URI 封装
+ *   3. 左右两列对齐、竖向间距、不越界、引导直线互不交叉
+ *   4. 起始角 330°（11 点钟）
+ *   5. 空数据 / 单段 / 分段边界 / data URI 封装
  */
 
 let pass = 0
@@ -46,13 +47,13 @@ const items = [
   const paths = (svg.match(/<path /g) || []).length
   check('环段 path 数量', paths, 3)
 
-  // 引导线（折线 polyline）+ 文字（前 topN 个都标注）
-  const leads = (svg.match(/<polyline /g) || []).length
-  check('折线引导线数量', leads, 3)
-  check('不再用直线引导线', (svg.match(/<line /g) || []).length, 0)
-  // 每条折线是 3 个点：环边缘 → 拐点 → 标签行
-  const firstPoints = svg.match(/<polyline points="([^"]+)"/)
-  check('折线有 3 个点', firstPoints ? firstPoints[1].trim().split(/\s+/).length : 0, 3)
+  // 引导线（直线 line）+ 文字（前 topN 个都标注）
+  const leads = (svg.match(/<line /g) || []).length
+  check('直线引导线数量', leads, 3)
+  check('不再用折线引导线', (svg.match(/<polyline /g) || []).length, 0)
+  // 每条直线 2 个端点：环边缘 → 标签行
+  const firstLine = svg.match(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/)
+  check('直线有 2 个端点', firstLine ? 1 : 0, 1)
   const texts = (svg.match(/<text /g) || []).length
   check('文字数量', texts, 3)
 
@@ -110,6 +111,8 @@ const items = [
   check('右列在圆心右侧', DONUT_LABEL.colRightX > DONUT_GEOM.cx, true)
   check('左列在圆心左侧', DONUT_LABEL.colLeftX < DONUT_GEOM.cx, true)
   check('最小间距为正', DONUT_LABEL.minGap > 0, true)
+  // ★ 起始角：11 点钟方向（330°，0=顶部顺时针）★
+  check('起始角为 11 点钟（330°）', DONUT_GEOM.startDeg, 330)
 }
 
 {
@@ -151,17 +154,15 @@ const items = [
   check('标签 y 都在可用范围内', labels.every((l) => l.y >= DONUT_LABEL.minY && l.y <= DONUT_LABEL.maxY), true)
 
   /*
-   * ★ 折线不交叉的守门断言 ★
-   *   直接做几何检测：任意两条引导折线（各 2 段）之间不能有真交叉。
+   * ★ 直线不交叉的守门断言 ★
+   *   直接做几何检测：任意两条引导直线之间不能有真交叉。
    *   这才是「不要交叉」这个需求的准确判据。
    */
-  const leads = [...svg.matchAll(/<polyline points="([^"]+)"/g)].map((m) =>
-    m[1].trim().split(/\s+/).map((p) => {
-      const [x, y] = p.split(',').map(Number)
-      return { x, y }
-    })
-  )
-  check('折线数量 = 标签数', leads.length, labels.length)
+  const leads = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)].map((m) => [
+    { x: Number(m[1]), y: Number(m[2]) },
+    { x: Number(m[3]), y: Number(m[4]) }
+  ])
+  check('直线数量 = 标签数', leads.length, labels.length)
 
   /** 向量叉积，用于判断两条线段是否真相交（端点相接不算） */
   function cross(p, q, r) {
@@ -189,7 +190,7 @@ const items = [
       if (hit) crossingPairs++
     }
   }
-  check('引导折线互不交叉', crossingPairs, 0)
+  check('引导直线互不交叉', crossingPairs, 0)
 }
 
 {

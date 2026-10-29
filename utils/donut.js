@@ -15,7 +15,8 @@ import { svgToDataUri } from './chart.js'
  * ★ 布局约定 ★
  *   viewBox 是 300×180，圆心在 (150, 90)。
  *   环外半径 62、环内半径 44（环宽 18）。
- *   引导线从扇区外缘（r=64）引到 r=76，末端文字从 r=80 开始。
+ *   引导线是**直线**：从扇区外缘（r=64）直接连到标签行，末端文字留 gap。
+ *   起始角 330°（11 点钟），顺时针由占比大到小绘制。
  *   上下左右都要留出文字空间，所以 viewBox 比环大一圈。
  */
 
@@ -27,8 +28,18 @@ export const DONUT_GEOM = {
   rInner: 44,
   /** 引导线起点半径（紧贴环外缘） */
   leadFrom: 64,
-  /** 计算标签理想 y 时用的半径 */
-  labelR: 82
+  /**
+   * 计算标签理想 y 时用的半径。
+   * 72 而非 82：起始角改到 11 点钟（330°）后，一侧可能集中更多标签，
+   * 理想 y 跨度 = 2×labelR，必须 < 可用竖向范围（156）才夹得回来。
+   * 72×2 = 144 < 156，留出余量。
+   */
+  labelR: 72,
+  /**
+   * 起始角（度，0=顶部，顺时针）。
+   * 330° = 11 点钟方向。用户要求「从 11 点钟开始，顺时针由占比大到小绘制」。
+   */
+  startDeg: 330
 }
 
 /**
@@ -95,12 +106,7 @@ export const DONUT_LABEL = {
   minY: 12,
   maxY: 168,
   /** 引导线端点与文字之间留的空隙 */
-  gap: 4,
-  /**
-   * 折线拐点的半径。
-   * 引导线分两段：环边缘 → 沿半径走到这个半径（拐点）→ 折向标签所在行。
-   */
-  bendR: 72
+  gap: 4
 }
 
 /** 名称超长时截断并补省略号 */
@@ -117,10 +123,10 @@ function clipName(name) {
  * 保证相邻间距 >= minGap。
  *
  * ★ 为什么不做「等距重排」★
- *   等距会把标签挪到与扇区无关的行，折线引导线就必然彼此交叉 ——
+ *   等距会把标签挪到与扇区无关的行，引导线就必然彼此交叉 ——
  *   试过等距版本，几何检测出来 3 对交叉，比原来更乱。
  *   贴着径向位置+微调，标签上下顺序与扇区在圆周上的顺序一致，
- *   折线不交叉，这才是「整齐」的真正来源。
+ *   引导线不交叉，这才是「整齐」的真正来源。
  *   代价是列内间距不绝对均匀，但不会重叠，也不会打结。
  *
  * @param {Array<{idealY:number}>} items 该列的标签
@@ -161,17 +167,16 @@ function stackColumn(items) {
 }
 
 /**
- * 把要标注的扇区排成左右两列，返回每条折线引导线与文字的位置。
+ * 把要标注的扇区排成左右两列，返回每条直线引导线与文字的位置。
  *
- * ★ 引导线为什么是折线 ★
- *   一条直线斜着从环边缘连到标签，标签一多就会互相交叉（像一团乱麻）。
- *   改成折线：先沿半径向外走到拐点（bendR），再从拐点折向标签那一行。
- *   因为同一列的标签 y 是单调递增的、拐点的极角顺序也一致，
- *   两条折线就不会交叉 —— 视觉上是一排干净的「弯钩」。
+ * ★ 引导线为什么是直线 ★
+ *   用户要求「引导线为直线」：从环边缘直接连到标签那一行，不再中途拐弯。
+ *   因为同一列标签的 y 与扇区极角都单调变化（见 stackColumn 的排序），
+ *   直线两端（环边缘、标签行）的上下顺序一致，两两不会交叉。
  *
  * @param {Array<{name:string,pct:number,mid:number}>} sectors 需要标注的扇区
  * @param {object} g 环形几何
- * @returns {Array<{p1:{x,y},p2:{x,y},p3:{x,y},text:string,x:number,y:number,anchor:'start'|'end'}>}
+ * @returns {Array<{p1:{x,y},p2:{x,y},text:string,x:number,y:number,anchor:'start'|'end'}>}
  */
 function layoutLabels(sectors, g) {
   const L = DONUT_LABEL
@@ -187,7 +192,6 @@ function layoutLabels(sectors, g) {
       sector: s,
       idealY,
       p1: polar(g.cx, g.cy, g.leadFrom, s.mid),
-      p2: polar(g.cx, g.cy, L.bendR, s.mid),
       toX: side === 'right' ? L.colRightX - L.gap : L.colLeftX + L.gap
     }
     ;(side === 'right' ? right : left).push(entry)
@@ -204,9 +208,8 @@ function layoutLabels(sectors, g) {
       const y = ys[i]
       out.push({
         p1: it.p1,
-        p2: it.p2,
-        // 拐点 → 标签行：水平折过去（x 落在列位内侧）
-        p3: { x: it.toX, y },
+        // 直线终点：标签行（水平方向与文字留 gap）
+        p2: { x: it.toX, y },
         text: `${clipName(it.sector.name)} ${it.sector.pct}%`,
         x: textX,
         y,
@@ -243,7 +246,10 @@ export function buildDonutSvg(items = [], opts = {}) {
   } = opts
   const g = DONUT_GEOM
 
-  const list = (items || []).filter((x) => Number(x.amount) > 0)
+  const list = (items || [])
+    .filter((x) => Number(x.amount) > 0)
+    // ★ 按占比从大到小排好，保证「顺时针由占比大到小绘制」 ★
+    .sort((a, b) => Number(b.amount) - Number(a.amount))
   if (list.length === 0) return ''
 
   /*
@@ -265,8 +271,8 @@ export function buildDonutSvg(items = [], opts = {}) {
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 180" width="300" height="180">`
   )
 
-  // 累计角度（从顶部顺时针）
-  let accDeg = 0
+  // 累计角度（从 11 点钟 = 330° 开始，顺时针）
+  let accDeg = g.startDeg
   const sectors = []
 
   for (let i = 0; i < list.length; i++) {
@@ -293,25 +299,25 @@ export function buildDonutSvg(items = [], opts = {}) {
     })
   }
 
-  // 画环段
+  // 画环段（start/end 用原始累计角：polar 对任意角都成立，
+  // large-arc 由真实 sweep 决定，跨 360° 也能正确画）
   for (const s of sectors) {
     if (!s.valid) continue
     parts.push(
-      `<path d="${donutSectorPath(g, Math.max(s.start, 0), Math.min(s.end, 360))}" fill="${s.color}"/>`
+      `<path d="${donutSectorPath(g, s.start, s.end)}" fill="${s.color}"/>`
     )
   }
 
-  // 画引导线 + 文字（左右两列对齐，引导线是折线）
+  // 画引导线 + 文字（左右两列对齐，引导线是直线）
   if (showLead) {
     const labels = layoutLabels(sectors.filter((s) => s.label), g)
     const fontSize = DONUT_LABEL.fontSize
 
     for (const l of labels) {
-      // 折线：环边缘 →（沿半径）→ 拐点 →（水平）→ 标签行
-      const pts = `${l.p1.x},${l.p1.y} ${l.p2.x},${l.p2.y} ${l.p3.x},${l.p3.y}`
+      // 直线：环边缘 → 标签行
       parts.push(
-        `<polyline points="${pts}" fill="none" ` +
-        `stroke="${leadColor}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`
+        `<line x1="${l.p1.x}" y1="${l.p1.y}" x2="${l.p2.x}" y2="${l.p2.y}" ` +
+        `stroke="${leadColor}" stroke-width="1" stroke-linecap="round"/>`
       )
       parts.push(
         `<text x="${l.x}" y="${l.y}" fill="${textColor}" ` +
