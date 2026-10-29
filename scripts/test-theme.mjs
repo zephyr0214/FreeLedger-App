@@ -193,8 +193,11 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
   check('补刷用 setTimeout 延迟重试', /_scheduleTabBarRetry[\s\S]*?setTimeout\(/.test(storeSrc), true)
   check('补刷有启动窗口限制', /TABBAR_BOOT_WINDOW_MS/.test(storeSrc), true)
   check('补刷有防重入标记', /_tabBarRetrying/.test(storeSrc), true)
+  // load() 读完设置要重置补刷窗口：启动窗口必须从「设置就绪」起算，
+  // 否则读库慢的机型等窗口过期了 tabBar 才建好，又回到默认图标。
+  check('load() 重置补刷窗口', /async load\(\)\s*\{[\s\S]*?_tabBarBootAt = Date\.now\(\)/.test(storeSrc), true)
 
-  // applyTabBarTheme 必须把成败报出来，补刷才可能是「失败才补」
+  // applyTabBarTheme 要把成败报出来，refreshTabBarTheme 负责透传
   const themeSrc = readFileSync(join(process.cwd(), 'utils/theme.js'), 'utf-8')
   check('applyTabBarTheme 返回是否成功', /function applyTabBarTheme\(presetKey, dark\)\s*\{[\s\S]*?return ok/.test(themeSrc), true)
   check('refreshTabBarTheme 透传返回值', /function refreshTabBarTheme\([\s\S]*?return applyTabBarTheme\(/.test(themeSrc), true)

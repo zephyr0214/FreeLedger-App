@@ -130,8 +130,14 @@ export const useSettingStore = defineStore('setting', {
       this.applyTheme()
       // 首屏刷一次 tabBar：pages.json 里写死的是绿色浅色，
       // 用户可能存的是别的配色。
-      // 此时还没有 tabBar 实例，调用会失败并被忽略；
-      // 真正生效的是各 tab 页 onShow 里的那次。
+      //
+      // ★ 这一轮大概率还是会「太早」★
+      //   此时原生 tabBar 往往还没建好，setTabBarStyle / setTabBarItem
+      //   静默失效。真正把它补上的是 refreshTabBar() 里的补刷逻辑
+      //   （见 _scheduleTabBarRetry）：设置读完之后重新起算启动窗口，
+      //   保证补刷覆盖到「tabBar 建成」的那一刻。
+      this._tabBarBootAt = Date.now()
+      this._tabBarRetrying = false
       this.refreshTabBar()
       return this.settings
     },
