@@ -605,8 +605,8 @@ export default {
     }
 
     function goProfile() {
-    uni.navigateTo({ url: '/pages/settings/profile' })
-  }
+      uni.navigateTo({ url: '/pages/settings/profile' })
+    }
 
     /* ------------------------------------------------------ 记账按钮 */
 
@@ -742,14 +742,14 @@ export default {
       dateRange,
       categoryStatType, accountStatType, averageStatType,
       categoryLevel, averageLevel, accountViewMode,
-      categoryStats, accountStats, accountTypeStats, categoryAverages,
+      categoryStats, categoryAverages,
       dailyTrend, averages, topExpenses, overview,
       primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
       categoryTotal, categoryDonutUri, accountTotal, accountTypeTotal,
       accountViewList, accountViewDonutUri,
       dailyExtremes,
-      barHeight, shortDay, accColor,
-      loadAll, onRangeChange,
+      barHeight, shortDay,
+      onRangeChange,
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
       onAddTap, onAddHoldEnd,
@@ -829,12 +829,6 @@ export default {
   flex-shrink: 0;
 }
 
-.card-title-row {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
 .card-title {
   font-size: 28rpx;
   font-weight: 600;
@@ -844,11 +838,6 @@ export default {
 .card-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
-}
-
-.card-action {
-  font-size: 24rpx;
-  color: var(--app-primary);
 }
 
 .card-empty {
@@ -1023,19 +1012,6 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.simple-count {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  margin-right: 12rpx;
-}
-
-.tag-dot {
-  width: 12rpx;
-  height: 12rpx;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 
 /* 各分类平均：名称 + 日均/笔均 同一行 */
