@@ -105,8 +105,12 @@ for (const item of ACCOUNT_ICONS) {
   check(`${item.key} URI 里没有裸的 < >`, uri.includes('<svg'), false)
   // data URI 是 URL 编码的，</svg> 会被转义成 %3C%2Fsvg%3E
   check(`${item.key} SVG 结构完整`, decodeURIComponent(uri.split(',')[1]).endsWith('</svg>'), true)
-  // viewBox 按 path 坐标系自动适配（24 系或 1024 系都合法）
-  check(`${item.key} SVG 有正方形 viewBox`, /viewBox="0 0 \d+ \d+"/.test(decodeURIComponent(uri.split(',')[1])), true)
+  // viewBox 按 path 真实包围盒自动适配（保留原始宽高比，非 1:1 也合法）
+  check(
+    `${item.key} SVG 有合法 viewBox`,
+    /viewBox="-?\d+(\.\d+)? -?\d+(\.\d+)? \d+(\.\d+)? \d+(\.\d+)?"/.test(decodeURIComponent(uri.split(',')[1])),
+    true
+  )
 }
 
 console.log('=== 未知 key 的兜底 ===')
