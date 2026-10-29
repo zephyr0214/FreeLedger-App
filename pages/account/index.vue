@@ -27,12 +27,15 @@
             </view>
           </view>
 
-          <SmoothLineChart
-            :points="trendPoints"
-            :color="primaryColor"
-            :height="200"
-            :format-amount="formatAmount"
-          />
+          <!-- 图表外层：横向出血，让曲线不被卡片内边距挤窄 -->
+          <view class="trend-chart">
+            <SmoothLineChart
+              :points="trendPoints"
+              :color="primaryColor"
+              :height="150"
+              :format-amount="formatAmount"
+            />
+          </view>
         </view>
       </view>
 
@@ -350,23 +353,63 @@ export default {
 .asset-card {
   background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
   border-radius: 24rpx;
-  padding: 36rpx 32rpx 28rpx;
+  /*
+   * ★ 上下内边距收紧 ★
+   *   原来是 36rpx 32rpx 28rpx，整块面板偏高。
+   *   用户要求「矮一些」，所以上 28、下 20 ——
+   *   总资产数字本身有行高，不需要再多垫。
+   */
+  padding: 28rpx 32rpx 20rpx;
   margin-top: 8rpx;
   box-shadow: var(--app-shadow);
 }
 
 /* 趋势区：与总资产同面板，用一条细分割线隔开 */
 .asset-trend {
-  margin-top: 28rpx;
-  padding-top: 24rpx;
+  margin-top: 20rpx;
+  padding-top: 18rpx;
   border-top: 1rpx solid var(--app-line);
+  /*
+   * ★ 折线图横向出血 ★
+   *   页面左右各 32rpx + 卡片左右又各 32rpx = 每侧 64rpx，
+   *   图表可用宽度只剩 622rpx，曲线被挤在中间，
+   *   看着就是「左右两边空太多」。
+   *   用负 margin 把图表区拉回卡片的左右边缘（-32rpx），
+   *   等于把它自己的横向留白还给曲线。
+   *   注意：负 margin 要作用于整个 .asset-trend 的子图区域，
+   *   而标题行（资产趋势 + 时间切换）要保持在原位，
+   *   所以只给下面的图表容器加，不倒在这里。
+   */
 }
 
 .trend-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+/*
+ * ★ 折线图横向出血 ★
+ *
+ * 问题：页面左右各 32rpx + 卡片左右又各 32rpx = 每侧 64rpx，
+ *   图表可用宽度只剩 750 - 128 = 622rpx。
+ *   SVG 是 scaleToFill 拉伸的，曲线会铺满这 622rpx，
+ *   但左右各 64rpx 的空白让整图看起来「被挤在中间、两边空太多」。
+ *
+ * 解法：负 margin 抵消卡片内边距，让图表区回到卡片边缘，
+ *   再用 16rpx 内边距给首尾圆点留出不被裁切的空间。
+ *   净效果：图表比原来宽 32rpx，首尾也不再贴边。
+ *
+ * ★ 为什么包一层 view 而不是给组件加 class ★
+ *   SmoothLineChart 的根节点在子组件内部，
+ *   父组件的 scoped 样式作用到子组件根元素在 App 端不可靠
+ *   （编译后可能带不上 data-v 属性）。
+ *   包一层本页自己的 view，样式必然生效。
+ */
+.trend-chart {
+  margin: 0 -32rpx;
+  padding: 0 16rpx;
 }
 
 .trend-title {
