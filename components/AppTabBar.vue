@@ -71,7 +71,6 @@
 <script>
 import { ref, computed, onMounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { useUiStore } from '@/stores/ui.js'
 import { TABBAR_ICON_VERSION } from '@/utils/theme.js'
 
 /**
@@ -200,51 +199,26 @@ export default {
     })
 
     /**
-     * 滑块位置与颜色。
+     * 滑块位置与颜色。硬切，无动画。
      *
-     * ★ 为什么放弃「跨页面位移」★
-     *   4 个 tab 是**不同 webview**。uni.switchTab 切页面时，
-     *   新页面的整个渲染过程是在切换动画里完成的 ——
-     *   等用户真正看到这个页面时，组件早已 mounted 完毕、
-     *   位移早跑完了。所以不管把起点设成上一页还是「两帧后再跳」，
-     *   用户都看不到那一段滑动。之前几版「没有动效」都是这个原因，
-     *   不是曲线写错了，是**根本没有可观察的窗口**。
+     * ★ 为什么不做动画 ★
+     *   4 个 tab 是**不同 webview**，uni.switchTab 切换时本组件整个
+     *   重新挂载。新页面的渲染发生在切换过程中，用户看不到；
+     *   等看到时组件早已就位。所以「从上一格滑过来」在跨 webview 下
+     *   根本不可观察 —— 前面几版（transition 位移、两段式位移、
+     *   animation 入场）都验证过这一点。
+     *   用户已明确要求「删除滑块动效，硬切即可」，这里就保持最简：
+     *   没有 transition、没有 animation、没有跨页状态记忆。
      *
-     * ★ 改成本页入场动画 ★
-     *   既然跨页过程不可见，就不要指望它。
-     *   改成：滑块一进入本页就做一次「轻微的胶囊弹入」——
-     *   从 0.86 缩放到 1，配合同一条 iOS 曲线。
-     *   这个动画每次挂载必定播放，不依赖任何跨页状态，
-     *   所以每一次切 tab 都能看到反馈，稳定可靠。
-     *
-     *   代价是它不是「从上一格滑过来」，而是「在当前格上弹一下」。
-     *   跨 webview 的 tab 切换做不到真正的滑动衔接，
-     *   iOS 原生 tabBar 之所以能滑，是因为它在同一个渲染树里。
-     */
-    const uiStore = useUiStore()
-
-    /** 滑块当前序号（本页固定，只用于定位） */
-    const sliderIndex = computed(() => currentIndex.value)
-
-    onMounted(() => {
-      // 记录位置，供「同页内 current 变化」时判断是否需要动（目前用不到，
-      // 但保留下来能让将来做页内切换时不至于完全没有历史）
-      uiStore.setLastTabIndex(currentIndex.value)
-    })
-
-    /**
-     * 滑块位置与颜色。
-     *
-     * ★ 定位改用 left，不用 transform ★
-     *   transform 现在专门留给入场动画（scale）用。
-     *   如果还用 translateX 定位，两边的 transform 会互相覆盖 ——
-     *   动画一跑，滑块就跳回原处。
-     *   所以定位交给 left（百分比相对 pill 内宽，够用且不冲突）。
+     * ★ 定位用 left ★
+     *   `10rpx + 序号 × 单格宽`，单格宽 =(pill 宽 - 左右 padding) / 4。
+     *   用 left 而不是 transform，因为 transform 可能被别的样式占用，
+     *   而且 left 改动是即时的，正好符合「硬切」。
      */
     const sliderStyle = computed(() => {
       const dark = settingStore.isDark
       return {
-        left: `calc(10rpx + ${sliderIndex.value} * ((560rpx - 20rpx) / 4))`,
+        left: `calc(10rpx + ${currentIndex.value} * ((560rpx - 20rpx) / 4))`,
         '--slider-color': dark
           ? 'rgba(255,255,255,0.14)'
           : settingStore.primaryLight,
@@ -281,18 +255,9 @@ export default {
      *   这 4 个页面在 pages.json 里声明为 tabBar 页，
      *   navigateTo / redirectTo 都会失败。
      *   点当前 tab 则什么都不做（避免重复通知原生栏重建页面）。
-     *
-     * ★ 点的时候就记下目标序号 ★
-     *   这是「每次切换都有滑动动画」的关键：
-     *   此刻当前页面还活着，把「要去第几格」写进 store，
-     *   新页面挂载时读到的 lastTabIndex 就是这一格，
-     *   于是滑块会从这一格滑到它自己的位置。
-     *   若等新页面挂载后才写，读到的就是它自己，位移为 0 —— 没动画。
      */
     function onTabClick(item) {
       if (item.active) return
-      const idx = TABS.findIndex((t) => t.name === item.name)
-      if (idx >= 0) uiStore.setLastTabIndex(idx)
       try {
         uni.switchTab({ url: item.path })
       } catch (e) {}
@@ -566,29 +531,20 @@ export default {
 }
 
 /*
- * ★ 选中滑块：圆角矩形（不是全圆角胶囊），铺满整格 ★
+ * ★ 选中滑块：全圆角胶囊，铺满整格。硬切，无动画。★
  *
- * ★ 为什么不用 999rpx 全圆角 ★
- *   999rpx 会让滑块两端变成**完整的半圆**（半径 = 高度一半 = 58rpx）。
- *   但它左右只有 10rpx 的余量，半圆一画出来就像被狠狠削掉两块，
- *   而且和外面那颗胶囊（半径 64rpx，但它的轮廓很长、弧度很缓）
- *   放在一起，两者的「弧度走势」完全不同 —— 所以会显得怪。
- *   现在改成和胶囊同量级的圆角（44rpx）：两端是缓和的圆角矩形，
- *   既能看出是「一块圆角块」，又不会在格子边上出现突兀的半圆切口。
+ * ★ 为什么没有动画 ★
+ *   4 个 tab 是不同 webview，切页时本组件整个重新挂载。
+ *   transition 要「属性变化」才触发，而新组件一出生就在目标位置；
+ *   animation 的入场效果虽然每次都会播，但用户明确要求「硬切即可」，
+ *   所以这里一律不做 —— 没有 transition、没有 animation、
+ *   也没有跨页位置记忆。
  *
- * ★ 宽度必须**正好等于单格宽度** ★
- *   内联 style 给的是 translateX(N × 100%)，
- *   百分比相对的是滑块**自身宽度**。
- *   只有自身宽度 == 单格宽度时，位移才会精确落在每格上；
- *   差一点就会越滑越偏（第 4 格最明显）。
- *   所以用 calc 从 pill 宽度和 padding 反推，不写死数字。
+ * ★ 定位用 left（内联 style 提供）★
+ *   `10rpx + 序号 × 单格宽`，单格宽 = (pill 宽 - 左右 padding) / 4。
  *
- * ★ 高度铺满，只留 6rpx 呼吸 ★
- *   116rpx（128 格高 - 上下各 6rpx），饱满但不顶到边。
- *
- * ★ 用 transform 位移 + transition ★
- *   位移由内联 transform 驱动，切线曲线是 iOS 的
- *   cubic-bezier(0.32, 0.72, 0, 1)：起步快、收尾长、几乎不回弹。
+ * ★ 尺寸：宽度正好一格，高度 116rpx ★
+ *   128 格高上下各留 6rpx 呼吸，饱满但不顶边。
  *
  * z-index 必须低于 .tab-item，否则会盖住图标和文字。
  */
@@ -602,49 +558,17 @@ export default {
   height: 116rpx;
   margin-top: -58rpx;
   /*
-   * ★ 全圆角胶囊（999rpx）★
-   *   用户确认要回到全圆角 —— 之前的 44rpx 圆角矩形他不要。
-   *   999rpx 会让两端变成完整半圆，和外面胶囊的端部弧度是同一套语言。
+   * 全圆角胶囊：半径自动等于高度一半，两端是完整半圆，
+   * 与外面胶囊的端部弧度是同一套语言。
    */
   border-radius: 999rpx;
   background-color: var(--slider-color, transparent);
   box-shadow: var(--slider-highlight, none);
-  /*
-   * ★ 为什么用 animation 而不是 transition ★
-   *   4 个 tab 是不同 webview，切页面时本组件每次都重新挂载。
-   *   transition 需要「属性值发生变化」才触发，
-   *   而新挂载的组件一出生就在目标位置，永远等不到那次变化 ——
-   *   这就是前几版「怎么改都没有动效」的真正原因。
-   *
-   *   animation 不一样：只要元素被创建，动画就会**无条件播放一次**。
-   *   所以这里用「入场动画」：滑块出现时从 0.86 弹到 1。
-   *   每次切 tab 必定能看到，稳定、不依赖任何跨页状态。
-   *
-   * ★ 为什么不做「从上一格滑过来」★
-   *   新页面的渲染发生在 switchTab 的切换动画期间，
-   *   等用户看见这个页面时，位移早就跑完了。
-   *   跨 webview 做不到真正的滑动衔接 ——
-   *   iOS 原生 tabBar 能滑，是因为它在同一个渲染树里。
-   */
-  animation: slider-pop 0.34s cubic-bezier(0.32, 0.72, 0, 1) both;
-  will-change: transform;
+  /* 硬切：确保没有任何动画残留 */
+  transition: none;
+  animation: none;
   pointer-events: none;
   z-index: 0;
-}
-
-/*
- * 入场：轻微缩小 + 略淡 → 回到原位、完全不透明。
- * 幅度刻意做小（0.86），太大就不是「iOS 的克制感」而是弹跳了。
- */
-@keyframes slider-pop {
-  from {
-    transform: scale(0.86);
-    opacity: 0.55;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
 }
 
 .tab-item {
@@ -665,18 +589,16 @@ export default {
  *   底栏加高后图标也跟着放大，否则会显得空。
  *   原生素材是 81px 画布，缩到 48rpx 仍然清晰。
  *
- * ★ 过渡要和滑块同一条曲线 ★
- *   滑块 0.38s cubic-bezier(0.32,0.72,0,1)，
- *   图标/文字的变色也用相近的时长，
- *   三者同步进行才有「整体一起动」的 iOS 感。
- *   未选中态略微缩小并降低不透明度，
- *   选中的那个浮起来 —— iOS 就是这个轻微的层级差。
+ * ★ 硬切，无过渡 ★
+ *   用户要求「删除滑块动效，硬切即可」，所以图标/文字也不再做
+ *   淡入淡出与缩放：切 tab 时颜色和图标立即切换到位。
+ *   未选中态略淡、略小，选中态恢复 —— 这个静态层级差保留，
+ *   它不产生动画，只是让选中项更突出。
  */
 .tab-icon {
   width: 48rpx;
   height: 48rpx;
   pointer-events: none;
-  transition: opacity 0.3s ease, transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
   opacity: 0.82;
   transform: scale(0.94);
 }
@@ -691,7 +613,6 @@ export default {
   line-height: 1;
   margin-top: 8rpx;
   pointer-events: none;
-  transition: color 0.3s ease;
 }
 
 /* ------------------------------------------------------ + 按钮 */

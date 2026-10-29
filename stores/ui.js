@@ -25,25 +25,16 @@ export const useUiStore = defineStore('ui', {
      *   'ai'      回首页后打开 AI 速记输入条
      *   'manual'  回首页后打开手动记账面板
      */
-    pendingAdd: null,
+    pendingAdd: null
 
-    /**
-     * 上一次选中的 tab 序号（0..3）。
-     *
-     * ★ 为什么滑块动效需要这个 ★
-     *   4 个 tab 是不同的页面，切 tab 时 uni-app 会切换 webview，
-     *   AppTabBar 跟着**整个重新挂载**。新组件一渲染出来
-     *   transform 就已经在「正确位置」了，从来没有发生过变化，
-     *   所以 CSS transition 根本没机会触发 —— 表现就是「没有滑块」。
-     *
-     *   把上次位置存到全局 store 里，新挂载时就能：
-     *     1. 先用旧位置渲染（那一帧滑块还在老地方）
-     *     2. 下一帧再改成新位置
-     *   这样 transform 有了「从 A 到 B」的变化，动画就出来了。
-     *
-     * -1 表示「还没有历史」，首次进入时不做位移动画。
+    /*
+     * ★ 这里曾经有 lastTabIndex（记录上次选中的 tab 序号）★
+     *   它是为了「跨页面滑块位移动画」而加的：切 tab 时记下旧位置，
+     *   新页面挂载时从旧位置滑到新位置。
+     *   但 4 个 tab 是不同 webview，新页面的渲染过程用户看不到，
+     *   位移早已跑完 —— 这个方案在真机上从未生效过。
+     *   用户最终要求「删除滑块动效，硬切即可」，所以一并删掉了。
      */
-    lastTabIndex: -1
   }),
 
   actions: {
@@ -63,11 +54,6 @@ export const useUiStore = defineStore('ui', {
       const mode = this.pendingAdd
       this.pendingAdd = null
       return mode
-    },
-
-    /** 记录当前选中的 tab 序号，供下一页挂载时做滑动动画 */
-    setLastTabIndex(i) {
-      this.lastTabIndex = Number(i) || 0
     }
   }
 })

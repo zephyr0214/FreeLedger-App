@@ -197,15 +197,23 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
   check('滑块高度 >= 110rpx（铺满整格）', Number(sliderH) >= 110, true)
   check('滑块不再套 ::after 内缩', /\.tab-slider::after/.test(tabbarCode), false)
 
-  /* ★ 滑块必须有动效 ★
-   *   4 个 tab 是不同 webview，切页时组件重新挂载。
-   *   transition 要「属性变化」才触发，而新挂载的组件一出生就在目标位置
-   *   —— 这就是前几版「怎么改都没有动效」的根因。
-   *   改用 animation：元素一创建就无条件播放一次，每次切 tab 都能看到。
+  /* ★ 滑块：硬切，不要任何动效 ★
+   *   4 个 tab 是不同 webview，切页时组件重新挂载，
+   *   跨页位移不可观察（前几版验证过）。用户明确要求「硬切即可」。
+   *   所以这些都得是空的：transition、animation、keyframes。
    */
-  check('滑块用 animation 动效', /\.tab-slider\s*\{[^}]*animation:\s*slider-pop/.test(tabbarCode), true)
-  check('有入场关键帧', /@keyframes slider-pop/.test(tabbarCode), true)
-  check('不再依赖 transition', /\.tab-slider\s*\{[^}]*transition:\s*transform/.test(tabbarCode), false)
+  const sliderBlock = (tabbarCode.match(/\.tab-slider\s*\{[^}]*\}/) || [''])[0]
+  check('滑块 transition 是 none', /transition:\s*none/.test(sliderBlock), true)
+  check('滑块 animation 是 none', /animation:\s*none/.test(sliderBlock), true)
+  check('滑块没有真实过渡时长', /transition:[^;]*\ds/.test(sliderBlock), false)
+  check('滑块没有真实动画名', /animation:\s*(?!none)\w/.test(sliderBlock), false)
+  check('没有 slider-pop 关键帧', /@keyframes slider-pop/.test(tabbarCode), false)
+  check('图标没有 transition', /\.tab-icon\s*\{[^}]*transition:/.test(tabbarCode), false)
+  check('文字没有 transition', /\.tab-text\s*\{[^}]*transition:/.test(tabbarCode), false)
+  // 跨页位置记忆也一并删除（注释里说明历史是允许的，但不能有 state/action）
+  const uiSrc = readFileSync(join(process.cwd(), 'stores/ui.js'), 'utf-8')
+  check('store 没有 lastTabIndex 状态', /lastTabIndex:\s*-?\d/.test(uiSrc), false)
+  check('store 没有 setLastTabIndex', /setLastTabIndex\s*\(/.test(uiSrc), false)
 
   /* ★ 弹层打开时底栏要一起收起 ★
    *   记账面板 / 速记输入条是全屏弹层，底栏留在遮罩边缘会露一角。
@@ -245,6 +253,22 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
     const code = readFileSync(join(process.cwd(), rel), 'utf-8')
     check(`${rel} 没有顶部提示块`, /class="hint-card"/.test(code), false)
   }
+
+  /* ★ 关于页的说明段落要真的分行 ★
+   *   bug：段落写在模板里，uni-app 的 <text> 编译期会把换行/缩进
+   *   压成空格，white-space: pre-wrap 也救不了（换行符已不存在），
+   *   结果整段挤成一坨。
+   *   修法：文案放数组，v-for 渲染成多个 <text>，
+   *   段落边界由 DOM 结构决定，与模板排版无关。
+   */
+  const aboutSrc = readFileSync(join(process.cwd(), 'pages/settings/about.vue'), 'utf-8')
+  check('关于页用数组渲染段落', /v-for="\(p, i\) in privacyParas"/.test(aboutSrc), true)
+  check('关于页有隐私段落数组', /const privacyParas = \[/.test(aboutSrc), true)
+  check('关于页有安全段落数组', /const safetyParas = \[/.test(aboutSrc), true)
+  check('关于页有功能段落数组', /const featureParas = \[/.test(aboutSrc), true)
+  check('段落样式是 block', /\.prose-para\s*\{[^}]*display:\s*block/.test(aboutSrc), true)
+  // 只查真实声明（注释里提及历史做法是允许的）
+  check('不再依赖 pre-wrap', /white-space:\s*pre-wrap\s*;/.test(aboutSrc), false)
 
   /* ★ 高度要够，不能扁 ★
    *   96rpx 那版用户反馈「有点丑」，要求高一些。

@@ -35,45 +35,41 @@
       <view class="section">
         <text class="section-title">隐私说明</text>
         <view class="prose-card">
-          <text class="prose">
-            本应用是一个完全本地化的个人记账工具。
-
-· 所有账户、交易、分类、标签、周期、预算与设置都保存在你手机本地的 SQLite 数据库中，不会上传到任何服务器。
-· 应用不含任何统计、埋点或广告 SDK。
-· 唯一的网络请求来自「AI 洞察 / 消费分析 / 速记兜底」功能：只有在你主动配置了 API Key 并触发这些功能时，才会把聚合后的账务摘要发送到你指定的接口地址。
-· 语音记账不录音、不调用麦克风，语音能力由你手机自带的输入法提供。
-          </text>
+          <!--
+            ★ 为什么用 v-for 逐段渲染，而不是一段多行文本 ★
+              uni-app 的 <text> 在编译期会把连续空白（含换行、缩进）
+              压缩成单个空格，所以模板里手写的换行**渲染不出来**
+              （white-space: pre-wrap 也救不了，因为换行符已经被吃掉了）。
+              改成数据数组 + v-for，每段一个 <text>，段落之间自然分行。
+              新增/修改文案只改 about.js 里的数组，不碰模板。
+          -->
+          <text
+            v-for="(p, i) in privacyParas"
+            :key="'p' + i"
+            class="prose-para"
+          >{{ p }}</text>
         </view>
       </view>
 
       <view class="section">
         <text class="section-title">数据安全</text>
         <view class="prose-card">
-          <text class="prose">
-            因为数据只在本机，请务必注意：
-
-· 卸载应用会删除全部数据，卸载前请先导出备份。
-· 换手机时，用「数据与备份」导出后在新机导入即可搬过去。
-· 备份文件保存在手机本地，卸载应用会一并删除，请及时另存或发送到自己的网盘。
-· 应用每天首次启动会自动备份到 _doc/backup/，滚动保留最近 5 份，可在「数据与备份」中恢复。
-· 也可随时手动导出完整备份（含账户、交易、分类、标签、周期、预算与设置）。
-          </text>
+          <text
+            v-for="(p, i) in safetyParas"
+            :key="'s' + i"
+            class="prose-para"
+          >{{ p }}</text>
         </view>
       </view>
 
       <view class="section">
         <text class="section-title">主要功能</text>
         <view class="prose-card">
-          <text class="prose">
-            · 记账：手动记账面板，或一句话 AI 速记（「昨天午饭 45，打车 28」）
-· 账户：多账户管理，支持自定义品牌图标，可右滑设为默认
-· 统计：分类 / 账户 / 标签多维度分析，含趋势、占比与月度对比
-· 周期：房租、订阅、工资这类重复收支，可按天 / 周 / 月自动提醒记一笔
-· 预算：总预算与分类预算，随时看剩余额度
-· 标签：跨分类的项目维度汇总（如「2026 装修」「日本旅行」）
-· 主题：6 套主题色 + 跟随系统的深浅色
-· 备份：自动备份 + 手动导入导出，换机不丢数据
-          </text>
+          <text
+            v-for="(p, i) in featureParas"
+            :key="'f' + i"
+            class="prose-para"
+          >{{ p }}</text>
         </view>
       </view>
 
@@ -137,6 +133,43 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
+    /*
+     * ★ 文案放在数组里，不写在模板里 ★
+     *   uni-app 的 <text> 会压缩连续空白（换行、缩进全变空格），
+     *   模板里手写的换行渲染不出来。所以每段一个数组元素，
+     *   v-for 渲染成多个 <text>，段落之间才是真的分行。
+     *
+     * ★ 维护方式 ★
+     *   想加/改一句话，直接在这三个数组里加一条，不用碰模板。
+     *   空字符串 '' 会渲染成空行（用作小标题后的间距）。
+     */
+    const privacyParas = [
+      '本应用是一个完全本地化的个人记账工具。',
+      '· 所有账户、交易、分类、标签、周期、预算与设置都保存在你手机本地的 SQLite 数据库中，不会上传到任何服务器。',
+      '· 应用不含任何统计、埋点或广告 SDK。',
+      '· 唯一的网络请求来自「AI 洞察 / 消费分析 / 速记兜底」功能：只有在你主动配置了 API Key 并触发这些功能时，才会把聚合后的账务摘要发送到你指定的接口地址。',
+      '· 语音记账不录音、不调用麦克风，语音能力由你手机自带的输入法提供。'
+    ]
+
+    const safetyParas = [
+      '因为数据只在本机，请务必注意：',
+      '· 卸载应用会删除全部数据，卸载前请先导出备份。',
+      '· 换手机时，用「数据与备份」导出后在新机导入即可搬过去。',
+      '· 备份文件保存在手机本地，卸载应用会一并删除，请及时另存或发送到自己的网盘。',
+      '· 应用每天首次启动会自动备份到 _doc/backup/，滚动保留最近 5 份，可在「数据与备份」中恢复。',
+      '· 也可随时手动导出完整备份（含账户、交易、分类、标签、周期、预算与设置）。'
+    ]
+
+    const featureParas = [
+      '· 记账：手动记账面板，或一句话 AI 速记（「昨天午饭 45，打车 28」）',
+      '· 账户：多账户管理，支持自定义品牌图标，可右滑设为默认',
+      '· 统计：分类 / 账户 / 标签多维度分析，含趋势、占比与月度对比',
+      '· 周期：房租、订阅、工资这类重复收支，可按天 / 周 / 月自动提醒记一笔',
+      '· 预算：总预算与分类预算，随时看剩余额度',
+      '· 标签：跨分类的项目维度汇总（如「2026 装修」「日本旅行」）',
+      '· 主题：6 套主题色 + 跟随系统的深浅色',
+      '· 备份：自动备份 + 手动导入导出，换机不丢数据'
+    ]
 
     async function onDiagnose() {
       try {
@@ -150,7 +183,11 @@ export default {
       uni.navigateBack()
     }
 
-    return { settingStore, primaryColor, pageStyle, onDiagnose, goBack }
+    return {
+      settingStore, primaryColor, pageStyle,
+      privacyParas, safetyParas, featureParas,
+      onDiagnose, goBack
+    }
   }
 }
 </script>
@@ -242,11 +279,23 @@ export default {
   padding: 28rpx;
 }
 
-.prose {
+/*
+ * 每一段是一个独立的 <text>（display: block 才能各占一行）。
+ * ★ 不再用 white-space: pre-wrap ★
+ *   依赖模板换行符在 uni-app 里不可靠 —— 编译期就被压成空格了。
+ *   现在段落边界由 DOM 结构决定，跟模板排版无关。
+ *   段间距用 margin-bottom 给，比靠空行稳妥。
+ */
+.prose-para {
+  display: block;
   font-size: 24rpx;
   color: var(--app-text-2);
   line-height: 1.9;
-  white-space: pre-wrap;
+  margin-bottom: 8rpx;
+}
+
+.prose-para:last-child {
+  margin-bottom: 0;
 }
 
 .footer {
