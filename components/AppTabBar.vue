@@ -6,16 +6,6 @@
     :style="hostStyle"
   >
     <!--
-      ★ 底部渐变（垫在底栏后面）★
-        手机的系统导航条是纯白 / 纯黑，而页面底色是 #F7F8FA（略偏灰），
-        两者直接相接会看到一条明显的色差分界线。
-        这里铺一层「页面底色 → 纯白/纯黑」的竖向渐变，
-        让最底部与系统导航条同色，往上自然过渡回页面色。
-        高度很低（只覆盖底栏及其下方一点点），不影响内容观感。
-    -->
-    <view class="bottom-fade" :style="fadeStyle" />
-
-    <!--
       圆角悬浮底栏
       ★ 为什么不用原生 tabBar ★
         原生 tabBar 由系统绘制，做不了圆角、悬浮、留白、阴影，
@@ -155,44 +145,6 @@ export default {
 
     /** 未选中态的文字色：跟着深浅模式走，与 theme.json 的 tabFontColor 一致 */
     const fontColor = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
-
-    /**
-     * 底部渐变：从「页面底色」过渡到「纯白 / 纯黑」。
-     *
-     * ★ 为什么之前看不到 ★
-     *   第一版是把 background-image 写成 linear-gradient(页面底色透明 → 纯白)，
-     *   颜色从 #F7F8FA 到 #FFFFFF 只差 8/255 —— 整条渐变几乎同色，
-     *   肉眼看不出任何变化，等于没加。
-     *
-     * ★ 现在的做法：白色打底 + 上方渐隐 ★
-     *   1. background-color 直接给**纯白/纯黑**（打底）
-     *   2. background-image 用「页面底色 → 透明」盖在上面
-     *   这样最底部一定是纯白（与系统导航条完全一致），
-     *   往上才逐渐溶回页面底色 —— 效果才是「底部变白 + 柔和过渡」。
-     *
-     * ★ 为什么用半透明叠加而不是「两色渐变」★
-     *   两色渐变的话，最底部才刚到达纯白，安全区那一段仍是过渡色，
-     *   与导航条还是有色差。打底法能保证从下往上**先是一段纯白**，
-     *   安全区（导航条所在）必然在白段内。
-     *
-     * ★ 颜色分档 ★
-     *   浅色：页面底色 rgba(247,248,250,*) + 纯白底
-     *   深色：纯黑底，页面底色也是纯黑 → 视觉上等于没变化，
-     *         但保留同一套结构，深浅切换不用改样式。
-     */
-    const fadeStyle = computed(() => {
-      const dark = settingStore.isDark
-      // 打底色：与系统导航条一致
-      const solid = dark ? '#000000' : '#FFFFFF'
-      // 页面底色的不透明 / 全透明两种形态，用于叠加渐变
-      const opaque = dark ? 'rgba(0,0,0,1)' : 'rgba(247,248,250,1)'
-      const clear = dark ? 'rgba(0,0,0,0)' : 'rgba(247,248,250,0)'
-      return {
-        '--fade-solid': solid,
-        '--fade-opaque': opaque,
-        '--fade-clear': clear
-      }
-    })
 
     /**
      * 底栏玻璃质感：只负责传「颜色变量」，样式规则在 CSS 里。
@@ -459,7 +411,7 @@ export default {
 
     return {
       items, primaryColor, fontColor, barStyle, ringStyle, sliderStyle, pressing,
-      hostStyle, fadeStyle,
+      hostStyle,
       iconOf, onTabClick,
       onTouchStart, onTouchEnd, onTouchCancel, onTouchMove
     }
@@ -496,50 +448,6 @@ export default {
 }
 
 /*
- * ★ 底部渐变：页面底色 → 纯白/纯黑 ★
- *
- * 作用：让屏幕最底部（含安全区里的系统导航条）与导航条同色，
- * 避免 #F7F8FA 的浅灰与纯白相接时出现一条色差分界线。
- *
- * ★ 实现：纯色打底 + 上方渐隐（不是两色渐变）★
- *   background-color: 纯白/纯黑（--fade-solid）
- *   background-image: 页面底色(不透明) → 页面底色(全透明)
- *   叠加效果 = 顶部是页面底色，越往下越露出白色底，
- *   最底部（安全区、导航条）一定是纯白。
- *
- * ★ 渐变停在 62%，留出下方纯白段 ★
- *   浅色下页面底色 #F7F8FA 与纯白只差 8/255，是**极浅**的差异。
- *   若让渐变一路铺到 100%，整条几乎全是「接近白」的过渡色，
- *   视觉上等于没有任何效果（这也是第一版看着「没显示」的原因）。
- *   现在让渐隐在 62% 处就结束，下面 38% 是**干净纯白**：
- *   安全区（导航条位置）落在纯白里，同时能看出「底部变白了」。
- *
- * ★ 高度 ★
- *   取 168rpx + 安全区，与 App.vue 的 .tabbar-space **完全对齐** ——
- *   渐变不占布局，比留白高就会压住最后一条内容。
- */
-.bottom-fade {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: calc(env(safe-area-inset-bottom) + 168rpx);
-  /* 打底：与系统导航条同色 */
-  background-color: var(--fade-solid, #FFFFFF);
-  /*
-   * 上层渐隐：页面底色 → 完全透明，在 62% 处收敛。
-   * 62% 之后没有任何覆盖色，露出纯白打底。
-   */
-  background-image: linear-gradient(
-    to bottom,
-    var(--fade-opaque, rgba(247, 248, 250, 1)) 0%,
-    var(--fade-clear, rgba(247, 248, 250, 0)) 62%
-  );
-  z-index: 0;
-  pointer-events: none;
-}
-
-/*
  * 横向排布：左 pill + 右圆按钮，两者**分开**且整体居中。
  *
  * ★ gap 是这一版的关键 ★
@@ -553,9 +461,6 @@ export default {
  *   两侧露出页面背景，才是「浮起来的一块」。
  */
 .tabbar-row {
-  position: relative;
-  /* 必须高于 .bottom-fade(0)，否则会被那层渐变盖住 */
-  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;

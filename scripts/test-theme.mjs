@@ -270,32 +270,6 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
   // 只查真实声明（注释里提及历史做法是允许的）
   check('不再依赖 pre-wrap', /white-space:\s*pre-wrap\s*;/.test(aboutSrc), false)
 
-  /* ★ 底部渐变：页面底色 → 纯白/纯黑 ★
-   *   手机系统导航条是纯白/纯黑，页面底色是 #F7F8FA（浅灰），
-   *   两者相接会露出色差分界线。这层渐变的职责就是把它抹平。
-   *
-   * ★ 这里踩过两个坑，断言要盯住 ★
-   *   1. 两色直连渐变：颜色只差 8/255，整条几乎同色，**肉眼看不到**
-   *      → 必须「纯色打底 + 上层渐隐」，保证下方有一段干净纯白
-   *   2. 起点写成 transparent（= 透明黑）：浅色页上插值会渗灰
-   *      → 必须用与页面底色同色相的透明
-   */
-  check('有底部渐变层', /class="bottom-fade"/.test(tabbarCode), true)
-  check('渐变浅色到纯白', /'#FFFFFF'/.test(tabbarCode), true)
-  check('渐变深色到纯黑', /'#000000'/.test(tabbarCode), true)
-  check('渐变起点是页面底色透明', /rgba\(247,248,250,0\)/.test(tabbarCode), true)
-  // 打底法：background-color 给纯色，background-image 给渐隐
-  check('渐变有纯色打底', /\.bottom-fade\s*\{[^}]*background-color:\s*var\(--fade-solid/.test(tabbarCode), true)
-  check('渐变用 background-image 叠渐隐', /\.bottom-fade\s*\{[^}]*background-image:\s*linear-gradient/.test(tabbarCode), true)
-  // 渐隐要提前收敛（62%），下面留出干净纯白段，否则看不出效果
-  check('渐隐在 62% 收敛', /rgba\(247, 248, 250, 0\)\) 62%/.test(tabbarCode), true)
-  // 渐变高度不能超过 App.vue 的内容留白（168rpx + 安全区）
-  const fadeH = (tabbarCode.match(/\.bottom-fade\s*\{[^}]*height:\s*calc\(env\(safe-area-inset-bottom\) \+ (\d+)rpx\)/) || [])[1]
-  check('渐变高度不超过内容留白', Number(fadeH) <= 168, true)
-  // 渐变必须垫在底栏后面
-  check('渐变在底栏后面', /\.bottom-fade\s*\{[^}]*z-index:\s*0/.test(tabbarCode), true)
-  check('底栏高于渐变', /\.tabbar-row\s*\{[^}]*z-index:\s*1/.test(tabbarCode), true)
-
   /* ★ 高度要够，不能扁 ★
    *   96rpx 那版用户反馈「有点丑」，要求高一些。
    *   这里锁一个下限，防止后续被改回扁的。
