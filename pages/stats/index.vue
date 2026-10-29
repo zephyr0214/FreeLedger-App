@@ -103,35 +103,50 @@
         </view>
       </view>
 
-      <!-- ② 账户统计（按账户） -->
+      <!-- ② 账户统计（按账户 / 按账户类别，合并为一个面板） -->
       <view class="card">
         <view class="card-head">
           <text class="card-title">账户统计</text>
-          <view class="type-toggle">
-            <text
-              class="type-tag"
-              :class="{ active: accountStatType === 'expense' }"
-              @click="switchAccountType('expense')"
-            >支出</text>
-            <text
-              class="type-tag"
-              :class="{ active: accountStatType === 'income' }"
-              @click="switchAccountType('income')"
-            >收入</text>
+          <view class="card-head-right">
+            <!-- ★ 账户/账户类别切换：与支出/收入同款按钮，放左边 ★ -->
+            <view class="type-toggle">
+              <text
+                class="type-tag"
+                :class="{ active: accountViewMode === 'account' }"
+                @click="switchAccountViewMode('account')"
+              >账户</text>
+              <text
+                class="type-tag"
+                :class="{ active: accountViewMode === 'type' }"
+                @click="switchAccountViewMode('type')"
+              >类别</text>
+            </view>
+            <view class="type-toggle">
+              <text
+                class="type-tag"
+                :class="{ active: accountStatType === 'expense' }"
+                @click="switchAccountType('expense')"
+              >支出</text>
+              <text
+                class="type-tag"
+                :class="{ active: accountStatType === 'income' }"
+                @click="switchAccountType('income')"
+              >收入</text>
+            </view>
           </view>
         </view>
 
-        <view v-if="accountStats.length === 0" class="card-empty">
+        <view v-if="accountViewList.length === 0" class="card-empty">
           <text class="empty-text">{{ rangeLabel }}暂无数据</text>
         </view>
 
         <view v-else>
           <view class="donut-wrap">
-            <image class="donut-img" :src="accountDonutUri" mode="widthFix" />
+            <image class="donut-img" :src="accountViewDonutUri" mode="widthFix" />
           </view>
           <view class="rank-list">
-            <view v-for="(acc, i) in accountStats" :key="acc.id" class="rank-item">
-              <view class="rank-dot" :style="{ backgroundColor: accColor(acc, i) }" />
+            <view v-for="(acc, i) in accountViewList" :key="acc.key || acc.id" class="rank-item">
+              <view class="rank-dot" :style="{ backgroundColor: acc.color }" />
               <text class="rank-name">{{ acc.name }}</text>
               <view class="rank-count">
                 <text class="rank-count-num">{{ acc.count }}</text>
@@ -139,48 +154,6 @@
               </view>
               <view class="rank-amount">
                 <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
-              </view>
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <!-- ③ 账户类别统计 -->
-      <view class="card">
-        <view class="card-head">
-          <text class="card-title">账户类别统计</text>
-          <view class="type-toggle">
-            <text
-              class="type-tag"
-              :class="{ active: accountTypeStatType === 'expense' }"
-              @click="switchAccountTypeType('expense')"
-            >支出</text>
-            <text
-              class="type-tag"
-              :class="{ active: accountTypeStatType === 'income' }"
-              @click="switchAccountTypeType('income')"
-            >收入</text>
-          </view>
-        </view>
-
-        <view v-if="accountTypeStats.length === 0" class="card-empty">
-          <text class="empty-text">{{ rangeLabel }}暂无数据</text>
-        </view>
-
-        <view v-else>
-          <view class="donut-wrap">
-            <image class="donut-img" :src="accountTypeDonutUri" mode="widthFix" />
-          </view>
-          <view class="rank-list">
-            <view v-for="t in accountTypeStats" :key="t.key" class="rank-item">
-              <view class="rank-dot" :style="{ backgroundColor: t.color }" />
-              <text class="rank-name">{{ t.name }}</text>
-              <view class="rank-count">
-                <text class="rank-count-num">{{ t.count }}</text>
-                <text class="rank-count-unit">笔</text>
-              </view>
-              <view class="rank-amount">
-                <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
               </view>
             </view>
           </view>
@@ -384,8 +357,15 @@ export default {
      */
     const categoryStatType = ref('expense')
     const accountStatType = ref('expense')
-    const accountTypeStatType = ref('expense')
     const averageStatType = ref('expense')
+
+    /*
+     * ★ 账户统计视图：按账户 / 按账户类别 ★
+     *   两个视图合并在一个面板里，用与支出/收入同款的按钮切换。
+     *   'account' = 按具体账户分（每个账户一块）
+     *   'type' = 按账户类别分（网络支付、信用卡…）
+     */
+    const accountViewMode = ref('account')
 
     /*
      * ★ 分类层级：一级分类 / 二级分类 ★
@@ -478,22 +458,43 @@ export default {
       })
     )
 
-    /** 按账户分的环形图 */
-    const accountDonutUri = computed(() =>
-      donutToDataUri(
+    /**
+     * 账户统计的列表：按视图返回账户或账户类别。
+     * 统一为 { key, name, color, amount, count }，方便模板一处渲染。
+     */
+    const accountViewList = computed(() => {
+      if (accountViewMode.value === 'type') {
+        return accountTypeStats.value.map((t) => ({
+          key: t.key,
+          name: t.name,
+          color: t.color,
+          amount: t.amount,
+          count: t.count
+        }))
+      }
+      return accountStats.value.map((a, i) => ({
+        key: a.id,
+        name: a.name,
+        color: accColor(a, i),
+        amount: a.amount,
+        count: a.count
+      }))
+    })
+
+    /** 账户统计的环形图：按视图返回账户或账户类别的 SVG */
+    const accountViewDonutUri = computed(() => {
+      if (accountViewMode.value === 'type') {
+        return donutToDataUri(accountTypeStats.value, {
+          total: accountTypeTotal.value,
+          topN: 8,
+          textColor: donutTextColor.value
+        })
+      }
+      return donutToDataUri(
         accountStats.value.map((a, i) => ({ name: a.name, amount: a.amount, color: accColor(a, i) })),
         { total: accountTotal.value, topN: 10, textColor: donutTextColor.value }
       )
-    )
-
-    /** 按账户类别分的环形图 */
-    const accountTypeDonutUri = computed(() =>
-      donutToDataUri(accountTypeStats.value, {
-        total: accountTypeTotal.value,
-        topN: 8,
-        textColor: donutTextColor.value
-      })
-    )
+    })
 
     /**
      * 账户配色
@@ -544,7 +545,7 @@ export default {
             ? getCategoryStatsRange(r, categoryStatType.value)
             : getSubCategoryStatsRange(r, categoryStatType.value),
           getAccountStatsRange(r, accountStatType.value),
-          getAccountTypeStatsRange(r, accountTypeStatType.value),
+          getAccountTypeStatsRange(r, accountStatType.value),
           // 平均值：按面板的层级（一级/二级）查询
           averageLevel.value === 'root'
             ? getCategoryAveragesRange(r, averageStatType.value)
@@ -627,26 +628,34 @@ export default {
       }
     }
 
-    /** 账户统计：切换支出/收入 */
+    /**
+     * 账户统计：切换支出/收入。
+     * ★ 同时加载「按账户」和「按账户类别」两个数据源 ★
+     *   面板合并后，用户可能在任一视图下切换支出/收入，
+     *   必须两个都更新，切回另一视图时数据才是新的。
+     */
     async function switchAccountType(type) {
       if (accountStatType.value === type) return
       accountStatType.value = type
       try {
-        accountStats.value = await getAccountStatsRange(range.value, type)
+        const [accs, accTypes] = await Promise.all([
+          getAccountStatsRange(range.value, type),
+          getAccountTypeStatsRange(range.value, type)
+        ])
+        accountStats.value = accs
+        accountTypeStats.value = accTypes
       } catch (e) {
         console.error('[stats] 账户统计切换失败', e)
       }
     }
 
-    /** 账户类别统计：切换支出/收入 */
-    async function switchAccountTypeType(type) {
-      if (accountTypeStatType.value === type) return
-      accountTypeStatType.value = type
-      try {
-        accountTypeStats.value = await getAccountTypeStatsRange(range.value, type)
-      } catch (e) {
-        console.error('[stats] 账户类别统计切换失败', e)
-      }
+    /**
+     * 账户统计：切换「按账户 / 按账户类别」视图。
+     * 两个数据源已在 loadAll 加载，这里只切显示，不用重新查询。
+     */
+    function switchAccountViewMode(mode) {
+      if (accountViewMode.value === mode) return
+      accountViewMode.value = mode
     }
 
     /** 平均值：切换支出/收入（按当前层级查询） */
@@ -711,18 +720,18 @@ export default {
     return {
       settingStore,
       dateRange,
-      categoryStatType, accountStatType, accountTypeStatType, averageStatType,
-      categoryLevel, averageLevel,
+      categoryStatType, accountStatType, averageStatType,
+      categoryLevel, averageLevel, accountViewMode,
       categoryStats, accountStats, accountTypeStats, categoryAverages,
       dailyTrend, averages, topExpenses, overview,
       primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
       categoryTotal, categoryDonutUri, accountTotal, accountTypeTotal,
-      accountDonutUri, accountTypeDonutUri,
+      accountViewList, accountViewDonutUri,
       dailyExtremes,
       barHeight, shortDay, accColor,
       loadAll, onRangeChange,
-      switchCategoryType, switchAccountType, switchAccountTypeType, switchAverageType,
-      switchCategoryLevel, switchAverageLevel,
+      switchCategoryType, switchAccountType, switchAverageType,
+      switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
       onAddTap, onAddHoldEnd,
       goTxnDetail, goAiChat, goProfile
     }
