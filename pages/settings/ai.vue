@@ -3,13 +3,6 @@
     <PageNav title="AI 大模型" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <view class="hint-card">
-        <text class="hint-text">
-          账本本身完全离线。这里的配置只用于「AI 洞察 / 消费分析 / 速记兜底」，
-          数据会直接发送到你自己填写的接口，不经过任何中间服务器。
-        </text>
-      </view>
-
       <view class="form-card">
         <view class="form-row form-row-column">
           <text class="form-label">接口地址 (Base URL)</text>
@@ -246,19 +239,6 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
-}
-
-.hint-card {
-  background-color: var(--app-card);
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-top: 16rpx;
-}
-
-.hint-text {
-  font-size: 23rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
 }
 
 .form-card {

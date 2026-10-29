@@ -9,14 +9,6 @@
     </PageNav>
 
     <scroll-view class="page-scroll" scroll-y>
-      <view class="hint-card">
-        <text class="hint-text">
-          周期就是会重复发生的收支，比如房租、订阅、每月工资。
-          创建一个周期后，它会按「每天 / 每周 / 每月」的规则提醒你记一笔，
-          已记的笔数和流水都能在这里看到。
-        </text>
-      </view>
-
       <view v-if="totalCount === 0" class="empty-wrap">
         <EmptyState
           emoji="🔁"
@@ -290,19 +282,6 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
-}
-
-.hint-card {
-  background-color: var(--app-card);
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-top: 16rpx;
-}
-
-.hint-text {
-  font-size: 23rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
 }
 
 .empty-wrap {

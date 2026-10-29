@@ -3,13 +3,6 @@
     <PageNav title="记账按钮设置" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <!-- 说明 -->
-      <view class="hint-card">
-        <text class="hint-text">
-          设置首页右下角「+」按钮的行为。默认是短按打开 AI 速记、长按打开手动记账。
-        </text>
-      </view>
-
       <!-- 长按 + 号 -->
       <view class="card">
         <view class="card-head">
@@ -149,19 +142,6 @@ export default {
 }
 
 /* 说明 */
-.hint-card {
-  background-color: var(--app-card);
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-top: 16rpx;
-}
-
-.hint-text {
-  font-size: 23rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
-}
-
 /* 卡片 */
 .card {
   background-color: var(--app-card);

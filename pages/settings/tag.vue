@@ -10,18 +10,11 @@
     </PageNav>
 
     <scroll-view class="page-scroll" scroll-y>
-      <view class="hint-card">
-        <text class="hint-text">
-          标签就是「项目」。一笔交易可以打多个标签，比如「2026装修」「日本旅行」，
-          统计页的「项目统计」会按标签汇总。
-        </text>
-      </view>
-
       <view v-if="tags.length === 0" class="empty-wrap">
         <EmptyState
           emoji="🏷️"
           title="还没有标签"
-          desc="添加标签后可以按项目统计支出"
+          desc="添加标签后可以按标签汇总收支"
           action-text="新建标签"
           @action="openCreate"
         />
@@ -290,19 +283,6 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
-}
-
-.hint-card {
-  background-color: var(--app-card);
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-top: 16rpx;
-}
-
-.hint-text {
-  font-size: 23rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
 }
 
 .empty-wrap {

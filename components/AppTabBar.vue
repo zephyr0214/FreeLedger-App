@@ -69,7 +69,7 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
 import { TABBAR_ICON_VERSION } from '@/utils/theme.js'
@@ -169,8 +169,8 @@ export default {
     const barStyle = computed(() => {
       const dark = settingStore.isDark
       return {
-        // 真·玻璃：比较透
-        '--bar-bg': dark ? 'rgba(28,28,30,0.58)' : 'rgba(255,255,255,0.70)',
+        // 真·玻璃：比上一版再透一点点（0.70 → 0.62 / 0.58 → 0.48）
+        '--bar-bg': dark ? 'rgba(28,28,30,0.48)' : 'rgba(255,255,255,0.62)',
         // 降级：不模糊时用更高的不透明度，避免透出内容显脏
         '--bar-bg-solid': dark ? 'rgba(28,28,30,0.94)' : 'rgba(255,255,255,0.96)',
         '--bar-border': dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.75)',
@@ -202,62 +202,49 @@ export default {
     /**
      * 滑块位置与颜色。
      *
-     * ★ 跨页面切换时动画为什么难做 ★
-     *   4 个 tab 是不同页面，切 tab 时本组件整个重新挂载。
-     *   如果一挂载就渲染在目标位置，transform 没有过变化，
-     *   CSS transition 就不会触发 —— 看到的就是「没有滑块」。
+     * ★ 为什么放弃「跨页面位移」★
+     *   4 个 tab 是**不同 webview**。uni.switchTab 切页面时，
+     *   新页面的整个渲染过程是在切换动画里完成的 ——
+     *   等用户真正看到这个页面时，组件早已 mounted 完毕、
+     *   位移早跑完了。所以不管把起点设成上一页还是「两帧后再跳」，
+     *   用户都看不到那一段滑动。之前几版「没有动效」都是这个原因，
+     *   不是曲线写错了，是**根本没有可观察的窗口**。
      *
-     * ★ 上一版为什么只生效一次 ★
-     *   两段式位移依赖 uiStore.lastTabIndex，
-     *   但那个值只在 onMounted 里更新 —— 等新页面挂载后才写，
-     *   那时已经晚了：新页面读到的「上次位置」就是它自己。
-     *   于是除第一次外，起点 == 终点，位移为 0，动画自然没有。
+     * ★ 改成本页入场动画 ★
+     *   既然跨页过程不可见，就不要指望它。
+     *   改成：滑块一进入本页就做一次「轻微的胶囊弹入」——
+     *   从 0.86 缩放到 1，配合同一条 iOS 曲线。
+     *   这个动画每次挂载必定播放，不依赖任何跨页状态，
+     *   所以每一次切 tab 都能看到反馈，稳定可靠。
      *
-     * ★ 现在的做法：点击时就写目标位 ★
-     *   onTabClick 里先把「要去第几格」记到 store（此时旧页面还在），
-     *   新页面挂载时就能读到它，从那个位置滑到自己的位置。
-     *   这样每一级切换都有一段真实位移。
+     *   代价是它不是「从上一格滑过来」，而是「在当前格上弹一下」。
+     *   跨 webview 的 tab 切换做不到真正的滑动衔接，
+     *   iOS 原生 tabBar 之所以能滑，是因为它在同一个渲染树里。
      */
     const uiStore = useUiStore()
 
-    /**
-     * 滑块当前渲染用的序号。
-     *
-     * 初始值 = 上一页留下的位置（通常就是「用户刚点的那一格」），
-     * 于是新页面上滑块会**从上一页的位置滑到本页位置**。
-     * 若没有历史（首次进入），直接落在本页，不做动画。
-     */
-    const sliderIndex = ref(
-      uiStore.lastTabIndex >= 0 ? uiStore.lastTabIndex : currentIndex.value
-    )
+    /** 滑块当前序号（本页固定，只用于定位） */
+    const sliderIndex = computed(() => currentIndex.value)
 
     onMounted(() => {
-      // 两帧之后再切到本页位置：
-      //   第一帧用「旧位置」渲染出去（用户看到滑块在上一页那格），
-      //   第二帧改成新位置，transition 才有 A→B 的变化可播。
-      // 用 requestAnimationFrame 而不是 setTimeout(20)：
-      //   前者紧跟渲染节奏，后者在慢机型上可能和首帧撞在一起。
-      const raf = typeof requestAnimationFrame === 'function'
-        ? requestAnimationFrame
-        : (fn) => setTimeout(fn, 16)
-
-      raf(() => {
-        raf(() => {
-          sliderIndex.value = currentIndex.value
-        })
-      })
+      // 记录位置，供「同页内 current 变化」时判断是否需要动（目前用不到，
+      // 但保留下来能让将来做页内切换时不至于完全没有历史）
+      uiStore.setLastTabIndex(currentIndex.value)
     })
 
-    // ★ 同一页面内 current 变化时也要跟着动 ★
-    //   目前每个页面 current 是写死的，这层是为将来页内切换留的。
-    watch(currentIndex, (i) => {
-      sliderIndex.value = i
-    })
-
+    /**
+     * 滑块位置与颜色。
+     *
+     * ★ 定位改用 left，不用 transform ★
+     *   transform 现在专门留给入场动画（scale）用。
+     *   如果还用 translateX 定位，两边的 transform 会互相覆盖 ——
+     *   动画一跑，滑块就跳回原处。
+     *   所以定位交给 left（百分比相对 pill 内宽，够用且不冲突）。
+     */
     const sliderStyle = computed(() => {
       const dark = settingStore.isDark
       return {
-        transform: `translateX(${sliderIndex.value * 100}%)`,
+        left: `calc(10rpx + ${sliderIndex.value} * ((560rpx - 20rpx) / 4))`,
         '--slider-color': dark
           ? 'rgba(255,255,255,0.14)'
           : settingStore.primaryLight,
@@ -615,22 +602,49 @@ export default {
   height: 116rpx;
   margin-top: -58rpx;
   /*
-   * 圆角与胶囊同量级（胶囊高 128 用 999rpx 时视觉半径约 64rpx，
-   * 但滑块矮一点、窄一点，取 44rpx 看起来才是「同一套弧度」）。
+   * ★ 全圆角胶囊（999rpx）★
+   *   用户确认要回到全圆角 —— 之前的 44rpx 圆角矩形他不要。
+   *   999rpx 会让两端变成完整半圆，和外面胶囊的端部弧度是同一套语言。
    */
-  border-radius: 44rpx;
+  border-radius: 999rpx;
   background-color: var(--slider-color, transparent);
   box-shadow: var(--slider-highlight, none);
   /*
-   * ★ iOS 的滑动曲线 ★
-   *   0.38s + cubic-bezier(0.32, 0.72, 0, 1)
-   *   这是 iOS 系统动画的经典曲线（也是 Apple 自己常用的）：
-   *   起步快、尾巴长、末尾几乎没有回弹但收得住。
+   * ★ 为什么用 animation 而不是 transition ★
+   *   4 个 tab 是不同 webview，切页面时本组件每次都重新挂载。
+   *   transition 需要「属性值发生变化」才触发，
+   *   而新挂载的组件一出生就在目标位置，永远等不到那次变化 ——
+   *   这就是前几版「怎么改都没有动效」的真正原因。
+   *
+   *   animation 不一样：只要元素被创建，动画就会**无条件播放一次**。
+   *   所以这里用「入场动画」：滑块出现时从 0.86 弹到 1。
+   *   每次切 tab 必定能看到，稳定、不依赖任何跨页状态。
+   *
+   * ★ 为什么不做「从上一格滑过来」★
+   *   新页面的渲染发生在 switchTab 的切换动画期间，
+   *   等用户看见这个页面时，位移早就跑完了。
+   *   跨 webview 做不到真正的滑动衔接 ——
+   *   iOS 原生 tabBar 能滑，是因为它在同一个渲染树里。
    */
-  transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: slider-pop 0.34s cubic-bezier(0.32, 0.72, 0, 1) both;
+  will-change: transform;
   pointer-events: none;
   z-index: 0;
-  will-change: transform;
+}
+
+/*
+ * 入场：轻微缩小 + 略淡 → 回到原位、完全不透明。
+ * 幅度刻意做小（0.86），太大就不是「iOS 的克制感」而是弹跳了。
+ */
+@keyframes slider-pop {
+  from {
+    transform: scale(0.86);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .tab-item {

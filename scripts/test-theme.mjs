@@ -178,13 +178,12 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
    *     · 用 transform 位移 + transition（能滑过去，不是跳过去）
    */
   check('有选中滑块', /class="tab-slider"/.test(tabbarCode), true)
-  // 滑块直接铺满整格上色；圆角用 44rpx（不用 999rpx 全圆角，
-  // 否则两端会画成突兀的半圆，和胶囊的弧度走势对不上）
-  check('滑块是圆角矩形', /\.tab-slider\s*\{[^}]*border-radius:\s*44rpx/.test(tabbarCode), true)
-  check('滑块不用全圆角', /\.tab-slider\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), false)
+  // 用户最终确认：全圆角胶囊（999rpx），不要圆角矩形
+  check('滑块是全圆角', /\.tab-slider\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
   check('滑块直接上色', /\.tab-slider\s*\{[^}]*background-color:\s*var\(--slider-color/.test(tabbarCode), true)
-  check('滑块用 transform 位移', /transform:\s*`translateX\(/.test(tabbarCode), true)
-  check('滑块有过渡动画', /\.tab-slider\s*\{[^}]*transition:\s*transform/.test(tabbarCode), true)
+  // 定位用 left（transform 留给入场动画，两者会互相覆盖）
+  check('滑块用 left 定位', /left:\s*`calc\(/.test(tabbarCode), true)
+  check('滑块用 transform 位移', /transform:\s*`translateX\(/.test(tabbarCode), false)
   check('滑块用浅主题色', /primaryLight/.test(tabbarCode), true)
   check('store 有 primaryLight', /primaryLight\(state\)\s*\{/.test(
     readFileSync(join(process.cwd(), 'stores/setting.js'), 'utf-8')), true)
@@ -198,22 +197,15 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
   check('滑块高度 >= 110rpx（铺满整格）', Number(sliderH) >= 110, true)
   check('滑块不再套 ::after 内缩', /\.tab-slider::after/.test(tabbarCode), false)
 
-  /* ★ 跨页面切换要有滑动动画 ★
-   *   4 个 tab 是不同页面，组件会重新挂载；
-   *   若一挂载就渲染在目标位置，transform 没变化，transition 不触发
-   *   —— 表现就是「没有滑块感觉」。
-   *   所以必须两段式：初始停在旧位置，挂载后一帧再切到新位置。
+  /* ★ 滑块必须有动效 ★
+   *   4 个 tab 是不同 webview，切页时组件重新挂载。
+   *   transition 要「属性变化」才触发，而新挂载的组件一出生就在目标位置
+   *   —— 这就是前几版「怎么改都没有动效」的根因。
+   *   改用 animation：元素一创建就无条件播放一次，每次切 tab 都能看到。
    */
-  check('滑块有位移动画状态', /sliderIndex/.test(tabbarCode), true)
-  check('挂载后推迟一帧再位移', /onMounted\([\s\S]{0,600}sliderIndex\.value\s*=/.test(tabbarCode), true)
-  check('store 记住上次位置', /lastTabIndex/.test(
-    readFileSync(join(process.cwd(), 'stores/ui.js'), 'utf-8')), true)
-
-  /* ★ 每次切换都要有动画：点 tab 时就写目标位 ★
-   *   只在挂载后写的话，新页面读到的「上次位置」就是它自己，
-   *   位移为 0 —— 这就是「只有第一次有动画」的根因。
-   */
-  check('点 tab 时写入目标位', /function onTabClick[\s\S]{0,500}setLastTabIndex/.test(tabbarCode), true)
+  check('滑块用 animation 动效', /\.tab-slider\s*\{[^}]*animation:\s*slider-pop/.test(tabbarCode), true)
+  check('有入场关键帧', /@keyframes slider-pop/.test(tabbarCode), true)
+  check('不再依赖 transition', /\.tab-slider\s*\{[^}]*transition:\s*transform/.test(tabbarCode), false)
 
   /* ★ 弹层打开时底栏要一起收起 ★
    *   记账面板 / 速记输入条是全屏弹层，底栏留在遮罩边缘会露一角。
@@ -236,6 +228,23 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
   // 全项目只允许 utils/tabBar.js 调 hideTabBar（唯一入口）
   check('hideTabBar 只出现在 utils/tabBar.js',
     /uni\.hideTabBar\(/.test(readFileSync(join(process.cwd(), 'utils/tabBar.js'), 'utf-8')), true)
+
+  /* ★ 设置页顶部的说明块已按用户要求删除 ★
+   *   用户：「删除标签管理和类似标签管理的所有页面的这种上面的这段提示语组件」
+   *   涉及：标签管理 / 周期管理 / AI 大模型 / 记账按钮设置。
+   *   这类「顶部一大段解释性文字」不要了，所以断言它们确实不存在，
+   *   防止哪天又有人顺手加回来。
+   */
+  const HINT_PAGES = [
+    'pages/settings/tag.vue',
+    'pages/settings/cycle.vue',
+    'pages/settings/ai.vue',
+    'pages/settings/quick-add.vue'
+  ]
+  for (const rel of HINT_PAGES) {
+    const code = readFileSync(join(process.cwd(), rel), 'utf-8')
+    check(`${rel} 没有顶部提示块`, /class="hint-card"/.test(code), false)
+  }
 
   /* ★ 高度要够，不能扁 ★
    *   96rpx 那版用户反馈「有点丑」，要求高一些。
