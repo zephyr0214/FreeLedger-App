@@ -2,11 +2,12 @@
  * 数据备份 / 恢复
  *
  * 设计要点：
- *   1. 导出包含 settings + accounts + snapshots + categories + tags + txn + txn_tag + budgets
+ *   1. 导出包含 settings + accounts + snapshots + categories + tags + txn + txn_tag + budgets + cycles
  *   2. API Key 默认不导出，需显式勾选（防误分享）
  *   3. 恢复前自动备份当前库（最后一道保险）
  *   4. 恢复只支持「覆盖」一种模式
  *   5. 文件自带 schemaVersion，未来结构变更可迁移老文件
+ *   6. 旧版本（schemaVersion < 2）的备份不含 cycles，导入时自动按「无周期」处理，向后兼容
  */
 
 import { query, queryOne, execute, transaction, truncateAll } from './db/index.js'
@@ -15,7 +16,7 @@ import { prefixedId } from '../utils/id.js'
 import { recalcAllBalances } from './account.js'
 
 const BACKUP_APP_ID = 'books'
-const BACKUP_SCHEMA_VERSION = 1
+const BACKUP_SCHEMA_VERSION = 2
 const MAX_AUTO_BACKUPS = 5
 const BACKUP_DIR = '_doc/backup/'
 /** 导出文件目录：用户主动导出、可分享的文件都放这里 */
@@ -58,14 +59,15 @@ async function buildExportPayload(opt = {}) {
 
   const whereNotDeleted = includeDeleted ? '' : 'WHERE deleted_at IS NULL'
 
-  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets] = await Promise.all([
+  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, cycles] = await Promise.all([
     query(`SELECT * FROM account ${whereNotDeleted} ORDER BY sort ASC`),
     query('SELECT * FROM account_snapshot ORDER BY day ASC'),
     query(`SELECT * FROM category ${whereNotDeleted} ORDER BY sort ASC`),
     query(`SELECT * FROM tag ${whereNotDeleted} ORDER BY sort ASC`),
     query(`SELECT * FROM txn ${whereNotDeleted} ORDER BY occurred_at ASC`),
     query('SELECT * FROM txn_tag'),
-    query('SELECT * FROM budget')
+    query('SELECT * FROM budget'),
+    query(`SELECT * FROM cycle ${whereNotDeleted} ORDER BY created_at ASC`)
   ])
 
   return {
@@ -78,7 +80,8 @@ async function buildExportPayload(opt = {}) {
       transactions: transactions.length,
       categories: categories.length,
       tags: tags.length,
-      budgets: budgets.length
+      budgets: budgets.length,
+      cycles: cycles.length
     },
     settings: exportedSettings,
     accounts,
@@ -87,7 +90,8 @@ async function buildExportPayload(opt = {}) {
     tags,
     transactions,
     txnTags,
-    budgets
+    budgets,
+    cycles
   }
 }
 
@@ -653,7 +657,7 @@ export async function importPayload(payload, opt = {}) {
 
   const report = {
     mode,
-    accounts: 0, transactions: 0, categories: 0, tags: 0, budgets: 0,
+    accounts: 0, transactions: 0, categories: 0, tags: 0, budgets: 0, cycles: 0,
     skipped: 0, conflicts: 0, backupPath: null
   }
 
@@ -755,13 +759,13 @@ export async function importPayload(payload, opt = {}) {
         await execute(
           `INSERT INTO txn (id, type, amount_cents, account_id, to_account_id, category_id, note,
             occurred_at, occurred_day, month_key, year_key, tz_offset, source, raw_text,
-            created_at, updated_at, deleted_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            cycle_id, created_at, updated_at, deleted_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             t.id, t.type, t.amount_cents, t.account_id, t.to_account_id || null,
             t.category_id || null, t.note || '',
             t.occurred_at, t.occurred_day, t.month_key, t.year_key, t.tz_offset || 480,
-            t.source || 'import', t.raw_text || null,
+            t.source || 'import', t.raw_text || null, t.cycle_id || null,
             t.created_at || Date.now(), t.updated_at || Date.now(), t.deleted_at || null
           ]
         )
@@ -791,6 +795,28 @@ export async function importPayload(payload, opt = {}) {
            b.start_month, b.rollover || 0, b.created_at || Date.now(), b.updated_at || Date.now()]
         )
         report.budgets++
+      }
+    }
+
+    // ---------- 周期（旧版本备份不含此项，自动按空处理）
+    if (Array.isArray(payload.cycles)) {
+      for (const cy of payload.cycles) {
+        const exists = mode === 'merge' ? await queryOne('SELECT id FROM cycle WHERE id = ?', [cy.id]) : null
+        if (exists) { report.skipped++; continue }
+        await execute(
+          `INSERT INTO cycle (id, type, amount_cents, account_id, to_account_id, category_id, note,
+            recurrence, weekday, day_of_month, last_caught_up_day, created_at, updated_at, deleted_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            cy.id, cy.type, cy.amount_cents, cy.account_id, cy.to_account_id || null,
+            cy.category_id || null, cy.note || null,
+            cy.recurrence || 'monthly', cy.weekday === undefined ? null : cy.weekday,
+            cy.day_of_month === undefined ? null : cy.day_of_month,
+            cy.last_caught_up_day || null,
+            cy.created_at || Date.now(), cy.updated_at || Date.now(), cy.deleted_at || null
+          ]
+        )
+        report.cycles++
       }
     }
 

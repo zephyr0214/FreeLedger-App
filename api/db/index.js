@@ -1006,7 +1006,7 @@ export async function transaction(fn) {
 /** 清空所有业务表（保留结构），用于「清空数据」与「覆盖导入」 */
 export async function truncateAll() {
   const tables = [
-    'txn_tag', 'txn', 'account_snapshot', 'budget',
+    'txn_tag', 'txn', 'account_snapshot', 'budget', 'cycle',
     'category', 'tag', 'account', 'setting', 'app_meta'
   ]
   return transaction(async () => {
