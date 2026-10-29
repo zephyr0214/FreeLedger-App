@@ -15,6 +15,8 @@ import {
 } from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
 import { prefixedId } from '../../utils/id.js'
+// ★ date.js 也是纯函数 ★
+import { toDayKey } from '../../utils/date.js'
 
 const DB_NAME = 'books'
 const DB_PATH = '_doc/books.db'
@@ -256,6 +258,13 @@ const MIGRATIONS = [
     //   用 ADD COLUMN 是 O(1) 元数据操作，不动已有数据。
     version: 7,
     up: migrateCycles
+  },
+  {
+    // ★ 周期自动补记的游标 ★
+    //   cycle 表加 last_caught_up_day（YYYY-MM-DD），
+    //   catchUpCycles() 只处理晚于游标的日期，避免重复/重建已删的账。
+    version: 8,
+    up: migrateCycleCursor
   }
 ]
 
@@ -306,6 +315,50 @@ async function migrateCycles() {
     } else {
       console.warn('[db] migration v7 txn.cycle_id 失败:', e && e.message)
     }
+  }
+}
+
+/**
+ * 迁移 v8 —— 周期自动补记的游标
+ *
+ * 给 cycle 表加 last_caught_up_day 列（游标，YYYY-MM-DD）。
+ * catchUpCycles() 只处理「晚于游标的发生日」，处理完把游标推到今天，
+ * 这样：
+ *   - 同一天多次进 app 不会重复记；
+ *   - 用户手动删掉某条自动补的账，也不会被重建（那天已经过了游标）。
+ *
+ * ★ 要给老周期一个合理的初始游标 ★
+ *   没有游标（NULL）的周期，如果按「从建周期那天起算」会回补几百天，
+ *   体验很怪。这里把它初始化成「今天」—— 老周期从今天开始自动补记，
+ *   历史日期不回补（用户没要求历史也要补）。
+ *
+ * 用 call() 走底层，原因同 v7（迁移在 openDb() 内，不能走 query()/execute()）。
+ */
+async function migrateCycleCursor() {
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'ALTER TABLE cycle ADD COLUMN last_caught_up_day TEXT'
+    })
+    console.log('[db] migration v8: cycle.last_caught_up_day 已添加')
+  } catch (e) {
+    if (e && /duplicate|already exists/i.test(e.message || '')) {
+      console.log('[db] migration v8: last_caught_up_day 已存在，跳过')
+    } else {
+      console.warn('[db] migration v8 last_caught_up_day 失败:', e && e.message)
+    }
+  }
+
+  // 游标初始为今天（老周期不回补历史）
+  try {
+    const today = toDayKey()
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: `UPDATE cycle SET last_caught_up_day = '${today}' WHERE last_caught_up_day IS NULL`
+    })
+    console.log('[db] migration v8: 旧周期游标初始化为今天')
+  } catch (e) {
+    console.warn('[db] migration v8 游标初始化失败:', e && e.message)
   }
 }
 

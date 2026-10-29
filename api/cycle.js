@@ -14,7 +14,7 @@
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { createTransaction, listTransactions } from './transaction.js'
 import { prefixedId } from '../utils/id.js'
-import { toDayKey, parseDayKey, clampDayOfMonth, toMonthKey } from '../utils/date.js'
+import { toDayKey, parseDayKey, clampDayOfMonth, toMonthKey, shiftDay } from '../utils/date.js'
 
 export const CYCLE_RECURRENCES = [
   { key: 'daily', name: '每天' },
@@ -92,8 +92,9 @@ export async function createCycle(input) {
   await execute(
     `INSERT INTO cycle (
       id, type, amount_cents, account_id, to_account_id, category_id, note,
-      recurrence, weekday, day_of_month, created_at, updated_at, deleted_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+      recurrence, weekday, day_of_month, created_at, updated_at, deleted_at,
+      last_caught_up_day
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
     [
       id,
       input.type,
@@ -106,7 +107,8 @@ export async function createCycle(input) {
       input.recurrence === 'weekly' ? (Number(input.weekday) || 1) : null,
       input.recurrence === 'monthly' ? (Number(input.day_of_month) || 1) : null,
       now,
-      now
+      now,
+      toDayKey() // 游标初始化为今天：创建当天已记第一笔，不回补历史
     ]
   )
 
@@ -244,6 +246,146 @@ export async function countCycleTxns(cycleId) {
     [cycleId]
   )
   return row ? Number(row.c) : 0
+}
+
+/**
+ * 计算某个周期内、落在 [startDay, endDay] 闭区间内的所有「发生日」。
+ * 返回 YYYY-MM-DD 数组（升序）。
+ *
+ * ★ 纯本地日期运算，不碰数据库、不联网 ★
+ *   daily   ：区间内每一天
+ *   weekly  ：区间内所有 = 目标周几 的那天
+ *   monthly ：区间内每个月的 day_of_month（用 clampDayOfMonth 兜 31 号）
+ *
+ * @param {object} cycle 周期对象（recurrence / weekday / day_of_month）
+ * @param {string} startDay YYYY-MM-DD 含
+ * @param {string} endDay   YYYY-MM-DD 含
+ */
+export function occurrencesInRange(cycle, startDay, endDay) {
+  const out = []
+  const start = parseDayKey(startDay)
+  const end = parseDayKey(endDay)
+  if (!start || !end || end < start) return out
+
+  const rec = cycle.recurrence
+  const weekday = (Number(cycle.weekday) || 1) % 7 // 1=周一…7=周日 → JS getDay 0=周日
+  const dom = Number(cycle.day_of_month) || 1
+
+  // 逐日扫描区间（区间最多几十/几百天，JS 循环成本可忽略）
+  const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  while (cur <= end) {
+    const y = cur.getFullYear()
+    const m = cur.getMonth()
+    const d = cur.getDate()
+    let hit = false
+    if (rec === 'daily') {
+      hit = true
+    } else if (rec === 'weekly') {
+      hit = cur.getDay() === weekday
+    } else if (rec === 'monthly') {
+      hit = d === clampDayOfMonth(y, m + 1, dom)
+    }
+    if (hit) out.push(toDayKey(cur))
+    cur.setDate(cur.getDate() + 1)
+  }
+  return out
+}
+
+/**
+ * 按指定发生日给周期记一笔（日期精确落到 day，而不是「今天」）。
+ *
+ * ★ 与 recordCycle 的区别 ★
+ *   自动补记要把 occurred_day 设成「应该发生的那天」（比如 10-15 的房租，
+ *   用户在 10-20 打开才补记，occurred_day 仍应是 2026-10-15，而非今天）。
+ */
+export async function recordCycleForDay(id, day) {
+  const c = await getCycle(id)
+  if (!c) throw new Error('周期不存在')
+  return createTransaction({
+    type: c.type,
+    amount_cents: c.amount_cents,
+    account_id: c.account_id,
+    to_account_id: c.type === 'transfer' ? c.to_account_id : null,
+    category_id: c.type === 'transfer' ? null : c.category_id,
+    note: c.note || '',
+    occurred_day: day,
+    source: 'cycle',
+    cycle_id: id
+  })
+}
+
+/** 查询某周期在某天是否已记过（按 occurred_day 存在性，天然幂等） */
+async function cycleHasTxnOn(cycleId, day) {
+  const row = await queryOne(
+    `SELECT 1 AS hit FROM txn
+     WHERE deleted_at IS NULL AND cycle_id = ? AND occurred_day = ? LIMIT 1`,
+    [cycleId, day]
+  )
+  return Boolean(row)
+}
+
+/**
+ * 打开 App 时跑：把所有周期「漏掉的发生日」补齐。
+ *
+ * ★ 游标做法（幂等 + 不重建已删的账）★
+ *   每个周期有 last_caught_up_day（游标），创建时初始化为今天、
+ *   每次 catchUp 结束推到今天。
+ *   本次处理区间 = (游标, 今天]，即「晚于游标、且含今天」的部分。
+ *   这样：
+ *     - 同一天多次进 app：第二次游标已是今天，区间为空，不重复记；
+ *     - 用户手动删掉某条自动补的账：那天已 <= 游标，不会重建。
+ *
+ * ★ 补全部漏掉的（不是只补当前这次）★
+ *   若 app 两个月没打开，每月周期会一次性补记那两个月里所有发生日；
+ *   每天周期一周没打开，会补记 7 条。
+ *
+ * ★ 防重复的第二道保险 ★
+ *   即便游标异常，写入前仍按 occurred_day 查重（cycleHasTxnOn），绝不产生重复账。
+ *
+ * ★ 安全上限 ★
+ *   单个周期单次最多补 MAX_CATCHUP_PER_CYCLE 条，防止极端断更
+ *   （如一年没开 + 每天周期）刷出几百条。达到上限后游标仍推到今天，
+ *   剩余「历史空缺」不再追溯（极端情况，可接受）。
+ *
+ * @returns {{ cycleId: string, added: number }[]} 每个周期补记了几条
+ */
+export const MAX_CATCHUP_PER_CYCLE = 90
+
+export async function catchUpCycles(today = toDayKey()) {
+  const cycles = await listCycles()
+  const result = []
+
+  for (const c of cycles) {
+    // 处理起点：游标次日（严格晚于游标），游标为空兜底为今天
+    const start = c.last_caught_up_day && c.last_caught_up_day < today
+      ? shiftDay(c.last_caught_up_day, 1)
+      : today
+    const days = occurrencesInRange(c, start, today)
+    if (days.length === 0) {
+      // 没有待处理的发生日，也要推进游标（避免空区间后游标永远滞后）
+      await execute('UPDATE cycle SET last_caught_up_day = ? WHERE id = ?', [today, c.id])
+      continue
+    }
+
+    let added = 0
+    for (const d of days) {
+      if (added >= MAX_CATCHUP_PER_CYCLE) break
+      const has = await cycleHasTxnOn(c.id, d)
+      if (has) continue
+      try {
+        await recordCycleForDay(c.id, d)
+        added++
+      } catch (e) {
+        console.warn('[cycle] catchUp 记一笔失败:', c.id, d, e && e.message)
+      }
+    }
+
+    // 推进游标到今天
+    await execute('UPDATE cycle SET last_caught_up_day = ? WHERE id = ?', [today, c.id])
+    if (added > 0) result.push({ cycleId: c.id, added })
+  }
+
+  return result
 }
 
 export { toMonthKey }

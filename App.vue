@@ -110,6 +110,11 @@ export default {
         settingStore.refreshTabBar()
       }
     } catch (e) {}
+
+    // 周期自动补记：每次进前台都跑一次。
+    // 游标（last_caught_up_day）保证幂等——同一天重复进不会重复记、
+    // 用户手删的账也不会被重建。冷启动后首次 onShow 与这里一并覆盖。
+    this.runCycleCatchUp()
   },
 
   onHide() {
@@ -117,6 +122,25 @@ export default {
   },
 
   methods: {
+    async runCycleCatchUp() {
+      if (this._cycleCatchUpRunning) return
+      this._cycleCatchUpRunning = true
+      try {
+        const { catchUpCycles } = await import('@/api/cycle.js')
+        const added = await catchUpCycles()
+        const total = added.reduce((s, r) => s + r.added, 0)
+        if (total > 0) {
+          console.log(`[app] 周期自动补记：${total} 笔（${added.length} 个周期）`)
+          // 轻提示，不打断（用户在记账页/详情页会看到新流水）
+          try { uni.showToast({ title: `已自动补记 ${total} 笔周期账`, icon: 'none' }) } catch (e) {}
+        }
+      } catch (e) {
+        console.warn('[app] 周期补记失败:', e && e.message)
+      } finally {
+        this._cycleCatchUpRunning = false
+      }
+    },
+
     bindThemeListener() {
       // ★ 订阅交给 store 统一管理 ★
       //   之前这里自己监听 uni.onThemeChange，
