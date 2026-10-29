@@ -140,12 +140,14 @@ for (const page of pagesJson.pages || []) {
 
 const TAB_NAMES = ['home', 'account', 'stats', 'mine']
 const PRESETS = ['green', 'blue', 'orange', 'purple', 'red', 'grey']
+// 与 utils/theme.js 的 TABBAR_ICON_VERSION / gen-tabbar-icons.py 的 ICON_VERSION 保持一致
+const TABBAR_ICON_VERSION = '-v2'
 
 for (const name of TAB_NAMES) {
-  checkAsset(`static/tabbar/${name}.png`, `${name} 浅色未选中`)
-  checkAsset(`static/tabbar/${name}-dark.png`, `${name} 深色未选中`)
+  checkAsset(`static/tabbar/${name}${TABBAR_ICON_VERSION}.png`, `${name} 浅色未选中`)
+  checkAsset(`static/tabbar/${name}-dark${TABBAR_ICON_VERSION}.png`, `${name} 深色未选中`)
   for (const preset of PRESETS) {
-    checkAsset(`static/tabbar/${name}-active-${preset}.png`, `${name} 选中态(${preset})`)
+    checkAsset(`static/tabbar/${name}-active-${preset}${TABBAR_ICON_VERSION}.png`, `${name} 选中态(${preset})`)
   }
 }
 

@@ -109,19 +109,19 @@ check('深色时图标带 -dark 后缀', (() => {
   refreshTabBarTheme('green', true, false)
   const item = calls.find((c) => c.type === 'item')
   return item.opt.iconPath
-})(), 'static/tabbar/home-dark.png')
+})(), 'static/tabbar/home-dark-v2.png')
 check('浅色时图标不带后缀', (() => {
   calls.length = 0
   refreshTabBarTheme('green', false, false)
   const item = calls.find((c) => c.type === 'item')
   return item.opt.iconPath
-})(), 'static/tabbar/home.png')
+})(), 'static/tabbar/home-v2.png')
 check('选中图标按主题色', (() => {
   calls.length = 0
   refreshTabBarTheme('purple', false, false)
   const item = calls.find((c) => c.type === 'item')
   return item.opt.selectedIconPath
-})(), 'static/tabbar/home-active-purple.png')
+})(), 'static/tabbar/home-active-purple-v2.png')
 
 /* ---------------- tabBar 文字色：未选中态要比最早的 #969799 深 ----------------
  * 原来浅色用 #969799，白底上几乎糊成一片，

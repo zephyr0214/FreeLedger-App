@@ -60,6 +60,12 @@ SIZE = 81
 #   108px 那几版是 0.674~0.778，确实都更重。
 STROKE_WIDTH = 2
 
+# ★ tabBar 图标版本后缀 ★
+#   原生层按 iconPath 字符串缓存位图，覆盖安装时若文件名不变会复用旧图。
+#   所以文件名要带版本号；改图标内容后必须同步改这里 +
+#   utils/theme.js 的 TABBAR_ICON_VERSION + theme.json，三处一致。
+ICON_VERSION = "-v2"
+
 # 未选中态：浅色主题用深灰，深色主题用浅灰
 # ★ 与 theme.json 的 tabFontColor 保持一致 ★
 #   浅色 #646566、深色 #A1A1A6。
@@ -173,12 +179,12 @@ def main():
 
         # 未选中：浅色 / 深色
         jobs = [
-            (NORMAL_LIGHT, os.path.join(OUT_DIR, f"{tab}.png")),
-            (NORMAL_DARK, os.path.join(OUT_DIR, f"{tab}-dark.png")),
+            (NORMAL_LIGHT, os.path.join(OUT_DIR, f"{tab}{ICON_VERSION}.png")),
+            (NORMAL_DARK, os.path.join(OUT_DIR, f"{tab}-dark{ICON_VERSION}.png")),
         ]
         # 选中：每套主题色
         for key, color in PRESET_COLORS.items():
-            jobs.append((color, os.path.join(OUT_DIR, f"{tab}-active-{key}.png")))
+            jobs.append((color, os.path.join(OUT_DIR, f"{tab}-active-{key}{ICON_VERSION}.png")))
 
         expected += len(jobs)
         ok_all = True

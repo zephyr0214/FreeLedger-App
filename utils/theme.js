@@ -384,6 +384,21 @@ const TABBAR_ITEMS = [
 ]
 
 /**
+ * tabBar 图标的版本后缀。
+ *
+ * ★ 为什么要有版本号 ★
+ *   原生 tabBar 会按 iconPath **字符串**缓存已解码的位图。
+ *   覆盖安装（不卸载）时，若文件名不变，原生层会复用缓存的旧图，
+ *   导致「重新打包了图标还是旧的」。
+ *   解法是改文件名（加版本号），让路径字符串变化，
+ *   原生层看到新路径就会重新解码，图标立即更新。
+ *
+ * ★ 改图标内容后，必须同步改这里 + theme.json + gen-tabbar-icons.py ★
+ *   三处保持一致，否则运行时 setTabBarItem 找不到文件。
+ */
+const TABBAR_ICON_VERSION = '-v2'
+
+/**
  * ★ 一个已知的坑：原生 tabBar 会按 iconPath 字符串缓存已解码的位图 ★
  *
  *   我们重新生成过更粗的 PNG，但路径还是 `static/tabbar/home.png`。
@@ -446,8 +461,8 @@ export function applyTabBarTheme(presetKey, dark) {
     try {
       uni.setTabBarItem({
         index: item.index,
-        iconPath: `static/tabbar/${item.name}${suffix}.png`,
-        selectedIconPath: `static/tabbar/${item.name}-active-${p.key}.png`
+        iconPath: `static/tabbar/${item.name}${suffix}${TABBAR_ICON_VERSION}.png`,
+        selectedIconPath: `static/tabbar/${item.name}-active-${p.key}${TABBAR_ICON_VERSION}.png`
       })
     } catch (e) {
       // tabBar 尚未创建时（如首屏加载前）会失败，忽略即可

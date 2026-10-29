@@ -10,14 +10,14 @@
 		"tabSelectedColor": "#07C160",
 		"tabBgColor": "#FFFFFF",
 		"tabBorderStyle": "white",
-		"iconPath1": "static/tabbar/home.png",
-		"selectedIconPath1": "static/tabbar/home-active-green.png",
-		"iconPath2": "static/tabbar/account.png",
-		"selectedIconPath2": "static/tabbar/account-active-green.png",
-		"iconPath3": "static/tabbar/stats.png",
-		"selectedIconPath3": "static/tabbar/stats-active-green.png",
-		"iconPath4": "static/tabbar/mine.png",
-		"selectedIconPath4": "static/tabbar/mine-active-green.png"
+		"iconPath1": "static/tabbar/home-v2.png",
+		"selectedIconPath1": "static/tabbar/home-active-green-v2.png",
+		"iconPath2": "static/tabbar/account-v2.png",
+		"selectedIconPath2": "static/tabbar/account-active-green-v2.png",
+		"iconPath3": "static/tabbar/stats-v2.png",
+		"selectedIconPath3": "static/tabbar/stats-active-green-v2.png",
+		"iconPath4": "static/tabbar/mine-v2.png",
+		"selectedIconPath4": "static/tabbar/mine-active-green-v2.png"
 	},
 	"dark": {
 		"navBgColor": "#000000",
@@ -30,13 +30,13 @@
 		"tabSelectedColor": "#07C160",
 		"tabBgColor": "#1C1C1E",
 		"tabBorderStyle": "black",
-		"iconPath1": "static/tabbar/home-dark.png",
-		"selectedIconPath1": "static/tabbar/home-active-green.png",
-		"iconPath2": "static/tabbar/account-dark.png",
-		"selectedIconPath2": "static/tabbar/account-active-green.png",
-		"iconPath3": "static/tabbar/stats-dark.png",
-		"selectedIconPath3": "static/tabbar/stats-active-green.png",
-		"iconPath4": "static/tabbar/mine-dark.png",
-		"selectedIconPath4": "static/tabbar/mine-active-green.png"
+		"iconPath1": "static/tabbar/home-dark-v2.png",
+		"selectedIconPath1": "static/tabbar/home-active-green-v2.png",
+		"iconPath2": "static/tabbar/account-dark-v2.png",
+		"selectedIconPath2": "static/tabbar/account-active-green-v2.png",
+		"iconPath3": "static/tabbar/stats-dark-v2.png",
+		"selectedIconPath3": "static/tabbar/stats-active-green-v2.png",
+		"iconPath4": "static/tabbar/mine-dark-v2.png",
+		"selectedIconPath4": "static/tabbar/mine-active-green-v2.png"
 	}
 }
