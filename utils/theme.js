@@ -267,6 +267,17 @@ export function buildCssVars(presetKey, dark) {
         '--app-text-3': '#6E6E73',
         '--app-primary': p.primary,
         '--app-primary-light': 'rgba(255,255,255,0.10)',
+        /*
+         * ★ 顶部渐变卡片的起始色（暗色下 = 卡片色，等于没有渐变）★
+         *   浅色下用主题浅色做出「顶部泛一层淡淡的主题色」的效果，
+         *   但暗色下那层浅色会把深底「提亮成灰」，很糊、很脏
+         *   （rgba(255,255,255,0.10) 叠在黑卡片上就是一片灰）。
+         *   暗色下刻意让它等于 --app-card：
+         *   渐变从卡片色到卡片色，视觉上就是纯净的卡片底。
+         *   这样「概览卡 / 详情页头部」在暗色下不再泛白，
+         *   而代码里那条 linear-gradient 不用按模式写两遍。
+         */
+        '--app-hero-from': '#1C1C1E',
         '--app-danger': '#FF453A',
         '--app-success': '#32D74B',
         '--app-warning': '#FFD60A',
@@ -284,6 +295,8 @@ export function buildCssVars(presetKey, dark) {
         '--app-text-3': '#969799',
         '--app-primary': p.primary,
         '--app-primary-light': p.light,
+        /* 浅色：顶部渐变用主题浅色（保留原来的观感） */
+        '--app-hero-from': p.light,
         '--app-danger': '#EE0A24',
         '--app-success': '#07C160',
         '--app-warning': '#FF976A',

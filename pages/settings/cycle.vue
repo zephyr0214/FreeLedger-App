@@ -34,12 +34,31 @@
                 <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
                   <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
+
+                <!-- 中间：名称 + 规则 / 下次扣款日 -->
                 <view class="row-info">
                   <text class="row-name">{{ c.name }}</text>
-                  <text class="row-sub">{{ c.recurrenceText }}</text>
+                  <view class="row-meta">
+                    <text class="row-sub">{{ c.recurrenceText }}</text>
+                    <text v-if="c.nextText" class="row-sep">·</text>
+                    <text
+                      v-if="c.nextText"
+                      class="row-next"
+                      :class="{ 'row-next-today': c.nextIsToday }"
+                    >{{ c.nextIsToday ? '今天扣款' : c.nextText }}</text>
+                  </view>
                 </view>
-                <text class="row-count">{{ c.count }} 笔</text>
-                <text class="row-arrow">›</text>
+
+                <!-- 右侧：金额（谁的钱、多少）+ 已记笔数 -->
+                <view class="row-right">
+                  <MoneyText
+                    :cents="c.amount_cents"
+                    :size="28"
+                    :weight="600"
+                    :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
+                  />
+                  <text class="row-count">{{ c.count }} 笔</text>
+                </view>
               </view>
               <template #right>
                 <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(c)">
@@ -67,12 +86,31 @@
                 <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
                   <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
+
+                <!-- 中间：名称 + 规则 / 下次扣款日 -->
                 <view class="row-info">
                   <text class="row-name">{{ c.name }}</text>
-                  <text class="row-sub">{{ c.recurrenceText }}</text>
+                  <view class="row-meta">
+                    <text class="row-sub">{{ c.recurrenceText }}</text>
+                    <text v-if="c.nextText" class="row-sep">·</text>
+                    <text
+                      v-if="c.nextText"
+                      class="row-next"
+                      :class="{ 'row-next-today': c.nextIsToday }"
+                    >{{ c.nextIsToday ? '今天扣款' : c.nextText }}</text>
+                  </view>
                 </view>
-                <text class="row-count">{{ c.count }} 笔</text>
-                <text class="row-arrow">›</text>
+
+                <!-- 右侧：金额（谁的钱、多少）+ 已记笔数 -->
+                <view class="row-right">
+                  <MoneyText
+                    :cents="c.amount_cents"
+                    :size="28"
+                    :weight="600"
+                    :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
+                  />
+                  <text class="row-count">{{ c.count }} 笔</text>
+                </view>
               </view>
               <template #right>
                 <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(c)">
@@ -100,12 +138,31 @@
                 <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
                   <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
+
+                <!-- 中间：名称 + 规则 / 下次扣款日 -->
                 <view class="row-info">
                   <text class="row-name">{{ c.name }}</text>
-                  <text class="row-sub">{{ c.recurrenceText }}</text>
+                  <view class="row-meta">
+                    <text class="row-sub">{{ c.recurrenceText }}</text>
+                    <text v-if="c.nextText" class="row-sep">·</text>
+                    <text
+                      v-if="c.nextText"
+                      class="row-next"
+                      :class="{ 'row-next-today': c.nextIsToday }"
+                    >{{ c.nextIsToday ? '今天扣款' : c.nextText }}</text>
+                  </view>
                 </view>
-                <text class="row-count">{{ c.count }} 笔</text>
-                <text class="row-arrow">›</text>
+
+                <!-- 右侧：金额（谁的钱、多少）+ 已记笔数 -->
+                <view class="row-right">
+                  <MoneyText
+                    :cents="c.amount_cents"
+                    :size="28"
+                    :weight="600"
+                    :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
+                  />
+                  <text class="row-count">{{ c.count }} 笔</text>
+                </view>
               </view>
               <template #right>
                 <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(c)">
@@ -137,16 +194,18 @@ import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import MoneyText from '@/components/MoneyText.vue'
 import CyclePanel from '@/components/CyclePanel.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { listCycles, deleteCycle, recurrenceLabel, listCycleCounts } from '@/api/cycle.js'
+import { listCycles, deleteCycle, recurrenceLabel, listCycleCounts, nextOccurrence } from '@/api/cycle.js'
 import { listCategories } from '@/api/category.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { formatDayHeader, toDayKey } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, CyclePanel },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -161,7 +220,7 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    /** 周期展示名称 / 图标 / 颜色 */
+    /** 周期展示名称 / 图标 / 颜色 / 金额 / 下次扣款日 */
     function decorate(c) {
       const cat = categories.value.find((x) => x.id === c.category_id)
       let name = '未分类'
@@ -180,13 +239,33 @@ export default {
         color = cat.color || primaryColor.value
       }
 
+      /*
+       * ★ 下次触发日 ★
+       *   nextOccurrence 返回 YYYY-MM-DD（含今天）。
+       *   这里既给原始 dayKey（用于判断「今天」），
+       *   也给一句人话（formatDayHeader 会输出「今天 · 10月29日 周三」这种）。
+       */
+      let next = ''
+      let nextText = ''
+      try {
+        next = nextOccurrence(c)
+        nextText = formatDayHeader(next)
+      } catch (e) {
+        next = ''
+        nextText = ''
+      }
+
       return {
         ...c,
         name,
         iconChar,
         color,
         recurrenceText: recurrenceLabel(c),
-        count: counts.value[c.id] || 0
+        count: counts.value[c.id] || 0,
+        next,
+        nextText,
+        // 今天就要扣：列表里高亮一下，比纯文字提示更醒目
+        nextIsToday: next === toDayKey()
       }
     }
 
@@ -353,9 +432,57 @@ export default {
   color: var(--app-text);
 }
 
+/*
+ * 第二行：规则 · 下次扣款
+ * 两个信息用「·」分隔，超宽时省略而不是换行 ——
+ * 换行会把行高撑高，列表看着参差不齐。
+ */
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  min-width: 0;
+}
+
 .row-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.row-sep {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.row-next {
+  font-size: 22rpx;
+  color: var(--app-text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 今天就该扣的那条：用主题色标出来。
+ * 这是列表里最需要被看到的一类信息，纯灰字容易被忽略。
+ */
+.row-next-today {
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+/*
+ * 右侧：金额在上、笔数在下，右对齐。
+ * 金额用 tabular-nums（见 MoneyText），多行之间数字能对齐。
+ */
+.row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6rpx;
+  flex-shrink: 0;
 }
 
 .row-count {

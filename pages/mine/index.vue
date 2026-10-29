@@ -295,6 +295,21 @@ export default {
 
     onShow(async () => {
       if (settingStore.loaded) {
+        /*
+         * ★ 必须重新读库，不能只依赖内存里的 store ★
+         *   「我的」页的副标题（主题外观 / AI 智能配置 / 记账按钮）
+         *   全都读 settingStore.settings。
+         *
+         *   问题：用户在 AI 页保存后返回，setAi() 确实更新了内存 store，
+         *   但下面这些场景内存值会落后 ——
+         *     · App 重启后（store 是初始默认值，ai.apiKey 为空）
+         *     · 从别处（如备份导入）改了设置
+         *   表现就是「明明配置了，这里还显示未配置」。
+         *
+         *   所以每次进入本页都重新 load() 一次。
+         *   load() 只是读一张很小的 setting 表，开销可以忽略。
+         */
+        await settingStore.load()
         await accountStore.load(true)
         await loadStats()
       }

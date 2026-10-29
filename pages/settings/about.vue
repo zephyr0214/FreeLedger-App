@@ -41,12 +41,18 @@
               压缩成单个空格，所以模板里手写的换行**渲染不出来**
               （white-space: pre-wrap 也救不了，因为换行符已经被吃掉了）。
               改成数据数组 + v-for，每段一个 <text>，段落之间自然分行。
-              新增/修改文案只改 about.js 里的数组，不碰模板。
+              新增/修改文案只改 setup 里的数组，不碰模板。
+
+            ★ 首段单独加粗 ★
+              privacyParas[0] 是「本应用是一个完全本地化的个人记账工具。」
+              这种总起句，给一点强调，下面 · 开头的细项才是正文。
+              用 :class 判断 i === 0，不额外加字段，数组保持纯文案。
           -->
           <text
             v-for="(p, i) in privacyParas"
             :key="'p' + i"
             class="prose-para"
+            :class="{ 'prose-lead': i === 0, 'prose-item': isBullet(p) }"
           >{{ p }}</text>
         </view>
       </view>
@@ -58,6 +64,7 @@
             v-for="(p, i) in safetyParas"
             :key="'s' + i"
             class="prose-para"
+            :class="{ 'prose-lead': i === 0, 'prose-item': isBullet(p) }"
           >{{ p }}</text>
         </view>
       </view>
@@ -69,6 +76,7 @@
             v-for="(p, i) in featureParas"
             :key="'f' + i"
             class="prose-para"
+            :class="{ 'prose-item': isBullet(p) }"
           >{{ p }}</text>
         </view>
       </view>
@@ -171,6 +179,22 @@ export default {
       '· 备份：自动备份 + 手动导入导出，换机不丢数据'
     ]
 
+    /**
+     * 这一条是不是「· 」开头的列表项。
+     *
+     * ★ 为什么要判断 ★
+     *   同一份文案里混着两种段落：
+     *     · 总起句（「因为数据只在本机，请务必注意：」）
+     *     · 列表项（「· 卸载应用会删除全部数据…」）
+     *   两者排版应该不同：列表项要有悬挂缩进，
+     *   第二行不能顶到「·」下面，否则读起来像一坨。
+     *   判断依据用「·」前缀，这样文案数组可以保持纯文本，
+     *   不用再给每条加 { text, type } 结构。
+     */
+    function isBullet(text) {
+      return /^[·•]/.test(String(text || '').trim())
+    }
+
     async function onDiagnose() {
       try {
         await showDbDiagnostics()
@@ -186,6 +210,7 @@ export default {
     return {
       settingStore, primaryColor, pageStyle,
       privacyParas, safetyParas, featureParas,
+      isBullet,
       onDiagnose, goBack
     }
   }
@@ -281,21 +306,58 @@ export default {
 
 /*
  * 每一段是一个独立的 <text>（display: block 才能各占一行）。
+ *
  * ★ 不再用 white-space: pre-wrap ★
  *   依赖模板换行符在 uni-app 里不可靠 —— 编译期就被压成空格了。
  *   现在段落边界由 DOM 结构决定，跟模板排版无关。
- *   段间距用 margin-bottom 给，比靠空行稳妥。
+ *
+ * ★ 排版三档 ★
+ *   .prose-para  普通段落：行高 1.75，段间 16rpx
+ *   .prose-lead  总起句（每节第一条）：加粗、颜色深一档、下面留出间距
+ *   .prose-item  列表项（· 开头）：悬挂缩进，第二行不顶到「·」下面
+ *
+ *   之前所有段落都是同一套样式、段间距只有 8rpx，
+ *   一大坨文字堆在一起，读起来确实难看 —— 这就是被吐槽的原因。
  */
 .prose-para {
   display: block;
-  font-size: 24rpx;
+  font-size: 26rpx;
   color: var(--app-text-2);
-  line-height: 1.9;
-  margin-bottom: 8rpx;
+  line-height: 1.75;
+  margin-bottom: 16rpx;
 }
 
 .prose-para:last-child {
   margin-bottom: 0;
+}
+
+/*
+ * 总起句：深色 + 半粗。
+ * 它给整节定调（「因为数据只在本机，请务必注意：」），
+ * 比正文重一点才立得住，否则和下面的列表项混成一片。
+ */
+.prose-lead {
+  font-size: 27rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-bottom: 20rpx;
+}
+
+/*
+ * 列表项：悬挂缩进。
+ *
+ * ★ 为什么要 padding-left + text-indent ★
+ *   列表项形如「· 卸载应用会删除全部数据…」，
+ *   文字换行后如果顶到最左边，会和上面的「·」错位、显得很乱。
+ *   text-indent 负值把首行拉回左边，padding-left 把整个块右推，
+ *   两者配合 = 首行从 0 开始、换行后从 28rpx 开始（悬挂缩进）。
+ */
+.prose-item {
+  padding-left: 28rpx;
+  text-indent: -28rpx;
+  /* 列表项之间比正文段落紧一点，视觉上才是一组 */
+  margin-bottom: 10rpx;
+  line-height: 1.7;
 }
 
 .footer {

@@ -222,7 +222,7 @@ export default {
 
 /* 汇总卡 */
 .summary-card {
-  background: linear-gradient(135deg, var(--app-primary-light), var(--app-card));
+  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
   border-radius: 24rpx;
   padding: 32rpx;
   margin-top: 16rpx;

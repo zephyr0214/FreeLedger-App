@@ -665,7 +665,7 @@ export default {
 
 /* 概览卡：与账户页总资产卡同款渐变底色 */
 .overview-card {
-  background: linear-gradient(135deg, var(--app-primary-light), var(--app-card));
+  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
   border-radius: 24rpx;
   padding: 32rpx 32rpx 28rpx;
   margin-top: 8rpx;

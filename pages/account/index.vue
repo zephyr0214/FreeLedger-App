@@ -348,7 +348,7 @@ export default {
 
 /* 总资产卡（总资产金额 + 趋势折线，同一个面板） */
 .asset-card {
-  background: linear-gradient(135deg, var(--app-primary-light), var(--app-card));
+  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
   border-radius: 24rpx;
   padding: 36rpx 32rpx 28rpx;
   margin-top: 8rpx;
