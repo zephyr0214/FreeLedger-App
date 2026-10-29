@@ -248,8 +248,66 @@ const MIGRATIONS = [
     //   详见 applyChildCategoryIcons()。
     version: 6,
     up: applyChildCategoryIcons
+  },
+  {
+    // ★ 周期管理 ★
+    //   新建 cycle 表（周期规则），并在 txn 表加 cycle_id 列
+    //   （关联「这笔流水是由哪个周期记出来的」）。
+    //   用 ADD COLUMN 是 O(1) 元数据操作，不动已有数据。
+    version: 7,
+    up: migrateCycles
   }
 ]
+
+/**
+ * 迁移 v7 —— 周期管理
+ *
+ * 1) 新建 cycle 表（周期规则：每天 / 每周几 / 每月几号）。
+ * 2) txn 表加 cycle_id 列，关联「这笔流水由哪个周期记出」。
+ *
+ * ★ 为什么用 call() 而不是 query()/execute() ★
+ *   迁移在 openDb() 内部跑，走 query()/execute() 会 await openDb() 死锁。
+ */
+async function migrateCycles() {
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: `CREATE TABLE IF NOT EXISTS cycle (
+        id            TEXT PRIMARY KEY,
+        type          TEXT    NOT NULL,
+        amount_cents  INTEGER NOT NULL,
+        account_id    TEXT    NOT NULL,
+        to_account_id TEXT,
+        category_id   TEXT,
+        note          TEXT,
+        recurrence    TEXT    NOT NULL DEFAULT 'monthly',
+        weekday       INTEGER,
+        day_of_month  INTEGER,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        deleted_at    INTEGER
+      )`
+    })
+    console.log('[db] migration v7: cycle 表已创建')
+  } catch (e) {
+    console.warn('[db] migration v7 cycle 表失败:', e && e.message)
+  }
+
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'ALTER TABLE txn ADD COLUMN cycle_id TEXT'
+    })
+    console.log('[db] migration v7: txn.cycle_id 已添加')
+  } catch (e) {
+    // 字段已存在（重复执行）时忽略
+    if (e && /duplicate|already exists/i.test(e.message || '')) {
+      console.log('[db] migration v7: txn.cycle_id 已存在，跳过')
+    } else {
+      console.warn('[db] migration v7 txn.cycle_id 失败:', e && e.message)
+    }
+  }
+}
 
 /**
  * 迁移 v6 —— 给二级分类补上各自的图标

@@ -76,7 +76,7 @@ export function buildCategoryCondition(categoryId, includeSubcategories) {
 function buildFilterWhere(opt = {}) {
   const {
     monthKey, startDay, endDay, type, accountId, categoryId,
-    includeSubcategories, tagId, keyword, minCents, maxCents
+    includeSubcategories, tagId, keyword, minCents, maxCents, cycleId
   } = opt
 
   const where = ['t.deleted_at IS NULL']
@@ -86,6 +86,7 @@ function buildFilterWhere(opt = {}) {
   if (startDay) { where.push('t.occurred_day >= ?'); params.push(startDay) }
   if (endDay) { where.push('t.occurred_day <= ?'); params.push(endDay) }
   if (type && type !== 'all') { where.push('t.type = ?'); params.push(type) }
+  if (cycleId) { where.push('t.cycle_id = ?'); params.push(cycleId) }
   if (accountId) {
     where.push('(t.account_id = ? OR t.to_account_id = ?)')
     params.push(accountId, accountId)
@@ -143,6 +144,7 @@ export function parseTxnQueryOptions(options = {}) {
   const accountId = str(opt.accountId)
   const categoryId = str(opt.categoryId)
   const tagId = str(opt.tagId)
+  const cycleId = str(opt.cycleId)
 
   const monthKeyRaw = str(opt.monthKey)
   // 月份必须是真实的月份（01-12），'2026-13' 这种要被挡掉
@@ -159,6 +161,7 @@ export function parseTxnQueryOptions(options = {}) {
     accountId,
     categoryId,
     tagId,
+    cycleId,
     monthKey,
     day,
     includeSubcategories,
@@ -168,7 +171,7 @@ export function parseTxnQueryOptions(options = {}) {
      * 页面据此把时间范围放宽到全部时间，
      * 否则用户会只看到当月那几笔。
      */
-    hasFilter: Boolean(accountId || categoryId || tagId || type !== 'all')
+    hasFilter: Boolean(accountId || categoryId || tagId || cycleId || type !== 'all')
   }
 }
 
@@ -368,8 +371,8 @@ export async function createTransaction(input) {
       `INSERT INTO txn (
         id, type, amount_cents, account_id, to_account_id, category_id, note,
         occurred_at, occurred_day, month_key, year_key, tz_offset,
-        source, raw_text, created_at, updated_at, deleted_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+        source, raw_text, created_at, updated_at, deleted_at, cycle_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
       [
         id,
         input.type,
@@ -386,7 +389,8 @@ export async function createTransaction(input) {
         input.source || 'manual',
         input.raw_text || null,
         now,
-        now
+        now,
+        input.cycle_id || null
       ]
     )
 

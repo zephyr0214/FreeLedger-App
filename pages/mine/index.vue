@@ -139,6 +139,7 @@ export default {
         items: [
           { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
           { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
+          { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
           { key: 'budget', icon: 'budget', name: '预算管理', value: budgetLabel.value, route: '/pages/settings/budget' },
           {
             key: 'quickAdd',
