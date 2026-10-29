@@ -49,3 +49,27 @@ export function sortCategoriesByUsage(categories, usageCounts = {}, selectedId =
     })
     .map((x) => x.c)
 }
+
+/**
+ * 判断一个分类是否「可直接选」。
+ *
+ * ★ 收入分类不显示的根本原因 ★
+ *   默认收入分类（工资/奖金补贴/…）都是「一级分类且没有二级」，
+ *   而分类列表之前只保留 `!isParent`（即二级）。结果收入分类全部被过滤掉，
+ *   选收入时一片空白。
+ *
+ * 规则：
+ *   - 有 parent_id（是二级）→ 永远可选
+ *   - 没有 parent_id（是一级）→ 仅当它下面没有任何二级时才可选
+ *     （否则选它没意义，应该去选它的二级）
+ *
+ * @param {object} cat 分类对象（含 isParent / parent_id / id）
+ * @param {Array}  all 当前类型下的全部分类
+ * @returns {boolean}
+ */
+export function isSelectableCategory(cat, all) {
+  if (!cat) return false
+  if (!cat.isParent) return true
+  // 一级分类：仅当它下面没有任何二级时才可选
+  return !all.some((c) => c.parent_id === cat.id)
+}

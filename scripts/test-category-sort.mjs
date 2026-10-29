@@ -4,7 +4,7 @@
  *   node scripts/test-category-sort.mjs
  */
 
-import { sortCategoriesByUsage } from '../utils/categorySort.js'
+import { sortCategoriesByUsage, isSelectableCategory } from '../utils/categorySort.js'
 
 let pass = 0
 let fail = 0
@@ -90,6 +90,34 @@ check(
   ids(sortCategoriesByUsage(CATS)),
   ['a', 'b', 'c', 'd', 'e']
 )
+
+console.log('=== isSelectableCategory（收入分类不显示问题） ===')
+
+// 模拟：工资/奖金是「一级且无二级」→ 可选；餐饮一级下有二级 → 只选二级
+const INC = [
+  { id: 'w', name: '工资', parent_id: null, isParent: true },
+  { id: 'b', name: '奖金', parent_id: null, isParent: true }
+]
+const EXP = [
+  { id: 'food', name: '餐饮', parent_id: null, isParent: true },
+  { id: 'lunch', name: '正餐', parent_id: 'food', isParent: false },
+  { id: 'drink', name: '饮品', parent_id: 'food', isParent: false }
+]
+
+// 无二级的一级（收入）必须可选
+check('收入一级无二级 → 可选', isSelectableCategory(INC[0], INC), true)
+check('收入一级无二级(第二个) → 可选', isSelectableCategory(INC[1], INC), true)
+
+// 有二级的一级 → 不可选（要选它的二级）
+check('有二级的一级 → 不可选', isSelectableCategory(EXP[0], EXP), false)
+
+// 二级 → 永远可选
+check('二级 → 可选', isSelectableCategory(EXP[1], EXP), true)
+check('二级(饮品) → 可选', isSelectableCategory(EXP[2], EXP), true)
+
+// 空/非法
+check('空分类 → false', isSelectableCategory(null, EXP), false)
+check('空列表 → 一级不可选', isSelectableCategory(EXP[0], []), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

@@ -298,7 +298,7 @@ import { getCategoryUsageCounts } from '@/api/stats.js'
 import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combineDayTime } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { sortCategoriesByUsage } from '@/utils/categorySort.js'
+import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { alertDialog } from '@/utils/dialog.js'
 
 export default {
@@ -372,7 +372,11 @@ export default {
      */
     const categoryList = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
-      const list = categories.value.filter((c) => c.type === type && !c.isParent)
+      // ★ isSelectableCategory：二级 + 「无二级的一级」都可选，
+      //   修复选「收入」时分类列表空白的问题（收入默认分类都没有二级）。
+      const list = categories.value.filter(
+        (c) => c.type === type && isSelectableCategory(c, categories.value)
+      )
       return sortCategoriesByUsage(list, usageCounts.value, form.category_id)
     })
 

@@ -8,6 +8,7 @@ import { autoBackup } from '@/api/backup.js'
 import { toDayKey } from '@/utils/date.js'
 import { enableNativeFollowSystem } from '@/utils/theme.js'
 import { confirmDialog } from '@/utils/dialog.js'
+import { catchUpCycles } from '@/api/cycle.js'
 
 export default {
   data() {
@@ -126,7 +127,6 @@ export default {
       if (this._cycleCatchUpRunning) return
       this._cycleCatchUpRunning = true
       try {
-        const { catchUpCycles } = await import('@/api/cycle.js')
         const added = await catchUpCycles()
         const total = added.reduce((s, r) => s + r.added, 0)
         if (total > 0) {

@@ -11,8 +11,10 @@
       <!-- 顶栏：类型切换居中，编辑时左上角放删除，取消放右上角（红色） -->
       <view class="panel-head">
         <view class="panel-head-left">
+          <!-- 编辑时左上角删除：用文字而非 LineIcon —— LineIcon 是 SVG data URI，
+              传 var(--app-danger) 会被兜底成灰色（SVG 拿不到 CSS 变量） -->
           <view v-if="editing" class="panel-delete" @click="onDelete">
-            <LineIcon name="trash" :size="20" :color="'var(--app-danger)'" />
+            <text class="panel-delete-text">删除</text>
           </view>
           <view v-else class="panel-head-spacer" />
         </view>
@@ -255,14 +257,13 @@
 import { ref, reactive, computed, watch } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
-import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
 import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay } from '@/api/cycle.js'
 import { evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { sortCategoriesByUsage } from '@/utils/categorySort.js'
+import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
@@ -276,7 +277,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { NumberKeyboard, AppDialog, LineIcon },
+  components: { NumberKeyboard, AppDialog },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -327,10 +328,14 @@ export default {
 
     /* ------------------------------------------------------ 计算属性 */
 
-    // ★ 与首页「+」记账面板统一：按最近 30 天使用频率排序，已选中的排第一
+    // ★ 与首页「+」记账面板统一：按最近 30 天使用频率排序，已选中的排第一。
+    //   ★ 用 isSelectableCategory：二级 + 「无二级的一级」（如收入默认分类）都可选，
+    //     修复选「收入」时分类列表空白的问题。
     const categoryList = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
-      const list = categories.value.filter((c) => c.type === type && !c.isParent)
+      const list = categories.value.filter(
+        (c) => c.type === type && isSelectableCategory(c, categories.value)
+      )
       return sortCategoriesByUsage(list, usageCounts.value, form.category_id)
     })
 
@@ -752,11 +757,17 @@ export default {
 }
 
 .panel-delete {
-  width: 60rpx;
+  min-width: 60rpx;
   height: 60rpx;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.panel-delete-text {
+  font-size: 26rpx;
+  color: var(--app-danger);
+  font-weight: 500;
 }
 
 .panel-cancel {
