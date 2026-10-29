@@ -97,6 +97,16 @@ export const useSettingStore = defineStore('setting', {
     primaryColor(state) {
       return getPreset(state.settings.themePreset).primary
     },
+    /**
+     * 主题色的浅色版（同一色相的淡底）。
+     *
+     * 用于需要「浅主题色背景」的地方，如 tabBar 的选中滑块。
+     * 取的是预设里的 light 值，不是临时算出来的 rgba ——
+     * 预设的 light 是调过的，饱和度比直接加透明度更耐看。
+     */
+    primaryLight(state) {
+      return getPreset(state.settings.themePreset).light
+    },
     currencySymbol(state) {
       return state.settings.currencySymbol || '¥'
     },

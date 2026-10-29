@@ -168,8 +168,8 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
 
   // 真正的视觉尺寸在自绘组件里，这条必须盯着
   const tabbarCode = readFileSync(join(process.cwd(), 'components/AppTabBar.vue'), 'utf-8')
-  check('自绘底栏图标 44rpx', /\.tab-icon\s*\{[^}]*width:\s*44rpx/.test(tabbarCode), true)
-  check('自绘底栏高度 96rpx', /\.tabbar\s*\{[^}]*height:\s*96rpx/.test(tabbarCode), true)
+  check('自绘底栏图标 48rpx', /\.tab-icon\s*\{[^}]*width:\s*48rpx/.test(tabbarCode), true)
+  check('自绘底栏高度 128rpx', /\.tabbar\s*\{[^}]*height:\s*128rpx/.test(tabbarCode), true)
 
   /* ★ 圆角统一：pill 与 + 圆按钮必须是同一曲率 ★
    *   + 按钮是正圆（border-radius:50%，半径 = 高度的一半 = 54rpx）。
@@ -189,6 +189,30 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
 
   /* ★ 底栏与 + 按钮必须分离 ★ */
   check('两块之间有 gap', /\.tabbar-row\s*\{[^}]*gap:\s*\d+rpx/.test(tabbarCode), true)
+
+  /* ★ 选中滑块：全圆角 + 浅主题色 + 平滑过渡 ★
+   *   用户要求「图标下方加一个全圆角的浅主题色滑块，切换过渡自然」。
+   *   三条缺一不可：
+   *     · 圆角 999rpx（全圆角，和底栏曲率一致）
+   *     · 背景取 store 的 primaryLight（浅主题色）
+   *     · 用 transform 位移 + transition（能滑过去，不是跳过去）
+   */
+  check('有选中滑块', /class="tab-slider"/.test(tabbarCode), true)
+  // 圆角与上色都在 ::after 上：外层保持「正好一格宽」，
+  // 位移基准才准确；色块比格子小一圈由伪元素负责。
+  check('滑块色块是全圆角', /\.tab-slider::after\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
+  check('滑块用 transform 位移', /transform:\s*`translateX\(/.test(tabbarCode), true)
+  check('滑块有过渡动画', /\.tab-slider\s*\{[^}]*transition:\s*transform/.test(tabbarCode), true)
+  check('滑块用浅主题色', /primaryLight/.test(tabbarCode), true)
+  check('store 有 primaryLight', /primaryLight\(state\)\s*\{/.test(
+    readFileSync(join(process.cwd(), 'stores/setting.js'), 'utf-8')), true)
+
+  /* ★ 高度要够，不能扁 ★
+   *   96rpx 那版用户反馈「有点丑」，要求高一些。
+   *   这里锁一个下限，防止后续被改回扁的。
+   */
+  const pillH = (tabbarCode.match(/\.tabbar\s*\{[^}]*height:\s*(\d+)rpx/) || [])[1]
+  check('胶囊高度 >= 120rpx', Number(pillH) >= 120, true)
 }
 
 /* ------------- 冷启动时原生 tabBar 要自己补藏，不能等用户点 tab -------------

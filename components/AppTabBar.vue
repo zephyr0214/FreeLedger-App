@@ -17,10 +17,17 @@
     <view class="tabbar-row">
       <!-- 左：tab pill -->
       <view class="tabbar" :style="barStyle">
+        <!-- ★ 滑块必须在 tab-item 之前渲染 ★
+             它在每个 tab 里绝对定位、z-index 低于图标文字，
+             靠 transform 横向位移到当前 tab 下面（见 .tab-slider）。
+             放在后面也能显示，但会盖住图标，所以顺序有讲究。 -->
+        <view class="tab-slider" :style="sliderStyle" />
+
         <view
           v-for="item in items"
           :key="item.name"
           class="tab-item"
+          :class="{ active: item.active }"
           @click="onTabClick(item)"
         >
           <image
@@ -149,6 +156,38 @@ export default {
     )
 
     /**
+     * 当前 tab 的序号（0..3）。
+     * 找不到时退回 0，避免 current 传错导致滑块飞到屏幕外。
+     */
+    const currentIndex = computed(() => {
+      const i = TABS.findIndex((t) => t.name === props.current)
+      return i < 0 ? 0 : i
+    })
+
+    /**
+     * 滑块位置与颜色。
+     *
+     * ★ 用 translateX 而不是改 left ★
+     *   transform 由合成器处理，切 tab 时能走 CSS transition，
+     *   过渡是「滑过去」而不是「跳过去」。
+     *   改 left 也能动，但会和布局回流搅在一起，动画掉帧。
+     *
+     * ★ 位移 = 序号 × 100% ★
+     *   百分比基准是滑块自身宽度，而滑块宽度正好等于单格宽度
+     *   （见 .tab-slider 的 calc），所以第 N 格恰好落在 (N × 100%)。
+     *
+     * ★ 颜色走 CSS 变量 ★
+     *   真正上色的是 .tab-slider::after（它比格子小一圈），
+     *   伪元素读不到内联 backgroundColor，所以用变量中转。
+     */
+    const sliderStyle = computed(() => ({
+      transform: `translateX(${currentIndex.value * 100}%)`,
+      '--slider-color': settingStore.isDark
+        ? 'rgba(255,255,255,0.10)'
+        : settingStore.primaryLight
+    }))
+
+    /**
      * 图标路径。
      *
      * ★ 复用 static/tabbar/ 下那套 PNG ★
@@ -178,7 +217,6 @@ export default {
      */
     function onTabClick(item) {
       if (item.active) return
-      // 点走之前先收起可能存在的右滑/弹层状态由各页面自理
       try {
         uni.switchTab({ url: item.path })
       } catch (e) {}
@@ -287,7 +325,7 @@ export default {
     }
 
     return {
-      items, primaryColor, fontColor, barStyle, ringStyle, pressing,
+      items, primaryColor, fontColor, barStyle, ringStyle, sliderStyle, pressing,
       iconOf, onTabClick,
       onTouchStart, onTouchEnd, onTouchCancel, onTouchMove
     }
@@ -349,29 +387,103 @@ export default {
  *
  * ★ 圆角用 999rpx（全圆角胶囊），不用固定值 ★
  *   右侧 + 按钮是正圆（border-radius: 50%），
- *   曲率 = 直径的一半。pill 高度 108rpx 时，
- *   只有半径取到 54rpx（= 高度的一半，用 999rpx 直接封顶）
- *   两端才是半圆，和圆按钮的弧度看起来才是一套的。
- *   之前写 36rpx 明显比圆按钮「方」，所以显得不统一。
+ *   曲率 = 直径的一半。pill 用 999rpx 后半径也自动等于高度的一半，
+ *   两端正好是半圆，和圆按钮的弧度看起来才是一套的。
  *
- * ★ 宽度收窄到 440rpx ★
- *   4 个 tab 各 110rpx，图标 44rpx + 文字，够用且更紧凑。
+ * ★ 高度 128rpx ★
+ *   96rpx 那版偏扁，像「一条横杠」，不好看。
+ *   128rpx 能容下 48rpx 图标 + 24rpx 文字 + 上下留白，
+ *   视觉上更挺、更有分量，也更像一块「浮起来的托盘」。
+ *
+ * ★ 宽度 560rpx（不撑满，但也不抠）★
+ *   4 格各 136rpx，图标文字都不挤；
+ *   屏幕两侧仍留出背景，保持悬浮感。
+ *   上一版 420rpx 太紧凑了。
  */
 .tabbar {
-  width: 420rpx;
+  position: relative;
+  width: 560rpx;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  height: 96rpx;
+  height: 128rpx;
   border-radius: 999rpx;
   border-width: 1rpx;
   border-style: solid;
-  padding: 0 8rpx;
+  padding: 0 10rpx;
   /* 只有 pill 本体吃点击 */
   pointer-events: auto;
 }
 
+/*
+ * ★ 选中滑块：全圆角的浅主题色色块 ★
+ *
+ * ★ 关键：滑块宽度必须**正好等于单格宽度** ★
+ *   内联 style 给的是 translateX(N × 100%)，
+ *   百分比相对的是滑块**自身宽度**。
+ *   只有自身宽度 == 单格宽度时，位移才会精确落在每格中央；
+ *   差一点就会越滑越偏（第 4 格最明显）。
+ *   所以下面用 calc 从 pill 宽度和 padding 反推，不写死数字。
+ *
+ * ★ 视觉内缩靠 margin，不靠改 width ★
+ *   想让色块比格子小一圈、露出托盘底色，
+ *   用 margin: 0 6rpx 收窄**显示区域**？不行 —— margin 不会改变
+ *   translateX 的百分比基准，仍按自身宽度算，所以是安全的；
+ *   但更省事的做法是直接用内层 padding 表现。这里选择：
+ *   宽度 == 单格宽，高度略矮（104 < 108），上下露出一点边，
+ *   横向则由 border-radius: 999rpx 撑成胶囊，不与相邻格贴边。
+ *
+ * ★ 过渡 ★
+ *   transition 写在 .tab-slider 上，位移由内联 transform 驱动，
+ *   所以每次切 tab 都是从旧位置滑到新位置（0.28s 轻微回弹），
+ *   而不是瞬间跳过去。
+ *
+ * z-index 必须低于 .tab-item，否则会盖住图标和文字。
+ */
+.tab-slider {
+  position: absolute;
+  top: 50%;
+  left: 10rpx;
+  /*
+   * 单格宽 = (pill 宽 - 左右 padding) / 4
+   * 这里保持「正好一格」，靠下面的 ::after 内缩显示区域。
+   */
+  width: calc((560rpx - 20rpx) / 4);
+  height: 108rpx;
+  margin-top: -54rpx;
+  /* 位移由内联 style 提供；这里只管过渡曲线 */
+  transition: transform 0.28s cubic-bezier(0.34, 1.2, 0.64, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/*
+ * ★ 显示区域比格子小一圈，形成「嵌在托盘里」的观感 ★
+ *
+ * 为什么用一个内层而不是直接把 width 改小：
+ *   translateX 的百分比基准是滑块自身宽度，
+ *   宽度一旦不是「正好一格」，第 2/3/4 格就会越滑越偏。
+ *   所以外层保持一格宽（负责定位），
+ *   真正的色块交给这个伪元素（负责外观）。
+ *
+ * 背景色由内联 style 写在 .tab-slider 上，
+ * 伪元素用 inherit 取不到，所以这里用 CSS 变量中转 ——
+ * 见 template 里的 --slider-color。
+ */
+.tab-slider::after {
+  content: '';
+  position: absolute;
+  top: 8rpx;
+  bottom: 8rpx;
+  left: 6rpx;
+  right: 6rpx;
+  border-radius: 999rpx;
+  background-color: var(--slider-color, transparent);
+}
+
 .tab-item {
+  position: relative;
+  z-index: 1;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -383,21 +495,36 @@ export default {
 
 /*
  * 图标尺寸
- * ★ 22px ≈ 44rpx ★
- *   与原生 tabBar 那时的 iconWidth 同一个视觉量级。
- *   换成自绘后不再受 pages.json 影响，所以这里就是唯一来源。
+ * ★ 48rpx ≈ 24px ★
+ *   底栏加高后图标也跟着放大，否则会显得空。
+ *   原生素材是 81px 画布，缩到 48rpx 仍然清晰。
+ *
+ * ★ 过渡 ★
+ *   图标和文字都加了 transition：
+ *   切 tab 时滑块滑过去，同时旧图标变灰、新图标上色，
+ *   三者同步进行，切换就不会「啪」地一下突变。
  */
 .tab-icon {
-  width: 44rpx;
-  height: 44rpx;
+  width: 48rpx;
+  height: 48rpx;
   pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  /* 未选中稍收一点，选中时回到 1，形成轻微的「浮起」感 */
+  opacity: 0.85;
+  transform: scale(0.96);
+}
+
+.tab-item.active .tab-icon {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .tab-text {
-  font-size: 22rpx;
+  font-size: 24rpx;
   line-height: 1;
-  margin-top: 6rpx;
+  margin-top: 8rpx;
   pointer-events: none;
+  transition: color 0.22s ease;
 }
 
 /* ------------------------------------------------------ + 按钮 */
@@ -405,19 +532,18 @@ export default {
 /*
  * ★ 形状不变：还是圆形 ★
  *   它是**独立的一块**，不和左边 pill 连成一条。
- *   高度与 pill 相同（108rpx），所以两块上下齐平；
- *   宽度也取 108rpx 让它是个正圆。
+ *   直径与 pill 高度相同（128rpx），所以两块上下齐平。
  *
  * ★ 圆角与 pill 的统一关系 ★
- *   border-radius: 50% 时，半径 = 108 / 2 = 54rpx。
- *   pill 用 999rpx 封顶后半径同样是「高度的一半」= 54rpx。
+ *   border-radius: 50% 时，半径 = 128 / 2 = 64rpx。
+ *   pill 用 999rpx 封顶后半径同样是「高度的一半」= 64rpx。
  *   两者曲率相同，看起来才是一套的 —— 改这里的高度时，
  *   pill 的 999rpx 会自动跟着对齐，无需同步改数字。
  */
 .tab-add {
   position: relative;
-  width: 96rpx;
-  height: 96rpx;
+  width: 128rpx;
+  height: 128rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -436,7 +562,7 @@ export default {
 
 .add-icon {
   color: #ffffff;
-  font-size: 56rpx;
+  font-size: 64rpx;
   font-weight: 300;
   line-height: 1;
   margin-top: -4rpx;
@@ -452,8 +578,8 @@ export default {
   position: absolute;
   top: 0;
   left: 0;
-  width: 96rpx;
-  height: 96rpx;
+  width: 128rpx;
+  height: 128rpx;
   z-index: 1;
   pointer-events: none;
 }
@@ -462,7 +588,7 @@ export default {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  -webkit-mask: radial-gradient(circle, transparent 52rpx, #000 54rpx);
-  mask: radial-gradient(circle, transparent 52rpx, #000 54rpx);
+  -webkit-mask: radial-gradient(circle, transparent 70rpx, #000 72rpx);
+  mask: radial-gradient(circle, transparent 70rpx, #000 72rpx);
 }
 </style>
