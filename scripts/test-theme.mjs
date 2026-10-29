@@ -210,14 +210,34 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
    *     · 用 transform 位移 + transition（能滑过去，不是跳过去）
    */
   check('有选中滑块', /class="tab-slider"/.test(tabbarCode), true)
-  // 圆角与上色都在 ::after 上：外层保持「正好一格宽」，
-  // 位移基准才准确；色块比格子小一圈由伪元素负责。
-  check('滑块色块是全圆角', /\.tab-slider::after\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
+  // 滑块直接铺满整格上色（不再套 ::after 内缩），圆角 999rpx
+  check('滑块是全圆角', /\.tab-slider\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
+  check('滑块直接上色', /\.tab-slider\s*\{[^}]*background-color:\s*var\(--slider-color/.test(tabbarCode), true)
   check('滑块用 transform 位移', /transform:\s*`translateX\(/.test(tabbarCode), true)
   check('滑块有过渡动画', /\.tab-slider\s*\{[^}]*transition:\s*transform/.test(tabbarCode), true)
   check('滑块用浅主题色', /primaryLight/.test(tabbarCode), true)
   check('store 有 primaryLight', /primaryLight\(state\)\s*\{/.test(
     readFileSync(join(process.cwd(), 'stores/setting.js'), 'utf-8')), true)
+
+  /* ★ 滑块必须铺满整格，不能缩水 ★
+   *   上一版套了 ::after 再内缩 10rpx/8rpx，实际只剩 119×88rpx，
+   *   用户反馈「浅色圆角滑块收得太小」。
+   *   这里锁高度：128 格高，滑块应 >= 110rpx（只留少量呼吸）。
+   */
+  const sliderH = (tabbarCode.match(/\.tab-slider\s*\{[^}]*height:\s*(\d+)rpx/) || [])[1]
+  check('滑块高度 >= 110rpx（铺满整格）', Number(sliderH) >= 110, true)
+  check('滑块不再套 ::after 内缩', /\.tab-slider::after/.test(tabbarCode), false)
+
+  /* ★ 跨页面切换要有滑动动画 ★
+   *   4 个 tab 是不同页面，组件会重新挂载；
+   *   若一挂载就渲染在目标位置，transform 没变化，transition 不触发
+   *   —— 表现就是「没有滑块感觉」。
+   *   所以必须两段式：初始停在旧位置，挂载后一帧再切到新位置。
+   */
+  check('滑块有位移动画状态', /sliderIndex/.test(tabbarCode), true)
+  check('挂载后推迟一帧再位移', /onMounted\([\s\S]{0,400}sliderIndex\.value\s*=/.test(tabbarCode), true)
+  check('store 记住上次位置', /lastTabIndex/.test(
+    readFileSync(join(process.cwd(), 'stores/ui.js'), 'utf-8')), true)
 
   /* ★ 高度要够，不能扁 ★
    *   96rpx 那版用户反馈「有点丑」，要求高一些。

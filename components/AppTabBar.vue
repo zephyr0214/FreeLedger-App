@@ -64,8 +64,9 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { useUiStore } from '@/stores/ui.js'
 import { TABBAR_ICON_VERSION } from '@/utils/theme.js'
 
 /**
@@ -183,29 +184,50 @@ export default {
     /**
      * 滑块位置与颜色。
      *
-     * ★ 用 translateX 而不是改 left ★
-     *   transform 由合成器处理，切 tab 时能走 CSS transition，
-     *   过渡是「滑过去」而不是「跳过去」。
-     *   改 left 也能动，但会和布局回流搅在一起，动画掉帧。
+     * ★ 关键：跨页面切换时怎么让动画「发生」★
+     *   4 个 tab 是不同页面，切 tab 时本组件整个重新挂载。
+     *   如果一挂载就渲染在目标位置，transform 没有过变化，
+     *   CSS transition 就不会触发 —— 看到的就是「没有滑块」。
      *
-     * ★ 位移 = 序号 × 100% ★
-     *   百分比基准是滑块自身宽度，而滑块宽度正好等于单格宽度
-     *   （见 .tab-slider 的 calc），所以第 N 格恰好落在 (N × 100%)。
+     *   解法（sliderIndex 的两段式）：
+     *     1. 初始值取 store 里记的「上一页序号」（老位置）
+     *     2. onMounted 的下一帧再改成当前序号（新位置）
+     *   这样 transform 有了 A → B 的变化，过渡就真的跑起来了。
      *
-     * ★ 颜色走 CSS 变量 ★
-     *   真正上色的是 .tab-slider::after（它比格子小一圈），
-     *   伪元素读不到内联 backgroundColor，所以用变量中转。
-     *
-     * ★ iOS 观感的关键：滑块也要「玻璃」★
-     *   iOS 的 tab 指示器半透明、带一点点内高光，
-     *   不是一块实心色。所以：
-     *     浅色 → 浅主题色 + 一道白色内高光（像玻璃片）
-     *     深色 → 白色 14% + 内高光（iOS 深色就是这么做的）
+     *   store 里的 lastTabIndex 是跨页面共享的，
+     *   所以「从账户页切到统计页」也能从第 2 格滑到第 3 格。
      */
+    const uiStore = useUiStore()
+
+    /** 滑块当前渲染用的序号：初始停在上一页，挂载后一帧再跳到本页 */
+    const sliderIndex = ref(
+      uiStore.lastTabIndex >= 0 ? uiStore.lastTabIndex : currentIndex.value
+    )
+
+    onMounted(() => {
+      // 下一帧再改：这一帧已经用「旧位置」渲染过了，
+      // 改变 sliderIndex 才能产生 transform 变化，过渡才有意义。
+      nextTick(() => {
+        setTimeout(() => {
+          sliderIndex.value = currentIndex.value
+          // 记住本页序号，供下一页做动画
+          uiStore.setLastTabIndex(currentIndex.value)
+        }, 20)
+      })
+    })
+
+    // ★ 同一页面内 current 变化时也要跟着动 ★
+    //   虽然目前每个页面 current 是写死的，但保留这层
+    //   是为了将来做「页内切换」时不会又变成没有动画。
+    watch(currentIndex, (i) => {
+      sliderIndex.value = i
+      uiStore.setLastTabIndex(i)
+    })
+
     const sliderStyle = computed(() => {
       const dark = settingStore.isDark
       return {
-        transform: `translateX(${currentIndex.value * 100}%)`,
+        transform: `translateX(${sliderIndex.value * 100}%)`,
         '--slider-color': dark
           ? 'rgba(255,255,255,0.14)'
           : settingStore.primaryLight,
@@ -473,27 +495,25 @@ export default {
 }
 
 /*
- * ★ 选中滑块：全圆角的浅主题色色块 ★
+ * ★ 选中滑块：全圆角的浅主题色胶囊，铺满整格 ★
  *
- * ★ 关键：滑块宽度必须**正好等于单格宽度** ★
+ * ★ 宽度必须**正好等于单格宽度** ★
  *   内联 style 给的是 translateX(N × 100%)，
  *   百分比相对的是滑块**自身宽度**。
- *   只有自身宽度 == 单格宽度时，位移才会精确落在每格中央；
+ *   只有自身宽度 == 单格宽度时，位移才会精确落在每格上；
  *   差一点就会越滑越偏（第 4 格最明显）。
- *   所以下面用 calc 从 pill 宽度和 padding 反推，不写死数字。
+ *   所以用 calc 从 pill 宽度和 padding 反推，不写死数字。
  *
- * ★ 视觉内缩靠 margin，不靠改 width ★
- *   想让色块比格子小一圈、露出托盘底色，
- *   用 margin: 0 6rpx 收窄**显示区域**？不行 —— margin 不会改变
- *   translateX 的百分比基准，仍按自身宽度算，所以是安全的；
- *   但更省事的做法是直接用内层 padding 表现。这里选择：
- *   宽度 == 单格宽，高度略矮（104 < 108），上下露出一点边，
- *   横向则由 border-radius: 999rpx 撑成胶囊，不与相邻格贴边。
+ * ★ 高度铺满，只留 6rpx 呼吸 ★
+ *   上一版用了 ::after 再内缩 top/bottom 10rpx + left/right 8rpx，
+ *   实际只剩 119×88rpx —— 比整格小了一大圈，看着「收得太小」。
+ *   iOS 的指示器是**几乎铺满整格**的饱满胶囊，
+ *   这里改成 116rpx 高（128 格高 - 上下各 6rpx），
+ *   横向则由 padding 自然留出缝，不再额外内缩。
  *
- * ★ 过渡 ★
- *   transition 写在 .tab-slider 上，位移由内联 transform 驱动，
- *   所以每次切 tab 都是从旧位置滑到新位置（0.28s 轻微回弹），
- *   而不是瞬间跳过去。
+ * ★ 用 transform 位移 + transition ★
+ *   位移由内联 transform 驱动，切线曲线是 iOS 的
+ *   cubic-bezier(0.32, 0.72, 0, 1)：起步快、收尾长、几乎不回弹。
  *
  * z-index 必须低于 .tab-item，否则会盖住图标和文字。
  */
@@ -501,53 +521,24 @@ export default {
   position: absolute;
   top: 50%;
   left: 10rpx;
-  /*
-   * 单格宽 = (pill 宽 - 左右 padding) / 4
-   * 这里保持「正好一格」，靠下面的 ::after 内缩显示区域。
-   */
+  /* 单格宽 = (pill 宽 - 左右 padding) / 4 */
   width: calc((560rpx - 20rpx) / 4);
-  height: 108rpx;
-  margin-top: -54rpx;
+  /* 高度几乎铺满整格，只留 6rpx 呼吸 */
+  height: 116rpx;
+  margin-top: -58rpx;
+  border-radius: 999rpx;
+  background-color: var(--slider-color, transparent);
+  box-shadow: var(--slider-highlight, none);
   /*
    * ★ iOS 的滑动曲线 ★
    *   0.38s + cubic-bezier(0.32, 0.72, 0, 1)
    *   这是 iOS 系统动画的经典曲线（也是 Apple 自己常用的）：
    *   起步快、尾巴长、末尾几乎没有回弹但收得住。
-   *   之前用的 (0.34, 1.2, 0.64, 1) 回弹太夸张，
-   *   像廉价 H5，反而不像 iOS。
    */
   transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
   pointer-events: none;
   z-index: 0;
   will-change: transform;
-}
-
-/*
- * ★ 显示区域比格子小一圈，形成「嵌在托盘里」的观感 ★
- *
- * 为什么用一个内层而不是直接把 width 改小：
- *   translateX 的百分比基准是滑块自身宽度，
- *   宽度一旦不是「正好一格」，第 2/3/4 格就会越滑越偏。
- *   所以外层保持一格宽（负责定位），
- *   真正的色块交给这个伪元素（负责外观）。
- *
- * ★ 内高光 ★
- *   顶部一道 1rpx 的亮线（inset shadow），
- *   模拟玻璃片的边缘反光 —— iOS 的胶囊指示器就有这一道，
- *   去掉它立刻会变成「一块扁平的色块」。
- *
- * 背景色由内联 style 通过 CSS 变量传进来（伪元素读不到父级内联样式）。
- */
-.tab-slider::after {
-  content: '';
-  position: absolute;
-  top: 10rpx;
-  bottom: 10rpx;
-  left: 8rpx;
-  right: 8rpx;
-  border-radius: 999rpx;
-  background-color: var(--slider-color, transparent);
-  box-shadow: var(--slider-highlight, none);
 }
 
 .tab-item {
