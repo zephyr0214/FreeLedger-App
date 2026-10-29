@@ -74,8 +74,11 @@ function donutSectorPath(g, startDeg, endDeg) {
  * 根据所在半侧决定 text-anchor：
  *   - 右半（0~180°）：文字在引导线右侧，text-anchor=start
  *   - 左半（180~360°）：文字在引导线左侧，text-anchor=end
- *   - 顶部/底部附近（cos 接近 0）：文字仍水平放，
- *     但为了不和相邻标签打架，稍微往圆外推一点。
+ *   - 顶部/底部附近（cos 接近 0）：文字仍水平放，text-anchor=middle
+ *
+ * ★ 防重叠 ★
+ *   水平文字在顶部/底部区域会互相叠（见 buildDonutSvg 的 pushApartY），
+ *   这里只返回**理想**位置，推挤在调用方做。
  *
  * @param {number} midDeg 扇区中点角（0~360）
  * @returns {{x:number,y:number,anchor:'start'|'end'|'middle'}}
@@ -84,7 +87,6 @@ function labelPos(g, midDeg) {
   const { cx, cy, labelR } = g
   // 文字锚点位置：引导线末端再往外一点
   const p = polar(cx, cy, labelR, midDeg)
-  const cos = Math.cos((midDeg * Math.PI) / 180)
   const sin = Math.sin((midDeg * Math.PI) / 180)
 
   let anchor = 'middle'
@@ -93,6 +95,57 @@ function labelPos(g, midDeg) {
   else if (sin < -0.25) anchor = 'end'
 
   return { x: p.x, y: p.y, anchor }
+}
+
+/**
+ * 文字防重叠：保证相邻标签的 y 间距 >= minGap。
+ *
+ * ★ 为什么需要 ★
+ *   水平排布的文字，在顶部/底部区域（anchor=middle）会挤在一起。
+ *   例：8 个扇区时「教育 4%」和「其他 2%」在 y≈8~11 处重叠。
+ *
+ * ★ 保持顺序 ★
+ *   只改 y，不重排数组 —— 调用方按原索引把位置写回对应扇区。
+ *   实现：对每半侧按 y 排序做推挤，但把结果写回原数组对应元素。
+ *
+ * ★ 分组 ★
+ *   顶部（y < cy）和底部（y > cy）分开推挤，避免跨过圆心相互影响。
+ *
+ * @param {Array<{x:number,y:number,anchor:string}>} labels
+ * @param {number} minGap 相邻标签最小 y 间距
+ * @returns {Array<{x:number,y:number,anchor:string}>} 推挤后的标签（原顺序）
+ */
+function pushApartY(labels, minGap = 12) {
+  if (!labels || labels.length < 2) return labels || []
+
+  const n = labels.length
+  const idx = labels.map((_, i) => i)
+  const cy = 90
+
+  // 按 y 升序的索引
+  const sorted = [...idx].sort((a, b) => labels[a].y - labels[b].y)
+
+  // 顶部：从 y 最小开始，依次保证间距（往下推）
+  let prevTop = null
+  for (const i of sorted) {
+    if (labels[i].y >= cy) break
+    if (prevTop !== null && labels[i].y - labels[prevTop].y < minGap) {
+      labels[i].y = labels[prevTop].y + minGap
+    }
+    prevTop = i
+  }
+  // 底部：从 y 最大开始，依次保证间距（往上推）
+  let nextBottom = null
+  for (let k = sorted.length - 1; k >= 0; k--) {
+    const i = sorted[k]
+    if (labels[i].y < cy) break
+    if (nextBottom !== null && labels[nextBottom].y - labels[i].y < minGap) {
+      labels[i].y = labels[nextBottom].y - minGap
+    }
+    nextBottom = i
+  }
+
+  return labels
 }
 
 /**
@@ -178,17 +231,28 @@ export function buildDonutSvg(items = [], opts = {}) {
     )
   }
 
-  // 画引导线 + 文字
+  // 画引导线 + 文字（带防重叠）
   if (showLead) {
+    // 先收集需要标注的扇区，算理想位置，再做 y 推挤
+    const labelSectors = []
     for (const s of sectors) {
       if (!s.label) continue
-      const from = polar(g.cx, g.cy, g.leadFrom, s.mid)
-      const to = polar(g.cx, g.cy, g.leadTo, s.mid)
       const lp = labelPos(g, s.mid)
+      labelSectors.push({ ...s, lp })
+    }
+    const pushed = pushApartY(labelSectors.map((s) => ({ ...s.lp })), 12)
+    // 把推挤后的位置写回
+    labelSectors.forEach((s, i) => {
+      s.lp = pushed[i]
+    })
 
-      // 引导线：从环外缘到文字前
+    for (const s of labelSectors) {
+      // 引导线：从环外缘到文字锚点
+      const from = polar(g.cx, g.cy, g.leadFrom, s.mid)
+      const lp = s.lp
+
       parts.push(
-        `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" ` +
+        `<line x1="${from.x}" y1="${from.y}" x2="${lp.x}" y2="${lp.y}" ` +
         `stroke="${leadColor}" stroke-width="1" stroke-linecap="round"/>`
       )
       // 文字：名称 + 占比

@@ -107,6 +107,41 @@ const items = [
 }
 
 {
+  // 文字防重叠：顶部/底部相邻标签保证 y 间距，不再互相叠
+  // 复刻「教育 4% / 其他 2%」这种曾重叠的场景（8 个扇区，占比小）
+  const svg = buildDonutSvg([
+    { name: '餐饮', amount: 3000, color: '#1E88E5' },
+    { name: '交通', amount: 2200, color: '#FB8C00' },
+    { name: '购物', amount: 1500, color: '#43A047' },
+    { name: '住房', amount: 1200, color: '#E53935' },
+    { name: '娱乐', amount: 900, color: '#8E24AA' },
+    { name: '医疗', amount: 600, color: '#F06292' },
+    { name: '教育', amount: 400, color: '#6D4C41' },
+    { name: '其他', amount: 200, color: '#9E9D24' }
+  ], { total: 10000 })
+
+  // 解析所有 text 的位置
+  const ys = [...svg.matchAll(/<text x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="([^"]+)"[^>]*>([^<]+)<\/text>/g)]
+    .map((m) => ({ y: Number(m[1]), anchor: m[2], label: m[3] }))
+
+  // 顶部区域（y < 90）的标签，任意两个 y 间距 >= 10（文字高约 12，去掉一半）
+  const top = ys.filter((t) => t.y < 90).sort((a, b) => a.y - b.y)
+  let minGap = Infinity
+  for (let i = 1; i < top.length; i++) {
+    minGap = Math.min(minGap, top[i].y - top[i - 1].y)
+  }
+  check('顶部标签 y 间距 >= 10', minGap >= 10, true)
+
+  // 底部区域同理
+  const bottom = ys.filter((t) => t.y >= 90).sort((a, b) => a.y - b.y)
+  let minGapB = Infinity
+  for (let i = 1; i < bottom.length; i++) {
+    minGapB = Math.min(minGapB, bottom[i].y - bottom[i - 1].y)
+  }
+  check('底部标签 y 间距 >= 10', minGapB >= 10, true)
+}
+
+{
   // 极小扇区（占比 < 间隙）跳过不画，避免负 sweep 产生怪异 path
   const svg = buildDonutSvg([
     { name: '大头', amount: 9999, color: '#111' },

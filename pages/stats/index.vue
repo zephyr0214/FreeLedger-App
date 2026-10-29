@@ -74,9 +74,13 @@
         </view>
 
         <view v-else>
-          <!-- 环形图：SVG，引导线直接标注「分类名 占比%」 -->
+          <!-- 环形图：SVG，引导线直接标注「分类名 占比%」，中央显示总计 -->
           <view class="donut-wrap">
             <image class="donut-img" :src="categoryDonutUri" mode="widthFix" />
+            <view class="donut-center">
+              <text class="donut-center-label">合计</text>
+              <MoneyText :cents="categoryTotal" :size="28" :weight="600" color="var(--app-text)" />
+            </view>
           </view>
 
           <!-- 下方：色点 + 分类名 + 笔数 + 总金额（不再显示占比和进度条） -->
@@ -143,6 +147,15 @@
         <view v-else>
           <view class="donut-wrap">
             <image class="donut-img" :src="accountViewDonutUri" mode="widthFix" />
+            <view class="donut-center">
+              <text class="donut-center-label">合计</text>
+              <MoneyText
+                :cents="accountViewMode === 'type' ? accountTypeTotal : accountTotal"
+                :size="28"
+                :weight="600"
+                color="var(--app-text)"
+              />
+            </view>
           </view>
           <view class="rank-list">
             <view v-for="(acc, i) in accountViewList" :key="acc.key || acc.id" class="rank-item">
@@ -875,6 +888,7 @@ export default {
 
 /* 环形图：SVG 图（引导线+文字标注），用 image 加载 data URI */
 .donut-wrap {
+  position: relative;
   display: flex;
   justify-content: center;
   padding: 16rpx 0 28rpx;
@@ -890,6 +904,32 @@ export default {
    *   引导线文字左右正好贴卡片内边距，视觉上横贯整张卡。
    */
   width: 100%;
+}
+
+/*
+ * ★ 环形图中央：总计 ★
+ *   绝对定位在环的洞中心。洞的内径 44（viewBox 300），
+ *   撑满 630rpx 后洞直径约 185rpx，足够放「合计 + 金额」。
+ *   left/top 用 50% 居中，再靠 flex 列排内容。
+ */
+.donut-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rpx;
+  /* 不挡住下面的列表点击（虽然图本身无点击） */
+  pointer-events: none;
+  /* 洞宽约 185rpx，内容最宽不能超过它 */
+  max-width: 200rpx;
+}
+
+.donut-center-label {
+  font-size: 20rpx;
+  color: var(--app-text-3);
 }
 
 /* 排行 */
