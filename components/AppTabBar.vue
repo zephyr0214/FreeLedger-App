@@ -6,6 +6,16 @@
     :style="hostStyle"
   >
     <!--
+      ★ 底部渐变（垫在底栏后面）★
+        手机的系统导航条是纯白 / 纯黑，而页面底色是 #F7F8FA（略偏灰），
+        两者直接相接会看到一条明显的色差分界线。
+        这里铺一层「页面底色 → 纯白/纯黑」的竖向渐变，
+        让最底部与系统导航条同色，往上自然过渡回页面色。
+        高度很低（只覆盖底栏及其下方一点点），不影响内容观感。
+    -->
+    <view class="bottom-fade" :style="fadeStyle" />
+
+    <!--
       圆角悬浮底栏
       ★ 为什么不用原生 tabBar ★
         原生 tabBar 由系统绘制，做不了圆角、悬浮、留白、阴影，
@@ -145,6 +155,42 @@ export default {
 
     /** 未选中态的文字色：跟着深浅模式走，与 theme.json 的 tabFontColor 一致 */
     const fontColor = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
+
+    /**
+     * 底部渐变：从「页面底色」过渡到「纯白 / 纯黑」。
+     *
+     * ★ 为什么要这一层 ★
+     *   手机最下方那条系统导航条（手势条）的背景是纯白或纯黑，
+     *   而本应用页面底色是 #F7F8FA（浅色）/ #000000（深色）。
+     *   浅色下 #F7F8FA 与纯白相接，会露出一条浅浅的分界；
+     *   深色下 #000000 本身就是纯黑，天然没有色差。
+     *   所以在底栏后方铺一层很矮的竖向渐变，
+     *   让最底部与系统导航条同色，往上自然溶回页面底色。
+     *
+     * ★ 颜色取值 ★
+     *   浅色：rgba(247,248,250,0) → #FFFFFF
+     *   深色：rgba(0,0,0,0)       → #000000
+     *
+     * ★ 起点为什么不能简单写 transparent ★
+     *   `transparent` 在 CSS 里等于 rgba(0,0,0,0)，即「透明黑」。
+     *   渐变插值时颜色也会一起插，所以在浅色页面（#F7F8FA）上，
+     *   起点用 transparent 会混进一层灰，过渡带看起来脏。
+     *   必须用**与页面底色同色相**的透明，即 rgba(247,248,250,0) ——
+     *   它透出的是页面底色，插值过程中也不会偏色。
+     *   深色页面底色就是纯黑，用 rgba(0,0,0,0) 正好一致。
+     *
+     * ★ 深色其实可以不要 ★
+     *   页面底色本来就是纯黑，与导航条一致。但加一层也无害
+     *   （黑到黑等于没变），保留同一套结构比按模式开关更好维护。
+     */
+    const fadeStyle = computed(() => {
+      // 起点：与页面底色同相位的透明（不是 transparent 那个透明黑）
+      const from = settingStore.isDark ? 'rgba(0,0,0,0)' : 'rgba(247,248,250,0)'
+      const to = settingStore.isDark ? '#000000' : '#FFFFFF'
+      return {
+        backgroundImage: `linear-gradient(to bottom, ${from} 0%, ${to} 100%)`
+      }
+    })
 
     /**
      * 底栏玻璃质感：只负责传「颜色变量」，样式规则在 CSS 里。
@@ -411,7 +457,7 @@ export default {
 
     return {
       items, primaryColor, fontColor, barStyle, ringStyle, sliderStyle, pressing,
-      hostStyle,
+      hostStyle, fadeStyle,
       iconOf, onTabClick,
       onTouchStart, onTouchEnd, onTouchCancel, onTouchMove
     }
@@ -448,6 +494,37 @@ export default {
 }
 
 /*
+ * ★ 底部渐变：页面底色 → 纯白/纯黑 ★
+ *
+ * 作用：让屏幕最底部与手机系统导航条（纯白 / 纯黑）同色，
+ * 避免 #F7F8FA 的浅灰与纯白相接时出现一条色差分界线。
+ *
+ * ★ 高度必须 <= 内容留白（App.vue 的 .tabbar-space = 安全区 + 168rpx）★
+ *   渐变层是绝对定位、不占布局，它会盖在滚动内容的最底部。
+ *   如果渐变比留白高，就会压到最后一条内容上。
+ *   这里取 168rpx + 安全区，与留白**完全对齐**：
+ *   渐变顶端正好落在内容留白的边界，不会多吃一点。
+ *
+ * ★ 位置与尺寸 ★
+ *   铺满宿主容器整宽，并向下延伸盖住安全区 ——
+ *   系统导航条正好压在安全区那一段，渐变必须铺到那里才有意义。
+ *
+ * ★ 为什么放在宿主内部而不是页面里 ★
+ *   底栏会随弹层一起隐藏（hidden），渐变也必须跟着走 ——
+ *   弹层是全屏的，底下留一条白色渐变会很怪。
+ *   放在同一容器里，两者同生共死。
+ */
+.bottom-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(env(safe-area-inset-bottom) + 168rpx);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/*
  * 横向排布：左 pill + 右圆按钮，两者**分开**且整体居中。
  *
  * ★ gap 是这一版的关键 ★
@@ -461,6 +538,9 @@ export default {
  *   两侧露出页面背景，才是「浮起来的一块」。
  */
 .tabbar-row {
+  position: relative;
+  /* 必须高于 .bottom-fade(0)，否则会被那层渐变盖住 */
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
