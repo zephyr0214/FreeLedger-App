@@ -214,7 +214,20 @@
               </view>
 
               <view class="txn-info">
-                <text class="txn-name">{{ txnTitle(txn) }}</text>
+                <view class="txn-name-row">
+                  <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
+                  <!-- 周期记账标记：周期产生的流水打上「周期」徽标 -->
+                  <text v-if="txn.cycle_id" class="txn-cycle-tag">周期</text>
+                  <!-- 标签：跟在分类名后面的小胶囊（名字 + 自己的颜色做浅底） -->
+                  <view v-if="txnTags(txn).length" class="txn-tag-list">
+                    <text
+                      v-for="t in txnTags(txn)"
+                      :key="t.key"
+                      class="txn-tag"
+                      :style="t.bg ? { backgroundColor: t.bg, color: t.color } : null"
+                    >{{ t.name }}</text>
+                  </view>
+                </view>
                 <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
               </view>
 
@@ -290,6 +303,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getBudgetUsage } from '@/api/stats.js'
+import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
@@ -311,6 +325,9 @@ export default {
 
     /** 预算列表（总预算 + 各分类预算） */
     const budgets = ref([])
+
+    /** 标签表（最近收支行里显示标签胶囊，按 tag_ids 反查名字/颜色） */
+    const tags = ref([])
 
     /** 滑到底部时隐藏悬浮按钮，避免遮挡最后一条内容 */
     const fabHidden = ref(false)
@@ -452,6 +469,13 @@ export default {
 
       await txnStore.loadHome(force)
 
+      // 标签（最近收支行的标签胶囊用）
+      try {
+        tags.value = await listTags()
+      } catch (e) {
+        tags.value = []
+      }
+
       // 预算
       try {
         budgets.value = await getBudgetUsage(txnStore.currentMonth)
@@ -563,6 +587,40 @@ export default {
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
+    /**
+     * 标签 id -> { name, color } 映射（和全部交易页同一套做法）
+     * 交易里只存 tag_ids，要显示名字/颜色得靠标签表反查。
+     */
+    const tagNameMap = computed(() => {
+      const m = {}
+      for (const t of tags.value) m[t.id] = { name: t.name, color: t.color || '' }
+      return m
+    })
+
+    /**
+     * 这笔交易的标签胶囊（名字 + 用自己的颜色做浅底），最多显示 2 个 +「+N」。
+     * 与 pages/txn/list.vue 的 txnTags 保持一致。
+     */
+    function txnTags(txn) {
+      const ids = txn.tag_ids
+      if (!ids || !ids.length) return []
+      const list = []
+      for (const id of ids) {
+        const t = tagNameMap.value[id]
+        if (!t) continue
+        list.push({
+          key: id,
+          name: t.name,
+          color: t.color || 'var(--app-text-2)',
+          bg: t.color ? t.color + '22' : ''
+        })
+      }
+      if (list.length <= 2) return list
+      const rest = list.slice(0, 2)
+      rest.push({ key: '__more__', name: `+${list.length - 2}`, color: 'var(--app-text-3)', bg: '' })
+      return rest
+    }
+
     /* ------------------------------------------------------ 路由 */
 
     function goAddAccount() {
@@ -623,7 +681,7 @@ export default {
       shiftCalMonth, onDayClick, onScroll,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
-      iconChar, txnTitle, txnSub,
+      iconChar, txnTitle, txnSub, txnTags,
       goAddAccount, goProfile, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }
@@ -928,6 +986,53 @@ export default {
   font-size: 28rpx;
   color: var(--app-text);
   font-weight: 500;
+}
+
+/* 名称行：分类名 + 周期徽标 + 标签胶囊，一行横排 */
+.txn-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.txn-name.ellipsis {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+/* 周期记账标记：小徽标，主题色描边 + 浅底，和标签胶囊区分开 */
+.txn-cycle-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-primary);
+  background-color: var(--app-primary-light);
+  border: 1rpx solid var(--app-primary);
+  font-weight: 500;
+}
+
+/* 标签：跟在分类名后面的一排小胶囊（同全部交易页） */
+.txn-tag-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6rpx;
+  flex-shrink: 0;
+  max-width: 220rpx;
+  overflow: hidden;
+}
+
+.txn-tag {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  line-height: 20rpx;
+  color: var(--app-text-2);
+  background-color: var(--app-card-2);
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
 }
 
 .txn-sub {

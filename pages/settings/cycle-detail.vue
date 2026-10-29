@@ -25,9 +25,16 @@
               <text class="summary-row-label">账户</text>
               <text class="summary-row-value">{{ accountName }}</text>
             </view>
+            <!-- 总金额 = 单次金额 × 已记笔数，支出带 - / 收入带 + / 转账不带符号。
+                 没有记录时（总金额 0）不带符号，避免出现「+¥0.00」这种怪显示 -->
             <view class="summary-row">
-              <text class="summary-row-label">备注</text>
-              <text class="summary-row-value">{{ cycle.note || '—' }}</text>
+              <text class="summary-row-label">总金额</text>
+              <MoneyText
+                :cents="totalCents"
+                :type="totalCount > 0 ? cycle.type : ''"
+                :size="26"
+                :color="totalColor"
+              />
             </view>
           </view>
 
@@ -127,6 +134,21 @@ export default {
       return acc ? acc.name : '未选择'
     })
 
+    /** 总金额 = 单次金额 × 已记笔数 */
+    const totalCents = computed(() => {
+      const c = cycle.value
+      if (!c) return 0
+      return (Number(c.amount_cents) || 0) * totalCount.value
+    })
+
+    /** 总金额颜色：支出深色 / 收入绿色 / 转账中性（与全 App 流水金额一致） */
+    const totalColor = computed(() => {
+      const t = cycle.value && cycle.value.type
+      if (t === 'income') return 'var(--app-success)'
+      if (t === 'expense') return 'var(--app-text)'
+      return 'var(--app-text-2)'
+    })
+
     // 把派生字段挂到 cycle 上，供模板直接读
     const cycleView = computed(() => {
       if (!cycle.value) return null
@@ -195,6 +217,7 @@ export default {
     return {
       settingStore, cycle: cycleView, txnList, totalCount, loading, notFound, pageStyle,
       typeName, cycleName, iconColor, accountName, primaryColor,
+      totalCents, totalColor,
       onRecord, goAllTxn, goBack
     }
   }

@@ -57,6 +57,8 @@ db.exec(`CREATE TABLE txn (
   source TEXT NOT NULL DEFAULT 'manual', raw_text TEXT, created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL, deleted_at INTEGER, cycle_id TEXT,
   exclude_from_budget INTEGER NOT NULL DEFAULT 0)`)
+db.exec(`CREATE TABLE txn_tag (
+  txn_id TEXT NOT NULL, tag_id TEXT NOT NULL, PRIMARY KEY (txn_id, tag_id))`)
 db.exec(`CREATE TABLE cycle (
   id TEXT PRIMARY KEY, type TEXT NOT NULL, amount_cents INTEGER NOT NULL,
   account_id TEXT NOT NULL, to_account_id TEXT, category_id TEXT, note TEXT,
@@ -216,12 +218,37 @@ async function testCatchUpTransfer() {
     { type: 'transfer', from: 'from', to: 'to', amt: 5000 })
 }
 
+/**
+ * ★ 周期详情页「有记录时下方不显示」的回归测试 ★
+ * 详情页走 listRecentCycleTxns -> listTransactions({ cycleId })。
+ * 必须能按 cycle_id 取回流水（带分类/账户 JOIN 字段）。
+ */
+async function testListCycleTxns() {
+  resetTables()
+  const cycle = await loadCycle()
+  insertAccount(); insertCategory()
+  insertCycle({ id: 'cyc5', recurrence: 'monthly', day_of_month: 15, cursor: '2026-09-01' })
+  await cycle.catchUpCycles('2026-11-20') // 补 09-15 / 10-15 / 11-15
+
+  const { listCycleTxns } = await loadCycle()
+  const rows = await listCycleTxns('cyc5')
+  check('详情页 listCycleTxns 返回 3 笔', rows.length, 3)
+  check('详情页流水带分类名', rows[0] && rows[0].category_name, '餐饮')
+  check('详情页流水带 cycle_id', rows[0] && rows[0].cycle_id, 'cyc5')
+  check('详情页流水带 occurred_day', rows[0] && rows[0].occurred_day, '2026-11-15')
+
+  // 空周期：不报错，返回 []
+  const empty = await listCycleTxns('no_such_cycle')
+  check('不存在的周期返回空数组', empty.length, 0)
+}
+
 async function main() {
   await testOccurrences()
   await testCatchUpNormal()
   await testCatchUpIdempotent()
   await testCatchUpSkipsDeleted()
   await testCatchUpTransfer()
+  await testListCycleTxns()
 
   console.log(`\n=== 周期补记测试结果: ${pass} 通过 / ${fail} 失败 ===`)
   process.exit(fail === 0 ? 0 : 1)

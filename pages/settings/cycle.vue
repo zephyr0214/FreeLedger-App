@@ -140,7 +140,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -257,6 +257,20 @@ export default {
     function goBack() {
       uni.navigateBack()
     }
+
+    /**
+     * 编辑面板收起（取消/保存/删除）时，把右滑露出的「编辑」按钮也收起。
+     * 否则用户关掉弹层后，行还保持着右滑展开状态，很别扭。
+     *
+     * ★ 值必须是 'close' 而不是 false ★
+     *   wd-swipe-action 的 modelValue 是字符串（'left' | 'close' | 'right'），
+     *   传 false 会触发「Expected String, got Boolean」的类型警告，而且不生效。
+     */
+    watch(showPanel, (open) => {
+      if (open) return
+      const c = editingCycle.value
+      if (c && c.id) swipeStates[c.id] = 'close'
+    })
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()

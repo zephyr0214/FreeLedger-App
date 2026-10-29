@@ -18,7 +18,12 @@
           </view>
           <view v-else class="panel-head-spacer" />
         </view>
-        <view class="type-switch">
+        <!-- 编辑时不显示类型切换 tab（支出/收入/转账只在新建时可选），
+             居中展示当前类型名作为标题 -->
+        <view v-if="editing" class="type-static">
+          <text class="type-static-text" :style="{ color: primaryColor }">{{ typeName }}</text>
+        </view>
+        <view v-else class="type-switch">
           <view
             v-for="t in types"
             :key="t.key"
@@ -315,6 +320,12 @@ export default {
       recurrence: 'monthly',
       weekday: 1,
       day_of_month: 1
+    })
+
+    /** 当前类型名（编辑时顶栏不显示切换 tab，居中展示它） */
+    const typeName = computed(() => {
+      const t = types.find((x) => x.key === form.type)
+      return t ? t.name : ''
     })
 
     const categories = ref([])
@@ -711,7 +722,7 @@ export default {
     )
 
     return {
-      visible, editing, types, form, primaryColor, currencySymbol,
+      visible, editing, types, typeName, form, primaryColor, currencySymbol,
       categoryRows, moreRowItems, allCategoryItems,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, amountFilled,
@@ -783,6 +794,19 @@ export default {
   gap: 48rpx;
   flex: 1;
   justify-content: center;
+}
+
+/* 编辑时顶栏居中的静态类型标题（类型切换 tab 已隐藏） */
+.type-static {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.type-static-text {
+  font-size: 30rpx;
+  font-weight: 600;
 }
 
 .type-item {

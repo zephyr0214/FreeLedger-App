@@ -37,8 +37,11 @@
             <view class="txn-info">
               <view class="txn-name-row">
                 <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
-                <!-- 周期记账标记：按规则自动/补记的流水打上「周期」徽标 -->
-                <text v-if="txn.cycle_id && !props.hideCycleTag" class="txn-cycle-tag">周期</text>
+                <!-- 周期记账标记：按规则自动/补记的流水打上「周期」徽标。
+                     ★ props 在 setup() 里没暴露给模板，模板里直接用 hideCycleTag 这个 prop ★
+                       （之前写 props.hideCycleTag，遇到 cycle_id 的交易时渲染直接抛错，
+                         周期详情页下方就什么都不显示）。 -->
+                <text v-if="txn.cycle_id && !hideCycleTag" class="txn-cycle-tag">周期</text>
               </view>
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>

@@ -243,7 +243,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -429,12 +429,11 @@ export default {
     /**
      * 关闭编辑弹层
      *
-     * ★ 这里要把右滑收起来 ★
-     *   用户从右滑进到编辑弹层，弹层关掉后那一行不该还挂着操作区。
+     * ★ 右滑收起交给 watch(showEditor) ★
+     *   （点遮罩关闭时 v-model 也会把 showEditor 置 false，watch 一并兜住）
      */
     function closeEditor() {
       showEditor.value = false
-      closeAllSwipes()
     }
 
     async function onSaveCategory() {
@@ -561,6 +560,20 @@ export default {
     function goBack() {
       uni.navigateBack()
     }
+
+    /**
+     * 编辑面板收起（取消/保存/删除/点遮罩关闭）时，把右滑露出的「编辑」按钮也收起。
+     * 否则用户关掉弹层后，行还保持着右滑展开状态，很别扭。
+     *
+     * ★ 值必须是 'close' 而不是 false ★
+     *   wd-swipe-action 的 modelValue 是字符串（'left' | 'close' | 'right'），
+     *   传 false 会触发「Expected String, got Boolean」的类型警告，而且不生效。
+     */
+    watch(showEditor, (open) => {
+      if (open) return
+      const id = editingId.value
+      if (id) swipeStates[id] = 'close'
+    })
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
