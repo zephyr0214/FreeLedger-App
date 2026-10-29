@@ -25,10 +25,10 @@ export const DONUT_GEOM = {
   cy: 90,
   rOuter: 62,
   rInner: 44,
+  /** 引导线起点半径（紧贴环外缘） */
   leadFrom: 64,
-  leadTo: 76,
-  labelR: 82,
-  labelGap: 4
+  /** 计算标签理想 y 时用的半径 */
+  labelR: 82
 }
 
 /**
@@ -68,84 +68,154 @@ function donutSectorPath(g, startDeg, endDeg) {
 }
 
 /**
- * 计算每个扇区的标注位置与文字对齐。
+ * 标签排布参数。
  *
- * 文字放在引导线末端，水平排布，不做旋转（可读性最好）。
- * 根据所在半侧决定 text-anchor：
- *   - 右半（0~180°）：文字在引导线右侧，text-anchor=start
- *   - 左半（180~360°）：文字在引导线左侧，text-anchor=end
- *   - 顶部/底部附近（cos 接近 0）：文字仍水平放，text-anchor=middle
+ * ★ 为什么是「左右两列」★
+ *   之前按扇区角度把文字散落在圆周边（start/end/middle 三种锚点混用），
+ *   标签跟着角度浮动、起点参差，看着像一圈蛛网 —— 这就是「丑」的根源。
  *
- * ★ 防重叠 ★
- *   水平文字在顶部/底部区域会互相叠（见 buildDonutSvg 的 pushApartY），
- *   这里只返回**理想**位置，推挤在调用方做。
- *
- * @param {number} midDeg 扇区中点角（0~360）
- * @returns {{x:number,y:number,anchor:'start'|'end'|'middle'}}
+ *   改成两列：右半侧的标签统一从 colRightX 左对齐，
+ *   左半侧的标签统一到 colLeftX 右对齐，
+ *   竖向按等距排布。视觉上是一左一右两条整齐的列表，最耐看。
  */
-function labelPos(g, midDeg) {
-  const { cx, cy, labelR } = g
-  // 文字锚点位置：引导线末端再往外一点
-  const p = polar(cx, cy, labelR, midDeg)
-  const sin = Math.sin((midDeg * Math.PI) / 180)
+export const DONUT_LABEL = {
+  /** 右列文字的起始 x（text-anchor=start） */
+  colRightX: 226,
+  /** 左列文字的结束 x（text-anchor=end） */
+  colLeftX: 74,
+  /** 相邻标签的最小竖向间距（viewBox 单位） */
+  minGap: 16,
+  /** 标签字号 */
+  fontSize: 10,
+  /** 占比低于这个值就不标注（用户要求：低于 1% 不显示） */
+  minPct: 1,
+  /** 名称最多保留几个字，超出用省略号 */
+  maxNameLen: 5,
+  /** 标签可用的竖向范围（留出上下边距，别贴 viewBox 边） */
+  minY: 12,
+  maxY: 168,
+  /** 引导线端点与文字之间留的空隙 */
+  gap: 4,
+  /**
+   * 折线拐点的半径。
+   * 引导线分两段：环边缘 → 沿半径走到这个半径（拐点）→ 折向标签所在行。
+   */
+  bendR: 72
+}
 
-  let anchor = 'middle'
-  // 用 x 轴分量判断左右半侧（90° 正右、270° 正左）
-  if (sin > 0.25) anchor = 'start'
-  else if (sin < -0.25) anchor = 'end'
-
-  return { x: p.x, y: p.y, anchor }
+/** 名称超长时截断并补省略号 */
+function clipName(name) {
+  const s = String(name || '')
+  if (s.length <= DONUT_LABEL.maxNameLen) return s
+  return `${s.slice(0, DONUT_LABEL.maxNameLen - 1)}…`
 }
 
 /**
- * 文字防重叠：保证相邻标签的 y 间距 >= minGap。
+ * 计算一列标签的竖向位置。
  *
- * ★ 为什么需要 ★
- *   水平排布的文字，在顶部/底部区域（anchor=middle）会挤在一起。
- *   例：8 个扇区时「教育 4%」和「其他 2%」在 y≈8~11 处重叠。
+ * 标签贴着各自扇区的径向位置（idealY），只有在挨得太近时才向下微调，
+ * 保证相邻间距 >= minGap。
  *
- * ★ 保持顺序 ★
- *   只改 y，不重排数组 —— 调用方按原索引把位置写回对应扇区。
- *   实现：对每半侧按 y 排序做推挤，但把结果写回原数组对应元素。
+ * ★ 为什么不做「等距重排」★
+ *   等距会把标签挪到与扇区无关的行，折线引导线就必然彼此交叉 ——
+ *   试过等距版本，几何检测出来 3 对交叉，比原来更乱。
+ *   贴着径向位置+微调，标签上下顺序与扇区在圆周上的顺序一致，
+ *   折线不交叉，这才是「整齐」的真正来源。
+ *   代价是列内间距不绝对均匀，但不会重叠，也不会打结。
  *
- * ★ 分组 ★
- *   顶部（y < cy）和底部（y > cy）分开推挤，避免跨过圆心相互影响。
- *
- * @param {Array<{x:number,y:number,anchor:string}>} labels
- * @param {number} minGap 相邻标签最小 y 间距
- * @returns {Array<{x:number,y:number,anchor:string}>} 推挤后的标签（原顺序）
+ * @param {Array<{idealY:number}>} items 该列的标签
+ * @returns {number[]} 与 items 同序的 y 值
  */
-function pushApartY(labels, minGap = 12) {
-  if (!labels || labels.length < 2) return labels || []
+function stackColumn(items) {
+  const L = DONUT_LABEL
+  const n = items.length
+  if (n === 0) return []
 
-  const n = labels.length
-  const idx = labels.map((_, i) => i)
-  const cy = 90
+  // 记录原始下标，按理想 y 排序（保持扇区顺序，不会乱序）
+  const order = items.map((_, i) => i).sort((a, b) => items[a].idealY - items[b].idealY)
+  const ys = new Array(n)
 
-  // 按 y 升序的索引
-  const sorted = [...idx].sort((a, b) => labels[a].y - labels[b].y)
-
-  // 顶部：从 y 最小开始，依次保证间距（往下推）
-  let prevTop = null
-  for (const i of sorted) {
-    if (labels[i].y >= cy) break
-    if (prevTop !== null && labels[i].y - labels[prevTop].y < minGap) {
-      labels[i].y = labels[prevTop].y + minGap
-    }
-    prevTop = i
-  }
-  // 底部：从 y 最大开始，依次保证间距（往上推）
-  let nextBottom = null
-  for (let k = sorted.length - 1; k >= 0; k--) {
-    const i = sorted[k]
-    if (labels[i].y < cy) break
-    if (nextBottom !== null && labels[nextBottom].y - labels[i].y < minGap) {
-      labels[i].y = labels[nextBottom].y - minGap
-    }
-    nextBottom = i
+  // 依次向下推挤，保证间距
+  let prev = null
+  for (const i of order) {
+    let y = items[i].idealY
+    if (prev !== null && y - prev < L.minGap) y = prev + L.minGap
+    ys[i] = y
+    prev = y
   }
 
-  return labels
+  // 整体夹回可用范围（平移不改变间距，不会重新引入重叠）
+  let top = Math.min(...ys)
+  let bottom = Math.max(...ys)
+  if (top < L.minY) {
+    const d = L.minY - top
+    for (let i = 0; i < n; i++) ys[i] += d
+    bottom += d
+  }
+  if (bottom > L.maxY) {
+    const d = bottom - L.maxY
+    for (let i = 0; i < n; i++) ys[i] -= d
+  }
+
+  return ys
+}
+
+/**
+ * 把要标注的扇区排成左右两列，返回每条折线引导线与文字的位置。
+ *
+ * ★ 引导线为什么是折线 ★
+ *   一条直线斜着从环边缘连到标签，标签一多就会互相交叉（像一团乱麻）。
+ *   改成折线：先沿半径向外走到拐点（bendR），再从拐点折向标签那一行。
+ *   因为同一列的标签 y 是单调递增的、拐点的极角顺序也一致，
+ *   两条折线就不会交叉 —— 视觉上是一排干净的「弯钩」。
+ *
+ * @param {Array<{name:string,pct:number,mid:number}>} sectors 需要标注的扇区
+ * @param {object} g 环形几何
+ * @returns {Array<{p1:{x,y},p2:{x,y},p3:{x,y},text:string,x:number,y:number,anchor:'start'|'end'}>}
+ */
+function layoutLabels(sectors, g) {
+  const L = DONUT_LABEL
+  const right = []
+  const left = []
+
+  for (const s of sectors) {
+    const rad = (s.mid * Math.PI) / 180
+    // sin >= 0 归右列，否则左列（顶部/底部扇区也归到就近的一侧）
+    const side = Math.sin(rad) >= 0 ? 'right' : 'left'
+    const idealY = polar(g.cx, g.cy, g.labelR, s.mid).y
+    const entry = {
+      sector: s,
+      idealY,
+      p1: polar(g.cx, g.cy, g.leadFrom, s.mid),
+      p2: polar(g.cx, g.cy, L.bendR, s.mid),
+      toX: side === 'right' ? L.colRightX - L.gap : L.colLeftX + L.gap
+    }
+    ;(side === 'right' ? right : left).push(entry)
+  }
+
+  const out = []
+
+  for (const [items, anchor, textX] of [
+    [right, 'start', L.colRightX],
+    [left, 'end', L.colLeftX]
+  ]) {
+    const ys = stackColumn(items)
+    items.forEach((it, i) => {
+      const y = ys[i]
+      out.push({
+        p1: it.p1,
+        p2: it.p2,
+        // 拐点 → 标签行：水平折过去（x 落在列位内侧）
+        p3: { x: it.toX, y },
+        text: `${clipName(it.sector.name)} ${it.sector.pct}%`,
+        x: textX,
+        y,
+        anchor
+      })
+    })
+  }
+
+  return out
 }
 
 /**
@@ -218,8 +288,8 @@ export function buildDonutSvg(items = [], opts = {}) {
       mid,
       // 极小扇区（小于间隙）无法画出，跳过不画，避免负 sweep 产生怪异 path
       valid: end - start > 0.01,
-      // 只有前 topN 个且角度够大的才标注
-      label: showLead && i < topN && sweep > 2
+      // 前 topN 个、且占比 >= 1% 才标注（低于 1% 的块太小，标了只会挤）
+      label: showLead && i < topN && pct >= DONUT_LABEL.minPct
     })
   }
 
@@ -231,38 +301,22 @@ export function buildDonutSvg(items = [], opts = {}) {
     )
   }
 
-  // 画引导线 + 文字（带防重叠）
+  // 画引导线 + 文字（左右两列对齐，引导线是折线）
   if (showLead) {
-    // 先收集需要标注的扇区，算理想位置，再做 y 推挤
-    const labelSectors = []
-    for (const s of sectors) {
-      if (!s.label) continue
-      const lp = labelPos(g, s.mid)
-      labelSectors.push({ ...s, lp })
-    }
-    const pushed = pushApartY(labelSectors.map((s) => ({ ...s.lp })), 12)
-    // 把推挤后的位置写回
-    labelSectors.forEach((s, i) => {
-      s.lp = pushed[i]
-    })
+    const labels = layoutLabels(sectors.filter((s) => s.label), g)
+    const fontSize = DONUT_LABEL.fontSize
 
-    for (const s of labelSectors) {
-      // 引导线：从环外缘到文字锚点
-      const from = polar(g.cx, g.cy, g.leadFrom, s.mid)
-      const lp = s.lp
-
+    for (const l of labels) {
+      // 折线：环边缘 →（沿半径）→ 拐点 →（水平）→ 标签行
+      const pts = `${l.p1.x},${l.p1.y} ${l.p2.x},${l.p2.y} ${l.p3.x},${l.p3.y}`
       parts.push(
-        `<line x1="${from.x}" y1="${from.y}" x2="${lp.x}" y2="${lp.y}" ` +
-        `stroke="${leadColor}" stroke-width="1" stroke-linecap="round"/>`
+        `<polyline points="${pts}" fill="none" ` +
+        `stroke="${leadColor}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`
       )
-      // 文字：名称 + 占比
-      const label = `${s.name} ${s.pct}%`
-      const anchor = lp.anchor
-      const dx = anchor === 'start' ? g.labelGap : anchor === 'end' ? -g.labelGap : 0
       parts.push(
-        `<text x="${lp.x + dx}" y="${lp.y}" fill="${textColor}" ` +
-        `font-size="10" font-family="-apple-system, 'PingFang SC', sans-serif" ` +
-        `text-anchor="${anchor}" dominant-baseline="middle">${label}</text>`
+        `<text x="${l.x}" y="${l.y}" fill="${textColor}" ` +
+        `font-size="${fontSize}" font-family="-apple-system, 'PingFang SC', sans-serif" ` +
+        `text-anchor="${l.anchor}" dominant-baseline="middle">${l.text}</text>`
       )
     }
   }

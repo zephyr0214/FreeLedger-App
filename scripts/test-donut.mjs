@@ -5,15 +5,15 @@
  *
  * 覆盖 utils/donut.js：
  *   1. 扇区 path 数量、引导线数量、文字数量
- *   2. 文字内容（名称 + 占比）
- *   3. 空数据 / 单段 / 分段边界
- *   4. data URI 封装
+ *   2. 文字内容（名称 + 占比）、低于 1% 不标注
+ *   3. 左右两列对齐、竖向间距、不越界
+ *   4. 空数据 / 单段 / 分段边界 / data URI 封装
  */
 
 let pass = 0
 let fail = 0
 
-import { buildDonutSvg, donutToDataUri, DONUT_GEOM } from '../utils/donut.js'
+import { buildDonutSvg, donutToDataUri, DONUT_GEOM, DONUT_LABEL } from '../utils/donut.js'
 import { svgToDataUri } from '../utils/chart.js'
 
 function check(name, actual, expected) {
@@ -46,9 +46,13 @@ const items = [
   const paths = (svg.match(/<path /g) || []).length
   check('环段 path 数量', paths, 3)
 
-  // 引导线 + 文字（前 topN 个都标注）
-  const lines = (svg.match(/<line /g) || []).length
-  check('引导线数量', lines, 3)
+  // 引导线（折线 polyline）+ 文字（前 topN 个都标注）
+  const leads = (svg.match(/<polyline /g) || []).length
+  check('折线引导线数量', leads, 3)
+  check('不再用直线引导线', (svg.match(/<line /g) || []).length, 0)
+  // 每条折线是 3 个点：环边缘 → 拐点 → 标签行
+  const firstPoints = svg.match(/<polyline points="([^"]+)"/)
+  check('折线有 3 个点', firstPoints ? firstPoints[1].trim().split(/\s+/).length : 0, 3)
   const texts = (svg.match(/<text /g) || []).length
   check('文字数量', texts, 3)
 
@@ -99,16 +103,20 @@ const items = [
 }
 
 {
-  // 几何常量合理性：外半径 > 内半径，引导线外端 > 外半径
+  // 几何常量合理性：外半径 > 内半径，引导线起点在外缘之外
   check('外半径 > 内半径', DONUT_GEOM.rOuter > DONUT_GEOM.rInner, true)
   check('引导线起点 > 外半径', DONUT_GEOM.leadFrom > DONUT_GEOM.rOuter, true)
-  check('引导线终点 > 起点', DONUT_GEOM.leadTo > DONUT_GEOM.leadFrom, true)
-  check('文字半径 > 引导线终点', DONUT_GEOM.labelR > DONUT_GEOM.leadTo, true)
+  check('标签半径 > 引导线起点', DONUT_GEOM.labelR > DONUT_GEOM.leadFrom, true)
+  check('右列在圆心右侧', DONUT_LABEL.colRightX > DONUT_GEOM.cx, true)
+  check('左列在圆心左侧', DONUT_LABEL.colLeftX < DONUT_GEOM.cx, true)
+  check('最小间距为正', DONUT_LABEL.minGap > 0, true)
 }
 
 {
-  // 文字防重叠：顶部/底部相邻标签保证 y 间距，不再互相叠
-  // 复刻「教育 4% / 其他 2%」这种曾重叠的场景（8 个扇区，占比小）
+  /*
+   * ★ 两列对齐 + 竖向间距 + 不越界 ★
+   *   8 个扇区（含 4%/2% 这种小块），检查排布是否整齐。
+   */
   const svg = buildDonutSvg([
     { name: '餐饮', amount: 3000, color: '#1E88E5' },
     { name: '交通', amount: 2200, color: '#FB8C00' },
@@ -120,25 +128,97 @@ const items = [
     { name: '其他', amount: 200, color: '#9E9D24' }
   ], { total: 10000 })
 
-  // 解析所有 text 的位置
-  const ys = [...svg.matchAll(/<text x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="([^"]+)"[^>]*>([^<]+)<\/text>/g)]
-    .map((m) => ({ y: Number(m[1]), anchor: m[2], label: m[3] }))
+  const labels = [...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="([^"]+)"[^>]*>([^<]+)<\/text>/g)]
+    .map((m) => ({ x: Number(m[1]), y: Number(m[2]), anchor: m[3], text: m[4] }))
 
-  // 顶部区域（y < 90）的标签，任意两个 y 间距 >= 10（文字高约 12，去掉一半）
-  const top = ys.filter((t) => t.y < 90).sort((a, b) => a.y - b.y)
-  let minGap = Infinity
-  for (let i = 1; i < top.length; i++) {
-    minGap = Math.min(minGap, top[i].y - top[i - 1].y)
-  }
-  check('顶部标签 y 间距 >= 10', minGap >= 10, true)
+  const right = labels.filter((l) => l.anchor === 'start')
+  const left = labels.filter((l) => l.anchor === 'end')
 
-  // 底部区域同理
-  const bottom = ys.filter((t) => t.y >= 90).sort((a, b) => a.y - b.y)
-  let minGapB = Infinity
-  for (let i = 1; i < bottom.length; i++) {
-    minGapB = Math.min(minGapB, bottom[i].y - bottom[i - 1].y)
+  check('标签总数 = 8', labels.length, 8)
+  check('没有 middle 锚点（只分两列）', labels.filter((l) => l.anchor === 'middle').length, 0)
+  check('右列 x 全部对齐', right.every((l) => l.x === DONUT_LABEL.colRightX), true)
+  check('左列 x 全部对齐', left.every((l) => l.x === DONUT_LABEL.colLeftX), true)
+
+  // 每列内部按 y 排序后，间距都 >= minGap
+  for (const [name, col] of [['右列', right], ['左列', left]]) {
+    const ys = col.map((l) => l.y).sort((a, b) => a - b)
+    let minGap = Infinity
+    for (let i = 1; i < ys.length; i++) minGap = Math.min(minGap, ys[i] - ys[i - 1])
+    check(`${name}竖向间距 >= minGap`, col.length < 2 || minGap >= DONUT_LABEL.minGap, true)
   }
-  check('底部标签 y 间距 >= 10', minGapB >= 10, true)
+
+  // 全部落在 viewBox（300×180）的可用竖向范围内
+  check('标签 y 都在可用范围内', labels.every((l) => l.y >= DONUT_LABEL.minY && l.y <= DONUT_LABEL.maxY), true)
+
+  /*
+   * ★ 折线不交叉的守门断言 ★
+   *   直接做几何检测：任意两条引导折线（各 2 段）之间不能有真交叉。
+   *   这才是「不要交叉」这个需求的准确判据。
+   */
+  const leads = [...svg.matchAll(/<polyline points="([^"]+)"/g)].map((m) =>
+    m[1].trim().split(/\s+/).map((p) => {
+      const [x, y] = p.split(',').map(Number)
+      return { x, y }
+    })
+  )
+  check('折线数量 = 标签数', leads.length, labels.length)
+
+  /** 向量叉积，用于判断两条线段是否真相交（端点相接不算） */
+  function cross(p, q, r) {
+    return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  }
+  function segIntersect(a1, a2, b1, b2) {
+    const d1 = cross(b1, b2, a1)
+    const d2 = cross(b1, b2, a2)
+    const d3 = cross(a1, a2, b1)
+    const d4 = cross(a1, a2, b2)
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+           ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  }
+
+  let crossingPairs = 0
+  for (let i = 0; i < leads.length; i++) {
+    for (let j = i + 1; j < leads.length; j++) {
+      const A = leads[i], B = leads[j]
+      let hit = false
+      for (let a = 0; a < A.length - 1; a++) {
+        for (let b = 0; b < B.length - 1; b++) {
+          if (segIntersect(A[a], A[a + 1], B[b], B[b + 1])) hit = true
+        }
+      }
+      if (hit) crossingPairs++
+    }
+  }
+  check('引导折线互不交叉', crossingPairs, 0)
+}
+
+{
+  /*
+   * ★ 低于 1% 不标注 ★
+   *   用户要求：占比小于 1% 的块不显示标签。
+   */
+  const svg = buildDonutSvg([
+    { name: '大头', amount: 9900, color: '#111' },
+    { name: '小块', amount: 100, color: '#222' }  // 100/10000 = 1%
+  ], { total: 10000 })
+  check('正好 1% 仍标注', svg.includes('小块 1%'), true)
+
+  const svg2 = buildDonutSvg([
+    { name: '大头', amount: 9950, color: '#111' },
+    { name: '碎块', amount: 50, color: '#222' }  // 50/10000 = 0.5%
+  ], { total: 10000 })
+  check('低于 1% 不标注', svg2.includes('碎块'), false)
+  // 但环段仍画（数据不能丢）
+  check('低于 1% 仍画环段', (svg2.match(/<path /g) || []).length, 2)
+}
+
+{
+  // 名称过长要截断，避免冲出 viewBox
+  const svg = buildDonutSvg([
+    { name: '非常长的分类名称啊啊啊', amount: 5000, color: '#111' },
+    { name: '短', amount: 5000, color: '#222' }
+  ], { total: 10000 })
+  check('长名称被截断带省略号', svg.includes('非常长的…'), true)
 }
 
 {
