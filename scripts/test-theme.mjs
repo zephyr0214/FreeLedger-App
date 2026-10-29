@@ -266,9 +266,32 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
   check('关于页有隐私段落数组', /const privacyParas = \[/.test(aboutSrc), true)
   check('关于页有安全段落数组', /const safetyParas = \[/.test(aboutSrc), true)
   check('关于页有功能段落数组', /const featureParas = \[/.test(aboutSrc), true)
-  check('段落样式是 block', /\.prose-para\s*\{[^}]*display:\s*block/.test(aboutSrc), true)
   // 只查真实声明（注释里提及历史做法是允许的）
   check('不再依赖 pre-wrap', /white-space:\s*pre-wrap\s*;/.test(aboutSrc), false)
+
+  /* ★ 有序列表 + 前两个字加粗 ★
+   *   用户要求：
+   *     1. 三段文字里的无序列表（· 开头）改成有序列表（1. 2. 3.）
+   *     2. 「主要功能」每条的前两个字加粗
+   *
+   *   实现要点：
+   *     · 序号用 CSS counter 生成，不在文案里手写编号
+   *       （否则增删条目要手动重排序号）
+   *     · 加粗范围由数据里的 lead 字段决定，不靠正则切前两个字
+   */
+  check('用 CSS counter 做有序列表', /counter-increment:\s*item/.test(aboutSrc), true)
+  check('序号由 content 生成', /content:\s*counter\(item\)/.test(aboutSrc), true)
+  check('每个卡片重置计数', /\.prose-card\s*\{[^}]*counter-reset:\s*item/.test(aboutSrc), true)
+  check('有列表项样式', /\.prose-item\s*\{/.test(aboutSrc), true)
+  check('有加粗前缀样式', /\.list-lead\s*\{[^}]*font-weight:\s*600/.test(aboutSrc), true)
+  // lead 必须带冒号：原文是「记账：手动记账面板…」，
+  // 冒号若留在 text 里会变成不加粗的普通字，看着像漏了冒号
+  check('功能条 lead 带冒号', /\{ type: 'item', lead: '记账：'/.test(aboutSrc), true)
+  check('所有功能条 lead 都以：结尾',
+    (aboutSrc.match(/lead: '[^']*'/g) || []).every((s) => s.endsWith('：\'')), true)
+  check('隐私条不带 lead', /type: 'item', text: '所有账户/.test(aboutSrc), true)
+  // 文案里不应再残留「· 」前缀（会和 1. 2. 3. 重复）
+  check('文案不再带·前缀', /'· /.test(aboutSrc), false)
 
   /* ★ 高度要够，不能扁 ★
    *   96rpx 那版用户反馈「有点丑」，要求高一些。

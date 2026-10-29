@@ -40,44 +40,53 @@
               uni-app 的 <text> 在编译期会把连续空白（含换行、缩进）
               压缩成单个空格，所以模板里手写的换行**渲染不出来**
               （white-space: pre-wrap 也救不了，因为换行符已经被吃掉了）。
-              改成数据数组 + v-for，每段一个 <text>，段落之间自然分行。
+              改成数据数组 + v-for，段落之间才是真的分行。
               新增/修改文案只改 setup 里的数组，不碰模板。
 
-            ★ 首段单独加粗 ★
-              privacyParas[0] 是「本应用是一个完全本地化的个人记账工具。」
-              这种总起句，给一点强调，下面 · 开头的细项才是正文。
-              用 :class 判断 i === 0，不额外加字段，数组保持纯文案。
+            ★ 有序列表怎么实现 ★
+              用 <view class="prose-item"> 包一层，序号交给 CSS counter
+              （见样式里的 counter-increment / ::before）——
+              不用在文案里手写「1. 2. 3.」，否则增删条目要手动重排编号。
+              type === 'text' 的条目（总起句）不参与编号。
+
+            ★ 前两个字加粗 ★
+              item 里若带 lead 字段，单独渲染成 <text class="list-lead">。
+              加粗范围由数据决定，不靠正则切字 ——
+              「AI 速记」这类带英文的，机械切两个字会切错。
           -->
-          <text
-            v-for="(p, i) in privacyParas"
-            :key="'p' + i"
-            class="prose-para"
-            :class="{ 'prose-lead': i === 0, 'prose-item': isBullet(p) }"
-          >{{ p }}</text>
+          <template v-for="(p, i) in privacyParas" :key="'p' + i">
+            <text v-if="p.type === 'text'" class="prose-lead">{{ p.text }}</text>
+            <view v-else class="prose-item">
+              <text v-if="p.lead" class="list-lead">{{ p.lead }}</text>
+              <text class="list-text">{{ p.text }}</text>
+            </view>
+          </template>
         </view>
       </view>
 
       <view class="section">
         <text class="section-title">数据安全</text>
         <view class="prose-card">
-          <text
-            v-for="(p, i) in safetyParas"
-            :key="'s' + i"
-            class="prose-para"
-            :class="{ 'prose-lead': i === 0, 'prose-item': isBullet(p) }"
-          >{{ p }}</text>
+          <template v-for="(p, i) in safetyParas" :key="'s' + i">
+            <text v-if="p.type === 'text'" class="prose-lead">{{ p.text }}</text>
+            <view v-else class="prose-item">
+              <text v-if="p.lead" class="list-lead">{{ p.lead }}</text>
+              <text class="list-text">{{ p.text }}</text>
+            </view>
+          </template>
         </view>
       </view>
 
       <view class="section">
         <text class="section-title">主要功能</text>
         <view class="prose-card">
-          <text
-            v-for="(p, i) in featureParas"
-            :key="'f' + i"
-            class="prose-para"
-            :class="{ 'prose-item': isBullet(p) }"
-          >{{ p }}</text>
+          <template v-for="(p, i) in featureParas" :key="'f' + i">
+            <text v-if="p.type === 'text'" class="prose-lead">{{ p.text }}</text>
+            <view v-else class="prose-item">
+              <text v-if="p.lead" class="list-lead">{{ p.lead }}</text>
+              <text class="list-text">{{ p.text }}</text>
+            </view>
+          </template>
         </view>
       </view>
 
@@ -142,58 +151,56 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     /*
-     * ★ 文案放在数组里，不写在模板里 ★
-     *   uni-app 的 <text> 会压缩连续空白（换行、缩进全变空格），
-     *   模板里手写的换行渲染不出来。所以每段一个数组元素，
-     *   v-for 渲染成多个 <text>，段落之间才是真的分行。
+     * ★ 文案数据结构 ★
+     *   分两种条目：
+     *     { type: 'text', text }            普通段落（总起句）
+     *     { type: 'item', text, lead? }     有序列表项
      *
-     * ★ 维护方式 ★
-     *   想加/改一句话，直接在这三个数组里加一条，不用碰模板。
-     *   空字符串 '' 会渲染成空行（用作小标题后的间距）。
+     *   item 的 lead 是「要加粗的前两个字」（如「记账」「账户」），
+     *   渲染时单独套一层 <text class="list-lead">。
+     *   把 lead 显式写在数据里，而不是靠正则切前两个字 ——
+     *   像「AI 速记」这种带英文/空格的，机械切前两个字会切错。
+     *
+     * ★ 为什么不再用「· 」前缀 ★
+     *   用户要求改成有序列表。序号由 CSS counter 生成（1. 2. 3.），
+     *   文案里就不该再带「·」，否则会出现「1. · 记账」这种重复符号。
      */
     const privacyParas = [
-      '本应用是一个完全本地化的个人记账工具。',
-      '· 所有账户、交易、分类、标签、周期、预算与设置都保存在你手机本地的 SQLite 数据库中，不会上传到任何服务器。',
-      '· 应用不含任何统计、埋点或广告 SDK。',
-      '· 唯一的网络请求来自「AI 洞察 / 消费分析 / 速记兜底」功能：只有在你主动配置了 API Key 并触发这些功能时，才会把聚合后的账务摘要发送到你指定的接口地址。',
-      '· 语音记账不录音、不调用麦克风，语音能力由你手机自带的输入法提供。'
+      { type: 'text', text: '本应用是一个完全本地化的个人记账工具。' },
+      { type: 'item', text: '所有账户、交易、分类、标签、周期、预算与设置都保存在你手机本地的 SQLite 数据库中，不会上传到任何服务器。' },
+      { type: 'item', text: '应用不含任何统计、埋点或广告 SDK。' },
+      { type: 'item', text: '唯一的网络请求来自「AI 洞察 / 消费分析 / 速记兜底」功能：只有在你主动配置了 API Key 并触发这些功能时，才会把聚合后的账务摘要发送到你指定的接口地址。' },
+      { type: 'item', text: '语音记账不录音、不调用麦克风，语音能力由你手机自带的输入法提供。' }
     ]
 
     const safetyParas = [
-      '因为数据只在本机，请务必注意：',
-      '· 卸载应用会删除全部数据，卸载前请先导出备份。',
-      '· 换手机时，用「数据与备份」导出后在新机导入即可搬过去。',
-      '· 备份文件保存在手机本地，卸载应用会一并删除，请及时另存或发送到自己的网盘。',
-      '· 应用每天首次启动会自动备份到 _doc/backup/，滚动保留最近 5 份，可在「数据与备份」中恢复。',
-      '· 也可随时手动导出完整备份（含账户、交易、分类、标签、周期、预算与设置）。'
+      { type: 'text', text: '因为数据只在本机，请务必注意：' },
+      { type: 'item', text: '卸载应用会删除全部数据，卸载前请先导出备份。' },
+      { type: 'item', text: '换手机时，用「数据与备份」导出后在新机导入即可搬过去。' },
+      { type: 'item', text: '备份文件保存在手机本地，卸载应用会一并删除，请及时另存或发送到自己的网盘。' },
+      { type: 'item', text: '应用每天首次启动会自动备份到 _doc/backup/，滚动保留最近 5 份，可在「数据与备份」中恢复。' },
+      { type: 'item', text: '也可随时手动导出完整备份（含账户、交易、分类、标签、周期、预算与设置）。' }
     ]
 
-    const featureParas = [
-      '· 记账：手动记账面板，或一句话 AI 速记（「昨天午饭 45，打车 28」）',
-      '· 账户：多账户管理，支持自定义品牌图标，可右滑设为默认',
-      '· 统计：分类 / 账户 / 标签多维度分析，含趋势、占比与月度对比',
-      '· 周期：房租、订阅、工资这类重复收支，可按天 / 周 / 月自动提醒记一笔',
-      '· 预算：总预算与分类预算，随时看剩余额度',
-      '· 标签：跨分类的项目维度汇总（如「2026 装修」「日本旅行」）',
-      '· 主题：6 套主题色 + 跟随系统的深浅色',
-      '· 备份：自动备份 + 手动导入导出，换机不丢数据'
-    ]
-
-    /**
-     * 这一条是不是「· 」开头的列表项。
+    /*
+     * 主要功能：每条都带 lead（前两个字加粗）。
      *
-     * ★ 为什么要判断 ★
-     *   同一份文案里混着两种段落：
-     *     · 总起句（「因为数据只在本机，请务必注意：」）
-     *     · 列表项（「· 卸载应用会删除全部数据…」）
-     *   两者排版应该不同：列表项要有悬挂缩进，
-     *   第二行不能顶到「·」下面，否则读起来像一坨。
-     *   判断依据用「·」前缀，这样文案数组可以保持纯文本，
-     *   不用再给每条加 { text, type } 结构。
+     * ★ 冒号要跟着 lead 走 ★
+     *   原文是「记账：手动记账面板…」。拆成 lead + text 时，
+     *   冒号若放进 text，它会变成不加粗的普通字，看着像漏了；
+     *   放进 lead 则与「记账」一起加粗，和原文的视觉一致。
+     *   所以这里的 lead 统一写成「功能名：」。
      */
-    function isBullet(text) {
-      return /^[·•]/.test(String(text || '').trim())
-    }
+    const featureParas = [
+      { type: 'item', lead: '记账：', text: '手动记账面板，或一句话 AI 速记（「昨天午饭 45，打车 28」）' },
+      { type: 'item', lead: '账户：', text: '多账户管理，支持自定义品牌图标，可右滑设为默认' },
+      { type: 'item', lead: '统计：', text: '分类 / 账户 / 标签多维度分析，含趋势、占比与月度对比' },
+      { type: 'item', lead: '周期：', text: '房租、订阅、工资这类重复收支，可按天 / 周 / 月自动提醒记一笔' },
+      { type: 'item', lead: '预算：', text: '总预算与分类预算，随时看剩余额度' },
+      { type: 'item', lead: '标签：', text: '跨分类的项目维度汇总（如「2026 装修」「日本旅行」）' },
+      { type: 'item', lead: '主题：', text: '6 套主题色 + 跟随系统的深浅色' },
+      { type: 'item', lead: '备份：', text: '自动备份 + 手动导入导出，换机不丢数据' }
+    ]
 
     async function onDiagnose() {
       try {
@@ -210,7 +217,6 @@ export default {
     return {
       settingStore, primaryColor, pageStyle,
       privacyParas, safetyParas, featureParas,
-      isBullet,
       onDiagnose, goBack
     }
   }
@@ -305,30 +311,78 @@ export default {
 }
 
 /*
- * 每一段是一个独立的 <text>（display: block 才能各占一行）。
+ * ★ 有序列表（1. 2. 3.）★
  *
- * ★ 不再用 white-space: pre-wrap ★
- *   依赖模板换行符在 uni-app 里不可靠 —— 编译期就被压成空格了。
- *   现在段落边界由 DOM 结构决定，跟模板排版无关。
+ * ★ 为什么用 CSS counter 而不是在文案里写编号 ★
+ *   写死编号的话，增删一条就要手动重排后面所有条目的序号，
+ *   极易出错。counter 由渲染顺序自动累加，改文案不用管编号。
  *
- * ★ 排版三档 ★
- *   .prose-para  普通段落：行高 1.75，段间 16rpx
- *   .prose-lead  总起句（每节第一条）：加粗、颜色深一档、下面留出间距
- *   .prose-item  列表项（· 开头）：悬挂缩进，第二行不顶到「·」下面
+ * ★ 计数器在每个 .prose-card 里重置 ★
+ *   counter-reset 写在 .prose-card 上，所以「隐私说明」的编号
+ *   从 1 开始，「数据安全」也从 1 开始，互不干扰。
  *
- *   之前所有段落都是同一套样式、段间距只有 8rpx，
- *   一大坨文字堆在一起，读起来确实难看 —— 这就是被吐槽的原因。
+ * ★ 悬挂缩进 ★
+ *   ::before 里放「1. 」，用 absolute 定位到左侧，
+ *   正文块 padding-left 让出 44rpx ——
+ *   这样文字换行后会与上一行对齐，不会顶到序号下面。
  */
-.prose-para {
-  display: block;
-  font-size: 26rpx;
-  color: var(--app-text-2);
-  line-height: 1.75;
-  margin-bottom: 16rpx;
+.prose-card {
+  counter-reset: item;
 }
 
-.prose-para:last-child {
+/*
+ * 每个列表项占一行，内部是「序号（伪元素）+ 正文」。
+ * 用 flex 让序号和正文各自成为一个独立的盒子，
+ * 比 text-indent 负值更稳（负缩进遇到多行文字容易错位）。
+ */
+.prose-item {
+  position: relative;
+  padding-left: 44rpx;
+  margin-bottom: 12rpx;
+  font-size: 26rpx;
+  color: var(--app-text-2);
+  line-height: 1.7;
+}
+
+.prose-item:last-child {
   margin-bottom: 0;
+}
+
+/* 序号：1. 2. 3. …，用主题色区分，和正文拉开层次 */
+.prose-item::before {
+  counter-increment: item;
+  content: counter(item) ".";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 36rpx;
+  font-size: 26rpx;
+  color: var(--app-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 功能名前缀加粗（主要功能用来标「记账：」「账户：」这类标签）。
+ *
+ * ★ 为什么单独一个 <text> ★
+ *   加粗范围由数据里的 lead 字段决定，只包住「功能名 + 冒号」，
+ *   后面的说明保持正常字重。用 CSS 的 ::first-letter 做不到多字，
+ *   用富文本 v-html 又太重（还要处理转义），所以直接拆成两个 text。
+ *
+ * ★ 冒号要放进 lead ★
+ *   原文是「记账：手动记账面板…」。若把冒号留在 text 里，
+ *   它会变成不加粗的普通字，看着像「漏了冒号」。
+ *   放进 lead 与功能名一起加粗，才是原文的视觉。
+ */
+.list-lead {
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.list-text {
+  /* 冒号在 lead 里，正文直接接上即可，不需要额外间距 */
+  margin-left: 0;
 }
 
 /*
@@ -337,27 +391,12 @@ export default {
  * 比正文重一点才立得住，否则和下面的列表项混成一片。
  */
 .prose-lead {
+  display: block;
   font-size: 27rpx;
   font-weight: 600;
   color: var(--app-text);
+  line-height: 1.6;
   margin-bottom: 20rpx;
-}
-
-/*
- * 列表项：悬挂缩进。
- *
- * ★ 为什么要 padding-left + text-indent ★
- *   列表项形如「· 卸载应用会删除全部数据…」，
- *   文字换行后如果顶到最左边，会和上面的「·」错位、显得很乱。
- *   text-indent 负值把首行拉回左边，padding-left 把整个块右推，
- *   两者配合 = 首行从 0 开始、换行后从 28rpx 开始（悬挂缩进）。
- */
-.prose-item {
-  padding-left: 28rpx;
-  text-indent: -28rpx;
-  /* 列表项之间比正文段落紧一点，视觉上才是一组 */
-  margin-bottom: 10rpx;
-  line-height: 1.7;
 }
 
 .footer {
