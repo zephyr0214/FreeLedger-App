@@ -149,16 +149,13 @@ refreshTabBarTheme('red', false, false)
 check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selectedColor, '#EE0A24')
 
 /* ---------------- tabBar 字号 / 图标尺寸 ----------------
- * ★ 这两个值必须与 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH 一起看 ★
- *   用户看到的图标粗细 = 描边宽度 × (iconWidth / 画布尺寸)，记作 onScreen。
- *   描边 2 / 画布 81 / iconWidth 22px -> onScreen 0.543。
- *   历史：
- *     2.0 + 81px + 24px -> onScreen 0.593，用户认可这一版的粗细；
- *     之后用户又说「图标适当缩小一些些」，
- *     于是在**不改 PNG** 的前提下把 iconWidth 24 -> 22（小 8%），
- *     图标整体变小，线条也跟着略细一点，仍接近 0.593 的手感。
- *   fontSize 用整数 11px：uni-app 的原生 tabBar 对小数 px 的支持没有把握，
- *   宁可用整数值也不要冒「配了不生效」的风险。
+ * ★ 这一节在改成「自绘圆角悬浮底栏」后语义变了 ★
+ *   原生 tabBar 已经被 uni.hideTabBar 藏起来，视觉全部由
+ *   components/AppTabBar.vue 负责（图标 44rpx ≈ 22px）。
+ *   pages.json 里这些值仍然保留，但**不再影响显示** ——
+ *   它们只是给「万一自绘栏加载失败、原生栏露出来」留的兜底值。
+ *   所以这里不再死锁具体数值，只校验它们存在且格式合理，
+ *   免得用户每次微调视觉都要改测试。
  */
 {
   const pagesJson = JSON.parse(
@@ -166,41 +163,66 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
       .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
   )
   const tb = pagesJson.tabBar || {}
-  check('tabBar 字号 11px', tb.fontSize, '11px')
-  check('tabBar 图标宽 22px', tb.iconWidth, '22px')
+  check('tabBar 有 fontSize', /^\d+px$/.test(String(tb.fontSize)), true)
+  check('tabBar 有 iconWidth', /^\d+px$/.test(String(tb.iconWidth)), true)
+
+  // 真正的视觉尺寸在自绘组件里，这条必须盯着
+  const tabbarCode = readFileSync(join(process.cwd(), 'components/AppTabBar.vue'), 'utf-8')
+  check('自绘底栏图标 44rpx', /\.tab-icon\s*\{[^}]*width:\s*44rpx/.test(tabbarCode), true)
+  check('自绘底栏高度 96rpx', /\.tabbar\s*\{[^}]*height:\s*96rpx/.test(tabbarCode), true)
+
+  /* ★ 圆角统一：pill 与 + 圆按钮必须是同一曲率 ★
+   *   + 按钮是正圆（border-radius:50%，半径 = 高度的一半 = 54rpx）。
+   *   pill 若用 36rpx 这种固定值，两端就比圆按钮「方」，看着不统一；
+   *   必须用 999rpx 封顶，让半径自动等于高度的一半。
+   */
+  check('pill 圆角是全圆角', /\.tabbar\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
+  check('+ 按钮是正圆', /\.tab-add\s*\{[^}]*border-radius:\s*50%/.test(tabbarCode), true)
+
+  /* ★ 横向不撑满 ★
+   *   pill 若用 flex:1 会被拉成通到底的横条，失去悬浮感。
+   *   必须给固定宽度 + 外层居中。
+   */
+  check('pill 不再 flex:1 拉满', /\.tabbar\s*\{[^}]*flex:\s*1/.test(tabbarCode), false)
+  check('pill 有固定宽度', /\.tabbar\s*\{[^}]*width:\s*\d+rpx/.test(tabbarCode), true)
+  check('外层内容居中', /\.tabbar-host\s*\{[^}]*justify-content:\s*center/.test(tabbarCode), true)
+
+  /* ★ 底栏与 + 按钮必须分离 ★ */
+  check('两块之间有 gap', /\.tabbar-row\s*\{[^}]*gap:\s*\d+rpx/.test(tabbarCode), true)
 }
 
-/* ------------- 冷启动时 tabBar 要自己补刷，不能等用户点 tab -------------
+/* ------------- 冷启动时原生 tabBar 要自己补藏，不能等用户点 tab -------------
  *
- * bug：刚进 App 时 tabBar 还是 pages.json 写死的绿色默认图标和默认色，
- *      点一下 tab 才刷新。
- * 根因：首个 tab 页的首次 onShow 常常赶在原生 tabBar 创建之前，
- *      那一轮 setTabBarStyle / setTabBarItem 静默失效，
- *      之后没有第二次机会（除非用户点 tab）。
+ * 改造后的 bug 形态变了：
+ *   以前是「颜色/图标停在默认值」，现在是「原生 tabBar 没藏掉，
+ *   和自绘圆角底栏叠在一起，出现两条底栏」。
+ * 根因相同：首个 tab 页的首次 onShow 常常赶在原生 tabBar 创建之前，
+ *      那一轮 hideTabBar 静默失效，之后没有第二次机会。
  * 期望：refreshTabBar() 之后，即使第一轮失效，
- *      stores/setting.js 也会在启动窗口内自己补刷几轮。
+ *      stores/setting.js 也会在启动窗口内自己补藏几次。
  *
  * ★ 这里只做源码层面的结构断言 ★
  *   store 依赖 pinia + setTimeout，在 node 里跑真实 store 成本高、
- *   收益低；而这条逻辑的关键就是「有没有补刷」这件事本身，
- *   用源码断言足够挡住「有人把补刷删了」的回归。
+ *   收益低；而这条逻辑的关键就是「有没有补藏」这件事本身，
+ *   用源码断言足够挡住「有人把补藏删了」的回归。
  */
 {
   const storeSrc = readFileSync(join(process.cwd(), 'stores/setting.js'), 'utf-8')
 
-  check('refreshTabBar 里排了补刷', /refreshTabBar\(\)\s*\{[\s\S]*?_scheduleTabBarRetry\(/.test(storeSrc), true)
-  check('有补刷实现 _scheduleTabBarRetry', /_scheduleTabBarRetry\(force\)\s*\{/.test(storeSrc), true)
-  check('补刷用 setTimeout 延迟重试', /_scheduleTabBarRetry[\s\S]*?setTimeout\(/.test(storeSrc), true)
-  check('补刷有启动窗口限制', /TABBAR_BOOT_WINDOW_MS/.test(storeSrc), true)
-  check('补刷有防重入标记', /_tabBarRetrying/.test(storeSrc), true)
-  // load() 读完设置要重置补刷窗口：启动窗口必须从「设置就绪」起算，
-  // 否则读库慢的机型等窗口过期了 tabBar 才建好，又回到默认图标。
-  check('load() 重置补刷窗口', /async load\(\)\s*\{[\s\S]*?_tabBarBootAt = Date\.now\(\)/.test(storeSrc), true)
+  check('refreshTabBar 里排了补藏', /refreshTabBar\(\)\s*\{[\s\S]*?_scheduleTabBarRetry\(/.test(storeSrc), true)
+  check('有补藏实现 _scheduleTabBarRetry', /_scheduleTabBarRetry\(\)\s*\{/.test(storeSrc), true)
+  check('补藏用 setTimeout 延迟重试', /_scheduleTabBarRetry[\s\S]*?setTimeout\(/.test(storeSrc), true)
+  check('补藏有启动窗口限制', /TABBAR_BOOT_WINDOW_MS/.test(storeSrc), true)
+  check('补藏有防重入标记', /_tabBarRetrying/.test(storeSrc), true)
+  // load() 读完设置要重置补藏窗口：启动窗口必须从「设置就绪」起算
+  check('load() 重置补藏窗口', /async load\(\)\s*\{[\s\S]*?_tabBarBootAt = Date\.now\(\)/.test(storeSrc), true)
+  // 实际动作必须是「隐藏原生栏」，不能再是刷配色
+  check('动作是隐藏原生 tabBar', /hideNativeTabBar\(\)/.test(storeSrc), true)
 
-  // applyTabBarTheme 要把成败报出来，refreshTabBarTheme 负责透传
-  const themeSrc = readFileSync(join(process.cwd(), 'utils/theme.js'), 'utf-8')
-  check('applyTabBarTheme 返回是否成功', /function applyTabBarTheme\(presetKey, dark\)\s*\{[\s\S]*?return ok/.test(themeSrc), true)
-  check('refreshTabBarTheme 透传返回值', /function refreshTabBarTheme\([\s\S]*?return applyTabBarTheme\(/.test(themeSrc), true)
+  // 自绘底栏的宿主必须压得住页面内容
+  const tabbarCode = readFileSync(join(process.cwd(), 'components/AppTabBar.vue'), 'utf-8')
+  check('自绘底栏是 fixed 定位', /\.tabbar-host\s*\{[^}]*position:\s*fixed/.test(tabbarCode), true)
+  check('自绘底栏有安全区适配', /env\(safe-area-inset-bottom\)/.test(tabbarCode), true)
 }
 
 delete globalThis.uni

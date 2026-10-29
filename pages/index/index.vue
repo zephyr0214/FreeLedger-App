@@ -24,7 +24,6 @@
       <scroll-view
         class="page-scroll"
         scroll-y
-        @scroll="onScroll"
       >
         <!-- ② 本月概览 -->
         <view class="overview-card">
@@ -263,10 +262,12 @@
 
 
 
-      <!-- ⑦ 悬浮按钮：单击 / 长按触发什么，由「记账按钮设置」决定
-           打开记账面板时按钮隐藏，关闭面板后恢复；滑到底部也隐藏 -->
-      <FabButton
-        :hidden="showQuickAdd || showPanel || fabHidden"
+      <!-- ⑦ 圆角悬浮底栏：4 个 tab + 右下角记账按钮
+           ★ 按钮永驻 ★ 面板/输入条打开时不再隐藏它，
+             弹层自带遮罩会盖在上面，底栏仍在原处，
+             符合「直接永驻在下方」的要求。 -->
+      <AppTabBar
+        current="home"
         :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
         @single-press="onFabTap"
         @hold-start="onHoldStart"
@@ -289,12 +290,12 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, getCurrentInstance } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import FabButton from '@/components/FabButton.vue'
+import AppTabBar from '@/components/AppTabBar.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
 import QuickAddBar from '@/components/QuickAddBar.vue'
 import CalendarGrid from '@/components/CalendarGrid.vue'
@@ -302,17 +303,19 @@ import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
+import { useUiStore } from '@/stores/ui.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, FabButton, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
     const txnStore = useTransactionStore()
+    const uiStore = useUiStore()
 
     const showPanel = ref(false)
     const showQuickAdd = ref(false)
@@ -329,23 +332,14 @@ export default {
     /** 标签表（最近收支行里显示标签胶囊，按 tag_ids 反查名字/颜色） */
     const tags = ref([])
 
-    /** 滑到底部时隐藏悬浮按钮，避免遮挡最后一条内容 */
-    const fabHidden = ref(false)
-
     /**
      * 本月是否有任何交易记录。
      *
-     * ★ 为什么要判断这个 ★
-     *   「滑到底部隐藏悬浮按钮」是为了不挡住最后一条内容。
-     *   但本月没有任何数据时，页面本身就短 ——
-     *   随便滑一下就到底了，悬浮按钮立刻消失，
-     *   用户正想点「+」记账却发现按钮不见了，很别扭。
-     *
-     *   所以：本月无数据时不启用「滑到底隐藏」这条规则，
-     *   按钮一直待在那儿，随时可以点。
-     *
-     * dailyTotals 是「按天汇总」的 map，键是日期（YYYY-MM-DD），
-     * 有键就说明那天有交易；一个键都没有 = 本月没记过账。
+     * ★ 曾经用于「滑到底部隐藏悬浮按钮」的豁免判断 ★
+     *   按钮现在永驻在底栏里，不再随滚动隐藏，
+     *   这条判断暂时没人用了；保留它是因为
+     *   「本月无数据」这个语义别处可能还要用（如空态文案），
+     *   删掉容易在下次需要时重复实现。
      */
     const isMonthEmpty = computed(() => {
       const daily = txnStore.dailyTotals || {}
@@ -417,49 +411,12 @@ export default {
 
     /* ------------------------------------------------------ 滚动监听 */
 
-    /**
-     * 滚到底部时隐藏悬浮按钮。
-     *
-     * scroll 事件只给 scrollTop / scrollHeight / deltaY，
-     * 没有容器高度，所以要先量一次 scroll-view 的实际高度。
+    /*
+     * ★ 这里删掉了原来「滑到底部隐藏悬浮按钮」的整套逻辑 ★
+     *   （fabHidden / scrollViewHeight / measureScrollView / onScroll）
+     *   记账按钮改成永驻在底栏右端，不再随滚动隐藏，
+     *   滚动监听没有别的用途，留着只会白跑计算。
      */
-    const scrollViewHeight = ref(0)
-
-    function measureScrollView() {
-      try {
-        uni.createSelectorQuery()
-          .in(getCurrentInstance())
-          .select('.page-scroll')
-          .boundingClientRect((rect) => {
-            if (rect && rect.height) {
-              scrollViewHeight.value = rect.height
-            }
-          })
-          .exec()
-      } catch (e) {}
-    }
-
-    function onScroll(e) {
-      const detail = e.detail || {}
-      const scrollTop = detail.scrollTop || 0
-      const scrollHeight = detail.scrollHeight || 0
-      if (!scrollHeight || !scrollViewHeight.value) return
-
-      // ★ 本月无数据时不隐藏 ★
-      //   页面短，滑一下就到「底」了，按钮跟着消失反而碍事。
-      //   见 isMonthEmpty 的说明。
-      if (isMonthEmpty.value) {
-        if (fabHidden.value) fabHidden.value = false
-        return
-      }
-
-      // 距离底部还剩多少
-      const remain = scrollHeight - scrollTop - scrollViewHeight.value
-      const atBottom = remain <= 120
-      if (atBottom !== fabHidden.value) {
-        fabHidden.value = atBottom
-      }
-    }
 
     /* ------------------------------------------------------ 数据加载 */
 
@@ -537,7 +494,7 @@ export default {
       openQuickAddFor(settingStore.quickAddHoldAction)
     }
 
-    /** 长按开始（触觉反馈在 FabButton 内，这里只占位） */
+    /** 长按开始（触觉反馈在 AppTabBar 内，这里只占位） */
     function onHoldStart() {}
 
     function onHoldCancel() {}
@@ -650,8 +607,6 @@ export default {
     /* ------------------------------------------------------ 生命周期 */
 
     onMounted(() => {
-      // 量一次滚动容器高度，供 onScroll 判断是否到底
-      measureScrollView()
       if (!settingStore.loaded) {
         settingStore.load().then(() => loadAll())
       } else {
@@ -665,11 +620,11 @@ export default {
         loadAll(true)
       }
       settingStore.syncSystemTheme()
-      // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
-      // 主题设置页改完主题后要靠这里把颜色刷回来
+      // 隐藏原生 tabBar（自绘底栏已经在显示，见 AppTabBar）
       settingStore.refreshTabBar()
-      // 回到顶部，悬浮按钮重新出现
-      fabHidden.value = false
+      // 在别的 tab 页点了记账按钮 → 这里补上打开动作
+      const pending = uiStore.consumePendingAdd()
+      if (pending) openQuickAddFor(pending)
     })
 
     return {
@@ -677,8 +632,8 @@ export default {
       showPanel, panelPreset,
       selectedDay, showQuickAdd, parsing, parsingText,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
-      totalBudget, categoryBudgets, budgetRemaining, recentGroups, fabHidden,
-      shiftCalMonth, onDayClick, onScroll,
+      totalBudget, categoryBudgets, budgetRemaining, recentGroups,
+      shiftCalMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub, txnTags,

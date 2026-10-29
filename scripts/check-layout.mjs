@@ -115,12 +115,12 @@ const CUSTOM_LAYER_MAX = 9
 /**
  * 允许使用高层级的自绘浮层。
  * 这些都是「整屏覆盖」型的组件，与库弹层互斥出现：
- *   - FabButton    悬浮按钮，打开记账面板 / 速记条时会隐藏
- *   - QuickAddBar  速记输入条，打开时悬浮按钮会隐藏
- *   - TxnPanel     记账面板，只在首页出现
+ *   - AppTabBar    圆角悬浮底栏 + 记账按钮，永驻在页面最上层，
+ *                  但低于记账面板/速记条（那两个要盖住它）
+ *   - QuickAddBar  速记输入条
  */
 const HIGH_LAYER_ALLOWLIST = [
-  { file: 'components/FabButton.vue', reason: '悬浮按钮，与弹层互斥' },
+  { file: 'components/AppTabBar.vue', reason: '悬浮底栏，需压住页面内容但低于弹层' },
   { file: 'components/QuickAddBar.vue', reason: '速记输入条，与弹层互斥' }
 ]
 

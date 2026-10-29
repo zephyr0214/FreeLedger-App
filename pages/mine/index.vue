@@ -86,6 +86,14 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+    <!-- 圆角悬浮底栏（与首页同一份组件） -->
+    <AppTabBar
+      current="mine"
+      :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
+      @single-press="onAddTap"
+      @hold-end="onAddHoldEnd"
+    />
   </view>
 </template>
 
@@ -95,16 +103,20 @@ import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import AppTabBar from '@/components/AppTabBar.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
+import { useUiStore } from '@/stores/ui.js'
 import { queryOne } from '@/api/db/index.js'
 import { daysSinceLastBackup } from '@/api/backup.js'
+import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 
 export default {
-  components: { AppHeader, HeaderAction, LineIcon },
+  components: { AppHeader, HeaderAction, LineIcon, AppTabBar },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
+    const uiStore = useUiStore()
 
     const stats = ref({ txnCount: 0, accountCount: 0, dayCount: 0 })
     const backupHint = ref('')
@@ -215,6 +227,18 @@ export default {
       }
     }
 
+    /* ------------------------------------------------------ 记账按钮 */
+
+    /** 短按：记下意图并切回首页（面板只挂在首页） */
+    function onAddTap() {
+      gotoHomeAndAdd(settingStore.quickAddTapAction === 'manual' ? 'manual' : 'ai', uiStore)
+    }
+
+    /** 长按：同上，按长按的配置打开 */
+    function onAddHoldEnd() {
+      gotoHomeAndAdd(settingStore.quickAddHoldAction === 'manual' ? 'manual' : 'ai', uiStore)
+    }
+
     function goProfile() {
       uni.navigateTo({ url: '/pages/settings/profile' })
     }
@@ -245,6 +269,7 @@ export default {
       settingStore, accountStore, stats, backupHint, budgetCount,
       primaryColor, pageStyle, menuGroups,
       themeLabel, aiLabel, budgetLabel, quickAddLabel,
+      onAddTap, onAddHoldEnd,
       onMenuClick, goProfile, goAbout
     }
   }

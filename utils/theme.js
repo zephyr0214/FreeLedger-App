@@ -396,7 +396,7 @@ const TABBAR_ITEMS = [
  * ★ 改图标内容后，必须同步改这里 + theme.json + gen-tabbar-icons.py ★
  *   三处保持一致，否则运行时 setTabBarItem 找不到文件。
  */
-const TABBAR_ICON_VERSION = '-v2'
+export const TABBAR_ICON_VERSION = '-v2'
 
 /**
  * ★ 一个已知的坑：原生 tabBar 会按 iconPath 字符串缓存已解码的位图 ★

@@ -139,6 +139,13 @@
       <view class="bottom-space" />
     </scroll-view>
 
+    <!-- 圆角悬浮底栏（与首页同一份组件，图标/主题色自动跟随） -->
+    <AppTabBar
+      current="account"
+      :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
+      @single-press="onAddTap"
+      @hold-end="onAddHoldEnd"
+    />
 
   </view>
 </template>
@@ -152,16 +159,20 @@ import EmptyState from '@/components/EmptyState.vue'
 import SmoothLineChart from '@/components/SmoothLineChart.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AccountIcon from '@/components/AccountIcon.vue'
+import AppTabBar from '@/components/AppTabBar.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
+import { useUiStore } from '@/stores/ui.js'
 import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
+import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon },
+  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
+    const uiStore = useUiStore()
 
     const trendRange = ref(1)
     const trendData = ref([])
@@ -256,6 +267,24 @@ export default {
       uni.showToast({ title: `已设为默认：${acc.name}`, icon: 'none' })
     }
 
+    /* ------------------------------------------------------ 记账按钮 */
+
+    /**
+     * 短按记账按钮：记下意图并切回首页。
+     *
+     * ★ 为什么不在本页打开面板 ★
+     *   TxnPanel / QuickAddBar 只挂在首页（见 stores/ui.js 的说明），
+     *   本页没有这两个组件，就地打开无处安放。
+     */
+    function onAddTap() {
+      gotoHomeAndAdd(settingStore.quickAddTapAction === 'manual' ? 'manual' : 'ai', uiStore)
+    }
+
+    /** 长按记账按钮：同样回首页，按长按的配置打开 */
+    function onAddHoldEnd() {
+      gotoHomeAndAdd(settingStore.quickAddHoldAction === 'manual' ? 'manual' : 'ai', uiStore)
+    }
+
     /**
      * wd-swipe-action 的 click 事件
      *
@@ -303,6 +332,7 @@ export default {
       trendRange, ranges, trendData, trendPoints, swipeStates,
       primaryColor, pageStyle, defaultAccountId,
       switchRange, formatGroupSum, formatAmount, setDefault, onSwipeClick,
+      onAddTap, onAddHoldEnd,
       goAddAccount, goDetail, goProfile
     }
   }

@@ -130,26 +130,6 @@ export default {
 
     let keyboardTimer = null
 
-    /**
-     * 进入/退出输入态时切换原生 tabBar 的显隐。
-     *
-     * 为什么必须隐藏：
-     *   adjustPan 会把整个 webview（含原生 tabBar）整体上推。
-     *   tabBar 藏起来后就不会跟着移动；输入条由我们按键盘高度自己定位，
-     *   视觉上就是「底栏消失，输入框贴键盘浮出」。
-     */
-    function hideTabBar() {
-      try {
-        uni.hideTabBar({ animation: false })
-      } catch (e) {}
-    }
-
-    function showTabBar() {
-      try {
-        uni.showTabBar({ animation: false })
-      } catch (e) {}
-    }
-
     function bindKeyboard() {
       try {
         if (typeof uni.onKeyboardHeightChange === 'function') {
@@ -325,16 +305,6 @@ export default {
       }
       unbindKeyboard()
 
-      /**
-       * 恢复 tabBar 要快。
-       *
-       * 之前等键盘高度归零才显示（最长 400ms），
-       * 用户感觉就是「底栏卡一下才回来」。
-       * 现在改成：先收键盘，紧接着就显示 tabBar。
-       * 键盘收起是系统动画，两者几乎同步，感知不到延迟。
-       */
-      showTabBar()
-
       try {
         if (typeof uni.hideKeyboard === 'function') uni.hideKeyboard()
       } catch (e) {}
@@ -356,9 +326,6 @@ export default {
       () => props.modelValue,
       async (open) => {
         if (!open) {
-          // 注意：这里不要再调 showTabBar()。
-          // 关闭流程由 close() 负责 —— 它会等键盘真正收起后才恢复 tabBar，
-          // 否则 tabBar 会渲染在「键盘上沿」，看起来像浮在键盘上面。
           unbindKeyboard()
           clearFocusTimers()
           return
@@ -368,10 +335,7 @@ export default {
         keyboardEverShown = false
         closing = false
 
-        // 隐藏 tabBar，避免它被 adjustResize 顶到键盘上方
-        hideTabBar()
-
-        // 延迟启用遮罩，挡掉 FAB 抬起时补发的那次 click
+        // 延迟启用遮罩，挡掉记账按钮抬起时补发的那次 click
         if (maskTimer) clearTimeout(maskTimer)
         maskTimer = setTimeout(() => {
           maskEnabled.value = true

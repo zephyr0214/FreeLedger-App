@@ -84,9 +84,12 @@ check('旧的 onHoldEnd 已移除', /function onHoldEnd\s*\(/.test(homeScript), 
 check('模板里用 onFabTap', /@single-press="onFabTap"/.test(homeCode), true)
 check('模板里用 onFabHoldEnd', /@hold-end="onFabHoldEnd"/.test(homeCode), true)
 
-console.log('=== FabButton：长按 none 时要连震动一起关 ===')
+console.log('=== AppTabBar：长按 none 时要连震动一起关 ===')
 
-const fabCode = readFileSync(join(ROOT, 'components', 'FabButton.vue'), 'utf-8')
+// ★ 组件已从 FabButton 换成 AppTabBar ★
+//   记账按钮不再单独悬浮，而是并进圆角底栏的右端（见 components/AppTabBar.vue）。
+//   长按/短按的语义完全保留，所以这些断言照旧，只换文件。
+const fabCode = readFileSync(join(ROOT, 'components', 'AppTabBar.vue'), 'utf-8')
 
 check('有 holdEnabled prop', /holdEnabled:\s*\{\s*type:\s*Boolean/.test(fabCode), true)
 check('长按关掉时不启动计时器', /if \(!props\.holdEnabled\) return/.test(fabCode), true)

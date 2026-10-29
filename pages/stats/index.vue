@@ -321,6 +321,13 @@
       <view class="bottom-space" />
     </scroll-view>
 
+    <!-- 圆角悬浮底栏（与首页同一份组件） -->
+    <AppTabBar
+      current="stats"
+      :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
+      @single-press="onAddTap"
+      @hold-end="onAddHoldEnd"
+    />
 
   </view>
 </template>
@@ -332,7 +339,10 @@ import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
+import AppTabBar from '@/components/AppTabBar.vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { useUiStore } from '@/stores/ui.js'
+import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import {
   getOverviewRange, getSubCategoryStatsRange,
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
@@ -344,9 +354,10 @@ import {
 } from '@/utils/date.js'
 
 export default {
-  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction },
+  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction, AppTabBar },
   setup() {
     const settingStore = useSettingStore()
+    const uiStore = useUiStore()
 
     /** 三级联动选择：year / month / day，0 表示「全部」 */
     const dateRange = ref(defaultSelection())
@@ -576,6 +587,18 @@ export default {
     uni.navigateTo({ url: '/pages/settings/profile' })
   }
 
+    /* ------------------------------------------------------ 记账按钮 */
+
+    /** 短按：记下意图并切回首页（面板只挂在首页） */
+    function onAddTap() {
+      gotoHomeAndAdd(settingStore.quickAddTapAction === 'manual' ? 'manual' : 'ai', uiStore)
+    }
+
+    /** 长按：同上，按长按的配置打开 */
+    function onAddHoldEnd() {
+      gotoHomeAndAdd(settingStore.quickAddHoldAction === 'manual' ? 'manual' : 'ai', uiStore)
+    }
+
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await loadAll()
@@ -652,6 +675,7 @@ export default {
       barHeight, catPercent, shortDay, accColor, piePercent,
       loadAll, onRangeChange,
       switchCategoryType, switchAccountType, switchAccountTypeType, switchAverageType,
+      onAddTap, onAddHoldEnd,
       goTxnDetail, goAiChat, goProfile
     }
   }

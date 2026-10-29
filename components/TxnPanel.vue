@@ -756,7 +756,6 @@ export default {
         }
         emit('saved')
         visible.value = false
-        showTabBar()
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
       }
@@ -764,28 +763,6 @@ export default {
 
     function onClose() {
       visible.value = false
-      showTabBar()
-    }
-
-    /* ------------------------------------------------------ tabBar 显隐 */
-
-    /**
-     * 打开记账面板时隐藏原生 tabBar。
-     *
-     * 原因：adjustResize 下键盘弹出会把 tabBar 顶到键盘上方，
-     * 而记账面板是全屏弹层，底栏露在外面既突兀又可能被键盘压住。
-     * 面板关闭（取消或保存成功）时恢复。
-     */
-    function hideTabBar() {
-      try {
-        uni.hideTabBar({ animation: false })
-      } catch (e) {}
-    }
-
-    function showTabBar() {
-      try {
-        uni.showTabBar({ animation: false })
-      } catch (e) {}
     }
 
     /* ------------------------------------------------------ 生命周期 */
@@ -793,13 +770,8 @@ export default {
     watch(
       () => props.modelValue,
       async (open) => {
-        if (!open) {
-          // 面板关闭：恢复 tabBar
-          showTabBar()
-          return
-        }
-        // 面板打开：隐藏 tabBar，避免它被键盘顶起或与面板重叠
-        hideTabBar()
+        if (!open) return
+
         await accountStore.load()
         await loadOptions()
 
