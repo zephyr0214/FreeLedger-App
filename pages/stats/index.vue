@@ -39,7 +39,13 @@
       <!-- ① 分类统计 -->
       <view class="card">
         <view class="card-head">
-          <text class="card-title">分类统计</text>
+          <view class="card-head-left">
+            <text class="card-title">分类统计</text>
+            <!-- ★ 一级/二级分类下拉 ★ -->
+            <text class="level-tag" @click="openLevelSheet('category')">
+              {{ categoryLevelLabel }}<text class="level-arrow"> ▾</text>
+            </text>
+          </view>
           <view class="type-toggle">
               <text
                 class="type-tag"
@@ -59,17 +65,12 @@
         </view>
 
         <view v-else>
-          <!-- 环形图（用 CSS conic-gradient 实现，避免 canvas 白屏） -->
+          <!-- 环形图：SVG，引导线直接标注「分类名 占比%」 -->
           <view class="donut-wrap">
-            <view class="donut" :style="donutStyle">
-              <view class="donut-hole">
-                <text class="donut-label">合计</text>
-                <MoneyText :cents="categoryTotal" :size="30" :weight="600" color="var(--app-text)" />
-              </view>
-            </view>
+            <image class="donut-img" :src="categoryDonutUri" mode="widthFix" />
           </view>
 
-          <!-- 排行（按二级分类） -->
+          <!-- 下方：色点 + 分类名 + 笔数 + 总金额（不再显示占比和进度条） -->
           <view class="rank-list">
             <view
               v-for="(cat, i) in categoryStats.slice(0, 10)"
@@ -79,18 +80,12 @@
               <view class="rank-dot" :style="{ backgroundColor: cat.color }" />
               <view class="rank-label-col">
                 <text class="rank-name">{{ cat.name }}</text>
-                <text class="rank-sub">{{ cat.parentName }}</text>
+                <text v-if="categoryLevel === 'sub'" class="rank-sub">{{ cat.parentName }}</text>
               </view>
-              <view class="rank-bar-wrap">
-                <view
-                  class="rank-bar"
-                  :style="{
-                    width: catPercent(cat) + '%',
-                    backgroundColor: cat.color
-                  }"
-                />
+              <view class="rank-count">
+                <text class="rank-count-num">{{ cat.count }}</text>
+                <text class="rank-count-unit">笔</text>
               </view>
-              <text class="rank-pct">{{ catPercent(cat) }}%</text>
               <view class="rank-amount">
                 <MoneyText :cents="cat.amount" :size="26" color="var(--app-text)" />
               </view>
@@ -123,27 +118,16 @@
 
         <view v-else>
           <view class="donut-wrap">
-            <view class="donut" :style="accountDonutStyle">
-              <view class="donut-hole">
-                <text class="donut-label">合计</text>
-                <MoneyText :cents="accountTotal" :size="30" :weight="600" color="var(--app-text)" />
-              </view>
-            </view>
+            <image class="donut-img" :src="accountDonutUri" mode="widthFix" />
           </view>
           <view class="rank-list">
             <view v-for="(acc, i) in accountStats" :key="acc.id" class="rank-item">
               <view class="rank-dot" :style="{ backgroundColor: accColor(acc, i) }" />
               <text class="rank-name">{{ acc.name }}</text>
-              <view class="rank-bar-wrap">
-                <view
-                  class="rank-bar"
-                  :style="{
-                    width: piePercent(acc.amount, accountTotal) + '%',
-                    backgroundColor: accColor(acc, i)
-                  }"
-                />
+              <view class="rank-count">
+                <text class="rank-count-num">{{ acc.count }}</text>
+                <text class="rank-count-unit">笔</text>
               </view>
-              <text class="rank-pct">{{ piePercent(acc.amount, accountTotal) }}%</text>
               <view class="rank-amount">
                 <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
               </view>
@@ -176,27 +160,16 @@
 
         <view v-else>
           <view class="donut-wrap">
-            <view class="donut" :style="accountTypeDonutStyle">
-              <view class="donut-hole">
-                <text class="donut-label">合计</text>
-                <MoneyText :cents="accountTypeTotal" :size="30" :weight="600" color="var(--app-text)" />
-              </view>
-            </view>
+            <image class="donut-img" :src="accountTypeDonutUri" mode="widthFix" />
           </view>
           <view class="rank-list">
             <view v-for="t in accountTypeStats" :key="t.key" class="rank-item">
               <view class="rank-dot" :style="{ backgroundColor: t.color }" />
               <text class="rank-name">{{ t.name }}</text>
-              <view class="rank-bar-wrap">
-                <view
-                  class="rank-bar"
-                  :style="{
-                    width: piePercent(t.amount, accountTypeTotal) + '%',
-                    backgroundColor: t.color
-                  }"
-                />
+              <view class="rank-count">
+                <text class="rank-count-num">{{ t.count }}</text>
+                <text class="rank-count-unit">笔</text>
               </view>
-              <text class="rank-pct">{{ piePercent(t.amount, accountTypeTotal) }}%</text>
               <view class="rank-amount">
                 <MoneyText :cents="t.amount" :size="26" color="var(--app-text)" />
               </view>
@@ -231,13 +204,32 @@
             <text class="axis-text">{{ dailyTrend.length ? dailyTrend[0].label + trendUnit : '—' }}</text>
             <text class="axis-text">{{ dailyTrend.length ? dailyTrend[dailyTrend.length - 1].label + trendUnit : '—' }}</text>
           </view>
+          <!-- ★ 最高日 / 最低日 ★ -->
+          <view v-if="dailyExtremes" class="daily-extremes">
+            <view class="daily-extreme">
+              <text class="extreme-label">最高{{ trendUnit === '月' ? '月' : '日' }}</text>
+              <text class="extreme-value">{{ dailyExtremes.max.label }}{{ trendUnit }} · </text>
+              <MoneyText :cents="dailyExtremes.max.expense" :size="24" color="var(--app-danger)" />
+            </view>
+            <view class="daily-extreme">
+              <text class="extreme-label">最低{{ trendUnit === '月' ? '月' : '日' }}</text>
+              <text class="extreme-value">{{ dailyExtremes.min.label }}{{ trendUnit }} · </text>
+              <MoneyText :cents="dailyExtremes.min.expense" :size="24" color="var(--app-text-2)" />
+            </view>
+          </view>
         </view>
       </view>
 
       <!-- ④ 平均值：总体 + 各分类 -->
       <view class="card">
         <view class="card-head">
-          <text class="card-title">平均值</text>
+          <view class="card-head-left">
+            <text class="card-title">平均值</text>
+            <!-- ★ 一级/二级分类下拉 ★ -->
+            <text class="level-tag" @click="openLevelSheet('average')">
+              {{ averageLevelLabel }}<text class="level-arrow"> ▾</text>
+            </text>
+          </view>
           <view class="type-toggle">
             <text
               class="type-tag"
@@ -276,7 +268,9 @@
             <view class="rank-dot" :style="{ backgroundColor: c.color }" />
             <view class="cat-avg-name">
               <text class="simple-name">{{ c.name }}</text>
-              <text class="cat-avg-hint">{{ c.count }} 笔</text>
+              <!-- 二级分类时显示所属一级分类；一级分类时不显示 -->
+              <text v-if="averageLevel === 'sub'" class="cat-avg-hint">{{ c.parentName }} · {{ c.count }} 笔</text>
+              <text v-else class="cat-avg-hint">{{ c.count }} 笔</text>
             </view>
             <!-- 笔均：字在上方，金额在下方 -->
             <view class="cat-avg-values">
@@ -329,6 +323,16 @@
       @hold-end="onAddHoldEnd"
     />
 
+    <!-- ★ 一级/二级分类下拉：分类统计、平均值共用 ★ -->
+    <wd-action-sheet
+      v-model="showLevelSheet"
+      title="选择分类层级"
+      :actions="levelActions"
+      :z-index="120"
+      cancel-text="取消"
+      @select="onLevelSelect"
+    />
+
   </view>
 </template>
 
@@ -343,9 +347,11 @@ import AppTabBar from '@/components/AppTabBar.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
+import { donutToDataUri } from '@/utils/donut.js'
 import {
-  getOverviewRange, getSubCategoryStatsRange,
+  getOverviewRange, getCategoryStatsRange, getSubCategoryStatsRange,
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
+  getSubCategoryAveragesRange,
   getDailyTrendRange, getAveragesRange, getTopExpensesRange,
   PIE_PALETTE
 } from '@/api/stats.js'
@@ -372,6 +378,33 @@ export default {
     const accountStatType = ref('expense')
     const accountTypeStatType = ref('expense')
     const averageStatType = ref('expense')
+
+    /*
+     * ★ 分类层级：一级分类 / 二级分类 ★
+     *   分类统计、平均值两个面板各有独立的下拉。
+     *   'sub' = 二级分类（午餐、外卖…，默认，贴近用户实际记的）
+     *   'root' = 一级分类（餐饮、居住…，统计口径）
+     */
+    const categoryLevel = ref('sub')
+    const averageLevel = ref('sub')
+
+    /** 分类统计面板的层级文案 */
+    const categoryLevelLabel = computed(() =>
+      categoryLevel.value === 'root' ? '一级分类' : '二级分类'
+    )
+
+    /** 平均值面板的层级文案 */
+    const averageLevelLabel = computed(() =>
+      averageLevel.value === 'root' ? '一级分类' : '二级分类'
+    )
+
+    /** 一级/二级下拉：共用一个 wd-action-sheet */
+    const showLevelSheet = ref(false)
+    const levelSheetTarget = ref('') // 'category' | 'average' | ''
+    const levelActions = [
+      { name: '二级分类', value: 'sub' },
+      { name: '一级分类', value: 'root' }
+    ]
 
     const categoryStats = ref([])
     const accountStats = ref([])
@@ -432,61 +465,44 @@ export default {
     )
 
     /**
-     * 画环形图的通用实现（conic-gradient，避开 canvas 首绘白屏）
+     * 环形图：用 SVG 构建（扇区 + 引导线 + 文字标注），生成 data URI。
      *
-     * @param {Array} list [{ amount, color }]
-     * @param {number} total
-     * @param {number} topN 画前几项，剩下的合并成一段
+     * ★ 为什么不用 conic-gradient ★
+     *   需求是「环形图用引导线直接显示每个部分的名称和占比」，
+     *   CSS 渐变无法在图上标注文字，所以改用 SVG（见 utils/donut.js）。
+     *   文字颜色要传给纯函数，因为 SVG 是 data URI 独立文档，
+     *   拿不到页面上的 CSS 变量。
      */
-    function buildDonut(list, total, topN = 7) {
-      const all = (list || []).filter((x) => Number(x.amount) > 0)
-      if (all.length === 0 || !total) {
-        return { background: 'var(--app-card-2)' }
-      }
+    const donutTextColor = computed(() => {
+      // 深色主题用浅字，浅色主题用深字
+      const isDark = /dark/i.test(settingStore.theme || '')
+      return isDark ? '#9CA3AF' : '#666666'
+    })
 
-      const items = all.slice(0, topN)
-      const rest = all.slice(topN)
-      const restAmount = rest.reduce((acc, x) => acc + Number(x.amount || 0), 0)
-
-      let acc = 0
-      const stops = []
-      for (const item of items) {
-        const pct = (Number(item.amount) / total) * 100
-        const from = acc
-        acc += pct
-        stops.push(`${item.color} ${from}% ${acc}%`)
-      }
-      // 剩下的合并成一段
-      if (restAmount > 0) {
-        const from = acc
-        acc += (restAmount / total) * 100
-        stops.push(`var(--app-line) ${from}% ${acc}%`)
-      }
-      // 不足 100%（比如总额里还有没归类的）用浅色补齐
-      if (acc < 100) {
-        stops.push(`var(--app-line) ${acc}% 100%`)
-      }
-
-      return { background: `conic-gradient(${stops.join(', ')})` }
-    }
-
-    /** 用 conic-gradient 画环形图，避开 canvas 在 App 端首绘白屏的问题 */
-    const donutStyle = computed(() =>
-      buildDonut(categoryStats.value, categoryTotal.value, 10)
+    /** 分类统计环形图（SVG data URI） */
+    const categoryDonutUri = computed(() =>
+      donutToDataUri(categoryStats.value, {
+        total: categoryTotal.value,
+        topN: 10,
+        textColor: donutTextColor.value
+      })
     )
 
     /** 按账户分的环形图 */
-    const accountDonutStyle = computed(() =>
-      buildDonut(
-        accountStats.value.map((a, i) => ({ amount: a.amount, color: accColor(a, i) })),
-        accountTotal.value,
-        10
+    const accountDonutUri = computed(() =>
+      donutToDataUri(
+        accountStats.value.map((a, i) => ({ name: a.name, amount: a.amount, color: accColor(a, i) })),
+        { total: accountTotal.value, topN: 10, textColor: donutTextColor.value }
       )
     )
 
     /** 按账户类别分的环形图 */
-    const accountTypeDonutStyle = computed(() =>
-      buildDonut(accountTypeStats.value, accountTypeTotal.value)
+    const accountTypeDonutUri = computed(() =>
+      donutToDataUri(accountTypeStats.value, {
+        total: accountTypeTotal.value,
+        topN: 8,
+        textColor: donutTextColor.value
+      })
     )
 
     /**
@@ -502,12 +518,6 @@ export default {
       return PIE_PALETTE[index % PIE_PALETTE.length]
     }
 
-    /** 饼图里的百分比 */
-    function piePercent(amount, total) {
-      if (!total) return 0
-      return Math.round((amount / total) * 1000) / 10
-    }
-
     const maxDailyExpense = computed(() => {
       const vals = dailyTrend.value.map((d) => d.expense)
       return Math.max(...vals, 1)
@@ -516,11 +526,6 @@ export default {
     function barHeight(v) {
       if (!v) return 0
       return Math.round((v / maxDailyExpense.value) * 100)
-    }
-
-    function catPercent(cat) {
-      if (!categoryTotal.value) return 0
-      return Math.round((cat.amount / categoryTotal.value) * 1000) / 10
     }
 
     function shortDay(dayKey) {
@@ -544,11 +549,16 @@ export default {
       try {
         const [ov, cats, accs, accTypes, catAvgs, daily, avg, top] = await Promise.all([
           getOverviewRange(r),
-          // 分类统计展示**二级分类**（午餐、外卖、房租…）
-          getSubCategoryStatsRange(r, categoryStatType.value),
+          // 分类统计：按面板的层级（一级/二级）查询
+          categoryLevel.value === 'root'
+            ? getCategoryStatsRange(r, categoryStatType.value)
+            : getSubCategoryStatsRange(r, categoryStatType.value),
           getAccountStatsRange(r, accountStatType.value),
           getAccountTypeStatsRange(r, accountTypeStatType.value),
-          getCategoryAveragesRange(r, averageStatType.value),
+          // 平均值：按面板的层级（一级/二级）查询
+          averageLevel.value === 'root'
+            ? getCategoryAveragesRange(r, averageStatType.value)
+            : getSubCategoryAveragesRange(r, averageStatType.value),
           getDailyTrendRange(r),
           getAveragesRange(r, averageStatType.value),
           getTopExpensesRange(r, 10)
@@ -614,12 +624,14 @@ export default {
 
     /* ------------------------------------------------ 各卡片独立切换 */
 
-    /** 分类统计：切换支出/收入 */
+    /** 分类统计：切换支出/收入（按当前层级查询） */
     async function switchCategoryType(type) {
       if (categoryStatType.value === type) return
       categoryStatType.value = type
       try {
-        categoryStats.value = await getSubCategoryStatsRange(range.value, type)
+        categoryStats.value = categoryLevel.value === 'root'
+          ? await getCategoryStatsRange(range.value, type)
+          : await getSubCategoryStatsRange(range.value, type)
       } catch (e) {
         console.error('[stats] 分类统计切换失败', e)
       }
@@ -647,14 +659,16 @@ export default {
       }
     }
 
-    /** 平均值：切换支出/收入 */
+    /** 平均值：切换支出/收入（按当前层级查询） */
     async function switchAverageType(type) {
       if (averageStatType.value === type) return
       averageStatType.value = type
       try {
         const [avgs, catAvgs] = await Promise.all([
           getAveragesRange(range.value, type),
-          getCategoryAveragesRange(range.value, type)
+          averageLevel.value === 'root'
+            ? getCategoryAveragesRange(range.value, type)
+            : getSubCategoryAveragesRange(range.value, type)
         ])
         averages.value = avgs
         categoryAverages.value = catAvgs
@@ -663,18 +677,79 @@ export default {
       }
     }
 
+    /* ------------------------------------------------ 一级/二级分类下拉 */
+
+    /** 打开层级下拉（分类统计 / 平均值 共用） */
+    function openLevelSheet(target) {
+      levelSheetTarget.value = target
+      showLevelSheet.value = true
+    }
+
+    /**
+     * 选择层级。
+     * @param {object} e wd-action-sheet 的 select 事件，选中项在 e.item
+     */
+    async function onLevelSelect(e) {
+      const item = e && e.item ? e.item : null
+      if (!item) return
+      const level = item.value
+      const target = levelSheetTarget.value
+      showLevelSheet.value = false
+
+      if (!level || !target) return
+
+      if (target === 'category') {
+        if (categoryLevel.value === level) return
+        categoryLevel.value = level
+        try {
+          categoryStats.value = categoryLevel.value === 'root'
+            ? await getCategoryStatsRange(range.value, categoryStatType.value)
+            : await getSubCategoryStatsRange(range.value, categoryStatType.value)
+        } catch (e) {
+          console.error('[stats] 分类统计层级切换失败', e)
+        }
+      } else if (target === 'average') {
+        if (averageLevel.value === level) return
+        averageLevel.value = level
+        try {
+          categoryAverages.value = averageLevel.value === 'root'
+            ? await getCategoryAveragesRange(range.value, averageStatType.value)
+            : await getSubCategoryAveragesRange(range.value, averageStatType.value)
+        } catch (e) {
+          console.error('[stats] 平均值层级切换失败', e)
+        }
+      }
+    }
+
+    /** 日趋势的最高/最低（含花销），无数据或全为 0 时返回 null */
+    const dailyExtremes = computed(() => {
+      const list = dailyTrend.value.filter((d) => Number(d.expense) > 0)
+      if (list.length === 0) return null
+      let max = list[0]
+      let min = list[0]
+      for (const d of list) {
+        if (Number(d.expense) > Number(max.expense)) max = d
+        if (Number(d.expense) < Number(min.expense)) min = d
+      }
+      return { max: { label: max.label, expense: max.expense }, min: { label: min.label, expense: min.expense } }
+    })
+
     return {
       settingStore,
       dateRange,
       categoryStatType, accountStatType, accountTypeStatType, averageStatType,
+      categoryLevel, averageLevel, categoryLevelLabel, averageLevelLabel,
+      showLevelSheet, levelActions,
       categoryStats, accountStats, accountTypeStats, categoryAverages,
       dailyTrend, averages, topExpenses, overview,
       primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
-      categoryTotal, donutStyle, accountTotal, accountTypeTotal,
-      accountDonutStyle, accountTypeDonutStyle,
-      barHeight, catPercent, shortDay, accColor, piePercent,
+      categoryTotal, categoryDonutUri, accountTotal, accountTypeTotal,
+      accountDonutUri, accountTypeDonutUri,
+      dailyExtremes,
+      barHeight, shortDay, accColor,
       loadAll, onRangeChange,
       switchCategoryType, switchAccountType, switchAccountTypeType, switchAverageType,
+      openLevelSheet, onLevelSelect,
       onAddTap, onAddHoldEnd,
       goTxnDetail, goAiChat, goProfile
     }
@@ -744,6 +819,30 @@ export default {
   margin-bottom: 20rpx;
 }
 
+/* 标题 + 层级下拉（一级/二级）放左边一组 */
+.card-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+/* 一级/二级分类下拉：标题旁边的浅色胶囊，点击弹底部选项表 */
+.level-tag {
+  font-size: 22rpx;
+  color: var(--app-primary);
+  background-color: var(--app-primary-light);
+  border-radius: 12rpx;
+  padding: 4rpx 14rpx;
+  flex-shrink: 0;
+}
+
+.level-arrow {
+  font-size: 20rpx;
+  color: var(--app-primary);
+  opacity: 0.8;
+}
+
 .card-title-row {
   display: flex;
   align-items: center;
@@ -808,38 +907,21 @@ export default {
   font-weight: 500;
 }
 
-/* 环形图 */
+/* 环形图：SVG 图（引导线+文字标注），用 image 加载 data URI */
 .donut-wrap {
   display: flex;
   justify-content: center;
   padding: 16rpx 0 28rpx;
 }
 
-.donut {
-  width: 260rpx;
-  height: 260rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.donut-hole {
-  width: 170rpx;
-  height: 170rpx;
-  border-radius: 50%;
-  background-color: var(--app-card);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4rpx;
-}
-
-.donut-label {
-  font-size: 20rpx;
-  color: var(--app-text-3);
+.donut-img {
+  /*
+   * ★ 宽高比固定 ★
+   *   SVG viewBox 是 300×180（5:3），mode="widthFix" 会按比例撑高，
+   *   所以这里不需要写死 height —— 让它随宽度等比缩放，
+   *   引导线和文字才不会变形。
+   */
+  width: 560rpx;
 }
 
 /* 排行 */
@@ -862,21 +944,21 @@ export default {
   flex-shrink: 0;
 }
 
-/* 排行：名称列宽度统一，三处排行（分类/账户/账户类别）的进度条才能左右对齐 */
+/* 排行：名称列占满剩余空间，右侧依次是笔数、金额 */
 .rank-name {
   font-size: 24rpx;
   color: var(--app-text);
-  width: 150rpx;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 分类名 + 所属一级分类（两行） */
+/* 分类名 + 所属一级分类（两行），占满剩余空间 */
 .rank-label-col {
-  width: 150rpx;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2rpx;
@@ -884,7 +966,8 @@ export default {
 }
 
 .rank-label-col .rank-name {
-  width: auto;
+  flex: none;
+  width: 100%;
   /* text 上省略号要 block 布局才生效 */
   display: block;
 }
@@ -897,29 +980,29 @@ export default {
   white-space: nowrap;
 }
 
-.rank-bar-wrap {
-  flex: 1;
-  height: 10rpx;
-  background-color: var(--app-card-2);
-  border-radius: 5rpx;
-  overflow: hidden;
+/* 笔数：数字 + 「笔」，右对齐到金额前面 */
+.rank-count {
+  display: flex;
+  align-items: baseline;
+  gap: 2rpx;
+  flex-shrink: 0;
+  margin-right: 12rpx;
+  min-width: 64rpx;
+  justify-content: flex-end;
 }
 
-.rank-bar {
-  height: 100%;
-  border-radius: 5rpx;
-  min-width: 4rpx;
+.rank-count-num {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-weight: 500;
 }
 
-.rank-pct {
+.rank-count-unit {
   font-size: 20rpx;
   color: var(--app-text-3);
-  width: 70rpx;
-  text-align: right;
-  flex-shrink: 0;
 }
 
-/* 金额列固定宽度：不然金额位数一变，进度条右端就跟着移 */
+/* 金额列固定宽度：金额位数变了，右端也不漂移 */
 .rank-amount {
   width: 150rpx;
   flex-shrink: 0;
@@ -1028,6 +1111,32 @@ export default {
 .axis-text {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/* 日趋势下方的最高/最低日 */
+.daily-extremes {
+  display: flex;
+  gap: 32rpx;
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--app-line);
+}
+
+.daily-extreme {
+  display: flex;
+  align-items: baseline;
+  gap: 4rpx;
+}
+
+.extreme-label {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+}
+
+.extreme-value {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-weight: 500;
 }
 
 /* 平均值 */

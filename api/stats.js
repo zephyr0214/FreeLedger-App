@@ -939,6 +939,60 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
   })
 }
 
+/**
+ * 各二级分类的平均值（平均值面板的下拉可选「二级分类」）
+ *
+ * 统计页「平均值」面板默认显示一级分类（getCategoryAveragesRange），
+ * 但用户要能切到二级分类（午餐、外卖、房租…）。
+ * 二级聚合按 t.category_id 分组，配色沿用 PIE_PALETTE（与分类统计饼图一致）。
+ *
+ * ★ 与 getCategoryAveragesRange 的结构保持一致 ★
+ *   这样页面拿到数据后，渲染逻辑可以复用同一段模板。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @param {'expense'|'income'} type
+ * @returns {Promise<Array<{id:string,name:string,icon:string,color:string,
+ *   parentName:string,amount:number,count:number,avgPerTxn:number,avgPerDay:number,totalDays:number}>>}
+ */
+export async function getSubCategoryAveragesRange(range, type = 'expense') {
+  const scope = rangeScope(range)
+  const daysPassed = await rangeDaysPassed(range)
+
+  const rows = await query(
+    `SELECT t.category_id AS id,
+            c.name, c.icon, c.color,
+            COALESCE(p.name, '未分类') AS parent_name,
+            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+     FROM txn t
+     LEFT JOIN category c ON c.id = t.category_id
+     LEFT JOIN category p ON p.id = c.parent_id
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     GROUP BY t.category_id
+     ORDER BY amt DESC`,
+    [type].concat(scope.params)
+  )
+
+  return rows.map((r, i) => {
+    const amount = Number(r.amt) || 0
+    const count = Number(r.cnt) || 0
+    return {
+      // ★ 分类被删除后 id 为 NULL —— 给个非空 id 给列表 key 用
+      id: r.id || 'none',
+      name: r.name || '未分类',
+      icon: r.icon || 'more',
+      color: PIE_PALETTE[i % PIE_PALETTE.length],
+      parentName: r.parent_name || '未分类',
+      amount,
+      count,
+      // 笔均：该分类平均每笔花多少
+      avgPerTxn: count > 0 ? Math.round(amount / count) : 0,
+      // 日均：该分类平均每天花多少
+      avgPerDay: daysPassed > 0 ? Math.round(amount / daysPassed) : 0,
+      totalDays: daysPassed
+    }
+  })
+}
+
 /* ---------------------------------------------------------- Top N 消费 */
 
 /** Top N 主体 */

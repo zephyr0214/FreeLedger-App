@@ -3,10 +3,11 @@
  *
  *   node scripts/test-stats-chart.mjs
  *
- * 覆盖统计页新加/改的三个计算：
- *   1. 环形图（conic-gradient）的分段是否正确
- *   2. 饼图百分比
- *   3. 各分类平均值的笔均/日均
+ * 覆盖统计页新加/改的计算：
+ *   1. 饼图百分比
+ *   2. 各分类平均值的笔均/日均（一级）
+ *   3. 二级分类平均值的映射（新增 getSubCategoryAveragesRange）
+ *   4. 日趋势的最高/最低日（新增）
  */
 
 let pass = 0
@@ -23,70 +24,6 @@ function check(name, actual, expected) {
     fail++
     console.log(`FAIL  ${name}\n      实际 ${a}\n      期望 ${e}`)
   }
-}
-/* ---------------------------------------------- 环形图（与页面同逻辑） */
-
-function buildDonut(list, total) {
-  const items = (list || []).slice(0, 7)
-  if (items.length === 0 || !total) {
-    return { background: 'var(--app-card-2)' }
-  }
-  let acc = 0
-  const stops = []
-  for (const item of items) {
-    const pct = (item.amount / total) * 100
-    const from = acc
-    acc += pct
-    stops.push(`${item.color} ${from}% ${acc}%`)
-  }
-  if (acc < 100) {
-    stops.push(`var(--app-line) ${acc}% 100%`)
-  }
-  return { background: `conic-gradient(${stops.join(', ')})` }
-}
-
-/** 把 conic-gradient 的字符串解析回分段数组 */
-function parseStops(background) {
-  const inner = background.replace(/^conic-gradient\(/, '').replace(/\)$/, '')
-  return inner.split(', ').map((s) => s.split(' '))
-}
-
-console.log('=== 环形图分段 ===')
-
-{
-  const bg = buildDonut([
-    { amount: 300, color: '#A' },
-    { amount: 100, color: '#B' }
-  ], 400)
-  const stops = parseStops(bg.background)
-  check('金额加正好 100% 时只有 2 段', stops.length, 2)
-  check('第1段从 0% 开始', stops[0][1], '0%')
-  check('第1段到 75%', stops[0][2], '75%')
-  check('第2段从 75%', stops[1][1], '75%')
-  check('第2段到 100%', stops[1][2], '100%')
-}
-
-{
-  // 金额加起来不足 total 时要有收尾段
-  const bg = buildDonut([{ amount: 300, color: '#A' }], 500)
-  const stops = parseStops(bg.background)
-  check('不足 100% 有收尾段', stops.length, 2)
-  check('收尾段到 100%', stops[1][2], '100%')
-  check('收尾段用 line 色', stops[1][0], 'var(--app-line)')
-}
-
-{
-  // 空数据
-  check('空列表 -> 灰色', buildDonut([], 0).background, 'var(--app-card-2)')
-  check('total 为 0 -> 灰色', buildDonut([{ amount: 1, color: '#A' }], 0).background, 'var(--app-card-2)')
-}
-
-{
-  // 最多 7 段
-  const many = []
-  for (let i = 0; i < 12; i++) many.push({ amount: 10, color: `#${i}` })
-  const stops = parseStops(buildDonut(many, 120).background)
-  check('最多 7 段 + 收尾', stops.length, 8)
 }
 
 console.log('=== 饼图百分比 ===')
@@ -129,7 +66,8 @@ console.log('=== 饼图调色板 ===')
   check('最接近的两块也差得开', minDist >= 75, true)
 }
 
-console.log('=== 各分类平均值 ===')
+console.log('=== 各分类平均值（一级） ===')
+
 /** 与 getCategoryAveragesRange 同逻辑 */
 function calcCategoryAverages(rows, daysPassed) {
   return rows.map((r) => {
@@ -163,6 +101,99 @@ function calcCategoryAverages(rows, daysPassed) {
   const avgs = calcCategoryAverages([{ name: 'X', amt: 0, cnt: 0 }], 0)
   check('0 笔时笔均为 0', avgs[0].avgPerTxn, 0)
   check('0 天时日均为 0', avgs[0].avgPerDay, 0)
+}
+
+console.log('=== 二级分类平均值映射 ===')
+
+/**
+ * 与 getSubCategoryAveragesRange 的 map 同逻辑。
+ * 验证：二级平均值按调色板取色、保留 parentName、笔均/日均正确。
+ */
+function calcSubCategoryAverages(rows, daysPassed) {
+  return rows.map((r, i) => {
+    const amount = Number(r.amt) || 0
+    const count = Number(r.cnt) || 0
+    return {
+      id: r.id || 'none',
+      name: r.name || '未分类',
+      color: PIE_PALETTE[i % PIE_PALETTE.length],
+      parentName: r.parent_name || '未分类',
+      amount,
+      count,
+      avgPerTxn: count > 0 ? Math.round(amount / count) : 0,
+      avgPerDay: daysPassed > 0 ? Math.round(amount / daysPassed) : 0,
+      totalDays: daysPassed
+    }
+  })
+}
+
+{
+  const rows = [
+    { id: 1, name: '午餐', parent_name: '餐饮', amt: 50000, cnt: 10 },
+    { id: 2, name: '地铁', parent_name: '交通', amt: 10000, cnt: 5 }
+  ]
+  const avgs = calcSubCategoryAverages(rows, 30)
+
+  check('二级保留父分类名', avgs[0].parentName, '餐饮')
+  check('二级按调色板取色', avgs[0].color, PIE_PALETTE[0])
+  check('午餐笔均', avgs[0].avgPerTxn, 5000)
+  check('地铁日均', avgs[1].avgPerDay, 333)
+}
+
+{
+  // 已删除分类（id 为 null）
+  const avgs = calcSubCategoryAverages([{ id: null, name: null, parent_name: null, amt: 100, cnt: 1 }], 10)
+  check('已删除分类 id 用 none', avgs[0].id, 'none')
+  check('已删除分类名用未分类', avgs[0].name, '未分类')
+  check('已删除分类父名用未分类', avgs[0].parentName, '未分类')
+}
+
+console.log('=== 日趋势最高/最低日 ===')
+
+/**
+ * 与页面的 dailyExtremes 同逻辑。
+ * 排除 expense = 0 的日期，取最大/最小。
+ */
+function calcDailyExtremes(list) {
+  const filtered = (list || []).filter((d) => Number(d.expense) > 0)
+  if (filtered.length === 0) return null
+  let max = filtered[0]
+  let min = filtered[0]
+  for (const d of filtered) {
+    if (Number(d.expense) > Number(max.expense)) max = d
+    if (Number(d.expense) < Number(min.expense)) min = d
+  }
+  return { max: { label: max.label, expense: max.expense }, min: { label: min.label, expense: min.expense } }
+}
+
+{
+  const trend = [
+    { label: '1', expense: 0 },
+    { label: '2', expense: 500 },
+    { label: '3', expense: 1200 },
+    { label: '4', expense: 200 },
+    { label: '5', expense: 0 }
+  ]
+  const ext = calcDailyExtremes(trend)
+  check('最高日', ext.max, { label: '3', expense: 1200 })
+  check('最低日', ext.min, { label: '4', expense: 200 })
+}
+
+{
+  // 全为 0 / 空 → null
+  check('全 0 返回 null', calcDailyExtremes([{ label: '1', expense: 0 }]), null)
+  check('空数组返回 null', calcDailyExtremes([]), null)
+}
+
+{
+  // 并列最高/最低：取第一个
+  const ext = calcDailyExtremes([
+    { label: '1', expense: 100 },
+    { label: '2', expense: 100 },
+    { label: '3', expense: 50 }
+  ])
+  check('并列最高取第一个', ext.max.label, '1')
+  check('最低取唯一', ext.min.label, '3')
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
