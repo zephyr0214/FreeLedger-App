@@ -125,9 +125,9 @@ const list = stripComments(read('pages/account/index.vue'))
 const detail = stripComments(read('pages/account/detail.vue'))
 
 check('列表页用 AccountIcon', /<AccountIcon[\s\S]{0,200}:name="acc\.icon"/.test(list), true)
-check('列表页仍兼容旧的 SVG', /isSvgIcon\(acc\.icon\)/.test(list), true)
+check('列表页不再引入 AI 图标模块', /accountIcon\.js/.test(list), false)
 check('详情页用 AccountIcon', /<AccountIcon[\s\S]{0,200}:name="account\.icon"/.test(detail), true)
-check('详情页仍兼容旧的 SVG', /isSvgIcon\(account\.icon\)/.test(detail), true)
+check('详情页不再引入 AI 图标模块', /accountIcon\.js/.test(detail), false)
 
 console.log('=== 保存时写入 icon ===')
 

@@ -76,22 +76,15 @@
             <view class="acc-item" @click="goDetail(acc.id)">
               <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
                 <!--
-                  账户图标：新数据存的是预设 key（用 AccountIcon 渲染，
-                  品牌图标是官方填充矢量，通用图标是线性描边）；
-                  旧数据可能是 AI 生成的 SVG data URI，仍按图片显示。
-                  两者都没有就退回首字符。
+                  账户图标：预设 key（用 AccountIcon 渲染，
+                  品牌图标是官方填充矢量，通用图标是线性描边）。
+                  没有图标就退回首字符。
                 -->
                 <AccountIcon
-                  v-if="acc.icon && !isSvgIcon(acc.icon)"
+                  v-if="acc.icon"
                   :name="acc.icon"
                   :size="22"
                   :color="acc.color || primaryColor"
-                />
-                <image
-                  v-else-if="isSvgIcon(acc.icon)"
-                  :src="acc.icon"
-                  class="acc-icon-img"
-                  mode="aspectFit"
                 />
                 <text
                   v-else
@@ -162,7 +155,6 @@ import AccountIcon from '@/components/AccountIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
-import { isSvgIcon } from '@/api/accountIcon.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
@@ -309,7 +301,7 @@ export default {
     return {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints, swipeStates,
-      primaryColor, pageStyle, defaultAccountId, isSvgIcon,
+      primaryColor, pageStyle, defaultAccountId,
       switchRange, formatGroupSum, formatAmount, setDefault, onSwipeClick,
       goAddAccount, goDetail, goProfile
     }
@@ -441,12 +433,6 @@ export default {
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-}
-
-/* AI 画的 SVG 图标 */
-.acc-icon-img {
-  width: 52rpx;
-  height: 52rpx;
 }
 
 .acc-icon-text {

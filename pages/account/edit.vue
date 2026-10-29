@@ -210,7 +210,6 @@ import AccountIcon from '@/components/AccountIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { ACCOUNT_TYPES, isCreditType, adjustAccountBalance } from '@/api/account.js'
-import { isSvgIcon } from '@/api/accountIcon.js'
 import { ACCOUNT_ICONS } from '@/utils/accountIcons.js'
 import { yuanToCents } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
@@ -260,13 +259,6 @@ export default {
       icon: ''
     })
 
-    /**
-     * 旧数据兼容：如果之前 AI 生成过 SVG，它存在 icon 字段里是个 data URI。
-     * 迁移策略是「显示但不保留」—— 用户重新挑一个预设即可，
-     * 不做自动转换（没人能可靠地把任意 SVG 映射回预设 key）。
-     */
-    const legacySvgIcon = ref('')
-
     /** 页面是否还活着（保存流程里判断，避免卸载后调 UI 接口） */
     const alive = ref(true)
     onUnmounted(() => { alive.value = false })
@@ -297,13 +289,8 @@ export default {
       form.bill_day = acc.bill_day || 1
       form.repay_day = acc.repay_day || 20
       form.card_tail = acc.card_tail || ''
-      // 图标：新数据存的是预设 key；旧数据可能是 AI 生成的 data URI
-      if (isSvgIcon(acc.icon)) {
-        legacySvgIcon.value = acc.icon
-        form.icon = ''
-      } else {
-        form.icon = acc.icon || ''
-      }
+      // 图标：预设 key（空串 = 用首字符）
+      form.icon = acc.icon || ''
     }
 
     async function onSave() {
@@ -408,7 +395,7 @@ export default {
     return {
       ACCOUNT_TYPES, ACCOUNT_ICONS, AccountIcon, iconInk,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
-      isCredit, dayRange, legacySvgIcon,
+      isCredit, dayRange,
       onToggleInclude, onSave, onDelete, goBack, settingStore
     }
   }

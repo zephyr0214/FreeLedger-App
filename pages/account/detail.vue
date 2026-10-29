@@ -10,18 +10,12 @@
         <view class="balance-card">
           <view class="bal-head">
             <view class="bal-icon" :style="{ backgroundColor: (account.color || primaryColor) + '22' }">
-              <!-- 预设图标 key 用 AccountIcon；旧的 AI SVG 仍按图片显示 -->
+              <!-- 预设图标 key 用 AccountIcon；没有图标就退回首字符 -->
               <AccountIcon
-                v-if="account.icon && !isSvgIcon(account.icon)"
+                v-if="account.icon"
                 :name="account.icon"
                 :size="26"
                 :color="account.color || primaryColor"
-              />
-              <image
-                v-else-if="isSvgIcon(account.icon)"
-                :src="account.icon"
-                class="bal-icon-img"
-                mode="aspectFit"
               />
               <text
                 v-else
@@ -128,7 +122,6 @@ import AccountIcon from '@/components/AccountIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
-import { isSvgIcon } from '@/api/accountIcon.js'
 import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
 
 export default {
@@ -214,7 +207,7 @@ export default {
 
     return {
       settingStore, accountId, account, txnList, monthStats, loading,
-      primaryColor, pageStyle, usedPercent, repayCountdown, isSvgIcon,
+      primaryColor, pageStyle, usedPercent, repayCountdown,
       goEdit, goAllTxn, goBack
     }
   }
@@ -252,12 +245,6 @@ export default {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-}
-
-/* AI 画的 SVG 图标 */
-.bal-icon-img {
-  width: 60rpx;
-  height: 60rpx;
 }
 
 .bal-icon-text {
