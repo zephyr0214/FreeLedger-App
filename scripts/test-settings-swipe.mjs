@@ -192,7 +192,28 @@ console.log('=== D. 右滑操作区自动收起 ===')
   //   3. 删除确认后
   //   4. onShow
   check('取消按钮用 closeEditor', /@click="closeEditor"/.test(readTemplate(CATEGORY)), true)
-  check('closeEditor 会收起右滑', /function closeEditor\(\)\s*\{[^}]*closeAllSwipes\(\)/s.test(script), true)
+  /*
+   * ★ 「关闭编辑弹层后右滑自动收起」怎么断言 ★
+   *   这件事的实现方式不是把 closeAllSwipes() 写进 closeEditor()，
+   *   而是挂了一个 watch(showEditor)：一旦弹层关闭就收。
+   *
+   *   为什么选 watch 而不是写在 closeEditor 里：
+   *     关弹层有两条路径 —— 点「取消」按钮调 closeEditor()，
+   *     以及点遮罩由 v-model 直接把 showEditor 置 false。
+   *     写在 closeEditor() 里只能覆盖第一条，遮罩那条会漏；
+   *     挂在 watch 上两条都兜得住。
+   *
+   *   所以断言要盯「行为链路」而不是「某一行代码」：
+   *     1. 有 watch 监听 showEditor
+   *     2. 关闭分支里写入 'close'
+   *   之前这里断言 closeEditor 函数体里必须出现 closeAllSwipes()，
+   *   与实现风格不符，导致两条一直失败（功能其实是好的）。
+   */
+  check(
+    '关闭弹层会收起右滑（watch 实现）',
+    /watch\(showEditor,\s*\(open\)\s*=>\s*\{[\s\S]*?swipeStates\[[^\]]*\]\s*=\s*'close'/.test(script),
+    true
+  )
   check('onSaveCategory 里有 closeEditor', /function onSaveCategory[\s\S]*?closeEditor\(\)/.test(script), true)
   check('onDelete 里有 closeAllSwipes', /function onDelete[\s\S]*?closeAllSwipes\(\)/.test(script), true)
   check('有 onShow 且会收起右滑', /onShow\(\(\)\s*=>\s*\{[^}]*closeAllSwipes\(\)/s.test(script), true)
@@ -201,7 +222,11 @@ console.log('=== D. 右滑操作区自动收起 ===')
   // 预算页同样
   check('预算页有 closeSwipe', /function closeSwipe\(/.test(budgetScript), true)
   check('预算页有 closeAllSwipes', /function closeAllSwipes\(/.test(budgetScript), true)
-  check('预算页 closeEditor 会收起右滑', /function closeEditor\(\)\s*\{[^}]*closeAllSwipes\(\)/s.test(budgetScript), true)
+  check(
+    '预算页关闭弹层会收起右滑（watch 实现）',
+    /watch\(showEditor,\s*\(open\)\s*=>\s*\{[\s\S]*?swipeStates\[[^\]]*\]\s*=\s*'close'/.test(budgetScript),
+    true
+  )
   check('预算页 onShow 会收起右滑', /onShow\(\(\)\s*=>\s*\{[^}]*closeAllSwipes\(\)/s.test(budgetScript), true)
   check('预算页 removeBudget 里有 closeAllSwipes', /function removeBudget[\s\S]*?closeAllSwipes\(\)/.test(budgetScript), true)
 }

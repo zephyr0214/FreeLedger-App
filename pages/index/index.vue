@@ -37,15 +37,17 @@
           </view>
 
           <!-- 上方：今日支出 / 本月支出
-               ★ 两个都是「支出」，所以不显示正负号 ★
-                 这里金额本身就是支出额，加「-」只会让人以为是负数。
-                 用户的诉求是看清"今天花了多少 / 这月花了多少"。 -->
+               ★ 带正负号：支出显示为「-¥xx」★
+                 用 MoneyText 的 type="expense" 而不是手写「-」字符 ——
+                 type 同时决定符号与正负（支出 = 负数），
+                 手写符号容易和金额本身的正负重复或漏掉。 -->
           <view class="ov-top">
             <view class="ov-top-item">
               <text class="ov-top-label">今日支出</text>
               <view class="ov-top-amount">
                 <MoneyText
                   :cents="overview.todayExpense"
+                  type="expense"
                   :size="44"
                   :weight="600"
                   color="var(--app-text)"
@@ -58,6 +60,7 @@
               <view class="ov-top-amount">
                 <MoneyText
                   :cents="overview.monthExpense"
+                  type="expense"
                   :size="44"
                   :weight="600"
                   color="var(--app-text)"
@@ -71,12 +74,12 @@
           <view class="ov-split">
             <view class="ov-item">
               <text class="ov-item-label">今日收入</text>
-              <MoneyText :cents="overview.todayIncome" :size="30" :weight="500" color="var(--app-text)" />
+              <MoneyText :cents="overview.todayIncome" type="income" :size="30" :weight="500" color="var(--app-text)" />
             </view>
             <view class="ov-divider" />
             <view class="ov-item">
               <text class="ov-item-label">本月收入</text>
-              <MoneyText :cents="overview.monthIncome" :size="30" :weight="500" color="var(--app-text)" />
+              <MoneyText :cents="overview.monthIncome" type="income" :size="30" :weight="500" color="var(--app-text)" />
             </view>
             <view class="ov-divider" />
             <view class="ov-item">
