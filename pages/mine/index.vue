@@ -449,15 +449,20 @@ export default {
 /*
  * 单个格子：横排 —— 图标 · 文字 · ›
  *
- * ★ 和列表条目同一套读法 ★
- *   只是两列并排，所以内边距比列表窄一些，
- *   否则「分类管理」四个字 + 图标 + 箭头在半个屏幕宽里会挤。
+ * ★ 与列表条目对齐的数值 ★
+ *   字号 28rpx、图标 40rpx、上下内边距 28rpx —— 全部跟 .menu-item 一致。
+ *   之前这里用了 26rpx 字号 + 12rpx 间距，比列表小一圈、也挤，
+ *   看上去就像「宫格的字变mini了」，所以统一回来。
+ *
+ * ★ 尺寸比列表大一档 ★
+ *   条目高度取 100rpx（列表约 96rpx），两列并排时格子更舒展，
+ *   点击热区也大一点，不容易点偏。
  */
 .feature-tile {
   display: flex;
   align-items: center;
-  gap: 12rpx;
-  padding: 28rpx 20rpx;
+  gap: 16rpx;
+  padding: 30rpx 24rpx;
   background-color: var(--app-card);
 }
 
@@ -476,10 +481,11 @@ export default {
   flex-shrink: 0;
 }
 
-/* 文字占满中间，把 › 顶到最右 */
+/* 文字占满中间，把 › 顶到最右
+   ★ 字号与列表条目一致（28rpx），不要为了"放得下"而缩小 ★ */
 .feature-name {
   flex: 1;
-  font-size: 26rpx;
+  font-size: 28rpx;
   color: var(--app-text);
   /* 名字过长时省略，不要撑破格子 */
   overflow: hidden;
