@@ -48,17 +48,24 @@
                     />
                   </view>
 
-                  <!-- 第二行：下次扣款于 XXXX年XX月XX日 -->
-                  <text
-                    v-if="c.nextYmd"
-                    class="row-next"
-                    :class="{ 'row-next-today': c.nextIsToday }"
-                  >下次扣款于 {{ c.nextYmd }}</text>
+                  <!-- 第二行：规则 · 下次于 XX年XX月XX日
+                       ★ 两个信息合成一行 ★
+                         规则（每月1号）说明「多久扣一次」，
+                         日期说明「下次什么时候扣」，是一组问答关系，
+                         放同一行读起来连贯，也不占额外高度。 -->
+                  <view class="row-meta">
+                    <text class="row-sub">{{ c.recurrenceText }}</text>
+                    <text v-if="c.nextYmd" class="row-sep">·</text>
+                    <text
+                      v-if="c.nextYmd"
+                      class="row-next"
+                      :class="{ 'row-next-today': c.nextIsToday }"
+                    >下次于 {{ c.nextYmd }}</text>
+                  </view>
                 </view>
 
-                <!-- 右侧：规则 + 已记笔数 -->
+                <!-- 右侧：只留已记笔数（规则已挪到下方） -->
                 <view class="row-right">
-                  <text class="row-sub">{{ c.recurrenceText }}</text>
                   <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
@@ -102,17 +109,24 @@
                     />
                   </view>
 
-                  <!-- 第二行：下次扣款于 XXXX年XX月XX日 -->
-                  <text
-                    v-if="c.nextYmd"
-                    class="row-next"
-                    :class="{ 'row-next-today': c.nextIsToday }"
-                  >下次扣款于 {{ c.nextYmd }}</text>
+                  <!-- 第二行：规则 · 下次于 XX年XX月XX日
+                       ★ 两个信息合成一行 ★
+                         规则（每月1号）说明「多久扣一次」，
+                         日期说明「下次什么时候扣」，是一组问答关系，
+                         放同一行读起来连贯，也不占额外高度。 -->
+                  <view class="row-meta">
+                    <text class="row-sub">{{ c.recurrenceText }}</text>
+                    <text v-if="c.nextYmd" class="row-sep">·</text>
+                    <text
+                      v-if="c.nextYmd"
+                      class="row-next"
+                      :class="{ 'row-next-today': c.nextIsToday }"
+                    >下次于 {{ c.nextYmd }}</text>
+                  </view>
                 </view>
 
-                <!-- 右侧：规则 + 已记笔数 -->
+                <!-- 右侧：只留已记笔数（规则已挪到下方） -->
                 <view class="row-right">
-                  <text class="row-sub">{{ c.recurrenceText }}</text>
                   <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
@@ -156,17 +170,24 @@
                     />
                   </view>
 
-                  <!-- 第二行：下次扣款于 XXXX年XX月XX日 -->
-                  <text
-                    v-if="c.nextYmd"
-                    class="row-next"
-                    :class="{ 'row-next-today': c.nextIsToday }"
-                  >下次扣款于 {{ c.nextYmd }}</text>
+                  <!-- 第二行：规则 · 下次于 XX年XX月XX日
+                       ★ 两个信息合成一行 ★
+                         规则（每月1号）说明「多久扣一次」，
+                         日期说明「下次什么时候扣」，是一组问答关系，
+                         放同一行读起来连贯，也不占额外高度。 -->
+                  <view class="row-meta">
+                    <text class="row-sub">{{ c.recurrenceText }}</text>
+                    <text v-if="c.nextYmd" class="row-sep">·</text>
+                    <text
+                      v-if="c.nextYmd"
+                      class="row-next"
+                      :class="{ 'row-next-today': c.nextIsToday }"
+                    >下次于 {{ c.nextYmd }}</text>
+                  </view>
                 </view>
 
-                <!-- 右侧：规则 + 已记笔数 -->
+                <!-- 右侧：只留已记笔数（规则已挪到下方） -->
                 <view class="row-right">
-                  <text class="row-sub">{{ c.recurrenceText }}</text>
                   <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
@@ -468,13 +489,43 @@ export default {
 }
 
 /*
- * 第二行：下次扣款于 XXXX年XX月XX日
- * 单独占整行，不再和规则挤在一起 —— 这是用户最关心的信息之一，
- * 和「每月 1 号」这种规则说明混在一行会被淹没。
+ * ★ 第二行：规则 · 下次于 XX年XX月XX日 ★
+ *
+ * 两个信息合成一行，用「·」分隔：
+ *   左半是规则（每月1号 / 每周三 / 每天），说明「多久扣一次」
+ *   右半是日期，说明「下次什么时候扣」
+ * 它们是一组问答关系，放同一行读起来连贯，也省下一行高度。
+ *
+ * 用 nowrap 保证不被拆成两行 —— 这一行本来就短，
+ * 「每周三 · 下次于 2026年11月4日」最宽也就 20 来个字。
  */
-.row-next {
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.row-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+/* 分隔点：比两侧文字更淡，只起分隔作用，不该抢眼 */
+.row-sep {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* 日期：比规则深一档，因为「下次什么时候扣」更被关心 */
+.row-next {
+  font-size: 22rpx;
+  color: var(--app-text-2);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -490,22 +541,14 @@ export default {
 }
 
 /*
- * 右侧：规则（每月 1 号）在上、已记笔数在下，右对齐。
- * 规则放右侧是因为它属于「这条周期怎么设的」这种次要信息，
- * 主体位置留给分类名、金额和下次扣款日。
+ * 右侧：只放已记笔数（规则已挪到下方那一行）。
+ * 保持 flex 列布局，将来若再加内容可以直接往下排。
  */
 .row-right {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6rpx;
   flex-shrink: 0;
-}
-
-.row-sub {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  white-space: nowrap;
 }
 
 .row-count {
