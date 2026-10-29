@@ -410,13 +410,13 @@ export default {
       const p = editorParentId.value
       if (!p) return []
       const list = []
-      const kids = categories.value.filter((c) => c.parent_id === p.id)
+      const kids = categories.value.filter((c) => c.parent_id === p)
       // 「全部二级分类」只在该父分类下没有任何「已设预算的子分类」时提供，
       // 否则会和那些子分类的额度重复统计。
       const hasBudgetedChild = kids.some(
         (k) => budgetedIds.value.has(k.id) && k.id !== editingCatId.value
       )
-      if (isCategorySelectable(p.id) && !hasBudgetedChild) {
+      if (isCategorySelectable(p) && !hasBudgetedChild) {
         list.push({ name: '全部二级分类', value: '__all__' })
       }
       for (const k of kids) {
