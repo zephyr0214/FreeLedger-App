@@ -9,6 +9,7 @@ import { toDayKey } from '@/utils/date.js'
 import { enableNativeFollowSystem } from '@/utils/theme.js'
 import { confirmDialog } from '@/utils/dialog.js'
 import { catchUpCycles } from '@/api/cycle.js'
+import { showDbDiagnostics } from '@/api/db/diagnose.js'
 
 export default {
   data() {
@@ -37,7 +38,7 @@ export default {
         cancelText: '忽略'
       })
       if (runDiagnose) {
-        import('@/api/db/diagnose.js').then((m) => m.showDbDiagnostics())
+        showDbDiagnostics()
       }
       return
     }

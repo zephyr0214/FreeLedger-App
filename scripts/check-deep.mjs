@@ -61,6 +61,17 @@ async function main() {
       const source = script.content
       const offset = script.loc.start.line - 1
 
+      // 2.5) 禁止动态 import()：App 端打包是 iife，不支持代码分割
+      //      （"Invalid value iife for output.format ... not supported for code-splitting builds"）
+      //      scripts/ 下的测试脚本不算（它们不被打包，用动态 import 清模块缓存）。
+      if (!rel.startsWith('scripts/')) {
+        const dynMatch = source.match(/import\s*\(/g)
+        if (dynMatch) {
+          errors.push(`${rel}: 存在动态 import()（App 端 iife 打包不支持代码分割，需改为静态 import）`)
+          continue
+        }
+      }
+
       try {
         babelParser.parse(source, {
           sourceType: 'module',
@@ -94,6 +105,14 @@ async function main() {
 
       okCount++
     } else {
+      // .js 同样禁止动态 import()（iife 不支持代码分割）；scripts/ 测试脚本除外
+      if (!rel.startsWith('scripts/')) {
+        const dynMatch = code.match(/import\s*\(/g)
+        if (dynMatch) {
+          errors.push(`${rel}: 存在动态 import()（App 端 iife 打包不支持代码分割，需改为静态 import）`)
+          continue
+        }
+      }
       try {
         babelParser.parse(code, {
           sourceType: 'module',

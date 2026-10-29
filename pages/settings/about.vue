@@ -105,6 +105,7 @@ import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { alertDialog } from '@/utils/dialog.js'
 
 export default {
@@ -118,9 +119,6 @@ export default {
 
     async function onDiagnose() {
       try {
-        // 动态导入：diagnose.js 只有点「数据库自检」才用到，且 App.vue 也动态用它，
-        // 保持动态可避免「既静态又动态」的 Vite 警告。
-        const { showDbDiagnostics } = await import('@/api/db/diagnose.js')
         await showDbDiagnostics()
       } catch (e) {
         await alertDialog({ title: '自检失败', content: e.message })
