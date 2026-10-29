@@ -240,6 +240,15 @@ console.log('=== SVG 源码生成 ===')
   check('以 </svg> 结尾', svg.trim().endsWith('</svg>'), true)
   check('含 viewBox', svg.includes('viewBox="0 0 300 100"'), true)
   check('含 xmlns', svg.includes('xmlns="http://www.w3.org/2000/svg"'), true)
+  /*
+   * ★ preserveAspectRatio="none" 必须存在 ★
+   *   不写这个属性时 SVG 默认 "xMidYMid meet"（等比缩放并居中）。
+   *   viewBox 300×100（3:1）遇到容器 622×150（4.15:1）时，
+   *   meet 只画 300×1.5 = 450rpx，左右各留 86rpx 空白，
+   *   折线看着「横向太窄、缩在中间」。
+   *   这条断言防止有人把它删掉、退回默认的 meet。
+   */
+  check('含 preserveAspectRatio="none"', svg.includes('preserveAspectRatio="none"'), true)
   check('含折线 path', svg.includes('<path d="M '), true)
   check('含渐变定义', svg.includes('<linearGradient'), true)
   check('含填充 path', svg.includes('fill="url(#g)"'), true)

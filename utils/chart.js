@@ -255,7 +255,26 @@ export function buildSvgSource(opts = {}) {
 
   const parts = []
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`
+    /*
+     * ★ preserveAspectRatio="none" ★
+     *   不写这个属性时，SVG 默认是 "xMidYMid meet" ——
+     *   **等比缩放并居中**。
+     *   viewBox 是 300×100（3:1），而容器实际可能是 686×150（4.57:1），
+     *   比例不同，meet 会按较小的缩放比适配：
+     *     高度方向铺满（150/100 = 1.5 倍）
+     *     宽度方向只用了 300 × 1.5 = 450rpx，
+     *     剩下的 236rpx 变成左右各约 118rpx 的空白 ——
+     *     折线看着「横向太窄、被挤在中间」。
+     *
+     *   改成 none = 不保持比例、拉伸铺满整个视口，
+     *   曲线宽度就和容器一致了。
+     *
+     *   会不会把图压扁？折线是数据可视化，
+     *   纵向拉伸只影响斜率观感，不影响数据准确性，
+     *   而且我们用 padTop/padBottom 已经把上下留白控制住了。
+     */
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" ` +
+    `width="${width}" height="${height}" preserveAspectRatio="none">`
   )
 
   // 渐变填充
