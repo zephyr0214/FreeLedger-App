@@ -508,30 +508,12 @@ export async function writeAllTodaySnapshots() {
  * @deprecated 旧接口：按天一个点，柱子图用。
  *   新的「资产变化点」趋势请用 getAssetChangePoints()。
  */
-export async function getAssetTrend(months = 6) {
-  const days = months * 31
-  // 日期边界在 JS 里算好再传参，不依赖 SQLite 的 date('now') 时区行为
-  const from = new Date()
-  from.setDate(from.getDate() - days)
-  const fromDay = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
 
-  const rows = await query(
-    `SELECT day, SUM(balance_cents) AS total
-     FROM account_snapshot
-     WHERE day >= ?
-     GROUP BY day
-     ORDER BY day ASC`,
-    [fromDay]
-  )
-  return rows.map((r) => ({ day: r.day, total: Number(r.total) || 0 }))
-}
 
 /**
  * 资产变化点趋势。
  *
- * ★ 与 getAssetTrend 的区别 ★
- *   getAssetTrend 是「每天一个点」（资产没变的天也占一个点）。
- *   这里要的是「**每次资产变化打一个点**」：
+ * 这里要的是「**每次资产变化打一个点**」：
  *   只有当天的总资产和前一天不一样时，才记一个点。
  *
  * 口径与 getTotalAssets 对齐：

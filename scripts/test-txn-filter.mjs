@@ -15,7 +15,6 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   buildCategoryCondition, parseTxnQueryOptions
 } from '../api/transaction.js'
-import { normalizeCycle, getCycles, setCycles, CYCLE_TYPES } from '../api/settings.js'
 
 let pass = 0
 let fail = 0
@@ -163,94 +162,6 @@ check('只带标签算筛选跳转', parseTxnQueryOptions({ tagId: 't' }).hasFil
 
 // 空白要清掉
 check('账户去空格', parseTxnQueryOptions({ accountId: '  acc_1  ' }).accountId, 'acc_1')
-
-console.log('=== 周期数据结构 ===')
-
-// 规范化的默认值
-{
-  const c = normalizeCycle({ name: '房租' })
-  check('默认类型 monthly', c.cycleType, 'monthly')
-  check('默认启用', c.enabled, true)
-  check('默认金额 0', c.amountCents, 0)
-  check('默认 interval 1', c.interval, 1)
-  check('默认 dayOfMonth 1', c.dayOfMonth, 1)
-  check('默认 weekday 1', c.weekday, 1)
-  check('默认 nextDate 空', c.nextDate, '')
-}
-
-// 名称必填
-check('没有名称 -> null', normalizeCycle({ amountCents: 100 }), null)
-check('空名称 -> null', normalizeCycle({ name: '   ' }), null)
-check('不是对象 -> null', normalizeCycle(null), null)
-check('字符串 -> null', normalizeCycle('房租'), null)
-
-// 字段裁剪
-{
-  const c = normalizeCycle({
-    name: 'Netflix', amountCents: 35800, icon: '📺',
-    cycleType: 'monthly', dayOfMonth: 15, nextDate: '2026-11-15',
-    accountId: 'acc_1', enabled: false, note: '会员'
-  })
-  check('名称', c.name, 'Netflix')
-  check('金额', c.amountCents, 35800)
-  check('图标', c.icon, '📺')
-  check('类型', c.cycleType, 'monthly')
-  check('几号', c.dayOfMonth, 15)
-  check('下次日期', c.nextDate, '2026-11-15')
-  check('账户', c.accountId, 'acc_1')
-  check('停用', c.enabled, false)
-  check('备注', c.note, '会员')
-}
-
-// 越界裁剪
-{
-  const c = normalizeCycle({ name: 'x', dayOfMonth: 99, weekday: 99, interval: 0, amountCents: -5 })
-  check('dayOfMonth 上限 31', c.dayOfMonth, 31)
-  check('weekday 上限 7', c.weekday, 7)
-  check('interval 下限 1', c.interval, 1)
-  check('负金额归零', c.amountCents, 0)
-}
-
-// 非法类型回落
-check('非法 cycleType -> monthly', normalizeCycle({ name: 'x', cycleType: 'nope' }).cycleType, 'monthly')
-check('合法 cycleType weekly', normalizeCycle({ name: 'x', cycleType: 'weekly' }).cycleType, 'weekly')
-check('合法 cycleType yearly', normalizeCycle({ name: 'x', cycleType: 'yearly' }).cycleType, 'yearly')
-check('合法 cycleType custom', normalizeCycle({ name: 'x', cycleType: 'custom' }).cycleType, 'custom')
-
-// 每年几月
-check('默认 monthOfYear 1', normalizeCycle({ name: 'x' }).monthOfYear, 1)
-check('monthOfYear 越界裁剪', normalizeCycle({ name: 'x', monthOfYear: 99 }).monthOfYear, 12)
-check('monthOfYear 下限裁剪', normalizeCycle({ name: 'x', monthOfYear: 0 }).monthOfYear, 1)
-check('monthOfYear 正常值', normalizeCycle({ name: 'x', monthOfYear: 3 }).monthOfYear, 3)
-
-console.log('=== 周期存取（内存桩） ===')
-
-// getCycles / setCycles 走的是 api/settings.js 的 setting KV 表，
-// 这里只验证「非法项被丢掉、合法项被规范化」这一层逻辑。
-{
-  const raw = [
-    { id: 'c1', name: '房租', amountCents: 350000, cycleType: 'monthly', dayOfMonth: 8 },
-    { name: '' },                       // 名字为空 -> 丢掉
-    null,                              // 非法 -> 丢掉
-    { id: 'c2', name: '会员', amountCents: 3580, cycleType: 'weekly', weekday: 3 }
-  ]
-  const clean = []
-  for (const item of raw) {
-    const c = normalizeCycle(item)
-    if (c) clean.push(c)
-  }
-  check('过滤掉非法项后剩 2 条', clean.length, 2)
-  check('第一项的金额', clean[0].amountCents, 350000)
-  check('第二项的星期', clean[1].weekday, 3)
-  check('第二项默认启用', clean[1].enabled, true)
-}
-
-console.log('=== 周期类型表 ===')
-check('周期类型有 4 种', CYCLE_TYPES.length, 4)
-check('周期类型 key 集合', CYCLE_TYPES.map((t) => t.key), ['monthly', 'weekly', 'yearly', 'custom'])
-
-// 非法日期
-check('非法 nextDate -> 空', normalizeCycle({ name: 'x', nextDate: '2026-1-1' }).nextDate, '')
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

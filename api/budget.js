@@ -11,7 +11,7 @@ export async function listBudgets() {
   return rows.map(normalizeBudget)
 }
 
-export async function getBudget(id) {
+async function getBudget(id) {
   const row = await queryOne('SELECT * FROM budget WHERE id = ?', [id])
   return row ? normalizeBudget(row) : null
 }

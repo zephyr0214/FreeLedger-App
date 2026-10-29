@@ -13,18 +13,9 @@ import { prefixedId } from '../utils/id.js'
 import { makeDateKeys, toDayKey, toMonthKey, monthRange } from '../utils/date.js'
 import { recalcBalance, writeTodaySnapshot } from './account.js'
 
-export const TXN_TYPES = [
-  { key: 'expense',  name: '支出' },
-  { key: 'income',   name: '收入' },
-  { key: 'transfer', name: '转账' }
-]
 
-export const TXN_SOURCES = {
-  manual: '手动',
-  quick: '速记',
-  import: '导入',
-  recurring: '周期'
-}
+
+
 
 /** 用于「最近交易」等场景的最大返回数 */
 const MAX_PAGE_SIZE = 500

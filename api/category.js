@@ -74,20 +74,10 @@ export async function getCategory(id) {
 }
 
 /** 取某个分类的根分类 id（二级归并到一级） */
-export async function getRootCategoryId(id) {
-  const cat = await getCategory(id)
-  if (!cat) return null
-  return cat.parent_id || cat.id
-}
+
 
 /** 按名称找分类（导入/速记解析用） */
-export async function findCategoryByName(name, type = null) {
-  const where = ['deleted_at IS NULL', 'name = ?']
-  const params = [name]
-  if (type) { where.push('type = ?'); params.push(type) }
-  const row = await queryOne(`SELECT * FROM category WHERE ${where.join(' AND ')} LIMIT 1`, params)
-  return row ? normalizeCategory(row) : null
-}
+
 
 /* ------------------------------------------------------------------ 写入 */
 
@@ -210,14 +200,7 @@ export async function deleteCategory(id) {
 }
 
 /** 批量更新排序（拖拽排序后调用） */
-export async function reorderCategories(orderedIds) {
-  await transaction(async () => {
-    for (let i = 0; i < orderedIds.length; i++) {
-      await execute('UPDATE category SET sort = ? WHERE id = ?', [i, orderedIds[i]])
-    }
-  })
-  return true
-}
+
 
 async function nextSort(type, parentId) {
   const row = parentId
@@ -251,7 +234,6 @@ async function nextSort(type, parentId) {
  * 定义放在 api/db/schema.js（RECONCILE_CATEGORIES），
  * 让这里和迁移 v4 共用同一份数据，不会改了一处忘了另一处。
  */
-export const RECONCILE_CATEGORY = RECONCILE_CATEGORIES
 
 /** 「对账支出」「对账收入」两个固定分类的名字（按 type 区分） */
 export const RECONCILE_NAMES = {

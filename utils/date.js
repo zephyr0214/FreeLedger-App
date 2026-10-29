@@ -9,7 +9,7 @@
  *   tz_offset      分钟数（东八区 = 480）
  */
 
-export const TZ_OFFSET = -new Date().getTimezoneOffset() // 东八区 -> 480
+const TZ_OFFSET = -new Date().getTimezoneOffset() // 东八区 -> 480
 
 /** Date -> 本地 YYYY-MM-DD */
 export function toDayKey(date = new Date()) {
@@ -29,7 +29,7 @@ export function toMonthKey(date = new Date()) {
 }
 
 /** Date -> 本地 YYYY */
-export function toYearKey(date = new Date()) {
+function toYearKey(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date)
   return String(d.getFullYear())
 }

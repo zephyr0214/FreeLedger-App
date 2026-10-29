@@ -832,18 +832,9 @@ export function openDb() {
   })
 }
 
-export function isOpened() {
-  return opened
-}
 
-export async function closeDb() {
-  if (!opened) return
-  try {
-    await call('closeDatabase', { name: DB_NAME })
-  } catch (e) {}
-  opened = false
-  opening = null
-}
+
+
 
 /* ------------------------------------------------------------- 查询/执行 */
 
@@ -864,12 +855,7 @@ export async function queryOne(sql, params = []) {
 }
 
 /** 查询单个标量值 */
-export async function queryScalar(sql, params = []) {
-  const row = await queryOne(sql, params)
-  if (!row) return null
-  const keys = Object.keys(row)
-  return keys.length > 0 ? row[keys[0]] : null
-}
+
 
 /** 执行写入，返回受影响行数（拿不到时返回 true） */
 export async function execute(sql, params = []) {
@@ -904,17 +890,7 @@ export async function transaction(fn) {
 }
 
 /** 批量执行（同一事务内），用于导入 */
-export async function batchExecute(sqlList) {
-  return transaction(async () => {
-    for (const item of sqlList) {
-      if (typeof item === 'string') {
-        await execute(item)
-      } else {
-        await execute(item.sql, item.params || [])
-      }
-    }
-  })
-}
+
 
 /** 清空所有业务表（保留结构），用于「清空数据」与「覆盖导入」 */
 export async function truncateAll() {
@@ -959,8 +935,6 @@ export async function upsert(table, row, keyCols) {
 }
 
 /** 调试用：列出所有表 */
-export async function listTables() {
-  return query(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
-}
+
 
 export { DB_NAME, DB_PATH, bindParams }

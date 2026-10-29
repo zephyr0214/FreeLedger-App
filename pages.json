@@ -77,13 +77,6 @@
 			}
 		},
 		{
-			"path": "pages/settings/cycle",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "周期管理"
-			}
-		},
-		{
 			"path": "pages/settings/tag",
 			"style": {
 				"navigationStyle": "custom",
@@ -112,13 +105,6 @@
 			}
 		},
 		{
-			"path": "pages/settings/cycle-detail",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "周期详情"
-			}
-		},
-		{
 			"path": "pages/settings/theme",
 			"style": {
 				"navigationStyle": "custom",
@@ -144,13 +130,6 @@
 			"style": {
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "关于"
-			}
-		},
-		{
-			"path": "pages/guide/index",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "欢迎"
 			}
 		},
 		{

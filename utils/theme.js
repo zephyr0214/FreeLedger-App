@@ -147,7 +147,7 @@ export function applyNativeTheme(dark, mode) {
  *
  *   参数语义：'dark' = 深色文字（浅色背景用），'light' = 浅色文字（深色背景用）。
  */
-export function applyStatusBarStyle(dark) {
+function applyStatusBarStyle(dark) {
   const style = dark ? 'light' : 'dark'
 
   // 优先用 uni 的接口

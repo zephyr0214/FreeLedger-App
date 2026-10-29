@@ -350,7 +350,7 @@ export function lineIconDataUri(key, opts = {}) {
  * @param {string} color 调用方传的颜色
  * @returns {string} 真实色值
  */
-export function resolveStrokeColor(color) {
+function resolveStrokeColor(color) {
   if (!color || color === 'currentColor') return CURRENT_COLOR_FALLBACK
   // CSS 变量在独立 SVG 里无效，换成中性灰
   if (/^var\(/i.test(String(color).trim())) return CURRENT_COLOR_FALLBACK

@@ -28,10 +28,7 @@ export async function getTag(id) {
   return row ? normalizeTag(row) : null
 }
 
-export async function findTagByName(name) {
-  const row = await queryOne('SELECT * FROM tag WHERE name = ? AND deleted_at IS NULL LIMIT 1', [name])
-  return row ? normalizeTag(row) : null
-}
+
 
 export async function createTag(input) {
   const now = Date.now()

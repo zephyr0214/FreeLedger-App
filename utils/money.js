@@ -11,11 +11,7 @@ export function yuanToCents(yuan) {
 }
 
 /** 分 -> 元（number） */
-export function centsToYuan(cents) {
-  const n = Number(cents)
-  if (!Number.isFinite(n)) return 0
-  return n / 100
-}
+
 
 /**
  * 分 -> 展示字符串
@@ -74,21 +70,13 @@ export function formatCentsCompact(cents) {
 }
 
 /** 金额脱敏：隐私模式 */
-export function maskCents(cents) {
-  return '****'
-}
+
 
 /** 安全加法，接收分 */
-export function sumCents(list) {
-  return list.reduce((acc, v) => acc + (Number(v) || 0), 0)
-}
+
 
 /** 百分比，返回 0~100 的整数 */
-export function percentOf(part, total) {
-  const t = Number(total) || 0
-  if (t === 0) return 0
-  return Math.round((Number(part) / t) * 1000) / 10
-}
+
 
 /**
  * 解析用户输入的金额字符串为分。

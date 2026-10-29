@@ -31,21 +31,6 @@
         </view>
       </view>
 
-      <!--
-        ★ 导出 / 导入 ★
-          用户要求恢复：「数据预备份新增导出和导入功能，导出支持分享，
-          导入要调用手机的文件选择选择文件导入，
-          要支持对导出历史进行删除」。
-
-        和之前删掉的那版相比，这次的做法变了：
-          分享 —— 用 uni.shareWithSystem（系统分享面板），
-                  不再走 plus.share + 微信 SDK。老版本传 file:// 路径
-                  在 Android 7+ 会撞 FileUriExposedException，
-                  微信一律报「获取资源失败」；系统分享面板没这个问题。
-          导入 —— Android 用 Native.js 起 ACTION_GET_CONTENT，
-                  真正的系统文件选择器（老版也是这么做的，能用）。
-      -->
-
       <!-- 导出 -->
       <view id="section-export" class="section">
         <text class="section-title">导出</text>
@@ -234,8 +219,8 @@ import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { queryOne } from '@/api/db/index.js'
 import {
-  autoBackup, listBackups, restoreBackup,
-  exportToFile, listExportFiles, deleteExportFile, shareExportFile,
+  autoBackup, restoreBackup,
+  exportToFile, deleteExportFile, shareExportFile,
   listImportableFiles, importFromFile
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
@@ -252,8 +237,6 @@ export default {
 
     const counts = ref({ transactions: 0, accounts: 0, categories: 0, tags: 0 })
     const autoBackupEnabled = ref(true)
-    const backupList = ref([])
-    const exportFiles = ref([])
     const importFiles = ref([])
     const showImportPicker = ref(false)
     /** 数据管理：备份 + 导出合并列表，每个 { path, name, time, kind } */
@@ -276,7 +259,7 @@ export default {
      * 滚到指定区块。
      *
      * ★ 时序坑 ★
-     *   内容是异步加载的（onMounted 里 await loadCounts / loadBackups），
+     *   内容是异步加载的（onMounted 里 await loadCounts），
      *   刚进页面时区块可能还没渲染出来，
      *   这时设 scroll-into-view 是无效的（元素还不存在）。
      *   所以要等 nextTick 再设，并留一个短延时兜底。
@@ -328,15 +311,7 @@ export default {
       }
     }
 
-    async function loadBackups() {
-      backupList.value = await listBackups()
-    }
-
     /* ------------------------------------------------------ 导出 */
-
-    async function loadExportFiles() {
-      exportFiles.value = await listExportFiles()
-    }
 
     /**
      * 导出一次。
@@ -351,8 +326,6 @@ export default {
         // API Key 默认不导出（防误分享把 key 带出去）
         const res = await exportToFile({ includeApiKey: false })
         uni.hideLoading()
-        await loadExportFiles()
-
         const wantsShare = await confirmDialog({
           title: '导出成功',
           content: `已生成 ${res.name}。要现在分享出去吗？`,
@@ -555,7 +528,6 @@ export default {
         await accountStore.refresh()
         await txnStore.loadHome(true)
         await loadCounts()
-        await loadBackups()
 
         await alertDialog({
           title: '导入完成',
@@ -585,7 +557,6 @@ export default {
         const res = await autoBackup('manual')
         uni.hideLoading()
         if (res) {
-          await loadBackups()
           uni.showToast({ title: '备份完成', icon: 'success' })
         } else {
           uni.showToast({ title: '备份失败', icon: 'none' })
@@ -693,7 +664,6 @@ export default {
       const settings = await getAllSettings()
       autoBackupEnabled.value = settings.autoBackup !== false
       await loadCounts()
-      await loadBackups()
       // ★ 一进页面就扫一次，让「历史数据管理」的数量立即正确，
       //   不用等点进去才加载（之前就是只在点开时加载，首次显示 0）★
       await loadDataManager()
@@ -705,7 +675,7 @@ export default {
     })
 
     return {
-      counts, autoBackupOn, backupList, exportFiles,
+      counts, autoBackupOn,
       importFiles, showImportPicker,
       dataFiles, showDataManager,
       primaryColor, pageStyle, scrollTarget,

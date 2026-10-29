@@ -47,7 +47,7 @@ function logStep(tag, extra) {
  * 生成导出对象
  * @param {object} opt { includeApiKey: boolean, includeDeleted: boolean }
  */
-export async function buildExportPayload(opt = {}) {
+async function buildExportPayload(opt = {}) {
   const { includeApiKey = false, includeDeleted = false } = opt
 
   const settings = await getAllSettings()
@@ -632,7 +632,7 @@ export async function importFromFile(relPath) {
 /* ------------------------------------------------------------------ 恢复 */
 
  /** 校验备份数据 */
-export function validatePayload(payload) {
+function validatePayload(payload) {
   if (!payload || typeof payload !== 'object') throw new Error('文件内容不是有效的 JSON 对象')
   if (payload.app !== BACKUP_APP_ID) throw new Error('这不是本应用生成的备份文件')
   const v = Number(payload.schemaVersion) || 0

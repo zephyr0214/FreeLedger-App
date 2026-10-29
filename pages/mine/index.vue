@@ -56,8 +56,6 @@
 
         ★ 账户管理的入口已删除 ★
           账户已经在底部 tabBar 里了，再放一个入口是重复的。
-        ★ 周期管理已删除 ★
-          按用户要求移除。
       -->
       <view v-for="group in menuGroups" :key="group.title" class="menu-group">
         <text class="menu-title">{{ group.title }}</text>
@@ -131,7 +129,6 @@ export default {
      *   拆成两个入口反而让人以为是两回事。合成「数据与备份」，
      *   进页面后按区块看。
      *
-     * ★ 周期管理已删除 ★（按用户要求）
      * ★ 账户管理已删除 ★（tabBar 里已经有了）
      *
      * icon 字段是 utils/lineIcons.js 里的 key（线性描边图标，不是 emoji）

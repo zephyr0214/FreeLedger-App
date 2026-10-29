@@ -33,6 +33,4 @@ export function prefixedId(prefix) {
 }
 
 /** 短 ID（用于本地排序锚点等非关键场景） */
-export function shortId() {
-  return Date.now().toString(36) + randomHex(4)
-}
+

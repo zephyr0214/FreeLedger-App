@@ -213,91 +213,27 @@ function hashSummary(summary) {
  * @param {string} monthKey
  * @param {boolean} force 强制刷新
  */
-export async function getInsight(monthKey, force = false) {
-  const summary = await getAiSummary(monthKey)
-  const key = `insight:${monthKey}:${hashSummary(summary)}`
 
-  const cache = await readCache()
-  if (!force && cache[key]) return { text: cache[key].text, cached: true, ts: cache[key].ts }
-
-  const prompt = `你是个人记账助手。根据以下月度数据，用一句中文（不超过40字）指出最值得用户注意的一点，不要寒暄，不要列点，直接给结论。
-
-数据：${JSON.stringify(summary)}`
-
-  const text = await chat([
-    { role: 'system', content: '你是一位简洁、克制的个人财务助理，只说事实与洞察，不说教。' },
-    { role: 'user', content: prompt }
-  ], { maxTokens: 120 })
-
-  cache[key] = { text, ts: Date.now() }
-  await writeCache(cache)
-  return { text, cached: false, ts: Date.now() }
-}
 
 /* ------------------------------------------------------ 统计页 AI 分析 */
 
 /**
  * 统计页分析：3~5 句 + 2 条建议
  */
-export async function getAnalysis(monthKey, force = false) {
-  const summary = await getAiSummary(monthKey)
-  const key = `analysis:${monthKey}:${hashSummary(summary)}`
 
-  const cache = await readCache()
-  if (!force && cache[key]) return { text: cache[key].text, cached: true, ts: cache[key].ts }
-
-  const prompt = `你是个人记账助手。根据以下月度收支数据，给出简短分析：
-1. 先用 2~3 句说明这个月的消费结构特点（哪些分类占比高、有无异常）
-2. 再给 1~2 条具体可执行的建议（要具体到分类或金额，不要说"要省钱"这种空话）
-总字数控制在 150 字以内，不要用 markdown 标题，不要寒暄。
-
-数据：${JSON.stringify(summary)}`
-
-  const text = await chat([
-    { role: 'system', content: '你是一位务实、克制的个人财务助理。只基于给定数据分析，不编造数据。' },
-    { role: 'user', content: prompt }
-  ], { maxTokens: 400 })
-
-  cache[key] = { text, ts: Date.now() }
-  await writeCache(cache)
-  return { text, cached: false, ts: Date.now() }
-}
 
 /**
  * 统计页分析（任意日期区间版）
  *
- * 与 getAnalysis 的区别：
- *   1. 摘要数据来自 getAiSummaryRange（区间口径，而非固定某个月）
- *   2. 缓存 key 用 label + 摘要 hash，label 缺省时退化为摘要 hash
- *   3. prompt 措辞中性化，不写死「这个月」
+ * 1. 摘要数据来自 getAiSummaryRange（区间口径，而非固定某个月）
+ * 2. 缓存 key 用 label + 摘要 hash，label 缺省时退化为摘要 hash
+ * 3. prompt 措辞中性化，不写死「这个月」
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @param {string} label 展示文案，如 '2026年10月'；可缺省
  * @param {boolean} force 强制刷新
  */
-export async function getAnalysisRange(range, label = '', force = false) {
-  const summary = await getAiSummaryRange(range, label)
-  const key = `analysis:${label || ''}:${hashSummary(summary)}`
 
-  const cache = await readCache()
-  if (!force && cache[key]) return { text: cache[key].text, cached: true, ts: cache[key].ts }
-
-  const prompt = `你是个人记账助手。根据以下所选区间的收支数据，给出简短分析：
-1. 先用 2~3 句说明所选区间的消费结构特点（哪些分类占比高、有无异常）
-2. 再给 1~2 条具体可执行的建议（要具体到分类或金额，不要说"要省钱"这种空话）
-总字数控制在 150 字以内，不要用 markdown 标题，不要寒暄。
-
-数据：${JSON.stringify(summary)}`
-
-  const text = await chat([
-    { role: 'system', content: '你是一位务实、克制的个人财务助理。只基于给定数据分析，不编造数据。' },
-    { role: 'user', content: prompt }
-  ], { maxTokens: 400 })
-
-  cache[key] = { text, ts: Date.now() }
-  await writeCache(cache)
-  return { text, cached: false, ts: Date.now() }
-}
 
 /* ------------------------------------------------------------ 对话 */
 
