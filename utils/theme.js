@@ -409,8 +409,10 @@ const TABBAR_ICON_VERSION = '-v2'
  *
  *   ★★ 所以：改图标内容后必须重新打包，光热更新不生效 ★★
  *   图标粗细改过好几轮（描边 2 → 3 → 2.9 → 2，画布 81 → 108 → 81，
- *   iconWidth 24 → 28 → 25 → 24），每一轮都要重新构建 App 才能看到效果。
+ *   iconWidth 24 → 28 → 25 → 24 → 22），每一轮都要重新构建 App 才能看到效果。
  *   只验证配色变化的话，切一次主题色即可（force 模式会重刷）。
+ *   最后一轮「图标缩小一些些」只改了 pages.json 的 iconWidth（24 → 22），
+ *   PNG 没动，所以不需要 bump TABBAR_ICON_VERSION。
  *
  *   什么情况下**不会**遇到：
  *     重新打包 / 重新安装后首次启动。原生层的 bitmap 缓存不跨进程，
@@ -444,6 +446,14 @@ const TABBAR_ICON_VERSION = '-v2'
 export function applyTabBarTheme(presetKey, dark) {
   const p = getPreset(presetKey)
 
+  // ★ 返回值 = 这一轮是否「全部调成功」★
+  //   冷启动时 App.onLaunch 里就调本函数，这时原生 tabBar 往往还没建好，
+  //   setTabBarStyle / setTabBarItem 会静默失败（或抛错）。
+  //   旧写法把失败吞掉就完事了 -> 首屏一直是 pages.json 里写死的绿色默认图标，
+  //   用户点一下 tab 触发第二次 onShow 才变过来。
+  //   现在把成功与否报给调用方，由它决定要不要过一会儿再试。
+  let ok = true
+
   try {
     uni.setTabBarStyle({
       color: dark ? TABBAR_FONT_COLOR_DARK : TABBAR_FONT_COLOR_LIGHT,
@@ -452,7 +462,7 @@ export function applyTabBarTheme(presetKey, dark) {
       borderStyle: dark ? 'black' : 'white'
     })
   } catch (e) {
-    // 部分平台/时机不支持，静默失败即可
+    ok = false
   }
 
   // 替换图标：未选中态按深浅模式切换，选中态按主题色切换
@@ -465,9 +475,11 @@ export function applyTabBarTheme(presetKey, dark) {
         selectedIconPath: `static/tabbar/${item.name}-active-${p.key}${TABBAR_ICON_VERSION}.png`
       })
     } catch (e) {
-      // tabBar 尚未创建时（如首屏加载前）会失败，忽略即可
+      ok = false
     }
   }
+
+  return ok
 }
 
 /**
@@ -497,7 +509,7 @@ export function refreshTabBarTheme(presetKey, dark, force = false) {
   }
 
   // 再刷目标值
-  applyTabBarTheme(presetKey, dark)
+  return applyTabBarTheme(presetKey, dark)
 }
 
 /** 状态栏与导航栏文字颜色 */

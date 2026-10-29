@@ -151,10 +151,12 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
 /* ---------------- tabBar 字号 / 图标尺寸 ----------------
  * ★ 这两个值必须与 scripts/gen-tabbar-icons.py 的 STROKE_WIDTH 一起看 ★
  *   用户看到的图标粗细 = 描边宽度 × (iconWidth / 画布尺寸)，记作 onScreen。
- *   现在是 描边 2 / 画布 81 / iconWidth 24px -> onScreen 0.593，
- *   即用户认可「第一次加粗」的那一版。
- *   曾经试过 108px 画布 + 描边 2.9 + 25px（onScreen 0.671），
- *   用户反馈「还是太粗」，已退回。
+ *   描边 2 / 画布 81 / iconWidth 22px -> onScreen 0.543。
+ *   历史：
+ *     2.0 + 81px + 24px -> onScreen 0.593，用户认可这一版的粗细；
+ *     之后用户又说「图标适当缩小一些些」，
+ *     于是在**不改 PNG** 的前提下把 iconWidth 24 -> 22（小 8%），
+ *     图标整体变小，线条也跟着略细一点，仍接近 0.593 的手感。
  *   fontSize 用整数 11px：uni-app 的原生 tabBar 对小数 px 的支持没有把握，
  *   宁可用整数值也不要冒「配了不生效」的风险。
  */
@@ -165,7 +167,37 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
   )
   const tb = pagesJson.tabBar || {}
   check('tabBar 字号 11px', tb.fontSize, '11px')
-  check('tabBar 图标宽 24px', tb.iconWidth, '24px')
+  check('tabBar 图标宽 22px', tb.iconWidth, '22px')
+}
+
+/* ------------- 冷启动时 tabBar 要自己补刷，不能等用户点 tab -------------
+ *
+ * bug：刚进 App 时 tabBar 还是 pages.json 写死的绿色默认图标和默认色，
+ *      点一下 tab 才刷新。
+ * 根因：首个 tab 页的首次 onShow 常常赶在原生 tabBar 创建之前，
+ *      那一轮 setTabBarStyle / setTabBarItem 静默失效，
+ *      之后没有第二次机会（除非用户点 tab）。
+ * 期望：refreshTabBar() 之后，即使第一轮失效，
+ *      stores/setting.js 也会在启动窗口内自己补刷几轮。
+ *
+ * ★ 这里只做源码层面的结构断言 ★
+ *   store 依赖 pinia + setTimeout，在 node 里跑真实 store 成本高、
+ *   收益低；而这条逻辑的关键就是「有没有补刷」这件事本身，
+ *   用源码断言足够挡住「有人把补刷删了」的回归。
+ */
+{
+  const storeSrc = readFileSync(join(process.cwd(), 'stores/setting.js'), 'utf-8')
+
+  check('refreshTabBar 里排了补刷', /refreshTabBar\(\)\s*\{[\s\S]*?_scheduleTabBarRetry\(/.test(storeSrc), true)
+  check('有补刷实现 _scheduleTabBarRetry', /_scheduleTabBarRetry\(force\)\s*\{/.test(storeSrc), true)
+  check('补刷用 setTimeout 延迟重试', /_scheduleTabBarRetry[\s\S]*?setTimeout\(/.test(storeSrc), true)
+  check('补刷有启动窗口限制', /TABBAR_BOOT_WINDOW_MS/.test(storeSrc), true)
+  check('补刷有防重入标记', /_tabBarRetrying/.test(storeSrc), true)
+
+  // applyTabBarTheme 必须把成败报出来，补刷才可能是「失败才补」
+  const themeSrc = readFileSync(join(process.cwd(), 'utils/theme.js'), 'utf-8')
+  check('applyTabBarTheme 返回是否成功', /function applyTabBarTheme\(presetKey, dark\)\s*\{[\s\S]*?return ok/.test(themeSrc), true)
+  check('refreshTabBarTheme 透传返回值', /function refreshTabBarTheme\([\s\S]*?return applyTabBarTheme\(/.test(themeSrc), true)
 }
 
 delete globalThis.uni

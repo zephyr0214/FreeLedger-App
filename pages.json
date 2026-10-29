@@ -187,7 +187,7 @@
 		"backgroundColor": "@tabBgColor",
 		"borderStyle": "@tabBorderStyle",
 		"fontSize": "11px",
-		"iconWidth": "24px",
+		"iconWidth": "22px",
 		"spacing": "4px",
 		"list": [
 			{

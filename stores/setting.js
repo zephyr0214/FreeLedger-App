@@ -16,6 +16,19 @@ import {
   applyNativeTheme
 } from '@/utils/theme.js'
 
+/**
+ * 启动后多久之内还要「补刷」tabBar（毫秒）。
+ *
+ * 冷启动时首个 tab 页的 onShow 常常赶在原生 tabBar 创建之前，
+ * 那次 setTabBarStyle / setTabBarItem 静默失效，
+ * 于是首屏停在 pages.json 写死的绿色默认图标上，用户点一下才变。
+ * 这段时间内每次 refreshTabBar 都会顺手排几轮补刷把落花补上。
+ *
+ * 2.5 秒足够覆盖冷启动的建表、读设置、写快照这些耗时，
+ * 又不会长到让「切 tab 的 onShow」也白排定时器。
+ */
+const TABBAR_BOOT_WINDOW_MS = 2500
+
 export const useSettingStore = defineStore('setting', {
   state: () => ({
     loaded: false,
@@ -43,7 +56,16 @@ export const useSettingStore = defineStore('setting', {
      * 部分 Android ROM 会缓存 tabBar 的图标与配色，
      * 只传新值不立刻重绘，需要先刷一遍默认色再刷目标色。
      */
-    tabBarThemeDirty: false
+    tabBarThemeDirty: false,
+
+    /**
+     * 启动时刻（首次 refreshTabBar 时打点）。
+     * 只在启动窗口（TABBAR_BOOT_WINDOW_MS）内做补刷，见 _scheduleTabBarRetry。
+     */
+    _tabBarBootAt: 0,
+
+    /** 补刷是否已在进行中，防止 4 个 tab 页各排一串定时器 */
+    _tabBarRetrying: false
   }),
 
   getters: {
@@ -173,13 +195,92 @@ export const useSettingStore = defineStore('setting', {
      *   （App 端这两个接口只对 tabBar 页面生效）——
      *   这正是「切换主题后 tabBar 不变」的原因。
      *   所以 4 个 tab 页的 onShow 都要调这个方法。
+     *
+     * ★ 冷启动为什么要补刷几轮 ★
+     *   冷启动时第一轮调用总是「太早」：App.onLaunch 里 tabBar 还没建好，
+     *   首个 tab 页的首次 onShow 也常常赶在原生 tabBar 创建之前。
+     *   那一轮 setTabBarStyle / setTabBarItem 静默失效，
+     *   首屏就停在 pages.json 里写死的绿色默认图标上，
+     *   用户点一下 tab 触发下一次 onShow 才变 —— 即「点击才刷新」。
+     *   现在启动后的一小段时间内会自己补刷几轮，不依赖用户点击。
      */
     refreshTabBar() {
       // tabBarThemeDirty 表示「主题刚变过，需要冲一下缓存」。
       // 由 setThemeMode / setThemePreset 设置，这里消费掉。
       const force = this.tabBarThemeDirty
       this.tabBarThemeDirty = false
-      refreshTabBarTheme(this.settings.themePreset, this.isDark, force)
+
+      this._applyTabBar(force)
+      this._scheduleTabBarRetry(force)
+    },
+
+    /**
+     * 真正落地一次 tabBar 主题。
+     *
+     * ★ 不看返回值判断成功与否 ★
+     *   原生 tabBar 还没建好时，这两个接口既可能抛错，
+     *   也可能「不抛错但什么也没做」，没有可靠的就绪信号。
+     *   所以失败与否都交给 _scheduleTabBarRetry 用「多刷几轮」兜住。
+     *
+     * @param {boolean} force 是否「冲缓存」
+     */
+    _applyTabBar(force) {
+      try {
+        refreshTabBarTheme(this.settings.themePreset, this.isDark, force)
+      } catch (e) {
+        // 原生 tabBar 尚未就绪，交给补刷逻辑
+      }
+    },
+
+    /**
+     * 冷启动兜底：启动后的一小段时间内补刷几次。
+     *
+     * 为什么是「无条件补刷」而不是「失败才补刷」：
+     *   原生接口在 tabBar 未就绪时不会给明确失败信号（见 _applyTabBar）。
+     *   重复刷同样的值是无害的（force=false 不会先刷默认色，不会闪），
+     *   所以宁可多刷两次。
+     *
+     * 只在启动窗口内生效：过了 TABBAR_BOOT_WINDOW_MS 就不再排，
+     * 否则每次切 tab 的 onShow 都排一串定时器，纯属浪费。
+     *
+     * ★ 只有第一轮补刷带 force ★
+     *   force 会「先刷一遍默认绿再刷目标色」。
+     *   冷启动时首屏本来就是默认绿，这么冲一下正好；
+     *   但要是每轮都冲，切主题后就会连闪四次，
+     *   所以第二轮起都按普通模式刷。
+     *
+     * @param {boolean} force 是否「冲缓存」
+     */
+    _scheduleTabBarRetry(force) {
+      // 只在启动窗口内补刷
+      if (!this._tabBarBootAt) this._tabBarBootAt = Date.now()
+      if (Date.now() - this._tabBarBootAt > TABBAR_BOOT_WINDOW_MS) return
+      // 已经在补刷了就别再排一串
+      if (this._tabBarRetrying) return
+      this._tabBarRetrying = true
+
+      // 累计约 80 / 330 / 930 / 2130ms 各补刷一次
+      const steps = [80, 250, 600, 1200]
+      let i = 0
+      let nextForce = force
+
+      const step = () => {
+        if (i >= steps.length) {
+          this._tabBarRetrying = false
+          return
+        }
+        const delay = steps[i]
+        i += 1
+        const f = nextForce
+        // 只有第一次补刷保留 force，之后都普通刷，避免反复闪默认色
+        nextForce = false
+        setTimeout(() => {
+          this._applyTabBar(f)
+          step()
+        }, delay)
+      }
+
+      step()
     },
 
     /** 标记主题变了：下次 tabBar 刷新时用「强制」模式冲缓存 */
