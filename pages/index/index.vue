@@ -94,7 +94,13 @@
             </view>
           </view>
 
-          <!-- 下方：预算进度条（总预算 + 分类预算） -->
+          <!-- 下方：预算进度条（总预算 + 分类预算）
+               ★ 四角排布 ★
+                 左上：预算名称 + 百分比（一眼看"花了多少比例"）
+                 左下：已用 / 总额（具体数字）
+                 右上：日均可用（"还能花多少"）
+                 右下：留空，不放内容
+               进度条夹在上下两行之间，视觉上仍是「头 → 条 → 脚」三段。 -->
           <view
             v-if="totalBudget || categoryBudgets.length > 0"
             class="ov-budgets"
@@ -102,7 +108,12 @@
           >
             <view class="ov-budget">
               <view class="ov-budget-head">
-                <text class="ov-budget-name">总预算</text>
+                <view class="ov-budget-head-left">
+                  <text class="ov-budget-name">总预算</text>
+                  <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
+                    {{ totalBudget.percent }}%
+                  </text>
+                </view>
                 <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
                   日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}
                 </text>
@@ -117,9 +128,6 @@
                 />
               </view>
               <view class="ov-budget-foot">
-                <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
-                  {{ totalBudget.percent }}%
-                </text>
                 <view class="ov-budget-amount">
                   <MoneyText :cents="totalBudget.used" :size="20" color="var(--app-text-3)" />
                   <text class="ov-budget-slash">/</text>
@@ -130,7 +138,12 @@
 
             <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
               <view class="ov-budget-head">
-                <text class="ov-budget-name">{{ b.name }}</text>
+                <view class="ov-budget-head-left">
+                  <text class="ov-budget-name">{{ b.name }}</text>
+                  <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
+                    {{ b.percent }}%
+                  </text>
+                </view>
                 <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
                   日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(0) }}
                 </text>
@@ -145,9 +158,6 @@
                 />
               </view>
               <view class="ov-budget-foot">
-                <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
-                  {{ b.percent }}%
-                </text>
                 <view class="ov-budget-amount">
                   <MoneyText :cents="b.used" :size="20" color="var(--app-text-3)" />
                   <text class="ov-budget-slash">/</text>
@@ -780,6 +790,16 @@ export default {
   gap: 20rpx;
 }
 
+/*
+ * 预算区：每个预算一条「头 → 进度条 → 脚」
+ *
+ * ★ 四角排布 ★
+ *   头行左边：预算名称 + 百分比      头行右边：日均可用
+ *   脚行左边：已用 / 总额            脚行右边：留空
+ *   百分比从脚行挪到名称后面，是因为它和名称一起才构成
+ *   「哪个预算、花了多少比例」这个完整信息；
+ *   脚行只留纯金额，右侧刻意空着，让左侧数字不被挤到中间。
+ */
 .ov-budget {
   display: flex;
   flex-direction: column;
@@ -788,25 +808,39 @@ export default {
 
 .ov-budget-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
+  gap: 16rpx;
 }
 
-/* 左侧：名称 */
+/* 头行左侧：名称 + 百分比，两者作为一组靠左 */
+.ov-budget-head-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  min-width: 0;
+}
+
 .ov-budget-name {
   font-size: 24rpx;
   color: var(--app-text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* 右侧：剩余日均预算 */
 .ov-budget-daily {
   font-size: 21rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
+/* 百分比紧跟在名称后，与名称同基线，比名称稍重一点才不被忽略 */
 .ov-budget-pct {
   font-size: 22rpx;
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .ov-budget-bar {
@@ -822,11 +856,19 @@ export default {
   transition: width 0.35s ease;
 }
 
-/* 进度条下方一行：左百分比，右金额 */
+/*
+ * 脚行：只放金额（左对齐）。
+ *
+ * ★ 右侧为什么是空的 ★
+ *   百分比已经上移到头行，脚行右边没有内容了。
+ *   保留 justify-content: flex-start 让金额自然贴左，
+ *   不要用 space-between —— 那会在只有一个子元素时也把它推到最左，
+ *   行为一样但语义不清（将来加元素会立刻变成两端对齐）。
+ */
 .ov-budget-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .ov-budget-amount {
