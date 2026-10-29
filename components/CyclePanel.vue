@@ -276,7 +276,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { NumberKeyboard, AppDialog },
+  components: { NumberKeyboard, AppDialog, LineIcon },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -291,6 +291,9 @@ export default {
       get: () => props.modelValue,
       set: (v) => emit('update:modelValue', v)
     })
+
+    // 模板里直接绑定 editing 用（props 在 setup 里不会自动暴露为局部变量）
+    const editing = computed(() => props.editing)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const currencySymbol = computed(() => settingStore.currencySymbol)
