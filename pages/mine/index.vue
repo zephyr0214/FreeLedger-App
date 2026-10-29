@@ -44,19 +44,46 @@
       </view>
 
       <!--
-        配置条目分两组
+        配置条目分三部分
 
-        ★ 记账功能设置 ★
-          分类、标签、预算、AI 智能配置
-          —— 都是「怎么记账」相关的，属于账本本身的配置。
+        ★ 记账功能（2×2 宫格）★
+          分类、标签、周期、预算
+          —— 这四个都是「账本内容本身」的管理入口，
+             彼此平级、用途相近，用宫格排列更紧凑、也更好点。
+             它们都**没有副标题**（不显示"几项"），
+             宫格只放图标 + 名称，视觉干净。
 
-        ★ 系统设置 ★
+        ★ 记账设置（列表）★
+          记账按钮设置、AI 智能配置
+          —— 这两个是「怎么记账」的行为配置，带副标题说明当前状态。
+
+        ★ 系统设置（列表）★
           主题外观、数据与备份
-          —— 都是「App 本身怎么表现」，跟记账内容无关。
+          —— App 本身的表现，跟记账内容无关。
 
         ★ 账户管理的入口已删除 ★
           账户已经在底部 tabBar 里了，再放一个入口是重复的。
       -->
+
+      <!-- 记账功能：2×2 宫格，一个大卡片里排 4 个小卡 -->
+      <view class="menu-group">
+        <text class="menu-title">记账功能</text>
+        <view class="feature-grid">
+          <view
+            v-for="item in featureTiles"
+            :key="item.key"
+            class="feature-tile"
+            @click="onMenuClick(item)"
+          >
+            <view class="feature-icon-wrap" :style="{ backgroundColor: settingStore.primaryLight }">
+              <LineIcon :name="item.icon" :size="24" :color="primaryColor" />
+            </view>
+            <text class="feature-name">{{ item.name }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 记账设置 / 系统设置：沿用列表样式 -->
       <view v-for="group in menuGroups" :key="group.title" class="menu-group">
         <text class="menu-title">{{ group.title }}</text>
         <view class="menu-list">
@@ -120,17 +147,37 @@ export default {
 
     const stats = ref({ txnCount: 0, accountCount: 0, dayCount: 0 })
     const backupHint = ref('')
-    const budgetCount = ref(0)
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
     /**
-     * 配置条目，分两组。
+     * ★ 记账功能：2×2 宫格 ★
+     *   分类 / 标签 / 周期 / 预算 —— 这四个是「账本内容本身」的管理入口，
+     *   彼此平级、用途相近，用宫格排更紧凑。
      *
-     * ★ 记账功能设置 ★
-     *   分类管理、标签管理、预算管理、记账按钮设置、AI 智能配置
-     *   —— 都是「怎么记账」相关的配置。
+     * ★ 刻意不带副标题 ★
+     *   用户明确要求「预算管理不要显示几项」。
+     *   宫格只放图标 + 名称，四个格子视觉一致；
+     *   否则只有「预算管理」底下有行小字，四格会显得不齐。
+     *
+     *   所以原来给预算入口算「N 项」的 budgetLabel、以及
+     *   那条统计预算条数的 SQL 查询都删掉了 ——
+     *   现在没有任何入口要用它，留着只会每次进页面白跑一次查询。
+     */
+    const featureTiles = computed(() => [
+      { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
+      { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
+      { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
+      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' }
+    ])
+
+    /**
+     * 列表形式的设置项，分两组。
+     *
+     * ★ 记账设置 ★
+     *   记账按钮设置、AI 智能配置
+     *   —— 「怎么记账」的行为配置，带副标题说明当前状态。
      *
      * ★ 系统设置 ★
      *   主题外观、数据与备份
@@ -141,18 +188,12 @@ export default {
      *   拆成两个入口反而让人以为是两回事。合成「数据与备份」，
      *   进页面后按区块看。
      *
-     * ★ 账户管理已删除 ★（tabBar 里已经有了）
-     *
      * icon 字段是 utils/lineIcons.js 里的 key（线性描边图标，不是 emoji）
      */
     const menuGroups = computed(() => [
       {
-        title: '记账功能设置',
+        title: '记账设置',
         items: [
-          { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
-          { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
-          { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
-          { key: 'budget', icon: 'budget', name: '预算管理', value: budgetLabel.value, route: '/pages/settings/budget' },
           {
             key: 'quickAdd',
             icon: 'plus',
@@ -181,13 +222,6 @@ export default {
       return settingStore.settings.ai && settingStore.settings.ai.apiKey ? '已配置' : '未配置'
     })
 
-    /** 预算管理入口的副标题：已设几个预算 */
-    const budgetLabel = computed(() => {
-      const n = budgetCount.value
-      if (n === 0) return '未设置'
-      return `${n} 项`
-    })
-
     /**
      * 记账按钮设置的副标题：长按/短按分别触发什么。
      *
@@ -204,13 +238,11 @@ export default {
         const dayRow = await queryOne(
           'SELECT COUNT(DISTINCT occurred_day) AS c FROM txn WHERE deleted_at IS NULL'
         )
-        const budgetRow = await queryOne('SELECT COUNT(*) AS c FROM budget')
         stats.value = {
           txnCount: Number(txnRow ? txnRow.c : 0),
           accountCount: accountStore.list.length,
           dayCount: Number(dayRow ? dayRow.c : 0)
         }
-        budgetCount.value = Number(budgetRow ? budgetRow.c : 0)
 
         const days = await daysSinceLastBackup()
         if (days === Infinity) backupHint.value = '尚未备份'
@@ -266,9 +298,9 @@ export default {
     })
 
     return {
-      settingStore, accountStore, stats, backupHint, budgetCount,
-      primaryColor, pageStyle, menuGroups,
-      themeLabel, aiLabel, budgetLabel, quickAddLabel,
+      settingStore, accountStore, stats, backupHint,
+      primaryColor, pageStyle, menuGroups, featureTiles,
+      themeLabel, aiLabel, quickAddLabel,
       onAddTap, onAddHoldEnd,
       onMenuClick, goProfile, goAbout
     }
@@ -385,6 +417,66 @@ export default {
   padding-left: 8rpx;
   display: block;
   margin-bottom: 12rpx;
+}
+
+/*
+ * ★ 记账功能：2×2 宫格 ★
+ *
+ * 外层是一个大卡片（和白底列表同款圆角/底色），
+ * 内部用 grid 排成两行两列，四个格子等宽等高。
+ *
+ * ★ 为什么用 grid 而不是 flex 换行 ★
+ *   flex + flex-basis: 50% 时，最后一行若不满会自动拉伸，
+ *   而且拿不准间隙怎么扣；grid 的 1fr 1fr 天生等宽，
+ *   gap 也不会把格子挤出容器。
+ */
+.feature-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rpx;
+  background-color: var(--app-line);
+  border-radius: 20rpx;
+  overflow: hidden;
+}
+
+/*
+ * 单个格子：浅色底 + 图标 + 名称。
+ * 格子底色用卡片色，格子之间露出的 1rpx 是 grid 的 gap（--app-line），
+ * 形成很细的分隔线 —— 比给每个格子加 border 更干净，
+ * 也不会出现「最后一行多一条边」的问题。
+ */
+.feature-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  padding: 36rpx 16rpx;
+  background-color: var(--app-card);
+}
+
+/* 点按反馈：轻微压暗，确认点中了 */
+.feature-tile:active {
+  background-color: var(--app-card-2);
+}
+
+/*
+ * 图标外框：浅主题色圆形底 + 主题色描边图标。
+ * 底色由内联 style 给（settingStore.primaryLight），
+ * 这样换主题色时自动跟着变。
+ */
+.feature-icon-wrap {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feature-name {
+  font-size: 26rpx;
+  color: var(--app-text);
 }
 
 .menu-list {
