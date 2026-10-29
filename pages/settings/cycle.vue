@@ -35,28 +35,30 @@
                   <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
 
-                <!-- 中间：名称 + 规则 / 下次扣款日 -->
                 <view class="row-info">
-                  <text class="row-name">{{ c.name }}</text>
-                  <view class="row-meta">
-                    <text class="row-sub">{{ c.recurrenceText }}</text>
-                    <text v-if="c.nextText" class="row-sep">·</text>
-                    <text
-                      v-if="c.nextText"
-                      class="row-next"
-                      :class="{ 'row-next-today': c.nextIsToday }"
-                    >{{ c.nextIsToday ? '今天扣款' : c.nextText }}</text>
+                  <!-- 第一行：分类名 + 价签（金额紧跟在名字后面） -->
+                  <view class="row-title">
+                    <text class="row-name">{{ c.name }}</text>
+                    <MoneyText
+                      class="row-amount"
+                      :cents="c.amount_cents"
+                      :size="26"
+                      :weight="600"
+                      :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
+                    />
                   </view>
+
+                  <!-- 第二行：下次扣款于 XXXX年XX月XX日 -->
+                  <text
+                    v-if="c.nextYmd"
+                    class="row-next"
+                    :class="{ 'row-next-today': c.nextIsToday }"
+                  >下次扣款于 {{ c.nextYmd }}</text>
                 </view>
 
-                <!-- 右侧：金额（谁的钱、多少）+ 已记笔数 -->
+                <!-- 右侧：规则 + 已记笔数 -->
                 <view class="row-right">
-                  <MoneyText
-                    :cents="c.amount_cents"
-                    :size="28"
-                    :weight="600"
-                    :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
-                  />
+                  <text class="row-sub">{{ c.recurrenceText }}</text>
                   <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
@@ -87,28 +89,30 @@
                   <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
 
-                <!-- 中间：名称 + 规则 / 下次扣款日 -->
                 <view class="row-info">
-                  <text class="row-name">{{ c.name }}</text>
-                  <view class="row-meta">
-                    <text class="row-sub">{{ c.recurrenceText }}</text>
-                    <text v-if="c.nextText" class="row-sep">·</text>
-                    <text
-                      v-if="c.nextText"
-                      class="row-next"
-                      :class="{ 'row-next-today': c.nextIsToday }"
-                    >{{ c.nextIsToday ? '今天扣款' : c.nextText }}</text>
+                  <!-- 第一行：分类名 + 价签（金额紧跟在名字后面） -->
+                  <view class="row-title">
+                    <text class="row-name">{{ c.name }}</text>
+                    <MoneyText
+                      class="row-amount"
+                      :cents="c.amount_cents"
+                      :size="26"
+                      :weight="600"
+                      :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
+                    />
                   </view>
+
+                  <!-- 第二行：下次扣款于 XXXX年XX月XX日 -->
+                  <text
+                    v-if="c.nextYmd"
+                    class="row-next"
+                    :class="{ 'row-next-today': c.nextIsToday }"
+                  >下次扣款于 {{ c.nextYmd }}</text>
                 </view>
 
-                <!-- 右侧：金额（谁的钱、多少）+ 已记笔数 -->
+                <!-- 右侧：规则 + 已记笔数 -->
                 <view class="row-right">
-                  <MoneyText
-                    :cents="c.amount_cents"
-                    :size="28"
-                    :weight="600"
-                    :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
-                  />
+                  <text class="row-sub">{{ c.recurrenceText }}</text>
                   <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
@@ -139,28 +143,30 @@
                   <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
 
-                <!-- 中间：名称 + 规则 / 下次扣款日 -->
                 <view class="row-info">
-                  <text class="row-name">{{ c.name }}</text>
-                  <view class="row-meta">
-                    <text class="row-sub">{{ c.recurrenceText }}</text>
-                    <text v-if="c.nextText" class="row-sep">·</text>
-                    <text
-                      v-if="c.nextText"
-                      class="row-next"
-                      :class="{ 'row-next-today': c.nextIsToday }"
-                    >{{ c.nextIsToday ? '今天扣款' : c.nextText }}</text>
+                  <!-- 第一行：分类名 + 价签（金额紧跟在名字后面） -->
+                  <view class="row-title">
+                    <text class="row-name">{{ c.name }}</text>
+                    <MoneyText
+                      class="row-amount"
+                      :cents="c.amount_cents"
+                      :size="26"
+                      :weight="600"
+                      :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
+                    />
                   </view>
+
+                  <!-- 第二行：下次扣款于 XXXX年XX月XX日 -->
+                  <text
+                    v-if="c.nextYmd"
+                    class="row-next"
+                    :class="{ 'row-next-today': c.nextIsToday }"
+                  >下次扣款于 {{ c.nextYmd }}</text>
                 </view>
 
-                <!-- 右侧：金额（谁的钱、多少）+ 已记笔数 -->
+                <!-- 右侧：规则 + 已记笔数 -->
                 <view class="row-right">
-                  <MoneyText
-                    :cents="c.amount_cents"
-                    :size="28"
-                    :weight="600"
-                    :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
-                  />
+                  <text class="row-sub">{{ c.recurrenceText }}</text>
                   <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
@@ -202,7 +208,7 @@ import { listCycles, deleteCycle, recurrenceLabel, listCycleCounts, nextOccurren
 import { listCategories } from '@/api/category.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { formatDayHeader, toDayKey } from '@/utils/date.js'
+import { toDayKey } from '@/utils/date.js'
 
 export default {
   components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel },
@@ -242,17 +248,23 @@ export default {
       /*
        * ★ 下次触发日 ★
        *   nextOccurrence 返回 YYYY-MM-DD（含今天）。
-       *   这里既给原始 dayKey（用于判断「今天」），
-       *   也给一句人话（formatDayHeader 会输出「今天 · 10月29日 周三」这种）。
+       *
+       * ★ 格式：XX年XX月XX日，不带周几 ★
+       *   不用 formatDayHeader —— 那个会输出「今天 · 10月29日 周三」，
+       *   既带周几又带相对词，不符合「下次扣款于 XXXX年XX月XX日」的要求。
+       *   这里自己拼，年月日三位齐全，看的人不用换算。
        */
       let next = ''
-      let nextText = ''
+      let nextYmd = ''
       try {
         next = nextOccurrence(c)
-        nextText = formatDayHeader(next)
+        if (next) {
+          const [y, m, d] = String(next).split('-').map(Number)
+          nextYmd = `${y}年${m}月${d}日`
+        }
       } catch (e) {
         next = ''
-        nextText = ''
+        nextYmd = ''
       }
 
       return {
@@ -263,7 +275,7 @@ export default {
         recurrenceText: recurrenceLabel(c),
         count: counts.value[c.id] || 0,
         next,
-        nextText,
+        nextYmd,
         // 今天就要扣：列表里高亮一下，比纯文字提示更醒目
         nextIsToday: next === toDayKey()
       }
@@ -424,41 +436,45 @@ export default {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6rpx;
+  gap: 8rpx;
+}
+
+/*
+ * ★ 第一行：分类名 + 价签 ★
+ *   金额紧跟在名字后面（不是推到最右边），
+ *   两者之间留 16rpx 间隙，避免「餐饮¥3,200.00」黏在一起。
+ *   flex-wrap 允许在极窄屏上换行，宁可换行也不要文字被压扁。
+ */
+.row-title {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .row-name {
   font-size: 28rpx;
   color: var(--app-text);
+  /* 名字过长时省略，给金额留位置 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 价签：不加背景色，纯排版区分；字重比名字轻一档，主次分明 */
+.row-amount {
+  flex-shrink: 0;
 }
 
 /*
- * 第二行：规则 · 下次扣款
- * 两个信息用「·」分隔，超宽时省略而不是换行 ——
- * 换行会把行高撑高，列表看着参差不齐。
+ * 第二行：下次扣款于 XXXX年XX月XX日
+ * 单独占整行，不再和规则挤在一起 —— 这是用户最关心的信息之一，
+ * 和「每月 1 号」这种规则说明混在一行会被淹没。
  */
-.row-meta {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  min-width: 0;
-}
-
-.row-sub {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  flex-shrink: 0;
-}
-
-.row-sep {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  flex-shrink: 0;
-}
-
 .row-next {
   font-size: 22rpx;
-  color: var(--app-text-2);
+  color: var(--app-text-3);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -474,8 +490,9 @@ export default {
 }
 
 /*
- * 右侧：金额在上、笔数在下，右对齐。
- * 金额用 tabular-nums（见 MoneyText），多行之间数字能对齐。
+ * 右侧：规则（每月 1 号）在上、已记笔数在下，右对齐。
+ * 规则放右侧是因为它属于「这条周期怎么设的」这种次要信息，
+ * 主体位置留给分类名、金额和下次扣款日。
  */
 .row-right {
   display: flex;
@@ -483,6 +500,12 @@ export default {
   align-items: flex-end;
   gap: 6rpx;
   flex-shrink: 0;
+}
+
+.row-sub {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  white-space: nowrap;
 }
 
 .row-count {
