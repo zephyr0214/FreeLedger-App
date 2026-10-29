@@ -219,19 +219,21 @@
 
           <view v-if="editorMode === 'category'" class="editor-row editor-row-column">
             <text class="editor-label">选择分类</text>
-            <view class="chip-wrap">
-              <view
-                v-for="c in availableCategories"
-                :key="c.id"
-                class="chip"
-                :class="{ active: editorCategoryId === c.id }"
-                @click="editorCategoryId = c.id"
-              >
-                <text
-                  class="chip-text"
-                  :style="{ color: editorCategoryId === c.id ? primaryColor : 'var(--app-text-2)' }"
-                >{{ c.name }}</text>
-              </view>
+
+            <!-- 一级分类 -->
+            <view class="picker-row" @click="openParentPicker">
+              <text :class="['picker-value', { placeholder: !editorParentId }]">
+                {{ editorParentId ? parentName(editorParentId) : '选择一级分类' }}
+              </text>
+              <text class="picker-arrow">▾</text>
+            </view>
+
+            <!-- 二级分类（含「全部二级分类」） -->
+            <view class="picker-row" :class="{ disabled: !editorParentId }" @click="openChildPicker">
+              <text :class="['picker-value', { placeholder: childIsPlaceholder }]">
+                {{ childLabel }}
+              </text>
+              <text class="picker-arrow">▾</text>
             </view>
           </view>
         </view>
@@ -249,13 +251,22 @@
       </view>
     </wd-popup>
 
-    <!-- 分类选择 -->
+    <!-- 一级分类选择 -->
     <wd-action-sheet
-      v-model="showCatPicker"
-      :actions="categoryActions"
-      title="选择要设预算的分类"
+      v-model="showParentPicker"
+      :actions="parentActions"
+      title="选择一级分类"
       cancel-text="取消"
-      @select="onCategorySelect"
+      @select="onParentSelect"
+    />
+
+    <!-- 二级分类选择（含「全部二级分类」） -->
+    <wd-action-sheet
+      v-model="showChildPicker"
+      :actions="childActions"
+      title="选择二级分类"
+      cancel-text="取消"
+      @select="onChildSelect"
     />
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
@@ -290,7 +301,14 @@ export default {
     const editorCategoryId = ref('')
     const editorBudgetId = ref('')
     const editorAmount = ref('')
-    const showCatPicker = ref(false)
+    /** 一级分类选择（二级下拉的第一级） */
+    const editorParentId = ref('')
+    /** 二级分类选择：'' 未选 / '__all__' 全部二级分类 / 否则为某个二级分类 id */
+    const editorChildId = ref('')
+    /** 正在编辑的那条预算对应的分类 id（用于「已设预算也能选回自己」） */
+    const editingCatId = ref('')
+    const showParentPicker = ref(false)
+    const showChildPicker = ref(false)
 
     /**
      * wd-swipe-action 的展开状态。
@@ -351,19 +369,79 @@ export default {
       return '额度从总预算里分配'
     })
 
-    /** 已被设过预算的分类不能再选 */
-    const usedCategoryIds = computed(() =>
-      categoryBudgets.value.map((b) => b.categoryId)
+    /** 已被设过预算的分类 id 集合 */
+    const budgetedIds = computed(() => new Set(categoryBudgets.value.map((b) => b.categoryId)))
+
+    /**
+     * 某个分类 id 是否「还能选」。
+     * 已设过预算的不让再选；但当前正在编辑的那条要能选回自己。
+     */
+    function isCategorySelectable(id) {
+      if (!id) return false
+      if (!budgetedIds.value.has(id)) return true
+      return editingCatId.value === id
+    }
+
+    /**
+     * 一级分类（可设预算的父分类）。
+     *
+     * ★ 父分类「整棵」是否可动 ★
+     *   父分类本身没被设过预算（或正在编辑它自己）才出现；
+     *   若已被「全部二级分类」占用（= 父分类已设预算），
+     *   它下面所有二级都已纳入，不能再单独设 —— 整棵排除。
+     *   否则会重复统计。
+     */
+    const parentOptions = computed(() =>
+      categories.value
+        .filter((c) => c.isParent && c.type === 'expense')
+        .filter((p) => isCategorySelectable(p.id))
     )
 
-    const availableCategories = computed(() =>
-      categories.value.filter(
-        (c) => !c.isParent && c.type === 'expense' && !usedCategoryIds.value.includes(c.id)
+    const parentActions = computed(() =>
+      parentOptions.value.map((p) => ({ name: p.name, value: p.id }))
+    )
+
+    /**
+     * 二级分类选项：基于当前选中的一级分类。
+     * 首项固定为「全部二级分类」（value='__all__'，预算落在父分类上，
+     * 统计层会自动聚合它下面所有二级的支出）。
+     */
+    const childOptions = computed(() => {
+      const p = editorParentId.value
+      if (!p) return []
+      const list = []
+      const kids = categories.value.filter((c) => c.parent_id === p.id)
+      // 「全部二级分类」只在该父分类下没有任何「已设预算的子分类」时提供，
+      // 否则会和那些子分类的额度重复统计。
+      const hasBudgetedChild = kids.some(
+        (k) => budgetedIds.value.has(k.id) && k.id !== editingCatId.value
       )
-    )
+      if (isCategorySelectable(p.id) && !hasBudgetedChild) {
+        list.push({ name: '全部二级分类', value: '__all__' })
+      }
+      for (const k of kids) {
+        if (isCategorySelectable(k.id)) list.push({ name: k.name, value: k.id })
+      }
+      return list
+    })
 
-    const categoryActions = computed(() =>
-      availableCategories.value.map((c) => ({ name: c.name, value: c.id }))
+    const childActions = computed(() => childOptions.value)
+
+    function parentName(id) {
+      const c = categories.value.find((x) => x.id === id)
+      return c ? c.name : ''
+    }
+
+    /** 二级下拉的展示文字 */
+    const childLabel = computed(() => {
+      if (!editorParentId.value) return '先选择一级分类'
+      if (editorChildId.value === '__all__') return '全部二级分类'
+      if (editorChildId.value) return parentName(editorChildId.value)
+      return '选择二级分类'
+    })
+
+    const childIsPlaceholder = computed(
+      () => !editorParentId.value || editorChildId.value === ''
     )
 
     const editorTitle = computed(() => {
@@ -391,6 +469,9 @@ export default {
       editorMode.value = 'total'
       editorBudgetId.value = totalBudget.value ? totalBudget.value.id : ''
       editorCategoryId.value = ''
+      editorParentId.value = ''
+      editorChildId.value = ''
+      editingCatId.value = ''
       editorAmount.value = totalBudget.value
         ? String(totalBudget.value.limit / 100)
         : ''
@@ -400,6 +481,16 @@ export default {
     function editCategoryBudget(b) {
       editorMode.value = 'category'
       editorBudgetId.value = b.id
+      editingCatId.value = b.categoryId
+      const cat = categories.value.find((c) => c.id === b.categoryId)
+      if (cat && cat.isParent) {
+        // 「全部二级分类」：预算落在父分类上
+        editorParentId.value = b.categoryId
+        editorChildId.value = '__all__'
+      } else {
+        editorParentId.value = cat ? cat.parent_id : ''
+        editorChildId.value = b.categoryId
+      }
       editorCategoryId.value = b.categoryId
       editorAmount.value = String(b.limit / 100)
       showEditor.value = true
@@ -413,15 +504,27 @@ export default {
      */
     function closeEditor() {
       showEditor.value = false
+      editingCatId.value = ''
       closeAllSwipes()
     }
 
+    /**
+     * 「+ 添加」：直接打开编辑器（不再先弹一次分类选择）。
+     * 分类改在编辑器里的两级下拉里选。
+     */
     function openCategoryPicker() {
-      if (availableCategories.value.length === 0) {
+      if (parentOptions.value.length === 0) {
         uni.showToast({ title: '没有可设置的分类了', icon: 'none' })
         return
       }
-      showCatPicker.value = true
+      editorMode.value = 'category'
+      editorBudgetId.value = ''
+      editingCatId.value = ''
+      editorParentId.value = ''
+      editorChildId.value = ''
+      editorCategoryId.value = ''
+      editorAmount.value = ''
+      showEditor.value = true
     }
 
     /** 点整行 -> 预算详情页 */
@@ -429,15 +532,36 @@ export default {
       uni.navigateTo({ url: `/pages/settings/budget-detail?id=${b.id}` })
     }
 
-    function onCategorySelect({ index }) {
-      const c = availableCategories.value[index]
+    function openParentPicker() {
+      if (parentOptions.value.length === 0) {
+        uni.showToast({ title: '没有可设置的分类了', icon: 'none' })
+        return
+      }
+      showParentPicker.value = true
+    }
+
+    function openChildPicker() {
+      if (!editorParentId.value) return
+      if (childOptions.value.length === 0) {
+        uni.showToast({ title: '该一级分类下没有可选分类', icon: 'none' })
+        return
+      }
+      showChildPicker.value = true
+    }
+
+    function onParentSelect({ index }) {
+      const p = parentOptions.value[index]
+      if (!p) return
+      editorParentId.value = p.id
+      editorChildId.value = ''
+      editorCategoryId.value = ''
+    }
+
+    function onChildSelect({ index }) {
+      const c = childOptions.value[index]
       if (!c) return
-      editorMode.value = 'category'
-      editorBudgetId.value = ''
-      editorCategoryId.value = c.id
-      editorAmount.value = ''
-      showCatPicker.value = false
-      showEditor.value = true
+      editorChildId.value = c.value
+      editorCategoryId.value = c.value === '__all__' ? editorParentId.value : c.value
     }
 
     /**
@@ -487,7 +611,20 @@ export default {
 
       try {
         if (editorBudgetId.value) {
-          await updateBudget(editorBudgetId.value, { amount_cents: cents })
+          // 编辑时分类也可能改（比如从「某个二级」改成「全部二级分类」），
+          // 改了就直接删旧建新（updateBudget 不负责改 category_id）。
+          if (editorMode.value === 'category' && editingCatId.value && editingCatId.value !== editorCategoryId.value) {
+            await deleteBudget(editorBudgetId.value)
+            await createBudget({
+              scope: 'category',
+              category_id: editorCategoryId.value,
+              amount_cents: cents,
+              period: 'month',
+              start_month: toMonthKey()
+            })
+          } else {
+            await updateBudget(editorBudgetId.value, { amount_cents: cents })
+          }
         } else {
           await createBudget({
             scope: editorMode.value,
@@ -581,12 +718,14 @@ export default {
 
     return {
       usages, categories, showEditor, editorMode, editorCategoryId, editorAmount,
-      editorBudgetId,
-      showCatPicker, primaryColor, pageStyle, swipeStates,
+      editorBudgetId, editorParentId, editorChildId,
+      showParentPicker, showChildPicker, primaryColor, pageStyle, swipeStates,
       totalBudget, categoryBudgets, allocation, categorySubTitle,
-      availableCategories, categoryActions, editorTitle,
+      parentOptions, parentActions, childOptions, childActions,
+      parentName, childLabel, childIsPlaceholder, editorTitle,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
-      goBudgetDetail, onCategorySelect, saveBudget, removeBudget,
+      goBudgetDetail, openParentPicker, openChildPicker,
+      onParentSelect, onChildSelect, saveBudget, removeBudget,
       onDeleteFromEditor,
       closeEditor, closeAllSwipes, goBack, settingStore
     }
@@ -938,6 +1077,36 @@ export default {
   flex-shrink: 0;
 }
 
+/* 两级下拉行（一级分类 / 二级分类） */
+.picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 72rpx;
+  padding: 0 24rpx;
+  border-radius: 16rpx;
+  background-color: var(--app-card-2);
+}
+
+.picker-row.disabled {
+  opacity: 0.45;
+}
+
+.picker-value {
+  font-size: 28rpx;
+  color: var(--app-text);
+}
+
+.picker-value.placeholder {
+  color: var(--app-text-3);
+}
+
+.picker-arrow {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
 .amount-input-wrap {
   display: flex;
   align-items: baseline;
@@ -963,25 +1132,5 @@ export default {
   color: var(--app-text-3);
   font-size: 40rpx;
   font-weight: 600;
-}
-
-.chip-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-}
-
-.chip {
-  padding: 10rpx 22rpx;
-  border-radius: 20rpx;
-  background-color: var(--app-card-2);
-}
-
-.chip.active {
-  background-color: var(--app-primary-light);
-}
-
-.chip-text {
-  font-size: 24rpx;
 }
 </style>
