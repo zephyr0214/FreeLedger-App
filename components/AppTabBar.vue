@@ -1,5 +1,10 @@
 <template>
-  <view class="tabbar-host" :class="{ pressing }">
+  <view
+    v-if="!hidden"
+    class="tabbar-host"
+    :class="{ pressing }"
+    :style="hostStyle"
+  >
     <!--
       圆角悬浮底栏
       ★ 为什么不用原生 tabBar ★
@@ -64,7 +69,7 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
 import { TABBAR_ICON_VERSION } from '@/utils/theme.js'
@@ -103,7 +108,20 @@ export default {
      * 「设置 → 记账按钮设置」里长按可以被设成「不响应」，
      * 这时连进度环和震动一起关掉——转完却什么都不发生比没反应更困惑。
      */
-    holdEnabled: { type: Boolean, default: true }
+    holdEnabled: { type: Boolean, default: true },
+    /**
+     * 是否隐藏整个底栏（含 + 按钮）。
+     *
+     * ★ 什么时候要隐藏 ★
+     *   记账面板（TxnPanel）、速记输入条（QuickAddBar）是全屏弹层，
+     *   底栏留在下面会「露一角」在遮罩边缘，很碍眼。
+     *   用户明确要求这两个场景把底栏一起收起来。
+     *
+     * ★ 和「永驻」不冲突 ★
+     *   「永驻」指的是它不会因为滚动、滑动而消失；
+     *   被全屏弹层盖住时收起来是正常的层级关系。
+     */
+    hidden: { type: Boolean, default: false }
   },
   /**
    * ★ 事件名不要用 tap / click ★
@@ -184,44 +202,56 @@ export default {
     /**
      * 滑块位置与颜色。
      *
-     * ★ 关键：跨页面切换时怎么让动画「发生」★
+     * ★ 跨页面切换时动画为什么难做 ★
      *   4 个 tab 是不同页面，切 tab 时本组件整个重新挂载。
      *   如果一挂载就渲染在目标位置，transform 没有过变化，
      *   CSS transition 就不会触发 —— 看到的就是「没有滑块」。
      *
-     *   解法（sliderIndex 的两段式）：
-     *     1. 初始值取 store 里记的「上一页序号」（老位置）
-     *     2. onMounted 的下一帧再改成当前序号（新位置）
-     *   这样 transform 有了 A → B 的变化，过渡就真的跑起来了。
+     * ★ 上一版为什么只生效一次 ★
+     *   两段式位移依赖 uiStore.lastTabIndex，
+     *   但那个值只在 onMounted 里更新 —— 等新页面挂载后才写，
+     *   那时已经晚了：新页面读到的「上次位置」就是它自己。
+     *   于是除第一次外，起点 == 终点，位移为 0，动画自然没有。
      *
-     *   store 里的 lastTabIndex 是跨页面共享的，
-     *   所以「从账户页切到统计页」也能从第 2 格滑到第 3 格。
+     * ★ 现在的做法：点击时就写目标位 ★
+     *   onTabClick 里先把「要去第几格」记到 store（此时旧页面还在），
+     *   新页面挂载时就能读到它，从那个位置滑到自己的位置。
+     *   这样每一级切换都有一段真实位移。
      */
     const uiStore = useUiStore()
 
-    /** 滑块当前渲染用的序号：初始停在上一页，挂载后一帧再跳到本页 */
+    /**
+     * 滑块当前渲染用的序号。
+     *
+     * 初始值 = 上一页留下的位置（通常就是「用户刚点的那一格」），
+     * 于是新页面上滑块会**从上一页的位置滑到本页位置**。
+     * 若没有历史（首次进入），直接落在本页，不做动画。
+     */
     const sliderIndex = ref(
       uiStore.lastTabIndex >= 0 ? uiStore.lastTabIndex : currentIndex.value
     )
 
     onMounted(() => {
-      // 下一帧再改：这一帧已经用「旧位置」渲染过了，
-      // 改变 sliderIndex 才能产生 transform 变化，过渡才有意义。
-      nextTick(() => {
-        setTimeout(() => {
+      // 两帧之后再切到本页位置：
+      //   第一帧用「旧位置」渲染出去（用户看到滑块在上一页那格），
+      //   第二帧改成新位置，transition 才有 A→B 的变化可播。
+      // 用 requestAnimationFrame 而不是 setTimeout(20)：
+      //   前者紧跟渲染节奏，后者在慢机型上可能和首帧撞在一起。
+      const raf = typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (fn) => setTimeout(fn, 16)
+
+      raf(() => {
+        raf(() => {
           sliderIndex.value = currentIndex.value
-          // 记住本页序号，供下一页做动画
-          uiStore.setLastTabIndex(currentIndex.value)
-        }, 20)
+        })
       })
     })
 
     // ★ 同一页面内 current 变化时也要跟着动 ★
-    //   虽然目前每个页面 current 是写死的，但保留这层
-    //   是为了将来做「页内切换」时不会又变成没有动画。
+    //   目前每个页面 current 是写死的，这层是为将来页内切换留的。
     watch(currentIndex, (i) => {
       sliderIndex.value = i
-      uiStore.setLastTabIndex(i)
     })
 
     const sliderStyle = computed(() => {
@@ -264,9 +294,18 @@ export default {
      *   这 4 个页面在 pages.json 里声明为 tabBar 页，
      *   navigateTo / redirectTo 都会失败。
      *   点当前 tab 则什么都不做（避免重复通知原生栏重建页面）。
+     *
+     * ★ 点的时候就记下目标序号 ★
+     *   这是「每次切换都有滑动动画」的关键：
+     *   此刻当前页面还活着，把「要去第几格」写进 store，
+     *   新页面挂载时读到的 lastTabIndex 就是这一格，
+     *   于是滑块会从这一格滑到它自己的位置。
+     *   若等新页面挂载后才写，读到的就是它自己，位移为 0 —— 没动画。
      */
     function onTabClick(item) {
       if (item.active) return
+      const idx = TABS.findIndex((t) => t.name === item.name)
+      if (idx >= 0) uiStore.setLastTabIndex(idx)
       try {
         uni.switchTab({ url: item.path })
       } catch (e) {}
@@ -374,8 +413,53 @@ export default {
       }
     }
 
+    /**
+     * 键盘高度。
+     *
+     * ★ 为什么需要它 ★
+     *   pages.json 里 softinputMode 是 adjustResize：
+     *   键盘弹出时 webview 会**整体收缩**，高度变小。
+     *   底栏是 position: fixed + bottom: 0，
+     *   它贴在 webview 底部 —— webview 一收缩，底栏就被顶上去了，
+     *   表现就是「tabbar 和 + 跟着键盘上移」，看着像粘在键盘上。
+     *
+     * ★ 平时不会看到这个问题 ★
+     *   短按/长按打开弹层时，底栏已经被 hidden 收起来了
+     *   （见 pages/index/index.vue 的 :hidden 绑定）。
+     *   但万一某个场景没藏到（比如将来的页内输入框），
+     *   这里用「键盘高度反向偏移」兜住：把底栏往下推回去，
+     *   让它待在屏幕底部原地不动。
+     *
+     * 注意不要和 QuickAddBar 的定位逻辑搞混：
+     *   输入条是**主动**贴到键盘上方（它要跟着键盘走）；
+     *   底栏是**保持原位**（它不应该跟着键盘走）。
+     */
+    const keyboardHeight = ref(0)
+
+    const hostStyle = computed(() => {
+      // 键盘弹出时往下顶回去，抵消 webview 收缩带来的上移
+      return keyboardHeight.value > 0
+        ? { transform: `translateY(${keyboardHeight.value}px)` }
+        : null
+    })
+
+    function bindKeyboard() {
+      try {
+        if (typeof uni.onKeyboardHeightChange === 'function') {
+          uni.onKeyboardHeightChange((res) => {
+            keyboardHeight.value = res.height || 0
+          })
+        }
+      } catch (e) {}
+    }
+
+    onMounted(() => {
+      bindKeyboard()
+    })
+
     return {
       items, primaryColor, fontColor, barStyle, ringStyle, sliderStyle, pressing,
+      hostStyle,
       iconOf, onTabClick,
       onTouchStart, onTouchEnd, onTouchCancel, onTouchMove
     }
@@ -495,7 +579,15 @@ export default {
 }
 
 /*
- * ★ 选中滑块：全圆角的浅主题色胶囊，铺满整格 ★
+ * ★ 选中滑块：圆角矩形（不是全圆角胶囊），铺满整格 ★
+ *
+ * ★ 为什么不用 999rpx 全圆角 ★
+ *   999rpx 会让滑块两端变成**完整的半圆**（半径 = 高度一半 = 58rpx）。
+ *   但它左右只有 10rpx 的余量，半圆一画出来就像被狠狠削掉两块，
+ *   而且和外面那颗胶囊（半径 64rpx，但它的轮廓很长、弧度很缓）
+ *   放在一起，两者的「弧度走势」完全不同 —— 所以会显得怪。
+ *   现在改成和胶囊同量级的圆角（44rpx）：两端是缓和的圆角矩形，
+ *   既能看出是「一块圆角块」，又不会在格子边上出现突兀的半圆切口。
  *
  * ★ 宽度必须**正好等于单格宽度** ★
  *   内联 style 给的是 translateX(N × 100%)，
@@ -505,11 +597,7 @@ export default {
  *   所以用 calc 从 pill 宽度和 padding 反推，不写死数字。
  *
  * ★ 高度铺满，只留 6rpx 呼吸 ★
- *   上一版用了 ::after 再内缩 top/bottom 10rpx + left/right 8rpx，
- *   实际只剩 119×88rpx —— 比整格小了一大圈，看着「收得太小」。
- *   iOS 的指示器是**几乎铺满整格**的饱满胶囊，
- *   这里改成 116rpx 高（128 格高 - 上下各 6rpx），
- *   横向则由 padding 自然留出缝，不再额外内缩。
+ *   116rpx（128 格高 - 上下各 6rpx），饱满但不顶到边。
  *
  * ★ 用 transform 位移 + transition ★
  *   位移由内联 transform 驱动，切线曲线是 iOS 的
@@ -526,7 +614,11 @@ export default {
   /* 高度几乎铺满整格，只留 6rpx 呼吸 */
   height: 116rpx;
   margin-top: -58rpx;
-  border-radius: 999rpx;
+  /*
+   * 圆角与胶囊同量级（胶囊高 128 用 999rpx 时视觉半径约 64rpx，
+   * 但滑块矮一点、窄一点，取 44rpx 看起来才是「同一套弧度」）。
+   */
+  border-radius: 44rpx;
   background-color: var(--slider-color, transparent);
   box-shadow: var(--slider-highlight, none);
   /*

@@ -31,7 +31,8 @@ npm run icons    # 需要 Python + Pillow
 ```
 
 生成 32 个文件到 `static/tabbar/`：4 个 tab ×（浅色未选中 + 深色未选中 + 6 套主题色的选中态）。
-切换主题或深浅模式时，`utils/theme.js` 用 `uni.setTabBarItem` 动态替换路径。
+底栏是自绘组件（`components/AppTabBar.vue`），它按当前主题色直接拼图标路径来显示，
+不再调用原生的 `setTabBarItem`。
 
 **页面内图标**用 emoji（`utils/icons.js`）。原因：`wd-icons.ttf` 里与消费相关的字形不到十个，
 覆盖不了二十多个记账分类；emoji 原生渲染、彩色、零资源，且用户自定义分类时可直接选。

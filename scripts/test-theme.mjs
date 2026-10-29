@@ -13,7 +13,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
-  buildCssVars, buildWotCssVars, wotThemeClass, refreshTabBarTheme, THEME_PRESETS,
+  buildCssVars, buildWotCssVars, wotThemeClass, THEME_PRESETS,
   isSystemDark, resolveDark, watchSystemTheme, THEME_MODE, applyNativeTheme,
   TABBAR_FONT_COLOR_LIGHT, TABBAR_FONT_COLOR_DARK
 } from '../utils/theme.js'
@@ -80,73 +80,41 @@ console.log('=== 深色 class ===')
 check('深色 class', wotThemeClass(true), 'wot-theme-dark')
 check('浅色 class', wotThemeClass(false), 'wot-theme-light')
 
-console.log('=== tabBar 冲缓存逻辑 ===')
+console.log('=== tabBar 配色（自绘底栏）===')
 
-// 装一个假的 uni，记录调用
-const calls = []
-globalThis.uni = {
-  setTabBarStyle: (opt) => calls.push({ type: 'style', opt }),
-  setTabBarItem: (opt) => calls.push({ type: 'item', opt })
+/* ---------------- 原生 tabBar 刷新逻辑已整体删除 ----------------
+ * 底栏改成自绘悬浮组件后，applyTabBarTheme / refreshTabBarTheme /
+ * TABBAR_ITEMS 全都没有调用方了，已经删掉。
+ * 这里改为断言「它们确实不在了」，防止有人凭记忆又加回来
+ * （加回来会调 uni.showTabBar / setTabBarStyle，
+ *   把已隐藏的原生栏重新显示，和自绘栏叠成两条）。
+ */
+{
+  const themeSrc = readFileSync(join(process.cwd(), 'utils/theme.js'), 'utf-8')
+  check('applyTabBarTheme 已删除', /function applyTabBarTheme/.test(themeSrc), false)
+  check('refreshTabBarTheme 已删除', /function refreshTabBarTheme/.test(themeSrc), false)
+  check('TABBAR_ITEMS 已删除', /const TABBAR_ITEMS/.test(themeSrc), false)
+  // 只查「真实调用」，注释里提到这些 API 名字是允许的
+  check('不再调 setTabBarStyle', /uni\.setTabBarStyle\(/.test(themeSrc), false)
+  check('不再调 setTabBarItem', /uni\.setTabBarItem\(/.test(themeSrc), false)
 }
 
-// force=false：只刷一次样式（不冲缓存）
-calls.length = 0
-refreshTabBarTheme('green', false, false)
-const styleCalls = calls.filter((c) => c.type === 'style')
-check('不冲缓存时只刷一次样式', styleCalls.length, 1)
-check('刷的是目标色', styleCalls[0].opt.selectedColor, '#07C160')
-check('换了 4 个图标', calls.filter((c) => c.type === 'item').length, 4)
-
-// force=true：先冲缓存（默认色）再刷目标色
-calls.length = 0
-refreshTabBarTheme('blue', false, true)
-const styleCalls2 = calls.filter((c) => c.type === 'style')
-check('冲缓存时刷两次样式', styleCalls2.length, 2)
-check('第一次是默认色（冲缓存）', styleCalls2[0].opt.selectedColor, '#07C160')
-check('第二次是目标色', styleCalls2[1].opt.selectedColor, '#1989FA')
-check('深色时图标带 -dark 后缀', (() => {
-  calls.length = 0
-  refreshTabBarTheme('green', true, false)
-  const item = calls.find((c) => c.type === 'item')
-  return item.opt.iconPath
-})(), 'static/tabbar/home-dark-v2.png')
-check('浅色时图标不带后缀', (() => {
-  calls.length = 0
-  refreshTabBarTheme('green', false, false)
-  const item = calls.find((c) => c.type === 'item')
-  return item.opt.iconPath
-})(), 'static/tabbar/home-v2.png')
-check('选中图标按主题色', (() => {
-  calls.length = 0
-  refreshTabBarTheme('purple', false, false)
-  const item = calls.find((c) => c.type === 'item')
-  return item.opt.selectedIconPath
-})(), 'static/tabbar/home-active-purple-v2.png')
-
-/* ---------------- tabBar 文字色：未选中态要比最早的 #969799 深 ----------------
- * 原来浅色用 #969799，白底上几乎糊成一片，
- * 未选中 / 选中的对比太弱，切换 tab 时体感不明显。
- * 现在浅色 #646566、深色 #A1A1A6。
- *
- * ★ 注意：颜色深浅和线条粗细是两回事 ★
- * 用户说「太粗」说的是图标的线条，颜色没被抱怨，
- * 所以深浅维持在第一版的水平，没有继续往正文色加深。
+/* --------------- tabBar 文字色常量仍然保留 ---------------
+ * 自绘底栏直接用这两个值当未选中态文字色
+ * （见 components/AppTabBar.vue 的 fontColor）。
  */
 check('浅色下 tabBar 文字色加深', TABBAR_FONT_COLOR_LIGHT, '#646566')
 check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
 
-calls.length = 0
-refreshTabBarTheme('green', false, false)
-check('setTabBarStyle 用的是加深的浅色文字色', calls.find((c) => c.type === 'style').opt.color, '#646566')
-
-calls.length = 0
-refreshTabBarTheme('green', true, false)
-check('深色下 setTabBarStyle 用深色文字色', calls.find((c) => c.type === 'style').opt.color, '#A1A1A6')
-
-/* --------------- 选中态必须是主题色（与未选中态拉开的对比）--------------- */
-calls.length = 0
-refreshTabBarTheme('red', false, false)
-check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selectedColor, '#EE0A24')
+/* --------------- 选中态必须是主题色 --------------- */
+{
+  const tabbarCode = readFileSync(join(process.cwd(), 'components/AppTabBar.vue'), 'utf-8')
+  // 选中的 tab 文字用 primaryColor，未选中用 fontColor
+  check('选中 tab 文字用主题色',
+    /item\.active \? primaryColor : fontColor/.test(tabbarCode), true)
+  check('未选中色是加深后的灰',
+    /isDark \? '#A1A1A6' : '#646566'/.test(tabbarCode), true)
+}
 
 /* ---------------- tabBar 字号 / 图标尺寸 ----------------
  * ★ 这一节在改成「自绘圆角悬浮底栏」后语义变了 ★
@@ -210,8 +178,10 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
    *     · 用 transform 位移 + transition（能滑过去，不是跳过去）
    */
   check('有选中滑块', /class="tab-slider"/.test(tabbarCode), true)
-  // 滑块直接铺满整格上色（不再套 ::after 内缩），圆角 999rpx
-  check('滑块是全圆角', /\.tab-slider\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
+  // 滑块直接铺满整格上色；圆角用 44rpx（不用 999rpx 全圆角，
+  // 否则两端会画成突兀的半圆，和胶囊的弧度走势对不上）
+  check('滑块是圆角矩形', /\.tab-slider\s*\{[^}]*border-radius:\s*44rpx/.test(tabbarCode), true)
+  check('滑块不用全圆角', /\.tab-slider\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), false)
   check('滑块直接上色', /\.tab-slider\s*\{[^}]*background-color:\s*var\(--slider-color/.test(tabbarCode), true)
   check('滑块用 transform 位移', /transform:\s*`translateX\(/.test(tabbarCode), true)
   check('滑块有过渡动画', /\.tab-slider\s*\{[^}]*transition:\s*transform/.test(tabbarCode), true)
@@ -235,9 +205,37 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
    *   所以必须两段式：初始停在旧位置，挂载后一帧再切到新位置。
    */
   check('滑块有位移动画状态', /sliderIndex/.test(tabbarCode), true)
-  check('挂载后推迟一帧再位移', /onMounted\([\s\S]{0,400}sliderIndex\.value\s*=/.test(tabbarCode), true)
+  check('挂载后推迟一帧再位移', /onMounted\([\s\S]{0,600}sliderIndex\.value\s*=/.test(tabbarCode), true)
   check('store 记住上次位置', /lastTabIndex/.test(
     readFileSync(join(process.cwd(), 'stores/ui.js'), 'utf-8')), true)
+
+  /* ★ 每次切换都要有动画：点 tab 时就写目标位 ★
+   *   只在挂载后写的话，新页面读到的「上次位置」就是它自己，
+   *   位移为 0 —— 这就是「只有第一次有动画」的根因。
+   */
+  check('点 tab 时写入目标位', /function onTabClick[\s\S]{0,500}setLastTabIndex/.test(tabbarCode), true)
+
+  /* ★ 弹层打开时底栏要一起收起 ★
+   *   记账面板 / 速记输入条是全屏弹层，底栏留在遮罩边缘会露一角。
+   */
+  check('底栏有 hidden 开关', /hidden:\s*\{\s*type:\s*Boolean/.test(tabbarCode), true)
+  const homeSrc = readFileSync(join(process.cwd(), 'pages/index/index.vue'), 'utf-8')
+  check('首页把 hidden 接到两个弹层', /:hidden="showQuickAdd \|\| showPanel"/.test(homeSrc), true)
+
+  /* ★ 旧的原生 tabBar 代码必须删干净 ★
+   *   残留的 showTabBar() 会把隐藏的原生栏重新显示，
+   *   和自绘底栏叠成两条 —— 这类残留极难排查，所以要锁住。
+   */
+  const cycleSrc = readFileSync(join(process.cwd(), 'components/CyclePanel.vue'), 'utf-8')
+  check('CyclePanel 不再调 showTabBar', /uni\.showTabBar\(/.test(cycleSrc), false)
+  check('CyclePanel 不再调 hideTabBar', /uni\.hideTabBar\(/.test(cycleSrc), false)
+  const txnPanelSrc = readFileSync(join(process.cwd(), 'components/TxnPanel.vue'), 'utf-8')
+  check('TxnPanel 不再调 showTabBar', /uni\.showTabBar\(/.test(txnPanelSrc), false)
+  const quickAddSrc = readFileSync(join(process.cwd(), 'components/QuickAddBar.vue'), 'utf-8')
+  check('QuickAddBar 不再调 showTabBar', /uni\.showTabBar\(/.test(quickAddSrc), false)
+  // 全项目只允许 utils/tabBar.js 调 hideTabBar（唯一入口）
+  check('hideTabBar 只出现在 utils/tabBar.js',
+    /uni\.hideTabBar\(/.test(readFileSync(join(process.cwd(), 'utils/tabBar.js'), 'utf-8')), true)
 
   /* ★ 高度要够，不能扁 ★
    *   96rpx 那版用户反馈「有点丑」，要求高一些。
@@ -298,8 +296,6 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
   check('自绘底栏是 fixed 定位', /\.tabbar-host\s*\{[^}]*position:\s*fixed/.test(tabbarCode), true)
   check('自绘底栏有安全区适配', /env\(safe-area-inset-bottom\)/.test(tabbarCode), true)
 }
-
-delete globalThis.uni
 
 console.log('=== 系统深浅色检测 ===')
 

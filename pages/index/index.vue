@@ -263,11 +263,13 @@
 
 
       <!-- ⑦ 圆角悬浮底栏：4 个 tab + 右下角记账按钮
-           ★ 按钮永驻 ★ 面板/输入条打开时不再隐藏它，
-             弹层自带遮罩会盖在上面，底栏仍在原处，
-             符合「直接永驻在下方」的要求。 -->
+           ★ hidden 让它在全屏弹层打开时一起收起 ★
+             记账面板 / 速记输入条是整屏弹层，底栏留在遮罩边缘会露一角，
+             很难看，所以这两个场景把它藏起来（用户明确要求）。
+             滚动时仍然永驻，不受影响。 -->
       <AppTabBar
         current="home"
+        :hidden="showQuickAdd || showPanel"
         :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
         @single-press="onFabTap"
         @hold-start="onHoldStart"

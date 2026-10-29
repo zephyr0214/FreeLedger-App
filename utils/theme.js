@@ -4,7 +4,8 @@
  * 设计要点：
  *   1. 组件库走 wd-config-provider 的 theme + themeVars；
  *   2. 自研组件与页面底色走 CSS 变量（--app-*），由 App.vue 注入到根节点；
- *   3. 原生 tabBar 不认 CSS 变量，切主题时必须调 uni.setTabBarStyle；
+ *   3. tabBar 已改为自绘组件（components/AppTabBar.vue），
+ *      它直接读 store 的主题色，不再需要在这里刷原生样式；
  *   4. uni.onThemeChange 在部分 Android 不触发，onShow 时兜底重读系统值。
  */
 
@@ -375,142 +376,24 @@ export function buildWotThemeVars(presetKey) {
 export const TABBAR_FONT_COLOR_LIGHT = '#646566'
 export const TABBAR_FONT_COLOR_DARK = '#A1A1A6'
 
-/** tabBar 四个 tab 的路径与资源名 */
-const TABBAR_ITEMS = [
-  { index: 0, name: 'home' },
-  { index: 1, name: 'account' },
-  { index: 2, name: 'stats' },
-  { index: 3, name: 'mine' }
-]
-
 /**
  * tabBar 图标的版本后缀。
  *
- * ★ 为什么要有版本号 ★
- *   原生 tabBar 会按 iconPath **字符串**缓存已解码的位图。
- *   覆盖安装（不卸载）时，若文件名不变，原生层会复用缓存的旧图，
- *   导致「重新打包了图标还是旧的」。
- *   解法是改文件名（加版本号），让路径字符串变化，
- *   原生层看到新路径就会重新解码，图标立即更新。
+ * ★ 现在还需要它吗 ★
+ *   底栏已改为自绘组件（components/AppTabBar.vue），图标由我们自己
+ *   用 <image> 加载，不再经过原生 tabBar 的位图缓存，
+ *   所以「改完图标必须重新打包才生效」那个老坑已经不适用了。
  *
- * ★ 改图标内容后，必须同步改这里 + theme.json + gen-tabbar-icons.py ★
- *   三处保持一致，否则运行时 setTabBarItem 找不到文件。
+ *   但这个常量仍然有用：static/tabbar/ 下 32 个 PNG 的文件名
+ *   就带这个后缀（*-v2.png），theme.json 里也是同一批路径。
+ *   保留它是为了「文件名 ⇄ 代码」一致，避免有一天想改图标时
+ *   两边对不上。
+ *
+ * ★ 要不要 bump ★
+ *   不必。自绘不走原生缓存，重新打包即可。
+ *   真要改名，需同步：这里 + theme.json（8 处）+ scripts/gen-tabbar-icons.py。
  */
 export const TABBAR_ICON_VERSION = '-v2'
-
-/**
- * ★ 一个已知的坑：原生 tabBar 会按 iconPath 字符串缓存已解码的位图 ★
- *
- *   我们重新生成过更粗的 PNG，但路径还是 `static/tabbar/home.png`。
- *   如果原生层按「path 字符串」缓存 bitmap，
- *   那么 setTabBarItem 再传同一个路径就会复用旧图 ——
- *   表现是「文字色变了、图标没变粗」。
- *   refreshTabBarTheme 的 force 模式只冲 color/selectedColor，救不了图标。
- *
- *   ★★ 所以：改图标内容后必须重新打包，光热更新不生效 ★★
- *   图标粗细改过好几轮（描边 2 → 3 → 2.9 → 2，画布 81 → 108 → 81，
- *   iconWidth 24 → 28 → 25 → 24 → 22），每一轮都要重新构建 App 才能看到效果。
- *   只验证配色变化的话，切一次主题色即可（force 模式会重刷）。
- *   最后一轮「图标缩小一些些」只改了 pages.json 的 iconWidth（24 → 22），
- *   PNG 没动，所以不需要 bump TABBAR_ICON_VERSION。
- *
- *   什么情况下**不会**遇到：
- *     重新打包 / 重新安装后首次启动。原生层的 bitmap 缓存不跨进程，
- *     新包里读到的是新文件，图标就是粗的。
- *   什么情况下会：
- *     同一次运行内替换了同路径的文件（正常开发流程不会这样）。
- *
- *   所以除非真机上确认「重建后图标仍是细的」，
- *   否则不值得为了它把 32 个文件名、theme.json 两套变量、
- *   生成脚本和资源检查脚本全改一遍。
- *   真遇到了，解法是给文件名加版本号（`home.v2.png`）让路径变化。
- */
-
-/**
- * 切换原生 tabBar 配色与图标。
- *
- * 为什么不能只调 setTabBarStyle：
- *   setTabBarStyle 只能改文字颜色和背景，改不了图标。
- *   而 PNG 图标的颜色是烤死在像素里的，所以每套主题色各生成了一份选中态图标，
- *   这里通过 setTabBarItem 逐个替换 iconPath / selectedIconPath。
- *
- * ★ 必须在「有 tabBar 的页面」调用 ★
- *   主题设置页是 navigateTo 过去的子页面，没有 tabBar 实例，
- *   在那里调 setTabBarStyle / setTabBarItem 是无效的
- *   （App 端这两个接口只对 tabBar 页面生效，其它页面静默失败）。
- *   所以这里只由 4 个 tab 页的 onShow 驱动（见 stores/setting.js 的 refreshTabBar）。
- *
- * 前提：static/tabbar/ 下需要有 {name}.png、{name}-dark.png、
- *       {name}-active-{preset}.png（由 scripts/gen-tabbar-icons.py 生成）
- */
-export function applyTabBarTheme(presetKey, dark) {
-  const p = getPreset(presetKey)
-
-  // ★ 返回值 = 这一轮是否「全部调成功」★
-  //   冷启动时 App.onLaunch 里就调本函数，这时原生 tabBar 往往还没建好，
-  //   setTabBarStyle / setTabBarItem 会静默失败（或抛错）。
-  //   旧写法把失败吞掉就完事了 -> 首屏一直是 pages.json 里写死的绿色默认图标，
-  //   用户点一下 tab 触发第二次 onShow 才变过来。
-  //   现在把成功与否报给调用方，由它决定要不要过一会儿再试。
-  let ok = true
-
-  try {
-    uni.setTabBarStyle({
-      color: dark ? TABBAR_FONT_COLOR_DARK : TABBAR_FONT_COLOR_LIGHT,
-      selectedColor: p.primary,
-      backgroundColor: dark ? '#1C1C1E' : '#FFFFFF',
-      borderStyle: dark ? 'black' : 'white'
-    })
-  } catch (e) {
-    ok = false
-  }
-
-  // 替换图标：未选中态按深浅模式切换，选中态按主题色切换
-  const suffix = dark ? '-dark' : ''
-  for (const item of TABBAR_ITEMS) {
-    try {
-      uni.setTabBarItem({
-        index: item.index,
-        iconPath: `static/tabbar/${item.name}${suffix}${TABBAR_ICON_VERSION}.png`,
-        selectedIconPath: `static/tabbar/${item.name}-active-${p.key}${TABBAR_ICON_VERSION}.png`
-      })
-    } catch (e) {
-      ok = false
-    }
-  }
-
-  return ok
-}
-
-/**
- * 重刷 tabBar。
- *
- * @param {string} presetKey 主题色预设
- * @param {boolean} dark 是否深色
- * @param {boolean} force 是否需要「冲缓存」
- *   部分 Android ROM 会缓存 tabBar 的图标与配色，
- *   即使 setTabBarStyle 传了新值也不立刻重绘。
- *   先刷一遍「默认色」再刷目标色可以把缓存冲掉。
- *   但只有主题**刚变了**时才需要这么做 ——
- *   否则每次 onShow 都会闪一下默认色（先白后目标色，很难看）。
- *   所以由调用方（store）判断「变了没有」，把结果传进来。
- */
-export function refreshTabBarTheme(presetKey, dark, force = false) {
-  if (force) {
-    // 先用默认值冲一次缓存
-    try {
-      uni.setTabBarStyle({
-        color: TABBAR_FONT_COLOR_LIGHT,
-        selectedColor: '#07C160',
-        backgroundColor: '#FFFFFF',
-        borderStyle: 'white'
-      })
-    } catch (e) {}
-  }
-
-  // 再刷目标值
-  return applyTabBarTheme(presetKey, dark)
-}
 
 /** 状态栏与导航栏文字颜色 */
 export function applyNavigationBarTheme(dark) {

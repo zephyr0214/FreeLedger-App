@@ -684,19 +684,19 @@ export default {
       }
     }
 
-    function hideTabBar() {
-      try { uni.hideTabBar({ animation: false }) } catch (e) {}
-    }
-
-    function showTabBar() {
-      try { uni.showTabBar({ animation: false }) } catch (e) {}
-    }
+    /*
+     * ★ 这里原来有 hideTabBar / showTabBar，已经删掉 ★
+     *   底栏换成自绘悬浮组件（AppTabBar）后，原生 tabBar 是被
+     *   stores/setting.js 的 refreshTabBar() 永久隐藏的。
+     *   若这里再调 showTabBar()，会把已藏起来的原生栏重新显示出来，
+     *   和自绘底栏叠成两条 —— 这是必须删掉的原因。
+     *   弹层打开时隐藏自绘底栏由页面侧的 :hidden 绑定负责。
+     */
 
     watch(
       () => props.modelValue,
       async (open) => {
-        if (!open) { showTabBar(); return }
-        hideTabBar()
+        if (!open) return
         await accountStore.load()
         await loadOptions()
         if (props.editing) {

@@ -193,8 +193,8 @@ for (const rel of TAB_PAGES) {
   if (!code.includes('refreshTabBar')) {
     errors.push(
       `${rel}: onShow 里缺少 settingStore.refreshTabBar() —— ` +
-      '主题设置页是子页面（没有 tabBar 实例），uni.setTabBarStyle 在那里无效，' +
-      '只能靠 tab 页 onShow 刷新'
+      '它负责隐藏原生 tabBar（底栏是自绘的，不藏会被原生栏叠成两条），' +
+      '且 uni.hideTabBar 只在 tab 页生效，所以每个 tab 页 onShow 都要调'
     )
   }
 }
