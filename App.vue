@@ -245,9 +245,29 @@ view, text, scroll-view, image {
  * 滚动内容末尾的留白。
  * 放在全局是因为 16 个页面都要用，且必须叠加安全区，
  * 否则最后一条内容会被 tabBar 或底部手势条压住。
+ *
+ * ★ 这个值只够「原生 tabBar 或手势条」★
+ *   tab 页现在用的是悬浮圆角底栏（浮在内容之上，不占布局），
+ *   需要更多留白，见下面的 .tabbar-space。
  */
 .bottom-space {
   height: calc(env(safe-area-inset-bottom) + 40rpx);
+}
+
+/**
+ * tab 页专用底部留白：给悬浮底栏让位。
+ *
+ * ★ 为什么需要单独一个类 ★
+ *   原生 tabBar 会「占掉」页面底部高度，内容自然不会被挡；
+ *   换成自绘悬浮栏后它浮在内容之上，不占布局 ——
+ *   若还用 40rpx 的 .bottom-space，最后一条记录会被底栏压住。
+ *
+ * 数值来源：
+ *   底栏高度 128rpx + 底边距 16rpx + 安全区，再留 24rpx 呼吸空间
+ *   → 168rpx + 安全区。留多了页面底部会空一大截，留少了会压住内容。
+ */
+.tabbar-space {
+  height: calc(env(safe-area-inset-bottom) + 168rpx);
 }
 
 /* 文本工具类 */

@@ -179,6 +179,18 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
   check('pill 圆角是全圆角', /\.tabbar\s*\{[^}]*border-radius:\s*999rpx/.test(tabbarCode), true)
   check('+ 按钮是正圆', /\.tab-add\s*\{[^}]*border-radius:\s*50%/.test(tabbarCode), true)
 
+  /* ★ 玻璃质感 + 降级 ★
+   *   用户要「苹果那种带点玻璃感」。
+   *   backdrop-filter 在 App 端（尤其安卓 WebView）支持很差，
+   *   所以必须「支持才模糊、不支持给高不透明底」，
+   *   否则会出现「透出内容但没糊」的脏效果。
+   */
+  check('用了 backdrop-filter', /backdrop-filter:\s*saturate/.test(tabbarCode), true)
+  check('毛玻璃包在 @supports 里', /@supports[^{]*backdrop-filter[\s\S]*?\.tabbar\s*\{/.test(tabbarCode), true)
+  check('有降级底色变量', /--bar-bg-solid/.test(tabbarCode), true)
+  check('默认走降级底色', /\.tabbar\s*\{[^}]*background-color:\s*var\(--bar-bg-solid/.test(tabbarCode), true)
+  check('有玻璃内高光', /inset 0 1rpx 0/.test(tabbarCode), true)
+
   /* ★ 横向不撑满 ★
    *   pill 若用 flex:1 会被拉成通到底的横条，失去悬浮感。
    *   必须给固定宽度 + 外层居中。
@@ -213,6 +225,24 @@ check('选中色是主题色', calls.find((c) => c.type === 'style').opt.selecte
    */
   const pillH = (tabbarCode.match(/\.tabbar\s*\{[^}]*height:\s*(\d+)rpx/) || [])[1]
   check('胶囊高度 >= 120rpx', Number(pillH) >= 120, true)
+
+  /* ★ 4 个 tab 页必须给悬浮底栏留出底部空间 ★
+   *   原生 tabBar 会占掉布局高度，内容自然不被挡；
+   *   换成悬浮栏后它浮在内容之上，必须靠 padding/占位补回来，
+   *   否则最后一条记录会被底栏压住。
+   *   这里断言用的是 .tabbar-space（比 .bottom-space 高），
+   *   挡住「哪天有人把它换回 bottom-space」的回归。
+   */
+  const TAB_PAGES = [
+    'pages/index/index.vue',
+    'pages/account/index.vue',
+    'pages/stats/index.vue',
+    'pages/mine/index.vue'
+  ]
+  for (const rel of TAB_PAGES) {
+    const code = readFileSync(join(process.cwd(), rel), 'utf-8')
+    check(`${rel} 有 tabbar-space 留白`, /class="tabbar-space"/.test(code), true)
+  }
 }
 
 /* ------------- 冷启动时原生 tabBar 要自己补藏，不能等用户点 tab -------------

@@ -84,7 +84,7 @@
         <text class="version-text">自由记 v1.0.0 · 数据全部保存在本机</text>
       </view>
 
-      <view class="bottom-space" />
+      <view class="tabbar-space" />
     </scroll-view>
 
     <!-- 圆角悬浮底栏（与首页同一份组件） -->

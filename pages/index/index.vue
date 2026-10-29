@@ -257,7 +257,7 @@
           />
         </view>
 
-        <view class="bottom-space" />
+        <view class="tabbar-space" />
       </scroll-view>
 
 

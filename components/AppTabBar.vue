@@ -129,19 +129,35 @@ export default {
     const fontColor = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
 
     /**
-     * 底栏外观：圆角 + 边框 + 阴影，深浅色各一套。
+     * 底栏玻璃质感：只负责传「颜色变量」，样式规则在 CSS 里。
      *
-     * 用 primaryColor 之外的固定值，是因为底栏属于「容器」，
-     * 主题只换主色和文字/图标选中色，容器底色跟卡片保持一致。
+     * ★ 为什么拆成 CSS 变量，而不是全用内联样式 ★
+     *   毛玻璃的关键是 backdrop-filter，但它在 App 端支持得很差：
+     *     · iOS：14+ 的 WKWebView 才有
+     *     · Android：多数系统 WebView 直接忽略
+     *     · 小程序 / nvue：完全不支持
+     *   不支持时，半透明底会「透出下面的内容却不模糊」，
+     *   看起来是脏的、花的，比实色还难看。
+     *   所以必须做降级：用 @supports 检测，支持才走真·毛玻璃，
+     *   不支持就用不透明度更高的「仿玻璃」。
+     *   @supports 管不到内联样式，所以颜色得走 CSS 变量。
+     *
+     * ★ 三个要素凑出玻璃感 ★
+     *   1. 半透明底色 —— 让页面内容隐约透出来
+     *   2. 模糊（支持时）—— 把透出来的糊成雾面
+     *   3. 内高光描边 —— 玻璃边缘的折射，缺了就只是块半透明色
      */
     const barStyle = computed(() => {
       const dark = settingStore.isDark
       return {
-        backgroundColor: dark ? '#1C1C1E' : '#FFFFFF',
-        borderColor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
-        boxShadow: dark
-          ? '0 8rpx 32rpx rgba(0,0,0,0.55)'
-          : '0 8rpx 32rpx rgba(0,0,0,0.10)'
+        // 真·玻璃：比较透
+        '--bar-bg': dark ? 'rgba(28,28,30,0.58)' : 'rgba(255,255,255,0.70)',
+        // 降级：不模糊时用更高的不透明度，避免透出内容显脏
+        '--bar-bg-solid': dark ? 'rgba(28,28,30,0.94)' : 'rgba(255,255,255,0.96)',
+        '--bar-border': dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.75)',
+        '--bar-shadow': dark
+          ? '0 12rpx 40rpx rgba(0,0,0,0.55), inset 0 1rpx 0 rgba(255,255,255,0.10)'
+          : '0 12rpx 40rpx rgba(0,0,0,0.10), inset 0 1rpx 0 rgba(255,255,255,0.90)'
       }
     })
 
@@ -179,13 +195,25 @@ export default {
      * ★ 颜色走 CSS 变量 ★
      *   真正上色的是 .tab-slider::after（它比格子小一圈），
      *   伪元素读不到内联 backgroundColor，所以用变量中转。
+     *
+     * ★ iOS 观感的关键：滑块也要「玻璃」★
+     *   iOS 的 tab 指示器半透明、带一点点内高光，
+     *   不是一块实心色。所以：
+     *     浅色 → 浅主题色 + 一道白色内高光（像玻璃片）
+     *     深色 → 白色 14% + 内高光（iOS 深色就是这么做的）
      */
-    const sliderStyle = computed(() => ({
-      transform: `translateX(${currentIndex.value * 100}%)`,
-      '--slider-color': settingStore.isDark
-        ? 'rgba(255,255,255,0.10)'
-        : settingStore.primaryLight
-    }))
+    const sliderStyle = computed(() => {
+      const dark = settingStore.isDark
+      return {
+        transform: `translateX(${currentIndex.value * 100}%)`,
+        '--slider-color': dark
+          ? 'rgba(255,255,255,0.14)'
+          : settingStore.primaryLight,
+        '--slider-highlight': dark
+          ? 'inset 0 1rpx 0 rgba(255,255,255,0.16)'
+          : 'inset 0 1rpx 0 rgba(255,255,255,0.85)'
+      }
+    })
 
     /**
      * 图标路径。
@@ -410,9 +438,38 @@ export default {
   border-radius: 999rpx;
   border-width: 1rpx;
   border-style: solid;
+  border-color: var(--bar-border, rgba(0, 0, 0, 0.05));
+  /*
+   * ★ 默认走「仿玻璃」：不透明度高，不依赖模糊 ★
+   *   支持 backdrop-filter 时下面那段 @supports 会覆盖成真玻璃。
+   *   先写降级版是刻意的 —— 不支持模糊的设备占相当比例，
+   *   与其让它们「透出内容但不糊」显脏，不如直接给干净的高不透明底。
+   */
+  background-color: var(--bar-bg-solid, rgba(255, 255, 255, 0.96));
+  box-shadow: var(--bar-shadow, 0 12rpx 40rpx rgba(0, 0, 0, 0.1));
   padding: 0 10rpx;
   /* 只有 pill 本体吃点击 */
   pointer-events: auto;
+}
+
+/*
+ * ★ 真·毛玻璃：只在支持 backdrop-filter 的环境生效 ★
+ *
+ * 覆盖顺序很重要：
+ *   上面先给了高不透明度的 --bar-bg-solid 兜底，
+ *   这里再换成更透的 --bar-bg + blur。
+ *   如果浏览器支持 @supports 但不支持 backdrop-filter 的模糊
+ *   （安卓 WebView 常见），这条规则不会命中，仍走兜底。
+ *
+ * saturate(180%) 是把透出来的颜色「提纯」一下，
+ * 否则糊完会发灰 —— iOS 的毛玻璃就是这个配比。
+ */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .tabbar {
+    background-color: var(--bar-bg, rgba(255, 255, 255, 0.70));
+    -webkit-backdrop-filter: saturate(180%) blur(24rpx);
+    backdrop-filter: saturate(180%) blur(24rpx);
+  }
 }
 
 /*
@@ -451,10 +508,18 @@ export default {
   width: calc((560rpx - 20rpx) / 4);
   height: 108rpx;
   margin-top: -54rpx;
-  /* 位移由内联 style 提供；这里只管过渡曲线 */
-  transition: transform 0.28s cubic-bezier(0.34, 1.2, 0.64, 1);
+  /*
+   * ★ iOS 的滑动曲线 ★
+   *   0.38s + cubic-bezier(0.32, 0.72, 0, 1)
+   *   这是 iOS 系统动画的经典曲线（也是 Apple 自己常用的）：
+   *   起步快、尾巴长、末尾几乎没有回弹但收得住。
+   *   之前用的 (0.34, 1.2, 0.64, 1) 回弹太夸张，
+   *   像廉价 H5，反而不像 iOS。
+   */
+  transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
   pointer-events: none;
   z-index: 0;
+  will-change: transform;
 }
 
 /*
@@ -466,19 +531,23 @@ export default {
  *   所以外层保持一格宽（负责定位），
  *   真正的色块交给这个伪元素（负责外观）。
  *
- * 背景色由内联 style 写在 .tab-slider 上，
- * 伪元素用 inherit 取不到，所以这里用 CSS 变量中转 ——
- * 见 template 里的 --slider-color。
+ * ★ 内高光 ★
+ *   顶部一道 1rpx 的亮线（inset shadow），
+ *   模拟玻璃片的边缘反光 —— iOS 的胶囊指示器就有这一道，
+ *   去掉它立刻会变成「一块扁平的色块」。
+ *
+ * 背景色由内联 style 通过 CSS 变量传进来（伪元素读不到父级内联样式）。
  */
 .tab-slider::after {
   content: '';
   position: absolute;
-  top: 8rpx;
-  bottom: 8rpx;
-  left: 6rpx;
-  right: 6rpx;
+  top: 10rpx;
+  bottom: 10rpx;
+  left: 8rpx;
+  right: 8rpx;
   border-radius: 999rpx;
   background-color: var(--slider-color, transparent);
+  box-shadow: var(--slider-highlight, none);
 }
 
 .tab-item {
@@ -499,19 +568,20 @@ export default {
  *   底栏加高后图标也跟着放大，否则会显得空。
  *   原生素材是 81px 画布，缩到 48rpx 仍然清晰。
  *
- * ★ 过渡 ★
- *   图标和文字都加了 transition：
- *   切 tab 时滑块滑过去，同时旧图标变灰、新图标上色，
- *   三者同步进行，切换就不会「啪」地一下突变。
+ * ★ 过渡要和滑块同一条曲线 ★
+ *   滑块 0.38s cubic-bezier(0.32,0.72,0,1)，
+ *   图标/文字的变色也用相近的时长，
+ *   三者同步进行才有「整体一起动」的 iOS 感。
+ *   未选中态略微缩小并降低不透明度，
+ *   选中的那个浮起来 —— iOS 就是这个轻微的层级差。
  */
 .tab-icon {
   width: 48rpx;
   height: 48rpx;
   pointer-events: none;
-  transition: opacity 0.22s ease, transform 0.22s ease;
-  /* 未选中稍收一点，选中时回到 1，形成轻微的「浮起」感 */
-  opacity: 0.85;
-  transform: scale(0.96);
+  transition: opacity 0.3s ease, transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+  opacity: 0.82;
+  transform: scale(0.94);
 }
 
 .tab-item.active .tab-icon {
@@ -524,7 +594,7 @@ export default {
   line-height: 1;
   margin-top: 8rpx;
   pointer-events: none;
-  transition: color 0.22s ease;
+  transition: color 0.3s ease;
 }
 
 /* ------------------------------------------------------ + 按钮 */

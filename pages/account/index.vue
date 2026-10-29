@@ -136,7 +136,7 @@
         </view>
       </view>
 
-      <view class="bottom-space" />
+      <view class="tabbar-space" />
     </scroll-view>
 
     <!-- 圆角悬浮底栏（与首页同一份组件，图标/主题色自动跟随） -->
