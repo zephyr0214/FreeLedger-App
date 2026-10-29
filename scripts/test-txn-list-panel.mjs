@@ -68,8 +68,8 @@ check('有占位文案样式', /\.filter-row-value\.placeholder\s*\{/.test(style
 const actionSheets = (template.match(/<wd-action-sheet/g) || []).length
 check('只有一个 wd-action-sheet', actionSheets, 1)
 check('选项表由 pickerActions 驱动', template.includes(':actions="pickerActions"'), true)
-check('每个下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 4)
-check('pickerKind 区分四类下拉', (code.match(/kind === '(account|parent|sub|tag)'/g) || []).length >= 4, true)
+check('每个下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 5)
+check('pickerKind 区分下拉类别', (code.match(/kind === '(account|parent|sub|tag|cycle)'/g) || []).length >= 5, true)
 
 /* ------------------------------------------- 4. 标签是小 tag 胶囊 */
 

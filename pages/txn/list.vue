@@ -75,6 +75,8 @@
             <view class="txn-info">
               <view class="txn-name-row">
                 <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
+                <!-- 周期记账标记：按规则自动/补记的流水打上「周期」徽标 -->
+                <text v-if="txn.cycle_id" class="txn-cycle-tag">周期</text>
                 <!-- 标签：跟在分类名后面（txnTitle 就是分类名），
                      小 tag 胶囊形态，背景用标签自己的颜色 -->
                 <view v-if="txnTags(txn).length" class="txn-tag-list">
@@ -215,6 +217,19 @@
             </view>
           </view>
 
+          <!-- 周期（筛选周期产生的流水，周期详情「全部」深链也会带 cycleId） -->
+          <view class="filter-section">
+            <view class="filter-row" @click="openPicker('cycle')">
+              <text class="filter-row-label">周期</text>
+              <view class="filter-row-right">
+                <text class="filter-row-value" :class="{ placeholder: !filter.cycleId }">
+                  {{ filter.cycleId ? cycleFilterLabel : '全部周期' }}
+                </text>
+                <text class="filter-row-arrow">›</text>
+              </view>
+            </view>
+          </view>
+
           <!-- 关键词 -->
           <view class="filter-section">
             <text class="filter-label">关键词</text>
@@ -293,6 +308,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listTransactions, sumTransactions, deleteTransaction, parseTxnQueryOptions } from '@/api/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
+import { listCycles, recurrenceLabel } from '@/api/cycle.js'
 import { formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
@@ -332,6 +348,8 @@ export default {
     const catLoaded = { expense: false, income: false }
 
     const tags = ref([])
+    /** 周期列表（筛选面板里可按周期筛，详情页「全部」也会带 cycleId 深链） */
+    const cycles = ref([])
 
     const filter = reactive({
       type: 'all',
@@ -346,6 +364,8 @@ export default {
        */
       includeSubcategories: false,
       tagId: '',
+      /** 周期筛选：'' = 不限；非 '' 时只显示该周期产生的流水 */
+      cycleId: '',
       keyword: '',
       minYuan: '',
       maxYuan: ''
@@ -372,7 +392,8 @@ export default {
       account: '选择账户',
       parent: '选择分类',
       sub: '选择二级分类',
-      tag: '选择标签'
+      tag: '选择标签',
+      cycle: '选择周期'
     }
 
     const pickerTitle = computed(() => PICKER_TITLES[pickerKind.value] || '请选择')
@@ -405,6 +426,13 @@ export default {
         for (const t of tags.value) list.push({ name: t.name, value: t.id })
         return list
       }
+      if (kind === 'cycle') {
+        const list = [{ name: '全部周期', value: '' }]
+        for (const c of cycles.value) {
+          list.push({ name: cycleLabel(c), value: c.id })
+        }
+        return list
+      }
       return []
     })
 
@@ -433,6 +461,8 @@ export default {
         onSubCategoryChange(value)
       } else if (kind === 'tag') {
         filter.tagId = value
+      } else if (kind === 'cycle') {
+        filter.cycleId = value
       }
     }
 
@@ -511,6 +541,7 @@ export default {
       if (appliedFilter.accountId) n++
       if (appliedFilter.parentCategoryId || appliedFilter.categoryId) n++
       if (appliedFilter.tagId) n++
+      if (appliedFilter.cycleId) n++
       if (appliedFilter.keyword) n++
       if (appliedFilter.minYuan || appliedFilter.maxYuan) n++
       return n
@@ -662,6 +693,7 @@ export default {
         q.includeSubcategories = true
       }
       if (appliedFilter.tagId) q.tagId = appliedFilter.tagId
+      if (appliedFilter.cycleId) q.cycleId = appliedFilter.cycleId
       if (appliedFilter.keyword) q.keyword = appliedFilter.keyword
 
       const min = parseAmountInput(appliedFilter.minYuan)
@@ -717,7 +749,7 @@ export default {
     function resetFilter() {
       Object.assign(filter, {
         type: 'all', accountId: '', parentCategoryId: '', categoryId: '',
-        includeSubcategories: false, tagId: '',
+        includeSubcategories: false, tagId: '', cycleId: '',
         keyword: '', minYuan: '', maxYuan: ''
       })
       // 重置后类型回到「全部」，分类列表也要跟着回到全量
@@ -779,6 +811,26 @@ export default {
       const m = {}
       for (const t of tags.value) m[t.id] = { name: t.name, color: t.color || '' }
       return m
+    })
+
+    /** 周期的展示名（筛选面板 / 周期徽标用） */
+    function cycleLabel(c) {
+      if (!c) return '周期'
+      if (c.type === 'transfer') {
+        const from = accountStore.list.find((a) => a.id === c.account_id)
+        const to = accountStore.list.find((a) => a.id === c.to_account_id)
+        return `${from ? from.name : '账户'} → ${to ? to.name : '账户'}`
+      }
+      const cat = categories.value.find((x) => x.id === c.category_id)
+      return cat ? cat.name : '未分类'
+    }
+
+    /** 筛选面板里「周期」一行的当前值（周期名 + 规则） */
+    const cycleFilterLabel = computed(() => {
+      if (!appliedFilter.cycleId) return '全部周期'
+      const c = cycles.value.find((x) => x.id === appliedFilter.cycleId)
+      if (!c) return '周期'
+      return `${cycleLabel(c)} · ${recurrenceLabel(c)}`
     })
 
     /**
@@ -901,6 +953,9 @@ export default {
       filter.accountId = q.accountId
       filter.tagId = q.tagId
 
+      // 周期（周期详情「全部」深链会带 cycleId）
+      filter.cycleId = q.cycleId
+
       // 时间范围
       applyDateFromOptions(q)
 
@@ -958,8 +1013,9 @@ export default {
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load()
-      const [tgs] = await Promise.all([listTags()])
+      const [tgs, cys] = await Promise.all([listTags(), listCycles().catch(() => [])])
       tags.value = tgs
+      cycles.value = cys
 
       // URL 上的条件要先生效，分类列表才知道该按哪个类型加载
       if (urlOptions.value) {
@@ -1002,7 +1058,7 @@ export default {
       // 下拉选择器
       showPicker, pickerTitle, pickerActions, openPicker, onPickerSelect,
       // 下拉当前值
-      accountLabel, parentCategoryLabel, subCategoryLabel, tagLabel,
+      accountLabel, parentCategoryLabel, subCategoryLabel, tagLabel, cycleFilterLabel,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
       onTypeChange, onParentCategoryChange, onSubCategoryChange,
       iconChar, txnTitle, txnSub, txnTags, timeLabel, goDetail, goBack, onLongPress
@@ -1183,6 +1239,19 @@ export default {
   font-weight: 500;
   flex-shrink: 1;
   min-width: 0;
+}
+
+/* 周期记账标记：小徽标，主题色描边 + 浅底，和标签胶囊区分开 */
+.txn-cycle-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-primary);
+  background-color: var(--app-primary-light);
+  border: 1rpx solid var(--app-primary);
+  font-weight: 500;
 }
 
 /**

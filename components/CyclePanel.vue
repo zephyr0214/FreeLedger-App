@@ -8,9 +8,14 @@
     @close="onClose"
   >
     <view class="panel">
-      <!-- 顶栏：类型切换居中，取消放右上角（红色） -->
+      <!-- 顶栏：类型切换居中，编辑时左上角放删除，取消放右上角（红色） -->
       <view class="panel-head">
-        <view class="panel-head-spacer" />
+        <view class="panel-head-left">
+          <view v-if="editing" class="panel-delete" @click="onDelete">
+            <LineIcon name="trash" :size="20" :color="'var(--app-danger)'" />
+          </view>
+          <view v-else class="panel-head-spacer" />
+        </view>
         <view class="type-switch">
           <view
             v-for="t in types"
@@ -250,13 +255,17 @@
 import { ref, reactive, computed, watch } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
-import { createCycle } from '@/api/cycle.js'
+import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay } from '@/api/cycle.js'
 import { evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { alertDialog } from '@/utils/dialog.js'
+import { sortCategoriesByUsage } from '@/utils/categorySort.js'
+import { getCategoryUsageCounts } from '@/api/stats.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { toDayKey } from '@/utils/date.js'
 
 const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const RECURRENCES = [
@@ -305,6 +314,7 @@ export default {
     })
 
     const categories = ref([])
+    const usageCounts = ref({})
     const showAccountPicker = ref(false)
     const showToAccountPicker = ref(false)
     const showRecurrencePicker = ref(false)
@@ -314,9 +324,11 @@ export default {
 
     /* ------------------------------------------------------ 计算属性 */
 
+    // ★ 与首页「+」记账面板统一：按最近 30 天使用频率排序，已选中的排第一
     const categoryList = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
-      return categories.value.filter((c) => c.type === type && !c.isParent)
+      const list = categories.value.filter((c) => c.type === type && !c.isParent)
+      return sortCategoriesByUsage(list, usageCounts.value, form.category_id)
     })
 
     const CAT_SLOTS = 12
@@ -408,9 +420,26 @@ export default {
       return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
     }
 
+    /** 周期简称（弹窗文案用）：分类名 / 转账两端名 */
+    function cycleNamePreview(cycle) {
+      if (cycle.type === 'transfer') {
+        const from = accountStore.list.find((a) => a.id === cycle.account_id)
+        const to = accountStore.list.find((a) => a.id === cycle.to_account_id)
+        return `${from ? from.name : '账户'} → ${to ? to.name : '账户'}`
+      }
+      const cat = categories.value.find((x) => x.id === cycle.category_id)
+      return cat ? cat.name : '未分类'
+    }
+
     function switchType(key) {
       form.type = key
-      if (key !== 'transfer') form.to_account_id = ''
+      if (key !== 'transfer') {
+        form.to_account_id = ''
+        // 切换到支出/收入时，默认选中该类型下的第一个分类（与首页「+」一致）
+        if (!categoryList.value.some((c) => c.id === form.category_id)) {
+          form.category_id = defaultCategoryId.value || ''
+        }
+      }
     }
 
     function pickCategory(cat) {
@@ -483,7 +512,12 @@ export default {
     }
 
     async function loadOptions() {
-      categories.value = await listCategories()
+      const [cats, counts] = await Promise.all([
+        listCategories(),
+        getCategoryUsageCounts(30).catch(() => ({}))
+      ])
+      categories.value = cats
+      usageCounts.value = counts || {}
     }
 
     function resetForm() {
@@ -495,9 +529,11 @@ export default {
       form.day_of_month = 1
       form.to_account_id = ''
       form.account_id = settingStore.settings.defaultAccountId || (accountStore.list[0] || {}).id || ''
+      // ★ 与首页「+」一致：默认选中排序后的第一个分类，避免「完成没反应」
       form.category_id = defaultCategoryId.value || ''
     }
 
+    // ★ 与首页「+」一致：默认分类 = 当前类型下排序后的第一个
     const defaultCategoryId = computed(() => {
       const list = categoryList.value
       return list.length > 0 ? list[0].id : ''
@@ -508,7 +544,10 @@ export default {
       form.amountRaw = String(c.amount_cents / 100)
       form.account_id = c.account_id
       form.to_account_id = c.to_account_id || ''
-      form.category_id = c.category_id || ''
+      // 编辑时沿用周期自己的分类；万一分类被删了则退回默认第一个
+      form.category_id = c.category_id && c.type !== 'transfer'
+        ? c.category_id
+        : (defaultCategoryId.value || '')
       form.note = c.note || ''
       form.recurrence = c.recurrence || 'monthly'
       form.weekday = Number(c.weekday) || 1
@@ -550,29 +589,80 @@ export default {
       }
 
       const cents = evaluateAmount(form.amountRaw)
+      const patch = {
+        type: form.type,
+        amount_cents: cents,
+        account_id: form.account_id,
+        to_account_id: form.type === 'transfer' ? form.to_account_id : null,
+        category_id: form.type === 'transfer' ? null : form.category_id,
+        note: form.note.trim(),
+        recurrence: form.recurrence,
+        weekday: form.recurrence === 'weekly' ? Number(form.weekday) : null,
+        day_of_month: form.recurrence === 'monthly' ? Number(form.day_of_month) : null
+      }
       try {
-        await createCycle({
-          type: form.type,
-          amount_cents: cents,
-          account_id: form.account_id,
-          to_account_id: form.type === 'transfer' ? form.to_account_id : null,
-          category_id: form.type === 'transfer' ? null : form.category_id,
-          note: form.note.trim(),
-          recurrence: form.recurrence,
-          weekday: form.recurrence === 'weekly' ? Number(form.weekday) : null,
-          day_of_month: form.recurrence === 'monthly' ? Number(form.day_of_month) : null
-        })
+        if (props.editing) {
+          // 编辑：只改规则，不动已产生的流水；不弹「今天记一笔」
+          await updateCycle(props.editing.id, patch)
+          await settingStore.update({ defaultAccountId: form.account_id })
+          uni.showToast({ title: '周期已更新', icon: 'success' })
+          emit('saved')
+          visible.value = false
+          return
+        }
+
+        // ★ 新建：不默认立刻记第一笔；只有当「今天本就该发生」时才弹窗询问 ★
+        //   每天：今天必然发生
+        //   每周：今天恰好是该周几
+        //   每月：今天恰好是该日（clamp 后仍是今天）
+        const cycle = await createCycle(patch)
         await settingStore.update({ defaultAccountId: form.account_id })
+
+        const today = toDayKey()
+        if (occursOnDay(cycle, today)) {
+          const ok = await confirmDialog({
+            title: '今天要记一笔吗？',
+            content: `「${cycleNamePreview(cycle)}」按规则今天应该记一笔，是否现在记？`,
+            confirmText: '记一笔',
+            cancelText: '先不记'
+          })
+          if (ok) {
+            await recordCycleForDay(cycle.id, today)
+            uni.showToast({ title: '已记一笔', icon: 'success' })
+          }
+        }
+
         uni.showToast({ title: '周期已创建', icon: 'success' })
         emit('saved')
         visible.value = false
       } catch (e) {
-        await alertDialog({ title: '创建失败', content: e.message })
+        await alertDialog({ title: props.editing ? '保存失败' : '创建失败', content: e.message })
       }
     }
 
     function onClose() {
       visible.value = false
+    }
+
+    /** 编辑时左上角删除：软删除周期（保留已记流水） */
+    async function onDelete() {
+      if (!props.editing) return
+      const c = props.editing
+      const ok = await confirmDialog({
+        title: '删除这个周期？',
+        content: '已记的流水会保留，只是不再按这个周期提醒',
+        confirmText: '删除',
+        danger: true
+      })
+      if (!ok) return
+      try {
+        await deleteCycle(c.id)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        emit('saved')
+        visible.value = false
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
     }
 
     function hideTabBar() {
@@ -605,15 +695,15 @@ export default {
           form.category_id = ''
           return
         }
-        const valid = categoryList.value.some((c) => c.id === form.category_id)
-        if (!valid && categoryList.value.length > 0) {
-          form.category_id = categoryList.value[0].id
+        // 非转账：保持当前选中（若仍有效），否则回落到该类型第一个分类
+        if (!categoryList.value.some((c) => c.id === form.category_id)) {
+          form.category_id = defaultCategoryId.value || ''
         }
       }
     )
 
     return {
-      visible, types, form, primaryColor, currencySymbol,
+      visible, editing, types, form, primaryColor, currencySymbol,
       categoryRows, moreRowItems, allCategoryItems,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, amountFilled,
@@ -627,7 +717,7 @@ export default {
       openWeekdayPicker, openDayPicker,
       onAccountSelect, onToAccountSelect, onRecurrenceSelect,
       onWeekdaySelect, onDaySelect,
-      onFinish, onClose
+      onFinish, onClose, onDelete
     }
   }
 }
@@ -649,6 +739,21 @@ export default {
 .panel-head-spacer {
   width: 80rpx;
   flex-shrink: 0;
+}
+
+.panel-head-left {
+  width: 80rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.panel-delete {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .panel-cancel {

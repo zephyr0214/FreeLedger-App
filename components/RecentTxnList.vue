@@ -35,7 +35,11 @@
 
             <!-- 名称 + 副标题（时间 / 账户 / 备注） -->
             <view class="txn-info">
-              <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
+              <view class="txn-name-row">
+                <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
+                <!-- 周期记账标记：按规则自动/补记的流水打上「周期」徽标 -->
+                <text v-if="txn.cycle_id && !props.hideCycleTag" class="txn-cycle-tag">周期</text>
+              </view>
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>
 
@@ -99,7 +103,12 @@ export default {
      *   转出 = 负数（-），转入 = 正数（+）。
      * 不给则转账不显示正负号（用中性色）。
      */
-    accountId: { type: String, default: '' }
+    accountId: { type: String, default: '' },
+    /**
+     * 是否隐藏「周期」徽标。
+     * 周期详情页整页都是周期流水，逐行打徽标很吵；首页/全部交易等混排列表要显示。
+     */
+    hideCycleTag: { type: Boolean, default: false }
   },
   emits: ['more'],
   setup(props, { emit }) {
@@ -322,9 +331,29 @@ export default {
   min-width: 0;
 }
 
+.txn-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
 .txn-name {
   font-size: 26rpx;
   color: var(--app-text);
+}
+
+/* 周期记账标记：小徽标，主题色描边 + 浅底，和标签胶囊区分开 */
+.txn-cycle-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-primary);
+  background-color: var(--app-primary-light);
+  border: 1rpx solid var(--app-primary);
+  font-weight: 500;
 }
 
 .txn-sub {

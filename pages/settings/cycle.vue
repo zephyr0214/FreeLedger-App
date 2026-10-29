@@ -39,8 +39,8 @@
               class="row-swipe"
             >
               <view class="row" @click="goDetail(c)">
-                <view class="row-icon" :style="{ backgroundColor: c.color || primaryColor }">
-                  <text class="row-icon-text">{{ c.iconChar }}</text>
+                <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
+                  <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
                 <view class="row-info">
                   <text class="row-name">{{ c.name }}</text>
@@ -72,8 +72,8 @@
               class="row-swipe"
             >
               <view class="row" @click="goDetail(c)">
-                <view class="row-icon" :style="{ backgroundColor: c.color || primaryColor }">
-                  <text class="row-icon-text">{{ c.iconChar }}</text>
+                <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
+                  <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
                 <view class="row-info">
                   <text class="row-name">{{ c.name }}</text>
@@ -105,8 +105,8 @@
               class="row-swipe"
             >
               <view class="row" @click="goDetail(c)">
-                <view class="row-icon" :style="{ backgroundColor: c.color || primaryColor }">
-                  <text class="row-icon-text">{{ c.iconChar }}</text>
+                <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
+                  <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
                 </view>
                 <view class="row-info">
                   <text class="row-name">{{ c.name }}</text>
@@ -343,7 +343,7 @@ export default {
 
 .row-icon-text {
   font-size: 30rpx;
-  color: #ffffff;
+  color: inherit;
   font-weight: 500;
 }
 

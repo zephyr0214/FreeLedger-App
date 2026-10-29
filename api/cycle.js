@@ -79,9 +79,15 @@ function validateCycle(input) {
 }
 
 /**
- * 新建周期，并记下第一笔流水。
+ * 新建周期。
  *
- * @returns {{ cycle: object, txn: object }}
+ * ★ 不立刻记第一笔 ★
+ *   账户/用户可能只是先建好模板，当天（或这个月）并不想立刻落账。
+ *   是否立刻记，由调用方（CyclePanel）按规则弹窗询问。
+ *   游标初始化为今天 —— 创建当天按规则若「本就该发生」（如每天、或周/月恰好是当天），
+ *   会在弹窗里询问用户；历史日期一概不回补。
+ *
+ * @returns {object} 新建的周期
  */
 export async function createCycle(input) {
   validateCycle(input)
@@ -108,12 +114,11 @@ export async function createCycle(input) {
       input.recurrence === 'monthly' ? (Number(input.day_of_month) || 1) : null,
       now,
       now,
-      toDayKey() // 游标初始化为今天：创建当天已记第一笔，不回补历史
+      toDayKey() // 游标初始化为今天：创建当天是否记，交给弹窗决定；历史不回补
     ]
   )
 
-  const txn = await recordCycle(id)
-  return { cycle: await getCycle(id), txn }
+  return getCycle(id)
 }
 
 /**
@@ -249,7 +254,17 @@ export async function countCycleTxns(cycleId) {
 }
 
 /**
- * 计算某个周期内、落在 [startDay, endDay] 闭区间内的所有「发生日」。
+ * 某个发生日是否落在该周期内（用于「新建/编辑时今天是否该记一笔」判断）。
+ * @param {object} cycle 周期对象
+ * @param {string} day YYYY-MM-DD
+ * @returns {boolean}
+ */
+export function occursOnDay(cycle, day) {
+  const days = occurrencesInRange(cycle, day, day)
+  return days.length === 1 && days[0] === day
+}
+
+/**
  * 返回 YYYY-MM-DD 数组（升序）。
  *
  * ★ 纯本地日期运算，不碰数据库、不联网 ★
