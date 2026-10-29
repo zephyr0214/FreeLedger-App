@@ -39,14 +39,22 @@
       <!-- ① 分类统计 -->
       <view class="card">
         <view class="card-head">
-          <view class="card-head-left">
-            <text class="card-title">分类统计</text>
-            <!-- ★ 一级/二级分类下拉 ★ -->
-            <text class="level-tag" @click="openLevelSheet('category')">
-              {{ categoryLevelLabel }}<text class="level-arrow"> ▾</text>
-            </text>
-          </view>
-          <view class="type-toggle">
+          <text class="card-title">分类统计</text>
+          <view class="card-head-right">
+            <!-- ★ 一级/二级分类切换：与支出/收入同款按钮，放左边 ★ -->
+            <view class="type-toggle">
+              <text
+                class="type-tag"
+                :class="{ active: categoryLevel === 'sub' }"
+                @click="switchCategoryLevel('sub')"
+              >二级</text>
+              <text
+                class="type-tag"
+                :class="{ active: categoryLevel === 'root' }"
+                @click="switchCategoryLevel('root')"
+              >一级</text>
+            </view>
+            <view class="type-toggle">
               <text
                 class="type-tag"
                 :class="{ active: categoryStatType === 'expense' }"
@@ -57,6 +65,7 @@
                 :class="{ active: categoryStatType === 'income' }"
                 @click="switchCategoryType('income')"
               >收入</text>
+            </view>
           </view>
         </view>
 
@@ -204,17 +213,17 @@
             <text class="axis-text">{{ dailyTrend.length ? dailyTrend[0].label + trendUnit : '—' }}</text>
             <text class="axis-text">{{ dailyTrend.length ? dailyTrend[dailyTrend.length - 1].label + trendUnit : '—' }}</text>
           </view>
-          <!-- ★ 最高日 / 最低日 ★ -->
+          <!-- ★ 最高日 / 最低日：左右两边对齐，价签黑色 ★ -->
           <view v-if="dailyExtremes" class="daily-extremes">
             <view class="daily-extreme">
               <text class="extreme-label">最高{{ trendUnit === '月' ? '月' : '日' }}</text>
               <text class="extreme-value">{{ dailyExtremes.max.label }}{{ trendUnit }} · </text>
-              <MoneyText :cents="dailyExtremes.max.expense" :size="24" color="var(--app-danger)" />
+              <MoneyText :cents="dailyExtremes.max.expense" :size="24" color="var(--app-text)" />
             </view>
             <view class="daily-extreme">
               <text class="extreme-label">最低{{ trendUnit === '月' ? '月' : '日' }}</text>
               <text class="extreme-value">{{ dailyExtremes.min.label }}{{ trendUnit }} · </text>
-              <MoneyText :cents="dailyExtremes.min.expense" :size="24" color="var(--app-text-2)" />
+              <MoneyText :cents="dailyExtremes.min.expense" :size="24" color="var(--app-text)" />
             </view>
           </view>
         </view>
@@ -223,24 +232,33 @@
       <!-- ④ 平均值：总体 + 各分类 -->
       <view class="card">
         <view class="card-head">
-          <view class="card-head-left">
-            <text class="card-title">平均值</text>
-            <!-- ★ 一级/二级分类下拉 ★ -->
-            <text class="level-tag" @click="openLevelSheet('average')">
-              {{ averageLevelLabel }}<text class="level-arrow"> ▾</text>
-            </text>
-          </view>
-          <view class="type-toggle">
-            <text
-              class="type-tag"
-              :class="{ active: averageStatType === 'expense' }"
-              @click="switchAverageType('expense')"
-            >支出</text>
-            <text
-              class="type-tag"
-              :class="{ active: averageStatType === 'income' }"
-              @click="switchAverageType('income')"
-            >收入</text>
+          <text class="card-title">平均值</text>
+          <view class="card-head-right">
+            <!-- ★ 一级/二级分类切换：与支出/收入同款按钮，放左边 ★ -->
+            <view class="type-toggle">
+              <text
+                class="type-tag"
+                :class="{ active: averageLevel === 'sub' }"
+                @click="switchAverageLevel('sub')"
+              >二级</text>
+              <text
+                class="type-tag"
+                :class="{ active: averageLevel === 'root' }"
+                @click="switchAverageLevel('root')"
+              >一级</text>
+            </view>
+            <view class="type-toggle">
+              <text
+                class="type-tag"
+                :class="{ active: averageStatType === 'expense' }"
+                @click="switchAverageType('expense')"
+              >支出</text>
+              <text
+                class="type-tag"
+                :class="{ active: averageStatType === 'income' }"
+                @click="switchAverageType('income')"
+              >收入</text>
+            </view>
           </view>
         </view>
 
@@ -323,16 +341,6 @@
       @hold-end="onAddHoldEnd"
     />
 
-    <!-- ★ 一级/二级分类下拉：分类统计、平均值共用 ★ -->
-    <wd-action-sheet
-      v-model="showLevelSheet"
-      title="选择分类层级"
-      :actions="levelActions"
-      :z-index="120"
-      cancel-text="取消"
-      @select="onLevelSelect"
-    />
-
   </view>
 </template>
 
@@ -381,30 +389,12 @@ export default {
 
     /*
      * ★ 分类层级：一级分类 / 二级分类 ★
-     *   分类统计、平均值两个面板各有独立的下拉。
+     *   分类统计、平均值两个面板各有独立的切换（与支出/收入同款按钮）。
      *   'sub' = 二级分类（午餐、外卖…，默认，贴近用户实际记的）
      *   'root' = 一级分类（餐饮、居住…，统计口径）
      */
     const categoryLevel = ref('sub')
     const averageLevel = ref('sub')
-
-    /** 分类统计面板的层级文案 */
-    const categoryLevelLabel = computed(() =>
-      categoryLevel.value === 'root' ? '一级分类' : '二级分类'
-    )
-
-    /** 平均值面板的层级文案 */
-    const averageLevelLabel = computed(() =>
-      averageLevel.value === 'root' ? '一级分类' : '二级分类'
-    )
-
-    /** 一级/二级下拉：共用一个 wd-action-sheet */
-    const showLevelSheet = ref(false)
-    const levelSheetTarget = ref('') // 'category' | 'average' | ''
-    const levelActions = [
-      { name: '二级分类', value: 'sub' },
-      { name: '一级分类', value: 'root' }
-    ]
 
     const categoryStats = ref([])
     const accountStats = ref([])
@@ -677,47 +667,31 @@ export default {
       }
     }
 
-    /* ------------------------------------------------ 一级/二级分类下拉 */
+    /* ------------------------------------------------ 一级/二级分类切换 */
 
-    /** 打开层级下拉（分类统计 / 平均值 共用） */
-    function openLevelSheet(target) {
-      levelSheetTarget.value = target
-      showLevelSheet.value = true
+    /** 分类统计：切换一级/二级分类 */
+    async function switchCategoryLevel(level) {
+      if (categoryLevel.value === level) return
+      categoryLevel.value = level
+      try {
+        categoryStats.value = categoryLevel.value === 'root'
+          ? await getCategoryStatsRange(range.value, categoryStatType.value)
+          : await getSubCategoryStatsRange(range.value, categoryStatType.value)
+      } catch (e) {
+        console.error('[stats] 分类统计层级切换失败', e)
+      }
     }
 
-    /**
-     * 选择层级。
-     * @param {object} e wd-action-sheet 的 select 事件，选中项在 e.item
-     */
-    async function onLevelSelect(e) {
-      const item = e && e.item ? e.item : null
-      if (!item) return
-      const level = item.value
-      const target = levelSheetTarget.value
-      showLevelSheet.value = false
-
-      if (!level || !target) return
-
-      if (target === 'category') {
-        if (categoryLevel.value === level) return
-        categoryLevel.value = level
-        try {
-          categoryStats.value = categoryLevel.value === 'root'
-            ? await getCategoryStatsRange(range.value, categoryStatType.value)
-            : await getSubCategoryStatsRange(range.value, categoryStatType.value)
-        } catch (e) {
-          console.error('[stats] 分类统计层级切换失败', e)
-        }
-      } else if (target === 'average') {
-        if (averageLevel.value === level) return
-        averageLevel.value = level
-        try {
-          categoryAverages.value = averageLevel.value === 'root'
-            ? await getCategoryAveragesRange(range.value, averageStatType.value)
-            : await getSubCategoryAveragesRange(range.value, averageStatType.value)
-        } catch (e) {
-          console.error('[stats] 平均值层级切换失败', e)
-        }
+    /** 平均值：切换一级/二级分类 */
+    async function switchAverageLevel(level) {
+      if (averageLevel.value === level) return
+      averageLevel.value = level
+      try {
+        categoryAverages.value = averageLevel.value === 'root'
+          ? await getCategoryAveragesRange(range.value, averageStatType.value)
+          : await getSubCategoryAveragesRange(range.value, averageStatType.value)
+      } catch (e) {
+        console.error('[stats] 平均值层级切换失败', e)
       }
     }
 
@@ -738,8 +712,7 @@ export default {
       settingStore,
       dateRange,
       categoryStatType, accountStatType, accountTypeStatType, averageStatType,
-      categoryLevel, averageLevel, categoryLevelLabel, averageLevelLabel,
-      showLevelSheet, levelActions,
+      categoryLevel, averageLevel,
       categoryStats, accountStats, accountTypeStats, categoryAverages,
       dailyTrend, averages, topExpenses, overview,
       primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
@@ -749,7 +722,7 @@ export default {
       barHeight, shortDay, accColor,
       loadAll, onRangeChange,
       switchCategoryType, switchAccountType, switchAccountTypeType, switchAverageType,
-      openLevelSheet, onLevelSelect,
+      switchCategoryLevel, switchAverageLevel,
       onAddTap, onAddHoldEnd,
       goTxnDetail, goAiChat, goProfile
     }
@@ -819,28 +792,12 @@ export default {
   margin-bottom: 20rpx;
 }
 
-/* 标题 + 层级下拉（一级/二级）放左边一组 */
-.card-head-left {
+/* 标题右侧：层级切换 + 支出/收入切换并排 */
+.card-head-right {
   display: flex;
   align-items: center;
   gap: 12rpx;
-  min-width: 0;
-}
-
-/* 一级/二级分类下拉：标题旁边的浅色胶囊，点击弹底部选项表 */
-.level-tag {
-  font-size: 22rpx;
-  color: var(--app-primary);
-  background-color: var(--app-primary-light);
-  border-radius: 12rpx;
-  padding: 4rpx 14rpx;
   flex-shrink: 0;
-}
-
-.level-arrow {
-  font-size: 20rpx;
-  color: var(--app-primary);
-  opacity: 0.8;
 }
 
 .card-title-row {
@@ -916,12 +873,14 @@ export default {
 
 .donut-img {
   /*
-   * ★ 宽高比固定 ★
+   * ★ 横向撑满卡片 ★
    *   SVG viewBox 是 300×180（5:3），mode="widthFix" 会按比例撑高，
    *   所以这里不需要写死 height —— 让它随宽度等比缩放，
    *   引导线和文字才不会变形。
+   *   width: 100% 让图撑满卡片内容区（630rpx），
+   *   引导线文字左右正好贴卡片内边距，视觉上横贯整张卡。
    */
-  width: 560rpx;
+  width: 100%;
 }
 
 /* 排行 */
@@ -1113,10 +1072,10 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 日趋势下方的最高/最低日 */
+/* 日趋势下方的最高/最低日：左右两边对齐 */
 .daily-extremes {
   display: flex;
-  gap: 32rpx;
+  justify-content: space-between;
   margin-top: 20rpx;
   padding-top: 16rpx;
   border-top: 1rpx solid var(--app-line);
