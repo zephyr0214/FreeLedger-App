@@ -259,19 +259,20 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
-import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay } from '@/api/cycle.js'
+import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay, skipCycleDay } from '@/api/cycle.js'
 import { evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
+import { pushLayer } from '@/utils/layerStack.js'
 
 const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const RECURRENCES = [
@@ -648,6 +649,13 @@ export default {
           if (ok) {
             await recordCycleForDay(cycle.id, today)
             uni.showToast({ title: '已记一笔', icon: 'success' })
+          } else {
+            /*
+             * ★ 用户选了「先不记」= 明确表达今天不要 ★
+             *   必须记进 cycle_skip，否则下次进 App 的自动补记会发现
+             *   「今天还没有流水」，又替他补上 —— 等于没问过。
+             */
+            await skipCycleDay(cycle.id, today)
           }
         }
 
@@ -696,7 +704,19 @@ export default {
     watch(
       () => props.modelValue,
       async (open) => {
-        if (!open) return
+        if (!open) {
+          if (unregisterLayer) {
+            unregisterLayer()
+            unregisterLayer = null
+          }
+          return
+        }
+
+        // 打开时登记到弹层栈：侧滑返回先收起面板，而不是退出页面
+        if (!unregisterLayer) {
+          unregisterLayer = pushLayer(() => { visible.value = false }, 'cyclePanel')
+        }
+
         await accountStore.load()
         await loadOptions()
         if (props.editing) {
@@ -706,6 +726,49 @@ export default {
         }
       }
     )
+
+    /** 弹层栈注销函数 */
+    let unregisterLayer = null
+
+    /*
+     * ★ 面板内部的选择器同样要能侧滑收起 ★
+     *   账户 / 转入账户 / 重复方式 / 周几 / 几号 / 更多分类，
+     *   都叠在周期面板之上。侧滑返回应逐层关闭：
+     *   先关最上面的选择器，再关周期面板，而不是一次退出页面。
+     */
+    const sheetUnregisters = {}
+    function bindSheet(name, refObj) {
+      watch(refObj, (open) => {
+        if (open) {
+          if (!sheetUnregisters[name]) {
+            sheetUnregisters[name] = pushLayer(() => { refObj.value = false }, name)
+          }
+          return
+        }
+        if (sheetUnregisters[name]) {
+          sheetUnregisters[name]()
+          sheetUnregisters[name] = null
+        }
+      })
+    }
+
+    bindSheet('cycAccountPicker', showAccountPicker)
+    bindSheet('cycToAccountPicker', showToAccountPicker)
+    bindSheet('cycRecurrencePicker', showRecurrencePicker)
+    bindSheet('cycWeekdayPicker', showWeekdayPicker)
+    bindSheet('cycDayPicker', showDayPicker)
+    bindSheet('cycMoreCategories', showMoreCategories)
+
+    onUnmounted(() => {
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
+      Object.keys(sheetUnregisters).forEach((k) => {
+        if (sheetUnregisters[k]) sheetUnregisters[k]()
+        sheetUnregisters[k] = null
+      })
+    })
 
     watch(
       () => form.type,

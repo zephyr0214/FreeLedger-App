@@ -756,16 +756,22 @@ export async function importPayload(payload, opt = {}) {
       for (const t of payload.transactions) {
         const exists = mode === 'merge' ? await queryOne('SELECT id FROM txn WHERE id = ?', [t.id]) : null
         if (exists) { report.skipped++; continue }
+        /*
+         * ★ 导入时忽略旧备份里的 source / raw_text ★
+         *   老备份 JSON 里可能带这两个字段，但当前库已停用它们
+         *   （v10 迁移，新装库连列都没有），所以不写入。
+         *   其余字段照常恢复，不影响历史数据导入。
+         */
         await execute(
           `INSERT INTO txn (id, type, amount_cents, account_id, to_account_id, category_id, note,
-            occurred_at, occurred_day, month_key, year_key, tz_offset, source, raw_text,
+            occurred_at, occurred_day, month_key, year_key, tz_offset,
             cycle_id, created_at, updated_at, deleted_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             t.id, t.type, t.amount_cents, t.account_id, t.to_account_id || null,
             t.category_id || null, t.note || '',
             t.occurred_at, t.occurred_day, t.month_key, t.year_key, t.tz_offset || 480,
-            t.source || 'import', t.raw_text || null, t.cycle_id || null,
+            t.cycle_id || null,
             t.created_at || Date.now(), t.updated_at || Date.now(), t.deleted_at || null
           ]
         )

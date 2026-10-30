@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 10
 
 /**
  * 「对账」固定分类（v4 起）
@@ -277,8 +277,6 @@ export const SCHEMA_V1 = [
     month_key     TEXT    NOT NULL,
     year_key      TEXT    NOT NULL,
     tz_offset     INTEGER NOT NULL DEFAULT 480,
-    source        TEXT    NOT NULL DEFAULT 'manual',
-    raw_text      TEXT,
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
     deleted_at    INTEGER,

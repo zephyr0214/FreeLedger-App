@@ -112,7 +112,12 @@ console.log('=== 旧版本备份（无 cycles）向后兼容 ===')
   } catch (e) { err = e }
   check('旧备份导入不报错', err === null, true)
   check('旧备份交易写入 1 条', inserted.txn.length, 1)
-  check('旧备份交易 cycle_id 补为 null', inserted.txn[0][14], null)
+  /*
+   * ★ 下标随「停用 source / raw_text」前移 ★
+   *   导入 SQL 的参数列表去掉了这两个字段（v10 迁移），
+   *   cycle_id 从原来的第 15 个（下标 14）变成第 13 个（下标 12）。
+   */
+  check('旧备份交易 cycle_id 补为 null', inserted.txn[0][12], null)
   check('旧备份不产生任何 cycle 写入', inserted.cycle.length, 0)
 }
 
@@ -144,7 +149,7 @@ console.log('=== 新版本备份（含 cycles）可导入 ===')
   check('cycle 被写入 1 条', inserted.cycle.length, 1)
   check('写入的 cycle id 正确', inserted.cycle[0][0], 'c1')
   check('写入的 cycle recurrence 正确', inserted.cycle[0][7], 'monthly')
-  check('交易带上了 cycle_id', inserted.txn[0][14], 'c1')
+  check('交易带上了 cycle_id', inserted.txn[0][12], 'c1')
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

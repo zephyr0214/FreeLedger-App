@@ -265,8 +265,84 @@ const MIGRATIONS = [
     //   catchUpCycles() 只处理晚于游标的日期，避免重复/重建已删的账。
     version: 8,
     up: migrateCycleCursor
+  },
+  {
+    // ★ 记录「用户主动不要的那一天」★
+    //   v8 的游标只能防「同一天重复补」，防不住「用户删掉了那一笔，
+    //   下次进 App 又被补回来」——因为删的是 txn 行，游标已经推过去了，
+    //   而 cycleHasTxnOn 查不到已软删的行，就当没记过。
+    //   这张表专门记录被用户放弃的发生日，补记时跳过。
+    version: 9,
+    up: migrateCycleSkips
+  },
+  {
+    // ★ 停用「来源 / 速记原文」★
+    //   用户要求交易详情不再显示这两项，数据库也不再记录。
+    //   老库里这两列还在（SQLite 删列要重建表，风险高），
+    //   所以迁移只做「清空历史值」，新写入的代码完全不再碰它们。
+    version: 10,
+    up: migrateDropTxnSource
   }
 ]
+
+/**
+ * 迁移 v10 —— 停用 txn.source / txn.raw_text
+ *
+ * ★ 为什么不清退这两列，只清空值 ★
+ *   SQLite 3.35 之前不支持 DROP COLUMN，而 App 端的 SQLite 版本
+ *   取决于系统 WebView / 原生库，不能假设一定够新。
+ *   走「建新表 → 拷数据 → 删旧表 → 改名」虽然能真正删列，
+ *   但一旦中途失败，用户的账目数据就危险了。
+ *
+ *   这两列只是**附加信息**（来源标签、AI 速记原文），
+ *   留着空列不影响任何功能，代价只是几百字节。
+ *   所以这里只把历史值抹掉（保护隐私：不再留速记原文），
+ *   代码侧彻底不再读写它们 —— 效果等同于「数据库里不记录」。
+ */
+async function migrateDropTxnSource() {
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'UPDATE txn SET raw_text = NULL, source = NULL'
+    })
+    console.log('[db] migration v10: 已清空 txn.source / txn.raw_text 历史值')
+  } catch (e) {
+    // 列可能本来就不存在（新装库），不算错误
+    console.warn('[db] migration v10 清理失败（可忽略）:', e && e.message)
+  }
+}
+
+/**
+ * 迁移 v9 —— 周期「跳过日」记录表
+ *
+ * ★ 解决什么问题 ★
+ *   用户主动做了下面任一操作后，那一天不应该再被自动补记：
+ *     · 建周期时选择「本天先不记一笔」
+ *     · 主动把今天已经补记的周期流水删掉
+ *   原来的实现只靠 last_caught_up_day 游标：
+ *   游标已经推到今天，删掉 txn 后下次进 App 时
+ *   cycleHasTxnOn（只查 deleted_at IS NULL）查不到，
+ *   于是认为「这天没记过」，又补一笔回来 —— 死循环。
+ *
+ *   所以单独记一张表：cycle_id + day 唯一，
+ *   只要用户表达过「这天不要」，补记就永远跳过这一天。
+ */
+async function migrateCycleSkips() {
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: `CREATE TABLE IF NOT EXISTS cycle_skip (
+        cycle_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        created_at INTEGER,
+        PRIMARY KEY (cycle_id, day)
+      )`
+    })
+    console.log('[db] migration v9: cycle_skip 表已创建')
+  } catch (e) {
+    console.warn('[db] migration v9 cycle_skip 失败:', e && e.message)
+  }
+}
 
 /**
  * 迁移 v7 —— 周期管理

@@ -155,8 +155,15 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
    */
   check('用了 backdrop-filter', /backdrop-filter:\s*saturate/.test(tabbarCode), true)
   check('毛玻璃包在 @supports 里', /@supports[^{]*backdrop-filter[\s\S]*?\.tabbar\s*\{/.test(tabbarCode), true)
-  check('有降级底色变量', /--bar-bg-solid/.test(tabbarCode), true)
-  check('默认走降级底色', /\.tabbar\s*\{[^}]*background-color:\s*var\(--bar-bg-solid/.test(tabbarCode), true)
+  /*
+   * ★ 变量名统一为 --glass-* ★
+   *   tabbar 和 + 弹出的对话框共用同一套柔光玻璃（utils/theme.js 的 glassVars），
+   *   所以变量从 --bar-* 改名成了 --glass-*。断言跟着改名，
+   *   校验的仍然是「必须有降级底色 + 默认走降级 + 支持时才模糊」这套机制。
+   */
+  check('有降级底色变量', /--glass-bg-solid/.test(tabbarCode), true)
+  check('默认走降级底色', /\.tabbar\s*\{[^}]*background-color:\s*var\(--glass-bg-solid/.test(tabbarCode), true)
+  check('玻璃变量走公共工具', /glassVars/.test(tabbarCode), true)
   check('有玻璃内高光', /inset 0 1rpx 0/.test(tabbarCode), true)
 
   /* ★ 横向不撑满 ★

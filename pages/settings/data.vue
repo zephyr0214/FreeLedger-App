@@ -210,8 +210,8 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
+import { onLoad, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -227,6 +227,7 @@ import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.
 import { recalcAllBalances } from '@/api/account.js'
 import { truncateAll } from '@/api/db/index.js'
 import { confirmDialog, alertDialog, promptDialog } from '@/utils/dialog.js'
+import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: { PageNav, AppDialog },
@@ -673,6 +674,48 @@ export default {
         await applyTab(pendingTab.value)
       }
     })
+
+    /*
+     * ★ 两个设置页弹层也要能「侧滑返回收起」★
+     *   历史数据管理 / 导入选择都是本页内的 bottom 弹层，
+     *   不加这一步，全面屏右滑会直接把「数据与备份」页退掉。
+     */
+    watch(showDataManager, (open) => {
+      if (open) {
+        if (!unregisterDataManager) {
+          unregisterDataManager = pushLayer(() => { showDataManager.value = false }, 'dataManager')
+        }
+        return
+      }
+      if (unregisterDataManager) {
+        unregisterDataManager()
+        unregisterDataManager = null
+      }
+    })
+
+    watch(showImportPicker, (open) => {
+      if (open) {
+        if (!unregisterImportPicker) {
+          unregisterImportPicker = pushLayer(() => { showImportPicker.value = false }, 'importPicker')
+        }
+        return
+      }
+      if (unregisterImportPicker) {
+        unregisterImportPicker()
+        unregisterImportPicker = null
+      }
+    })
+
+    let unregisterDataManager = null
+    let unregisterImportPicker = null
+
+    onUnmounted(() => {
+      if (unregisterDataManager) unregisterDataManager()
+      if (unregisterImportPicker) unregisterImportPicker()
+    })
+
+    // 侧滑返回 / 返回键：弹层打开时先收起弹层，不退出本页
+    onBackPress(() => handleBackPress())
 
     return {
       counts, autoBackupOn,

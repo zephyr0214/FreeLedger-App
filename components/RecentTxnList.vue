@@ -46,10 +46,12 @@
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>
 
-            <!-- 金额：支出带 -，收入带 + -->
+            <!-- 金额：符号与颜色全部交给 MoneyText 的统一规则
+                 （支出 -、收入 +、转账浅灰、0 无符号无色） -->
             <MoneyText
               :cents="amountCents(txn)"
               :type="amountType(txn)"
+              :sign="amountSign(txn)"
               :size="28"
               :weight="500"
               :color="amountColor(txn)"
@@ -201,20 +203,45 @@ export default {
       return txn.amount_cents
     }
 
-    /** 传给 MoneyText 的 type（决定 +/- 号） */
+    /**
+     * 传给 MoneyText 的 type（决定 +/- 号）。
+     *
+     * ★ 转账一律返回 'transfer' ★
+     *   即便在账户视角下（知道转出/转入方向），也保持 transfer：
+     *   符号按方向在 amountCents 里已经算好（负/正），
+     *   而配色要的是「转账统一浅灰」，不能因为方向被染成红或绿。
+     *   以前这里在账户视角下返回 expense/income，转账就被着色了，
+     *   和用户要求的「转账用浅灰」冲突。
+     */
     function amountType(txn) {
-      if (txn.type === 'transfer') {
-        if (!props.accountId) return 'transfer'
-        return amountCents(txn) < 0 ? 'expense' : 'income'
-      }
+      if (txn.type === 'transfer') return 'transfer'
       return txn.type
     }
 
-    /** 金额颜色 */
-    function amountColor(txn) {
-      if (txn.type === 'transfer' && !props.accountId) return 'var(--app-text-2)'
-      if (amountCents(txn) < 0) return 'var(--app-text)'
-      return 'var(--app-success)'
+    /**
+     * 转账在账户视角下是否需要显示正负号。
+     *
+     * ★ 为什么单独一个开关 ★
+     *   type='transfer' 时 MoneyText 默认不加符号（转账本来不算收支），
+     *   但在某个账户的流水里，「转出」和「转入」必须能一眼分清，
+     *   所以有账户视角时强制显示符号（负 = 转出，正 = 转入）。
+     *   非转账的情况货币符号交给 type 决定，这里一律 false。
+     */
+    function amountSign(txn) {
+      return !!(txn.type === 'transfer' && props.accountId)
+    }
+
+    /**
+     * 金额颜色。
+     *
+     * ★ 全部交给 MoneyText 的统一规则 ★
+     *   支出无色 / 收入绿色 / 0 无色 / 转账浅灰。
+     *   以前这里对转账写死了 var(--app-text-2)，
+     *   和别处的浅灰不是一个色值，暗色下也不一致；
+     *   现在统一走 variant 的 muted 语义（--app-muted）。
+     */
+    function amountColor() {
+      return 'auto'
     }
 
     /* ------------------------------------------------------ 交互 */
@@ -230,7 +257,7 @@ export default {
     return {
       visibleTxns, groups,
       iconChar, iconBgStyle, iconFgStyle,
-      txnTitle, txnSub, amountCents, amountType, amountColor,
+      txnTitle, txnSub, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore
     }
   }

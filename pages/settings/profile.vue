@@ -55,23 +55,6 @@
           />
         </view>
 
-        <view class="form-row">
-          <text class="form-label">每月起始日</text>
-          <picker
-            mode="selector"
-            :range="dayRange"
-            :value="form.monthStartDay - 1"
-            @change="(e) => form.monthStartDay = Number(e.detail.value) + 1"
-          >
-            <text class="form-picker">{{ form.monthStartDay }} 号</text>
-          </picker>
-        </view>
-      </view>
-
-      <view class="tip-card">
-        <text class="tip-text">
-          每月起始日用于统计周期划分。如果你的工资在月中发放，可以改成发薪日，这样账目会更符合实际感受。
-        </text>
       </view>
 
       <view class="bottom-space" />
@@ -98,15 +81,12 @@ export default {
       nickname: '',
       signature: '',
       avatar: '',
-      currencySymbol: '¥',
-      monthStartDay: 1
+      currencySymbol: '¥'
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-
-    const dayRange = Array.from({ length: 28 }, (_, i) => `${i + 1}`)
 
     function pickAvatar() {
       uni.chooseImage({
@@ -160,8 +140,7 @@ export default {
           nickname: form.nickname.trim(),
           signature: form.signature.trim(),
           avatar: form.avatar,
-          currencySymbol: form.currencySymbol || '¥',
-          monthStartDay: form.monthStartDay
+          currencySymbol: form.currencySymbol || '¥'
         })
         uni.showToast({ title: '已保存', icon: 'success' })
         setTimeout(() => uni.navigateBack(), 500)
@@ -181,11 +160,10 @@ export default {
       form.signature = s.signature || ''
       form.avatar = s.avatar || ''
       form.currencySymbol = s.currencySymbol || '¥'
-      form.monthStartDay = s.monthStartDay || 1
     })
 
     return {
-      form, primaryColor, pageStyle, dayRange,
+      form, primaryColor, pageStyle,
       pickAvatar, onSave, goBack, settingStore
     }
   }
@@ -283,22 +261,6 @@ export default {
 .form-placeholder {
   color: var(--app-text-3);
   font-size: 28rpx;
-}
-
-.form-picker {
-  font-size: 28rpx;
-  color: var(--app-text-2);
-}
-
-.tip-card {
-  margin-top: 20rpx;
-  padding: 0 12rpx;
-}
-
-.tip-text {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.6;
 }
 
 </style>

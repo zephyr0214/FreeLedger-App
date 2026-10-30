@@ -93,6 +93,28 @@ check('2月总天数', monthRange('2024-02').end.getDate(), 29)
 
 const mp = monthProgress('2026-09')
 check('已过月份 passed=total', mp.passed, mp.total)
+check('已过月份没有剩余天数', mp.remain, 0)
+
+/*
+ * ★ 当月剩余天数必须含今天 ★
+ *   用户反馈：10/30 时「剩余日均」应该除以 2（30、31 两天），
+ *   不是除以 1。这条断言不依赖当前真实日期 ——
+ *   直接验证「当月 remain = total - passed + 1」这个关系。
+ */
+const nowKey = toMonthKey()
+const cur = monthProgress(nowKey)
+check('当月 remain = total - passed + 1', cur.remain, cur.total - cur.passed + 1)
+check('当月至少剩 1 天（含今天）', cur.remain >= 1, true)
+check('当月 passed 等于今天几号', cur.passed, new Date().getDate())
+
+/*
+ * ★ 2 月天数要按真实月份算 ★
+ *   28/29/30/31 都不能写死。
+ */
+check('2024-02 闰年 29 天', monthProgress('2024-02').total, 29)
+check('2025-02 平年 28 天', monthProgress('2025-02').total, 28)
+check('2026-04 是 30 天', monthProgress('2026-04').total, 30)
+check('2026-07 是 31 天', monthProgress('2026-07').total, 31)
 
 console.log('=== 还款日 ===')
 // 2026-10-27，还款日 30 号 → 3 天后

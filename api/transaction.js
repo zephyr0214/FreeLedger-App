@@ -97,8 +97,14 @@ function buildFilterWhere(opt = {}) {
     params.push(...catCond.params)
   }
   if (keyword) {
-    where.push('(t.note LIKE ? OR t.raw_text LIKE ?)')
-    params.push(`%${keyword}%`, `%${keyword}%`)
+    /*
+     * ★ 只搜备注，不再搜 raw_text ★
+     *   「速记原文」字段已停用且不再写入（见 v10 迁移），
+     *   搜它等于永远搜不到；更要紧的是**新装库没有 raw_text 这一列**，
+     *   继续拼进 SQL 会让全新安装的关键词搜索直接报错。
+     */
+    where.push('t.note LIKE ?')
+    params.push(`%${keyword}%`)
   }
   if (minCents !== undefined && minCents !== null) { where.push('t.amount_cents >= ?'); params.push(Number(minCents)) }
   if (maxCents !== undefined && maxCents !== null) { where.push('t.amount_cents <= ?'); params.push(Number(maxCents)) }
@@ -351,7 +357,10 @@ export function resolveOccurredTime(input = {}, fallbackMs = Date.now()) {
  * 新增交易
  * @param {object} input
  *   type, amount_cents, account_id, to_account_id, category_id, note,
- *   occurred_at (ms) | occurred_day, tag_ids[], source, raw_text
+ *   occurred_at (ms) | occurred_day, tag_ids[], cycle_id
+ *
+ * ★ 已移除 source / raw_text ★
+ *   这两个字段不再入库（详见 api/db/index.js 的 v10 迁移）。
  */
 export async function createTransaction(input) {
   validate(input)
@@ -367,12 +376,20 @@ export async function createTransaction(input) {
   const amount = Math.abs(Math.round(Number(input.amount_cents) || 0))
 
   await transaction(async () => {
+    /*
+     * ★ 不再写入 source / raw_text ★
+     *   这两列已停用（见 api/db/index.js 的 v10 迁移）：
+     *   交易详情不展示「来源 / 速记原文」，库里也不再记录。
+     *   新装库根本没有这两列，所以 INSERT 里必须去掉 ——
+     *   否则全新安装会直接报「no column named source」。
+     *   老库那两列是 nullable / 有默认值，不写也不影响插入。
+     */
     await execute(
       `INSERT INTO txn (
         id, type, amount_cents, account_id, to_account_id, category_id, note,
         occurred_at, occurred_day, month_key, year_key, tz_offset,
-        source, raw_text, created_at, updated_at, deleted_at, cycle_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
+        created_at, updated_at, deleted_at, cycle_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
       [
         id,
         input.type,
@@ -386,8 +403,6 @@ export async function createTransaction(input) {
         keys.month_key,
         keys.year_key,
         keys.tz_offset,
-        input.source || 'manual',
-        input.raw_text || null,
         now,
         now,
         input.cycle_id || null
@@ -440,11 +455,12 @@ export async function updateTransaction(id, patch) {
   affected.delete(undefined)
 
   await transaction(async () => {
+    // 同样不再更新 source / raw_text（两列已停用，新库没有它们）
     await execute(
       `UPDATE txn SET
         type = ?, amount_cents = ?, account_id = ?, to_account_id = ?, category_id = ?, note = ?,
         occurred_at = ?, occurred_day = ?, month_key = ?, year_key = ?,
-        source = ?, raw_text = ?, updated_at = ?
+        updated_at = ?
        WHERE id = ?`,
       [
         merged.type,
@@ -457,8 +473,6 @@ export async function updateTransaction(id, patch) {
         keys.occurred_day,
         keys.month_key,
         keys.year_key,
-        merged.source || 'manual',
-        merged.raw_text || null,
         now,
         id
       ]
@@ -512,6 +526,27 @@ export async function deleteTransaction(id) {
     await writeTodaySnapshot(existing.account_id)
     if (existing.to_account_id) await writeTodaySnapshot(existing.to_account_id)
   })
+
+  /*
+   * ★ 删的是周期产生的流水 → 记住「这天不要再补」★
+   *   周期自动补记只看「这天有没有未删除的流水」，
+   *   删掉之后下次进 App 会被当成没记过、又补一笔回来。
+   *   所以这里把 (cycle_id, occurred_day) 写进 cycle_skip，
+   *   补记时直接跳过这一天（见 api/cycle.js 的 catchUpCycles）。
+   *
+   *   放在事务外：写失败也不该让「删除」本身失败。
+   */
+  if (existing.cycle_id && existing.occurred_day) {
+    try {
+      await execute(
+        'INSERT OR IGNORE INTO cycle_skip (cycle_id, day, created_at) VALUES (?,?,?)',
+        [existing.cycle_id, existing.occurred_day, Date.now()]
+      )
+    } catch (e) {
+      console.warn('[txn] 记录周期跳过日失败:', e && e.message)
+    }
+  }
+
   return true
 }
 

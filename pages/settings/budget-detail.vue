@@ -74,12 +74,12 @@
         <view class="month-card">
           <view class="month-item">
             <text class="month-label">本月支出</text>
-            <MoneyText :cents="monthStats.expense" :size="32" :weight="500" color="var(--app-text)" />
+            <MoneyText :cents="monthStats.expense" type="expense" :size="32" :weight="500" />
           </view>
           <view class="month-divider" />
           <view class="month-item">
             <text class="month-label">本月收入</text>
-            <MoneyText :cents="monthStats.income" :size="32" :weight="500" color="var(--app-success)" />
+            <MoneyText :cents="monthStats.income" type="income" :size="32" :weight="500" />
           </view>
         </view>
 

@@ -252,13 +252,44 @@ export function daysUntilMonthDay(dayOfMonth) {
   return diff
 }
 
-/** 本月已过天数 / 本月总天数，用于预算「日均可用」 */
+/**
+ * 本月已过天数 / 本月总天数，用于预算「日均可用」。
+ *
+ * ★ remain 必须包含「今天」★
+ *   10 月 30 日：passed = 30，但今天这一天还没过完、还能花钱，
+ *   所以剩余可用天数是 2（30 号、31 号），不是 1。
+ *   写成 total - passed 会少算一天，日均被高估
+ *   （用户反馈的正是这个：10/30 时应该除以 2）。
+ *
+ * ★ total 用真实月份天数 ★
+ *   new Date(y, m, 0).getDate() 会正确处理 28/29/30/31：
+ *     2024-02 → 29（闰年）、2025-02 → 28、4/6/9/11 月 → 30、其余 → 31。
+ *
+ * ★ 非当月 ★
+ *   已过去的月份：已全部过完，remain = 0（不再有「剩余日均」）；
+ *   未来月份：还没开始，passed = 0，remain = 整月天数。
+ */
 export function monthProgress(monthKey) {
   const now = new Date()
   const [y, m] = String(monthKey).split('-').map(Number)
   const total = new Date(y, m, 0).getDate()
   const isCurrent = y === now.getFullYear() && m === now.getMonth() + 1
-  const passed = isCurrent ? now.getDate() : (monthKey < toMonthKey(now) ? total : 0)
-  const remain = Math.max(total - passed, 0)
+
+  let passed
+  let remain
+  if (isCurrent) {
+    // 当月：已过天数含今天；剩余天数从今天算起（含今天）
+    passed = now.getDate()
+    remain = Math.max(total - passed + 1, 1)
+  } else if (monthKey < toMonthKey(now)) {
+    // 已过去的月份：全部过完，没有剩余天数
+    passed = total
+    remain = 0
+  } else {
+    // 未来月份：一天都还没过，整月都是剩余
+    passed = 0
+    remain = total
+  }
+
   return { total, passed, remain }
 }

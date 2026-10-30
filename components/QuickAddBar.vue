@@ -40,7 +40,7 @@
 </template>
 
 <script>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -50,6 +50,8 @@ import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
 import { combineDayTime } from '@/utils/date.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { glassVars } from '@/utils/theme.js'
+import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'QuickAddBar',
@@ -122,8 +124,19 @@ export default {
      *   所以这里只加安全区，键盘高度一律不参与定位。
      *   （keyboardHeight 仅用于判断键盘是否被系统收起。）
      */
+    /**
+     * 输入条样式：定位 + 柔光玻璃配色。
+     *
+     * ★ 玻璃变量和底部 tabbar / 对话框同源 ★
+     *   都走 utils/theme.js 的 glassVars()，三处观感一致，
+     *   以后改玻璃参数只要动那一个函数。
+     *   透明度取 tabbar 那一档（浅 0.62 / 深 0.48）：
+     *   输入条是浮在页面内容上方的一小块，透一点更「浮」；
+     *   上面的文字有 placeholder 深色衬底兜着，可读性没问题。
+     */
     const barStyle = computed(() => ({
-      bottom: 'calc(env(safe-area-inset-bottom) + 20rpx)'
+      bottom: 'calc(env(safe-area-inset-bottom) + 20rpx)',
+      ...glassVars(settingStore.isDark, { blur: '24rpx' })
     }))
 
     /* ------------------------------------------------------ 键盘 */
@@ -230,10 +243,13 @@ export default {
               occurred_at: item.occurred_time
                 ? combineDayTime(item.occurred_day, item.occurred_time)
                 : undefined,
+              /*
+               * 备注：优先用模型给的备注，没有就退回用户原话。
+               * 用户原话仍作为「备注」保存 —— 这是他自己输入的说明，
+               * 和已停用的「速记原文」不是同一件事。
+               */
               note: item.note || pendingText,
-              tag_ids: item.tag_ids,
-              source: 'quick',
-              raw_text: pendingText
+              tag_ids: item.tag_ids
             })
             saved++
           } catch (e) {
@@ -322,14 +338,38 @@ export default {
 
     /* ------------------------------------------------------ 生命周期 */
 
+    /** 弹层栈注销函数 */
+    let unregisterLayer = null
+
+    onUnmounted(() => {
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
+    })
+
     watch(
       () => props.modelValue,
       async (open) => {
         if (!open) {
+          if (unregisterLayer) {
+            unregisterLayer()
+            unregisterLayer = null
+          }
           unbindKeyboard()
           clearFocusTimers()
           return
         }
+
+        /*
+         * ★ 登记到弹层栈 ★
+         *   侧滑返回 / 返回键先收起输入条（走 close()，会顺带收起键盘、
+         *   清空草稿），而不是直接退出整个首页。
+         */
+        if (!unregisterLayer) {
+          unregisterLayer = pushLayer(() => close(), 'quickAddBar')
+        }
+
         keyboardHeight.value = 0
         maskEnabled.value = false
         keyboardEverShown = false
@@ -396,6 +436,16 @@ export default {
   background-color: transparent;
 }
 
+/*
+ * ★ 柔光玻璃输入条（与底部 tabbar 同款）★
+ *   底色走 --glass-* 变量（barStyle 里由 glassVars 注入）。
+ *   兜底顺序和 tabbar 一致：先给高不透明度实色，
+ *   @supports 命中 backdrop-filter 后才换成更透的 + 模糊。
+ *   不支持模糊的设备（多数安卓 WebView）走实色，不会「透出内容却不糊」显脏。
+ *
+ *   圆角保持 48rpx 胶囊，描边用玻璃内高光而不是实线，
+ *   这样浮在页面内容上时边界是「折射感」而不是「画了个框」。
+ */
 .quick-add-bar {
   position: fixed;
   left: 32rpx;
@@ -404,10 +454,21 @@ export default {
   align-items: center;
   gap: 16rpx;
   padding: 12rpx 12rpx 12rpx 28rpx;
-  background-color: var(--app-card);
+  background-color: var(--glass-bg-solid, var(--app-card));
   border-radius: 48rpx;
-  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.16);
+  border-width: 1rpx;
+  border-style: solid;
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.75));
+  box-shadow: var(--glass-shadow, 0 8rpx 32rpx rgba(0, 0, 0, 0.16));
   transition: bottom 0.18s ease;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .quick-add-bar {
+    background-color: var(--glass-bg, var(--app-card));
+    -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur, 24rpx));
+    backdrop-filter: saturate(180%) blur(var(--glass-blur, 24rpx));
+  }
 }
 
 .bar-input {

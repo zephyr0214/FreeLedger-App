@@ -35,11 +35,16 @@
           </view>
 
           <text class="bal-label">当前余额</text>
+          <!--
+            余额：不加颜色、不加符号（与账户页一致）。
+            ★ 这里刻意不传 muted ★
+              账户详情页是用户主动打开来看的，正文色最清楚；
+              浅灰只用在「账户列表里区分不计入资产」，不用在这里。
+          -->
           <MoneyText
             :cents="account.balance_cents"
             :size="80"
             :weight="600"
-            :color="account.balance_cents < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
           />
 
           <!-- 信用卡信息 -->
@@ -74,12 +79,12 @@
         <view class="month-card">
           <view class="month-item">
             <text class="month-label">本月支出</text>
-            <MoneyText :cents="monthStats.expense" :size="32" :weight="500" color="var(--app-text)" />
+            <MoneyText :cents="monthStats.expense" type="expense" :size="32" :weight="500" />
           </view>
           <view class="month-divider" />
           <view class="month-item">
             <text class="month-label">本月收入</text>
-            <MoneyText :cents="monthStats.income" :size="32" :weight="500" color="var(--app-success)" />
+            <MoneyText :cents="monthStats.income" type="income" :size="32" :weight="500" />
           </view>
         </view>
 

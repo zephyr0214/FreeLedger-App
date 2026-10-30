@@ -14,7 +14,12 @@
           </view>
 
           <text class="summary-label">单次金额</text>
-          <MoneyText :cents="cycle.amount_cents" :size="72" :weight="600" color="var(--app-text)" />
+          <MoneyText
+            :cents="cycle.amount_cents"
+            :type="cycle.type"
+            :size="72"
+            :weight="600"
+          />
 
           <view class="summary-rows">
             <view class="summary-row">
@@ -141,12 +146,18 @@ export default {
       return (Number(c.amount_cents) || 0) * totalCount.value
     })
 
-    /** 总金额颜色：支出深色 / 收入绿色 / 转账中性（与全 App 流水金额一致） */
+    /**
+     * 总金额颜色。
+     *
+     * ★ 交给 MoneyText 的统一规则 ★
+     *   支出无色 / 收入绿色 / 转账中性 / 0 无色，
+     *   全 App 一套规则，这里不再各自维护色值。
+     *   唯一的例外是转账：它不是收支，用中性色。
+     */
     const totalColor = computed(() => {
       const t = cycle.value && cycle.value.type
-      if (t === 'income') return 'var(--app-success)'
-      if (t === 'expense') return 'var(--app-text)'
-      return 'var(--app-text-2)'
+      if (t === 'transfer') return 'var(--app-text-2)'
+      return 'auto'
     })
 
     // 把派生字段挂到 cycle 上，供模板直接读

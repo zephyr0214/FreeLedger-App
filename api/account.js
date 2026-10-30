@@ -60,10 +60,18 @@ export function isCreditType(type) {
 /* ------------------------------------------------------------------ 查询 */
 
 export async function listAccounts(includeArchived = false) {
-  const sql = includeArchived
-    ? 'SELECT * FROM account WHERE deleted_at IS NULL ORDER BY sort ASC, created_at ASC'
-    : 'SELECT * FROM account WHERE deleted_at IS NULL AND archived = 0 ORDER BY sort ASC, created_at ASC'
-  const rows = await query(sql)
+  /*
+   * ★ 排序：不计入资产的账户排在同分类最后 ★
+   *   include_in_total = 0 的账户不参与总资产（如「报销待还」「代管钱包」），
+   *   放在前面会和真正的资产并排，读起来像是在算总账。
+   *   所以在 SQL 里先按 include_in_total DESC 排 —— 参与总资产的（1）在前，
+   *   不参与的（0）在后；同组内再按用户自定义的 sort、创建时间排。
+   *   ORDER BY 的第一顺位保证了「同分类内」的语义（分组本身按 type 来）。
+   */
+  const base = 'SELECT * FROM account WHERE deleted_at IS NULL'
+  const withArchived = includeArchived ? '' : ' AND archived = 0'
+  const order = ' ORDER BY include_in_total DESC, sort ASC, created_at ASC'
+  const rows = await query(`${base}${withArchived}${order}`)
   return rows.map(normalizeAccount)
 }
 
@@ -254,12 +262,17 @@ export async function adjustAccountBalance(accountId, targetCents, opts = {}) {
   //   这里再 import 回去就形成循环依赖。
   //   写入的字段和 createTransaction 完全一致。
   await transaction(async () => {
+    /*
+     * ★ 不再写 source / raw_text ★
+     *   两列已停用（v10 迁移），新装库没有它们。
+     *   对账流水的说明本来就在 note 里，不需要再冗余一份。
+     */
     await execute(
       `INSERT INTO txn (
         id, type, amount_cents, account_id, to_account_id, category_id, note,
         occurred_at, occurred_day, month_key, year_key, tz_offset,
-        source, raw_text, created_at, updated_at, deleted_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+        created_at, updated_at, deleted_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
       [
         txnId,
         type,
@@ -273,8 +286,6 @@ export async function adjustAccountBalance(accountId, targetCents, opts = {}) {
         keys.month_key,
         keys.year_key,
         keys.tz_offset,
-        'reconcile',
-        note,
         now,
         now
       ]

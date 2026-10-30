@@ -71,7 +71,7 @@
 <script>
 import { ref, computed, onMounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { TABBAR_ICON_VERSION } from '@/utils/theme.js'
+import { TABBAR_ICON_VERSION, glassVars } from '@/utils/theme.js'
 
 /**
  * 长按触发时长（ms）
@@ -165,19 +165,7 @@ export default {
      *   2. 模糊（支持时）—— 把透出来的糊成雾面
      *   3. 内高光描边 —— 玻璃边缘的折射，缺了就只是块半透明色
      */
-    const barStyle = computed(() => {
-      const dark = settingStore.isDark
-      return {
-        // 真·玻璃：比上一版再透一点点（0.70 → 0.62 / 0.58 → 0.48）
-        '--bar-bg': dark ? 'rgba(28,28,30,0.48)' : 'rgba(255,255,255,0.62)',
-        // 降级：不模糊时用更高的不透明度，避免透出内容显脏
-        '--bar-bg-solid': dark ? 'rgba(28,28,30,0.94)' : 'rgba(255,255,255,0.96)',
-        '--bar-border': dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.75)',
-        '--bar-shadow': dark
-          ? '0 12rpx 40rpx rgba(0,0,0,0.55), inset 0 1rpx 0 rgba(255,255,255,0.10)'
-          : '0 12rpx 40rpx rgba(0,0,0,0.10), inset 0 1rpx 0 rgba(255,255,255,0.90)'
-      }
-    })
+    const barStyle = computed(() => glassVars(settingStore.isDark, { blur: '24rpx' }))
 
     /** 进度环描边比例 */
     const ringStyle = computed(() => ({
@@ -219,9 +207,15 @@ export default {
       const dark = settingStore.isDark
       return {
         left: `calc(10rpx + ${currentIndex.value} * ((560rpx - 20rpx) / 4))`,
-        '--slider-color': dark
-          ? 'rgba(255,255,255,0.14)'
-          : settingStore.primaryLight,
+        /*
+         * ★ 选中滑块：浅色/暗色都用主题色浅底 ★
+         *   暗色原先写的是 rgba(255,255,255,0.14) ——
+         *   纯白半透明叠在深色胶囊上，几乎看不出「选中了哪一格」。
+         *   现在统一走 --app-primary-light（暗色下由 utils/theme.js 的
+         *   tintOf() 按主题色算出 22% 的底色），深浅两套都能看出高亮，
+         *   而且颜色跟着用户选的主题色走。
+         */
+        '--slider-color': settingStore.primaryLight,
         '--slider-highlight': dark
           ? 'inset 0 1rpx 0 rgba(255,255,255,0.16)'
           : 'inset 0 1rpx 0 rgba(255,255,255,0.85)'
@@ -496,15 +490,15 @@ export default {
   border-radius: 999rpx;
   border-width: 1rpx;
   border-style: solid;
-  border-color: var(--bar-border, rgba(0, 0, 0, 0.05));
+  border-color: var(--glass-border, rgba(0, 0, 0, 0.05));
   /*
    * ★ 默认走「仿玻璃」：不透明度高，不依赖模糊 ★
    *   支持 backdrop-filter 时下面那段 @supports 会覆盖成真玻璃。
    *   先写降级版是刻意的 —— 不支持模糊的设备占相当比例，
    *   与其让它们「透出内容但不糊」显脏，不如直接给干净的高不透明底。
    */
-  background-color: var(--bar-bg-solid, rgba(255, 255, 255, 0.96));
-  box-shadow: var(--bar-shadow, 0 12rpx 40rpx rgba(0, 0, 0, 0.1));
+  background-color: var(--glass-bg-solid, rgba(255, 255, 255, 0.96));
+  box-shadow: var(--glass-shadow, 0 12rpx 40rpx rgba(0, 0, 0, 0.1));
   padding: 0 10rpx;
   /* 只有 pill 本体吃点击 */
   pointer-events: auto;
@@ -514,8 +508,8 @@ export default {
  * ★ 真·毛玻璃：只在支持 backdrop-filter 的环境生效 ★
  *
  * 覆盖顺序很重要：
- *   上面先给了高不透明度的 --bar-bg-solid 兜底，
- *   这里再换成更透的 --bar-bg + blur。
+ *   上面先给了高不透明度的 --glass-bg-solid 兜底，
+ *   这里再换成更透的 --glass-bg + blur。
  *   如果浏览器支持 @supports 但不支持 backdrop-filter 的模糊
  *   （安卓 WebView 常见），这条规则不会命中，仍走兜底。
  *
@@ -524,9 +518,9 @@ export default {
  */
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .tabbar {
-    background-color: var(--bar-bg, rgba(255, 255, 255, 0.70));
-    -webkit-backdrop-filter: saturate(180%) blur(24rpx);
-    backdrop-filter: saturate(180%) blur(24rpx);
+    background-color: var(--glass-bg, rgba(255, 255, 255, 0.70));
+    -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur, 24rpx));
+    backdrop-filter: saturate(180%) blur(var(--glass-blur, 24rpx));
   }
 }
 

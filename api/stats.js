@@ -1131,7 +1131,16 @@ export async function getBudgetUsage(monthKey) {
     const used = b.scope === 'total' ? monthExpense : usedOf(b.category_id)
     const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0
     const remaining = limit - used
-    const dailyAvailable = remain > 0 ? Math.max(Math.round(remaining / remain), 0) : 0
+    /*
+     * ★ 日均可用：保留「分」的精度，不做整数四舍五入 ★
+     *   原来 Math.round(...) 会把结果取整到「元」级别的分，
+     *   前端再 toFixed(2) 也只可能显示 xxx.00。
+     *   现在只对「分」保留两位小数的除数精度（除以剩余天数后仍有小数），
+     *   前端按 0.00 展示就是真实值。
+     */
+    const dailyAvailable = remain > 0
+      ? Math.max(Math.round((remaining / remain) * 100) / 100, 0)
+      : 0
 
     return {
       id: b.id,
@@ -1354,7 +1363,10 @@ export async function getBudgetUsageRange(range) {
     let remainDaysSum = 0
     for (const m of effective) remainDaysSum += monthProgress(m).remain
     const denom = remainDaysSum > 0 ? remainDaysSum : effective.length
-    const dailyAvailable = remaining > 0 ? Math.max(Math.round(remaining / denom), 0) : 0
+    // 与 getBudgetUsage 一致：保留「分」的小数精度，供前端按 0.00 展示
+    const dailyAvailable = remaining > 0
+      ? Math.max(Math.round((remaining / denom) * 100) / 100, 0)
+      : 0
 
     out.push({
       id: b.id,

@@ -36,37 +36,43 @@
                 </view>
 
                 <view class="row-info">
-                  <!-- 第一行：分类名 + 价签（金额紧跟在名字后面） -->
-                  <view class="row-title">
-                    <text class="row-name">{{ c.name }}</text>
+                  <!--
+                    ★ 四角布局 ★
+                      左上：分类名 + 重复规则徽标（每天 / 每周三 / 每月15号）
+                      左下：扣款账户 · 下次于 XX年XX月XX日
+                      右上：金额
+                      右下：已记笔数
+                    左右两列各自成组，金额和笔数靠右对齐，
+                    扫视时「这周期记什么 / 多久一次 / 扣哪张卡」
+                    和「多少钱 / 记过几次」分开读。
+                  -->
+                  <view class="row-top">
+                    <view class="row-top-left">
+                      <text class="row-name">{{ c.name }}</text>
+                      <!-- 徽标显示具体重复规则：每天 / 每周三 / 每月15号 -->
+                      <text class="row-cycle-tag">{{ c.recurrenceText }}</text>
+                    </view>
                     <MoneyText
                       class="row-amount"
                       :cents="c.amount_cents"
+                      :type="c.type === 'income' ? 'income' : 'expense'"
                       :size="26"
                       :weight="600"
-                      :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
                     />
                   </view>
 
-                  <!-- 第二行：规则 · 下次于 XX年XX月XX日
-                       ★ 两个信息合成一行 ★
-                         规则（每月1号）说明「多久扣一次」，
-                         日期说明「下次什么时候扣」，是一组问答关系，
-                         放同一行读起来连贯，也不占额外高度。 -->
-                  <view class="row-meta">
-                    <text class="row-sub">{{ c.recurrenceText }}</text>
-                    <text v-if="c.nextYmd" class="row-sep">·</text>
-                    <text
-                      v-if="c.nextYmd"
-                      class="row-next"
-                      :class="{ 'row-next-today': c.nextIsToday }"
-                    >下次于 {{ c.nextYmd }}</text>
+                  <view class="row-bottom">
+                    <view class="row-bottom-left">
+                      <text class="row-sub">{{ c.accountName }}</text>
+                      <text v-if="c.nextYmd" class="row-sep">·</text>
+                      <text
+                        v-if="c.nextYmd"
+                        class="row-next"
+                        :class="{ 'row-next-today': c.nextIsToday }"
+                      >下次于 {{ c.nextYmd }}</text>
+                    </view>
+                    <text class="row-count">{{ c.count }} 笔</text>
                   </view>
-                </view>
-
-                <!-- 右侧：只留已记笔数（规则已挪到下方） -->
-                <view class="row-right">
-                  <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
               <template #right>
@@ -97,37 +103,43 @@
                 </view>
 
                 <view class="row-info">
-                  <!-- 第一行：分类名 + 价签（金额紧跟在名字后面） -->
-                  <view class="row-title">
-                    <text class="row-name">{{ c.name }}</text>
+                  <!--
+                    ★ 四角布局 ★
+                      左上：分类名 + 重复规则徽标（每天 / 每周三 / 每月15号）
+                      左下：扣款账户 · 下次于 XX年XX月XX日
+                      右上：金额
+                      右下：已记笔数
+                    左右两列各自成组，金额和笔数靠右对齐，
+                    扫视时「这周期记什么 / 多久一次 / 扣哪张卡」
+                    和「多少钱 / 记过几次」分开读。
+                  -->
+                  <view class="row-top">
+                    <view class="row-top-left">
+                      <text class="row-name">{{ c.name }}</text>
+                      <!-- 徽标显示具体重复规则：每天 / 每周三 / 每月15号 -->
+                      <text class="row-cycle-tag">{{ c.recurrenceText }}</text>
+                    </view>
                     <MoneyText
                       class="row-amount"
                       :cents="c.amount_cents"
+                      :type="c.type === 'income' ? 'income' : 'expense'"
                       :size="26"
                       :weight="600"
-                      :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
                     />
                   </view>
 
-                  <!-- 第二行：规则 · 下次于 XX年XX月XX日
-                       ★ 两个信息合成一行 ★
-                         规则（每月1号）说明「多久扣一次」，
-                         日期说明「下次什么时候扣」，是一组问答关系，
-                         放同一行读起来连贯，也不占额外高度。 -->
-                  <view class="row-meta">
-                    <text class="row-sub">{{ c.recurrenceText }}</text>
-                    <text v-if="c.nextYmd" class="row-sep">·</text>
-                    <text
-                      v-if="c.nextYmd"
-                      class="row-next"
-                      :class="{ 'row-next-today': c.nextIsToday }"
-                    >下次于 {{ c.nextYmd }}</text>
+                  <view class="row-bottom">
+                    <view class="row-bottom-left">
+                      <text class="row-sub">{{ c.accountName }}</text>
+                      <text v-if="c.nextYmd" class="row-sep">·</text>
+                      <text
+                        v-if="c.nextYmd"
+                        class="row-next"
+                        :class="{ 'row-next-today': c.nextIsToday }"
+                      >下次于 {{ c.nextYmd }}</text>
+                    </view>
+                    <text class="row-count">{{ c.count }} 笔</text>
                   </view>
-                </view>
-
-                <!-- 右侧：只留已记笔数（规则已挪到下方） -->
-                <view class="row-right">
-                  <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
               <template #right>
@@ -158,37 +170,43 @@
                 </view>
 
                 <view class="row-info">
-                  <!-- 第一行：分类名 + 价签（金额紧跟在名字后面） -->
-                  <view class="row-title">
-                    <text class="row-name">{{ c.name }}</text>
+                  <!--
+                    ★ 四角布局 ★
+                      左上：分类名 + 重复规则徽标（每天 / 每周三 / 每月15号）
+                      左下：扣款账户 · 下次于 XX年XX月XX日
+                      右上：金额
+                      右下：已记笔数
+                    左右两列各自成组，金额和笔数靠右对齐，
+                    扫视时「这周期记什么 / 多久一次 / 扣哪张卡」
+                    和「多少钱 / 记过几次」分开读。
+                  -->
+                  <view class="row-top">
+                    <view class="row-top-left">
+                      <text class="row-name">{{ c.name }}</text>
+                      <!-- 徽标显示具体重复规则：每天 / 每周三 / 每月15号 -->
+                      <text class="row-cycle-tag">{{ c.recurrenceText }}</text>
+                    </view>
                     <MoneyText
                       class="row-amount"
                       :cents="c.amount_cents"
+                      :type="c.type === 'income' ? 'income' : 'expense'"
                       :size="26"
                       :weight="600"
-                      :color="c.type === 'income' ? 'var(--app-success)' : 'var(--app-text)'"
                     />
                   </view>
 
-                  <!-- 第二行：规则 · 下次于 XX年XX月XX日
-                       ★ 两个信息合成一行 ★
-                         规则（每月1号）说明「多久扣一次」，
-                         日期说明「下次什么时候扣」，是一组问答关系，
-                         放同一行读起来连贯，也不占额外高度。 -->
-                  <view class="row-meta">
-                    <text class="row-sub">{{ c.recurrenceText }}</text>
-                    <text v-if="c.nextYmd" class="row-sep">·</text>
-                    <text
-                      v-if="c.nextYmd"
-                      class="row-next"
-                      :class="{ 'row-next-today': c.nextIsToday }"
-                    >下次于 {{ c.nextYmd }}</text>
+                  <view class="row-bottom">
+                    <view class="row-bottom-left">
+                      <text class="row-sub">{{ c.accountName }}</text>
+                      <text v-if="c.nextYmd" class="row-sep">·</text>
+                      <text
+                        v-if="c.nextYmd"
+                        class="row-next"
+                        :class="{ 'row-next-today': c.nextIsToday }"
+                      >下次于 {{ c.nextYmd }}</text>
+                    </view>
+                    <text class="row-count">{{ c.count }} 笔</text>
                   </view>
-                </view>
-
-                <!-- 右侧：只留已记笔数（规则已挪到下方） -->
-                <view class="row-right">
-                  <text class="row-count">{{ c.count }} 笔</text>
                 </view>
               </view>
               <template #right>
@@ -230,6 +248,8 @@ import { listCategories } from '@/api/category.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { toDayKey } from '@/utils/date.js'
+import { onBackPress } from '@dcloudio/uni-app'
+import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel },
@@ -288,11 +308,21 @@ export default {
         nextYmd = ''
       }
 
+      /*
+       * ★ 扣款账户名 ★
+       *   列表左下角要显示「钱从哪个账户扣」。
+       *   转账类显示转出账户（钱就是从它出去的），
+       *   账户被删了显示「无账户」，避免出现空白或 null。
+       */
+      const debitAccount = accountStore.list.find((a) => a.id === c.account_id)
+      const accountName = debitAccount ? debitAccount.name : '无账户'
+
       return {
         ...c,
         name,
         iconChar,
         color,
+        accountName,
         recurrenceText: recurrenceLabel(c),
         count: counts.value[c.id] || 0,
         next,
@@ -382,6 +412,9 @@ export default {
       await load()
     })
 
+    // 侧滑返回：周期面板打开时先收起面板，不退出页面
+    onBackPress(() => handleBackPress())
+
     return {
       settingStore, cycles, groups, totalCount, showPanel, editingCycle, swipeStates,
       primaryColor, pageStyle,
@@ -461,45 +494,24 @@ export default {
 }
 
 /*
- * ★ 第一行：分类名 + 价签 ★
- *   金额紧跟在名字后面（不是推到最右边），
- *   两者之间留 16rpx 间隙，避免「餐饮¥3,200.00」黏在一起。
- *   flex-wrap 允许在极窄屏上换行，宁可换行也不要文字被压扁。
+ * ★ 四角布局 ★
+ *   上排：左「名称 + 重复规则」  右「金额」
+ *   下排：左「账户 · 下次于」 右「笔数」
+ *   两排都是 space-between，左组靠左、右组靠右，
+ *   金额与笔数形成一条竖直的右对齐视觉列。
  */
-.row-title {
+.row-top,
+.row-bottom {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 16rpx;
   min-width: 0;
-  flex-wrap: wrap;
 }
 
-.row-name {
-  font-size: 28rpx;
-  color: var(--app-text);
-  /* 名字过长时省略，给金额留位置 */
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* 价签：不加背景色，纯排版区分；字重比名字轻一档，主次分明 */
-.row-amount {
-  flex-shrink: 0;
-}
-
-/*
- * ★ 第二行：规则 · 下次于 XX年XX月XX日 ★
- *
- * 两个信息合成一行，用「·」分隔：
- *   左半是规则（每月1号 / 每周三 / 每天），说明「多久扣一次」
- *   右半是日期，说明「下次什么时候扣」
- * 它们是一组问答关系，放同一行读起来连贯，也省下一行高度。
- *
- * 用 nowrap 保证不被拆成两行 —— 这一行本来就短，
- * 「每周三 · 下次于 2026年11月4日」最宽也就 20 来个字。
- */
-.row-meta {
+/* 左侧组：允许收缩，名字/账户过长时省略 */
+.row-top-left,
+.row-bottom-left {
   display: flex;
   align-items: center;
   gap: 8rpx;
@@ -508,10 +520,45 @@ export default {
   white-space: nowrap;
 }
 
+.row-name {
+  font-size: 28rpx;
+  color: var(--app-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 重复规则徽标：每天 / 每周三 / 每月15号
+ *
+ * 用主题色浅底 + 主题色字，和「周期」流水上的徽标同一套语言，
+ * 一眼看出这条是周期性自动记账、以及多久一次。
+ * flex-shrink: 0 保证徽标永远完整显示 —— 名称长了应该省略名称，
+ * 而不是把「每月15号」截成「每月1…」。
+ */
+.row-cycle-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 6rpx;
+  color: var(--app-primary);
+  background-color: var(--app-primary-light);
+  font-weight: 500;
+}
+
+/* 金额：不加背景色，靠右端对齐，字号比名称轻一档 */
+.row-amount {
+  flex-shrink: 0;
+}
+
+/* 扣款账户：比日期淡一档，是「从哪扣」的辅助信息 */
 .row-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
-  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* 分隔点：比两侧文字更淡，只起分隔作用，不该抢眼 */
@@ -522,7 +569,7 @@ export default {
   flex-shrink: 0;
 }
 
-/* 日期：比规则深一档，因为「下次什么时候扣」更被关心 */
+/* 日期：比账户深一档，因为「下次什么时候扣」更被关心 */
 .row-next {
   font-size: 22rpx;
   color: var(--app-text-2);
@@ -540,18 +587,9 @@ export default {
   font-weight: 600;
 }
 
-/*
- * 右侧：只放已记笔数（规则已挪到下方那一行）。
- * 保持 flex 列布局，将来若再加内容可以直接往下排。
- */
-.row-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  flex-shrink: 0;
-}
-
+/* 笔数：与金额同一列右对齐 */
 .row-count {
+  flex-shrink: 0;
   font-size: 22rpx;
   color: var(--app-text-3);
 }

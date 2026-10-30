@@ -65,6 +65,10 @@ db.exec(`CREATE TABLE cycle (
   recurrence TEXT NOT NULL DEFAULT 'monthly', weekday INTEGER, day_of_month INTEGER,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER,
   last_caught_up_day TEXT)`)
+// v9：用户主动「不要」的发生日（建周期选先不记 / 删掉周期流水）
+db.exec(`CREATE TABLE cycle_skip (
+  cycle_id TEXT NOT NULL, day TEXT NOT NULL, created_at INTEGER,
+  PRIMARY KEY (cycle_id, day))`)
 
 const fake = {
   sqlite: {
@@ -96,12 +100,13 @@ const fake = {
 }
 globalThis.plus = fake
 
-// 让 openDb 走我们的内存库，并跳过真实迁移路径（表已建好，版本设 8）
-db.exec('PRAGMA user_version = 8')
+// 让 openDb 走我们的内存库，并跳过真实迁移路径（表已建好，版本设 9）
+db.exec('PRAGMA user_version = 9')
 
 function resetTables() {
   db.exec('DELETE FROM txn')
   db.exec('DELETE FROM cycle')
+  db.exec('DELETE FROM cycle_skip')
   db.exec('DELETE FROM account')
   db.exec('DELETE FROM account_snapshot')
   db.exec('DELETE FROM category')
@@ -242,6 +247,68 @@ async function testListCycleTxns() {
   check('不存在的周期返回空数组', empty.length, 0)
 }
 
+/**
+ * ★ 用户主动删除某天的周期流水后，再次进 App 不能补回来 ★
+ *
+ * 这是反馈里的真实 bug：
+ *   删掉今天那笔周期账 → 下次启动 catchUpCycles 又补一笔 → 永远删不掉。
+ *
+ * 根因：补记只判断「这天有没有未删除的流水」，
+ * 删掉后查不到就当没记过，于是重建。
+ * 修复：删除时把 (cycle_id, day) 写进 cycle_skip，补记时跳过。
+ */
+async function testSkipAfterUserDelete() {
+  resetTables()
+  const cycle = await loadCycle()
+  insertAccount(); insertCategory()
+  insertCycle({ id: 'cyc6', recurrence: 'daily', cursor: '2026-10-01' })
+
+  // 首次补记：10-02 ~ 10-05
+  await cycle.catchUpCycles('2026-10-05')
+  check('首次补了 4 笔', txnDays('cyc6').length, 4)
+
+  // 用户主动删掉「今天」这笔（走真实删除入口，会写 cycle_skip）
+  const row = db.prepare("SELECT id FROM txn WHERE cycle_id='cyc6' AND occurred_day='2026-10-05'").get()
+  const txnApi = await import('../api/transaction.js?t=' + Math.random())
+  await txnApi.deleteTransaction(row.id)
+
+  // 再次进 App（同一天）
+  await cycle.catchUpCycles('2026-10-05')
+  check('删掉后当天不再被补回', txnDays('cyc6').includes('2026-10-05'), false)
+  check('剩余 3 笔', txnDays('cyc6').length, 3)
+
+  // 再过几天再进 App：中间的日期仍正常补，被删的那天仍不补
+  await cycle.catchUpCycles('2026-10-07')
+  const days = txnDays('cyc6')
+  check('被删的那天永远不补', days.includes('2026-10-05'), false)
+  check('后续新日期正常补', days.includes('2026-10-06') && days.includes('2026-10-07'), true)
+}
+
+/**
+ * ★ 建周期时选「本天先不记」→ 该天不能被自动补 ★
+ *
+ * 老行为：创建时游标=今天，选「先不记」后没有任何标记；
+ * 只要当天符合规则，下次启动就会被补记 —— 等于用户的「先不记」被忽略。
+ */
+async function testSkipWhenCreatedWithoutRecord() {
+  resetTables()
+  const cycle = await loadCycle()
+  insertAccount(); insertCategory()
+  insertCycle({ id: 'cyc7', recurrence: 'daily', cursor: '2026-10-05' })
+
+  // 模拟用户当场选「先不记」：写一条 skip
+  await cycle.skipCycleDay('cyc7', '2026-10-05')
+
+  await cycle.catchUpCycles('2026-10-05')
+  check('选了先不记的当天不补', txnDays('cyc7').includes('2026-10-05'), false)
+
+  // 第二天起照常补
+  await cycle.catchUpCycles('2026-10-06')
+  const days = txnDays('cyc7')
+  check('次日正常补记', days.includes('2026-10-06'), true)
+  check('先不记的当天仍不补', days.includes('2026-10-05'), false)
+}
+
 async function main() {
   await testOccurrences()
   await testCatchUpNormal()
@@ -249,6 +316,8 @@ async function main() {
   await testCatchUpSkipsDeleted()
   await testCatchUpTransfer()
   await testListCycleTxns()
+  await testSkipAfterUserDelete()
+  await testSkipWhenCreatedWithoutRecord()
 
   console.log(`\n=== 周期补记测试结果: ${pass} 通过 / ${fail} 失败 ===`)
   process.exit(fail === 0 ? 0 : 1)

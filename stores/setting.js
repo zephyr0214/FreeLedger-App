@@ -11,7 +11,7 @@ import { defineStore } from 'pinia'
 import { getAllSettings, setSettings, normalizeQuickAddAction } from '@/api/settings.js'
 import {
   THEME_PRESETS, THEME_MODE, resolveDark, buildCssVars, buildWotThemeVars,
-  buildWotCssVars, wotThemeClass,
+  buildWotCssVars, wotThemeClass, themePrimaryLightDark,
   applyNavigationBarTheme, isSystemDark, getPreset, watchSystemTheme,
   applyNativeTheme
 } from '@/utils/theme.js'
@@ -40,7 +40,6 @@ export const useSettingStore = defineStore('setting', {
       avatar: '',
       signature: '',
       defaultAccountId: '',
-      monthStartDay: 1,
       currencySymbol: '¥',
       firstRunDone: false,
       themeMode: THEME_MODE.SYSTEM,
@@ -101,11 +100,19 @@ export const useSettingStore = defineStore('setting', {
      * 主题色的浅色版（同一色相的淡底）。
      *
      * 用于需要「浅主题色背景」的地方，如 tabBar 的选中滑块。
-     * 取的是预设里的 light 值，不是临时算出来的 rgba ——
-     * 预设的 light 是调过的，饱和度比直接加透明度更耐看。
+     *
+     * ★ 必须按深浅模式区分 ★
+     *   浅色下用预设里的 light 值 —— 那是调过的浅色，饱和度比算出来的 rgba 更耐看；
+     *   暗色下预设的 light（如 #E8F9EF 近白）太亮，直接铺在深色上会「发光」，
+     *   而且原先暗色分支根本没用这个值（写死了纯白半透明，几乎看不出选中），
+     *   所以这里改成返回带主题色相的半透明色，和高亮底色保持同一套观感。
      */
     primaryLight(state) {
-      return getPreset(state.settings.themePreset).light
+      const p = getPreset(state.settings.themePreset)
+      if (state.isDark) {
+        return themePrimaryLightDark(p.primary, state.isDark)
+      }
+      return p.light
     },
     currencySymbol(state) {
       return state.settings.currencySymbol || '¥'

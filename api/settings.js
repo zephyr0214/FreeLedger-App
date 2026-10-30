@@ -16,7 +16,6 @@ export const DEFAULT_SETTINGS = {
 
   // 记账
   defaultAccountId: '',
-  monthStartDay: 1,
   currencySymbol: '¥',
   firstRunDone: false,
 

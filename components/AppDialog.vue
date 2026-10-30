@@ -20,6 +20,21 @@
         <text class="app-dialog__content">{{ content }}</text>
       </view>
 
+      <!--
+        结构化列表（如数据库自检报告）。
+        每行：状态点 + 序号名称，细节另起一行缩进。
+        比把 7~8 条长句塞进一段 content 里清爽得多。
+      -->
+      <scroll-view v-if="list && list.length" class="app-dialog__list" scroll-y>
+        <view v-for="(item, i) in list" :key="i" class="chk-row">
+          <view class="chk-head">
+            <text class="chk-dot" :class="item.ok ? 'is-ok' : 'is-bad'">{{ item.ok ? '✓' : '✗' }}</text>
+            <text class="chk-name">{{ i + 1 }}. {{ item.name }}</text>
+          </view>
+          <text v-if="item.detail" class="chk-detail">{{ item.detail }}</text>
+        </view>
+      </scroll-view>
+
       <!-- prompt 模式：输入框 -->
       <view v-if="mode === 'prompt'" class="app-dialog__input-wrap">
         <input
@@ -141,6 +156,8 @@ export default {
     const placeholder = ref('')
     const inputValue = ref('')
     const danger = ref(false)
+    /** 结构化列表（可选，数据库自检等场景用） */
+    const list = ref(null)
 
     /** 当前这次弹窗的 resolve 回调 */
     let pending = null
@@ -182,6 +199,7 @@ export default {
         placeholder.value = next.placeholder || ''
         inputValue.value = ''
         danger.value = !!next.danger
+        list.value = Array.isArray(next.list) ? next.list : null
         visible.value = true
       })
     }
@@ -289,7 +307,7 @@ export default {
 
     return {
       zIndex, visible, mode, title, content, confirmText, cancelText,
-      placeholder, inputValue, confirmStyle, hasCancel,
+      placeholder, inputValue, confirmStyle, hasCancel, list,
       onConfirm, onCancel, onClickModal
     }
   }
@@ -302,6 +320,11 @@ export default {
  *
  * 颜色全部走 --app-* 变量（由页面的 settingStore.cssVars 注入），
  * 所以深浅色、主题色自动跟随，和页面完全一致。
+ *
+ * ★ 这里刻意用实色，不做玻璃 ★
+ *   用户要的「柔光玻璃」是「+ 弹出的 AI 记账输入条」（components/QuickAddBar.vue），
+ *   不是这个通用确认弹窗。确认框上是要读清楚的提示文案和按钮，
+ *   实色底可读性最好，也避免和输入条抢同一种观感。
  */
 .app-dialog {
   width: 600rpx;
@@ -341,6 +364,68 @@ export default {
 
 .app-dialog__input-wrap {
   padding: 8rpx 40rpx 0;
+}
+
+/*
+ * 结构化列表：自检报告这类多条目内容。
+ * 限高 + 可滚动，条目多时不会把弹窗撑到出屏。
+ */
+.app-dialog__list {
+  max-height: 640rpx;
+  padding: 16rpx 36rpx 8rpx;
+  box-sizing: border-box;
+}
+
+.chk-row {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.chk-row:last-child {
+  border-bottom: none;
+}
+
+.chk-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+/* 状态标记：通过绿、失败红，用固定宽度保证勾叉对齐 */
+.chk-dot {
+  flex-shrink: 0;
+  width: 30rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  text-align: center;
+  font-weight: 600;
+}
+
+.chk-dot.is-ok {
+  color: var(--app-success);
+}
+
+.chk-dot.is-bad {
+  color: var(--app-danger);
+}
+
+.chk-name {
+  flex: 1;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: var(--app-text);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+/* 细节：缩进对齐到名称起始位置，字号更小、颜色更淡 */
+.chk-detail {
+  display: block;
+  margin: 6rpx 0 0 42rpx;
+  font-size: 22rpx;
+  line-height: 1.55;
+  color: var(--app-text-3);
+  word-break: break-word;
 }
 
 .app-dialog__input {

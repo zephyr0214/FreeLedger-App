@@ -55,7 +55,7 @@
             </view>
             <view class="total-foot-item">
               <text class="total-foot-label">日均可用</text>
-              <text class="total-foot-num">¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}</text>
+              <text class="total-foot-num">¥{{ (totalBudget.dailyAvailable / 100).toFixed(2) }}</text>
             </view>
           </view>
         </view>
@@ -275,8 +275,8 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -287,6 +287,7 @@ import { listCategories } from '@/api/category.js'
 import { yuanToCents } from '@/utils/money.js'
 import { toMonthKey } from '@/utils/date.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: { PageNav, MoneyText, AppDialog },
@@ -710,10 +711,76 @@ export default {
      * ★ 总预算不是右滑行（只有分类预算有右滑操作区），所以只收分类预算那一行 ★
      */
     watch(showEditor, (open) => {
-      if (open) return
+      if (open) {
+        /*
+         * ★ 预算编辑 / 分类预算编辑都走这个弹层（editorMode 区分）★
+         *   两者是同一个 showEditor，登记一次就覆盖两种编辑场景：
+         *   侧滑返回先收起编辑弹层，不会把「预算管理」页整个退掉。
+         */
+        if (!unregisterLayer) {
+          unregisterLayer = pushLayer(() => { showEditor.value = false }, 'budgetEditor')
+        }
+        return
+      }
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
       if (editorMode.value !== 'category') return
       const id = editorBudgetId.value
       if (id) swipeStates[id] = 'close'
+    })
+
+    /** 弹层栈注销函数 */
+    let unregisterLayer = null
+
+    onUnmounted(() => {
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
+    })
+
+    // 侧滑返回 / 返回键：预算编辑弹层打开时先收起弹层
+    onBackPress(() => handleBackPress())
+
+    /*
+     * 两个分类选择器（wd-action-sheet）也算弹层，
+     * 打开时同样登记，让侧滑返回先收起选择器而不是退页。
+     * 它们叠在编辑弹层之上时是后进先出，会先关选择器 —— 符合预期。
+     */
+    watch(showParentPicker, (open) => {
+      if (open) {
+        if (!unregisterParentPicker) {
+          unregisterParentPicker = pushLayer(() => { showParentPicker.value = false }, 'budgetParentPicker')
+        }
+        return
+      }
+      if (unregisterParentPicker) {
+        unregisterParentPicker()
+        unregisterParentPicker = null
+      }
+    })
+
+    watch(showChildPicker, (open) => {
+      if (open) {
+        if (!unregisterChildPicker) {
+          unregisterChildPicker = pushLayer(() => { showChildPicker.value = false }, 'budgetChildPicker')
+        }
+        return
+      }
+      if (unregisterChildPicker) {
+        unregisterChildPicker()
+        unregisterChildPicker = null
+      }
+    })
+
+    let unregisterParentPicker = null
+    let unregisterChildPicker = null
+
+    onUnmounted(() => {
+      if (unregisterParentPicker) unregisterParentPicker()
+      if (unregisterChildPicker) unregisterChildPicker()
     })
 
     onMounted(async () => {

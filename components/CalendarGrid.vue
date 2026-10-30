@@ -38,9 +38,9 @@
           >{{ cell.day }}</text>
 
           <!--
-            支出额：负号，在日期下方
-            色彩规则：始终可区分 —— 浅色格子用深红，深色格子用亮红。
-            不要在深热力格子上退回白色，否则支出和收入分不清了。
+            支出额：负号，在日期下方。
+            颜色固定取 --app-danger，与全 App 的支出红严格同值
+            （不再按热力档位换色 —— 那会引入第二套红）。
           -->
           <text
             v-if="cell.dayData && cell.dayData.expense > 0"
@@ -48,7 +48,7 @@
             :style="{ color: expenseColor(cell) }"
           >-{{ formatAmount(cell.dayData.expense) }}</text>
 
-          <!-- 收入额：正号，在最下方；始终绿色系 -->
+          <!-- 收入额：正号，在最下方；颜色固定取 --app-success -->
           <text
             v-if="cell.dayData && cell.dayData.income > 0"
             class="day-amount day-income"
@@ -201,21 +201,28 @@ export default {
 
     /**
      * 支出金额的颜色。
-     * 深热力格（level>=3）底色深，用亮红；浅格子用深红。
-     * 关键是始终保持红色系，不能退回白色 —— 否则和收入混淆。
+     *
+     * ★ 必须和全 App 的红「完全同值」★
+     *   原来这里写死了 #D9363E / #E03131 / #FF6B6B 三个红；
+     *   上一版又改成「深格用提亮档」，仍然是另一个色值。
+     *   两种做法都和别处金额的 --app-danger 不是同一个红。
+     *
+     *   现在只有一条规则：始终取 --app-danger，不按热力档位换色。
+     *   这样月历里的红 = 首页/统计页/详情页里的红 = 同一个 CSS 变量，
+     *   浅色暗色都自动跟着主题走，不可能再出现「两种红」。
      */
-    function expenseColor(cell) {
-      const level = cell.dayData ? heatLevel(cell.dayData.expense) : 0
-      if (level >= 3) return '#FF6B6B'
-      if (level === 2) return '#E03131'
-      return '#D9363E'
+    function expenseColor() {
+      return 'var(--app-danger)'
     }
 
-    /** 收入金额的颜色。始终绿色系，深格用亮绿。 */
-    function incomeColor(cell) {
-      const level = cell.dayData ? heatLevel(cell.dayData.expense) : 0
-      if (level >= 3) return '#4ADE80'
-      return '#0A8F4A'
+    /**
+     * 收入金额的颜色。
+     *
+     * 同理：始终取 --app-success，不按档位换色，
+     * 与全 App 其它地方的绿严格同值。
+     */
+    function incomeColor() {
+      return 'var(--app-success)'
     }
 
     function onDayClick(cell) {

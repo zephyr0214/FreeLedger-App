@@ -20,15 +20,15 @@
           <text class="summary-label">本月支出</text>
           <MoneyText
             :cents="monthStats.expense"
+            type="expense"
             :size="72"
             :weight="600"
-            color="var(--app-text)"
           />
 
           <view class="summary-rows">
             <view class="summary-row">
               <text class="summary-row-label">本月收入</text>
-              <MoneyText :cents="monthStats.income" :size="26" color="var(--app-success)" />
+              <MoneyText :cents="monthStats.income" type="income" :size="26" />
             </view>
             <view class="summary-row">
               <text class="summary-row-label">本月笔数</text>
@@ -45,12 +45,12 @@
         <view class="month-card">
           <view class="month-item">
             <text class="month-label">本月支出</text>
-            <MoneyText :cents="monthStats.expense" :size="32" :weight="500" color="var(--app-text)" />
+            <MoneyText :cents="monthStats.expense" type="expense" :size="32" :weight="500" />
           </view>
           <view class="month-divider" />
           <view class="month-item">
             <text class="month-label">本月收入</text>
-            <MoneyText :cents="monthStats.income" :size="32" :weight="500" color="var(--app-success)" />
+            <MoneyText :cents="monthStats.income" type="income" :size="32" :weight="500" />
           </view>
         </view>
 

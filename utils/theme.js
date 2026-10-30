@@ -241,6 +241,89 @@ export function resolveDark(mode) {
 }
 
 /**
+ * 把 #RRGGBB 主题色转成半透明色（暗色模式的浅色底用）。
+ *
+ * ★ 为什么不能再用 rgba(255,255,255,0.10) ★
+ *   暗色下「浅色底」原本是一层纯白半透明，叠在 #1C1C1E 卡片上
+ *   只是把卡片提亮一点点，看起来几乎和没上色一样 ——
+ *   用户反馈的「tabbar 选中滑块 / 最高十笔 / 账户类型选中态」暗色下不明显，
+ *   根源就是这个值不带主题色，也没有足够对比。
+ *
+ *   改成「主题色 + 一定透明度」后：
+ *     · 底色带上主题色相，能看出「被选中/高亮」
+ *     · 暗底上 22% 的主题色已经足够区分，又不会刺眼
+ *   浅色模式仍用预设里的 p.light（那是调过的浅色，比算出来的更耐看）。
+ *
+ * @param {string} hex  #RRGGBB
+ * @param {number} alpha 0~1
+ * @returns {string} rgba(...)
+ */
+export function tintOf(hex, alpha) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''))
+  if (!m) return `rgba(7,193,96,${alpha})`
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+/**
+ * 暗色模式下「浅主题色底」的统一取色。
+ *
+ * 与 buildCssVars 里 --app-primary-light 的暗色值是同一个来源，
+ * 保证「组件用 store.primaryLight 取色」和「CSS 用 var(--app-primary-light)」
+ * 在暗色下完全一致，不会出现同一块高亮两种深浅。
+ *
+ * @param {string} primaryHex 主题主色
+ * @param {boolean} dark 是否暗色
+ * @returns {string}
+ */
+export function themePrimaryLightDark(primaryHex, dark) {
+  return dark ? tintOf(primaryHex, 0.22) : primaryHex
+}
+
+/**
+ * 「柔光玻璃」配色 —— tabbar 和 + 弹出的对话框共用同一套。
+ *
+ * ★ 为什么要抽出来 ★
+ *   两个组件都要半透明底 + 模糊 + 内高光描边，
+ *   各自写一份迟早会飘（深浅色、透明度、阴影不一致）。
+ *   抽成一个函数后，改一处两处同时变。
+ *
+ * ★ 三个要素凑出玻璃感 ★
+ *   1. 半透明底色 —— 让下面的内容隐约透出来
+ *   2. 模糊（@supports 检测，不支持时用高不透明度兜底）
+ *   3. 内高光描边 —— 玻璃边缘的折射，缺了就只是块半透明色
+ *
+ * ★ 返回的是 CSS 变量 ★
+ *   因为 @supports 管不到内联样式，颜色必须走变量，
+ *   支持模糊的那段 CSS 才能覆盖掉降级值。
+ *
+ * @param {boolean} dark 是否暗色
+ * @param {object} opt
+ *   opt.blur     模糊半径（如 '24rpx'）
+ *   opt.tintDark / opt.tintLight  覆盖默认底色（对话框想更实一点时用）
+ * @returns {object} 可直接展开到 :style 的变量对象
+ */
+export function glassVars(dark, opt = {}) {
+  const blur = opt.blur || '24rpx'
+  const solidDark = opt.solidDark || 'rgba(28,28,30,0.94)'
+  const solidLight = opt.solidLight || 'rgba(255,255,255,0.96)'
+  return {
+    '--glass-bg': dark
+      ? (opt.tintDark || 'rgba(28,28,30,0.48)')
+      : (opt.tintLight || 'rgba(255,255,255,0.62)'),
+    '--glass-bg-solid': dark ? solidDark : solidLight,
+    '--glass-border': dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.75)',
+    '--glass-blur': blur,
+    '--glass-shadow': dark
+      ? '0 12rpx 40rpx rgba(0,0,0,0.55), inset 0 1rpx 0 rgba(255,255,255,0.10)'
+      : '0 12rpx 40rpx rgba(0,0,0,0.10), inset 0 1rpx 0 rgba(255,255,255,0.90)'
+  }
+}
+
+/**
  * 生成注入到页面的 CSS 变量字符串。
  * 自研组件只使用这些变量，不写死色值。
  *
@@ -266,7 +349,7 @@ export function buildCssVars(presetKey, dark) {
         '--app-text-2': '#A1A1A6',
         '--app-text-3': '#6E6E73',
         '--app-primary': p.primary,
-        '--app-primary-light': 'rgba(255,255,255,0.10)',
+        '--app-primary-light': tintOf(p.primary, 0.22),
         /*
          * ★ 顶部渐变卡片的起始色（暗色下 = 卡片色，等于没有渐变）★
          *   浅色下用主题浅色做出「顶部泛一层淡淡的主题色」的效果，
@@ -281,6 +364,14 @@ export function buildCssVars(presetKey, dark) {
         '--app-danger': '#FF453A',
         '--app-success': '#32D74B',
         '--app-warning': '#FFD60A',
+        /*
+         * ★ 中性的「浅灰」—— 转账、不计入资产的余额用 ★
+         *   暗色下用一个比 --app-text-2 更淡的灰：
+         *   --app-text-2(#A1A1A6) 在白底上算「次要文字」，
+         *   但暗底上它会显得偏亮、抢正文；这里取 #8E8E93，
+         *   明显弱于正文却仍清晰可读。
+         */
+        '--app-muted': '#8E8E93',
         '--app-mask': 'rgba(0,0,0,0.65)',
         '--app-shadow': '0 2rpx 16rpx rgba(0,0,0,0.4)'
       }
@@ -300,6 +391,8 @@ export function buildCssVars(presetKey, dark) {
         '--app-danger': '#EE0A24',
         '--app-success': '#07C160',
         '--app-warning': '#FF976A',
+        /* 浅色下的中性浅灰：比 --app-text-3(#969799) 更淡一档 */
+        '--app-muted': '#B8BEC7',
         '--app-mask': 'rgba(0,0,0,0.45)',
         '--app-shadow': '0 2rpx 16rpx rgba(0,0,0,0.06)'
       }

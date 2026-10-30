@@ -179,7 +179,6 @@ export async function recordCycle(id) {
     category_id: c.type === 'transfer' ? null : c.category_id,
     note: c.note || '',
     occurred_day: day,
-    source: 'cycle',
     cycle_id: id
   })
 }
@@ -324,7 +323,6 @@ export async function recordCycleForDay(id, day) {
     category_id: c.type === 'transfer' ? null : c.category_id,
     note: c.note || '',
     occurred_day: day,
-    source: 'cycle',
     cycle_id: id
   })
 }
@@ -337,6 +335,61 @@ async function cycleHasTxnOn(cycleId, day) {
     [cycleId, day]
   )
   return Boolean(row)
+}
+
+/**
+ * 把某一天标记为「用户不要」。
+ *
+ * ★ 什么时候调用 ★
+ *   1. 建周期时用户选「本天先不记一笔」
+ *   2. 用户主动删掉某笔由周期产生的流水
+ *   这两次都是明确表达「这一天不要再补」，记下来以后就永久跳过。
+ *
+ * ★ 为什么不用「查软删的 txn」代替 ★
+ *   软删的 txn 在用户新建周期/改周期后可能被清理，
+ *   而且「本天先不记」根本没有产生 txn 可以删。
+ *   单独一张 cycle_skip 表语义更明确，也不会被别的清理逻辑误伤。
+ *
+ * @param {string} cycleId
+ * @param {string} day YYYY-MM-DD
+ */
+export async function skipCycleDay(cycleId, day) {
+  if (!cycleId || !day) return
+  try {
+    await execute(
+      'INSERT OR IGNORE INTO cycle_skip (cycle_id, day, created_at) VALUES (?,?,?)',
+      [cycleId, day, Date.now()]
+    )
+  } catch (e) {
+    console.warn('[cycle] 记录跳过日失败:', cycleId, day, e && e.message)
+  }
+}
+
+/** 某周期在某天是否被用户标记为「不要」 */
+async function cycleSkippedOn(cycleId, day) {
+  try {
+    const row = await queryOne(
+      'SELECT 1 AS hit FROM cycle_skip WHERE cycle_id = ? AND day = ? LIMIT 1',
+      [cycleId, day]
+    )
+    return Boolean(row)
+  } catch (e) {
+    // 表还没建（老版本库）时按「没跳过」处理，不影响补记主流程
+    return false
+  }
+}
+
+/** 读取某周期的全部跳过日（补记时一次性取出来，避免逐日查库） */
+async function listCycleSkips(cycleId) {
+  try {
+    const rows = await query(
+      'SELECT day FROM cycle_skip WHERE cycle_id = ?',
+      [cycleId]
+    )
+    return new Set(rows.map((r) => r.day))
+  } catch (e) {
+    return new Set()
+  }
 }
 
 /**
@@ -383,8 +436,19 @@ export async function catchUpCycles(today = toDayKey()) {
     }
 
     let added = 0
+    // 一次性取出该周期的跳过日，避免逐日查库
+    const skipped = await listCycleSkips(c.id)
     for (const d of days) {
       if (added >= MAX_CATCHUP_PER_CYCLE) break
+      /*
+       * ★ 用户明确说过「这天不要」，就永远不补 ★
+       *   两种情况会写进 cycle_skip：
+       *     · 建周期时选「本天先不记」
+       *     · 用户主动删掉了这天由周期产生的流水
+       *   不加这个判断的话，用户删一次、下次进 App 又补回来，
+       *   删多少次都没用 —— 这正是反馈里的 bug。
+       */
+      if (skipped.has(d)) continue
       const has = await cycleHasTxnOn(c.id, d)
       if (has) continue
       try {

@@ -17,9 +17,9 @@
       </text>
       <view class="summary-right">
         <text class="summary-label">支出</text>
-        <MoneyText :cents="summary.expense" :size="26" color="var(--app-text)" />
+        <MoneyText :cents="summary.expense" type="expense" :size="26" />
         <text class="summary-label" style="margin-left: 16rpx">收入</text>
-        <MoneyText :cents="summary.income" :size="26" color="var(--app-success)" />
+        <MoneyText :cents="summary.income" type="income" :size="26" />
       </view>
     </view>
 
@@ -46,11 +46,19 @@
         <view class="day-head">
           <text class="day-title">{{ group.title }}</text>
           <view class="day-sum">
+            <!--
+              分组汇总：「支出 / 收入」这两个**标签**无色，
+              紧跟的**数字**仍按全 App 统一规则着色（支出无色、收入绿色）。
+              ★ 符号也统一 ★ 支出 -、收入 +
+              ★ 这里不用 MoneyText ★
+                它嵌在 <text> 里，组件在 text 内布局不可靠；
+                金额是两位小数、不需要千分位/货币符号，直接拼字符串最稳。
+            -->
             <text v-if="group.expense > 0" class="day-sum-text">
-              支出 {{ (group.expense / 100).toFixed(2) }}
+              支出 -{{ (group.expense / 100).toFixed(2) }}
             </text>
-            <text v-if="group.income > 0" class="day-sum-text day-income">
-              收入 {{ (group.income / 100).toFixed(2) }}
+            <text v-if="group.income > 0" class="day-sum-text">
+              收入 <text class="day-sum-income">+{{ (group.income / 100).toFixed(2) }}</text>
             </text>
           </view>
         </view>
@@ -97,7 +105,6 @@
                 :type="txn.type"
                 :size="30"
                 :weight="500"
-                :color="txn.type === 'expense' ? 'var(--app-text)' : (txn.type === 'income' ? 'var(--app-success)' : 'var(--app-text-2)')"
               />
               <text class="txn-time">{{ timeLabel(txn.occurred_at) }}</text>
             </view>
@@ -296,8 +303,8 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { onShow, onLoad } from '@dcloudio/uni-app'
+import { ref, reactive, computed, onMounted, watch, onUnmounted } from 'vue'
+import { onShow, onLoad, onBackPress } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
@@ -313,6 +320,7 @@ import { formatDayHeader, formatTime, selectionToRange, defaultSelection, select
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 const PAGE_SIZE = 50
 
@@ -1050,6 +1058,46 @@ export default {
       settingStore.syncSystemTheme()
     })
 
+    /*
+     * ★ 筛选面板 / 选择器也要能侧滑收起 ★
+     *   两者都是本页内的弹层，不登记的话右滑会直接退出「全部交易」页。
+     */
+    watch(showFilter, (open) => {
+      if (open) {
+        if (!unregisterFilter) {
+          unregisterFilter = pushLayer(() => { showFilter.value = false }, 'txnFilter')
+        }
+        return
+      }
+      if (unregisterFilter) {
+        unregisterFilter()
+        unregisterFilter = null
+      }
+    })
+
+    watch(showPicker, (open) => {
+      if (open) {
+        if (!unregisterPicker) {
+          unregisterPicker = pushLayer(() => { showPicker.value = false }, 'txnPicker')
+        }
+        return
+      }
+      if (unregisterPicker) {
+        unregisterPicker()
+        unregisterPicker = null
+      }
+    })
+
+    let unregisterFilter = null
+    let unregisterPicker = null
+
+    onUnmounted(() => {
+      if (unregisterFilter) unregisterFilter()
+      if (unregisterPicker) unregisterPicker()
+    })
+
+    onBackPress(() => handleBackPress())
+
     return {
       settingStore, accountStore, statusBarHeight,
       dateRange, datePickerRef, list, summary, hasMore, loading, showFilter,
@@ -1181,7 +1229,13 @@ export default {
   color: var(--app-text-3);
 }
 
-.day-income {
+/*
+ * ★ 分组头：「支出 / 收入」标签无色，数字按统一规则着色 ★
+ *   用户要求标签本身无色（不要整段泛绿），
+ *   但收入的**数字**仍要是绿色 —— 和流水金额的观感一致。
+ *   所以颜色只加在内层数字的 <text> 上，外层标签保持 text-3。
+ */
+.day-sum-income {
   color: var(--app-success);
 }
 

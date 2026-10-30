@@ -286,7 +286,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -300,6 +300,7 @@ import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { alertDialog } from '@/utils/dialog.js'
+import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
@@ -740,8 +741,7 @@ export default {
         // ★ 带上具体时刻，不再固定 12:00 ★
         occurred_at: combineDayTime(form.occurred_day, form.occurred_time),
         note: form.note.trim(),
-        tag_ids: form.tag_ids,
-        source: 'manual'
+        tag_ids: form.tag_ids
       }
 
       try {
@@ -765,12 +765,70 @@ export default {
       visible.value = false
     }
 
+    /** 弹层栈注销函数（打开时登记、关闭/卸载时摘掉） */
+    let unregisterLayer = null
+
+    /*
+     * ★ 面板内部的选择器也要能侧滑收起 ★
+     *   账户 / 转入账户 / 标签 / 更多分类 都是叠在记账面板之上的弹层，
+     *   侧滑返回时应该先关掉最上面这个，而不是连记账面板一起关掉、
+     *   更不能直接退出页面。
+     *   统一用一个小工具批量登记，避免 4 段重复代码。
+     */
+    const sheetUnregisters = {}
+    function bindSheet(name, refObj) {
+      watch(refObj, (open) => {
+        if (open) {
+          if (!sheetUnregisters[name]) {
+            sheetUnregisters[name] = pushLayer(() => { refObj.value = false }, name)
+          }
+          return
+        }
+        if (sheetUnregisters[name]) {
+          sheetUnregisters[name]()
+          sheetUnregisters[name] = null
+        }
+      })
+    }
+
+    bindSheet('txnAccountPicker', showAccountPicker)
+    bindSheet('txnToAccountPicker', showToAccountPicker)
+    bindSheet('txnTagPicker', showTagPicker)
+    bindSheet('txnMoreCategories', showMoreCategories)
+
+    onUnmounted(() => {
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
+      Object.keys(sheetUnregisters).forEach((k) => {
+        if (sheetUnregisters[k]) sheetUnregisters[k]()
+        sheetUnregisters[k] = null
+      })
+    })
+
     /* ------------------------------------------------------ 生命周期 */
 
     watch(
       () => props.modelValue,
       async (open) => {
-        if (!open) return
+        if (!open) {
+          // 关闭时从弹层栈摘掉，避免登记残留
+          if (unregisterLayer) {
+            unregisterLayer()
+            unregisterLayer = null
+          }
+          return
+        }
+
+        /*
+         * ★ 打开时登记到弹层栈 ★
+         *   这样全面屏侧滑返回 / 安卓返回键会先收起面板，
+         *   而不是直接退出整个页面（见 utils/layerStack.js）。
+         */
+        if (!unregisterLayer) {
+          unregisterLayer = pushLayer(() => { visible.value = false }, 'txnPanel')
+        }
 
         await accountStore.load()
         await loadOptions()

@@ -16,11 +16,20 @@
             {{ iconChar }}
           </text>
         </view>
+        <!--
+          金额：支出 -、收入 +，转账不加符号（符号规则全页面统一）。
+          ★ 转账在这里用正文色，不用浅灰 ★
+            浅灰是「列表里区分非收支」的视觉降级，
+            而交易详情是用户专门点进来看这一笔的，
+            转账金额就是这页的主体，淡化反而看不清。
+            所以转账时显式传 color，绕开 MoneyText 的浅灰默认。
+        -->
         <MoneyText
           :cents="txn.amount_cents"
+          :type="txn.type"
           :size="72"
           :weight="600"
-          :color="txn.type === 'expense' ? 'var(--app-text)' : (txn.type === 'income' ? 'var(--app-success)' : 'var(--app-text)')"
+          :color="txn.type === 'transfer' ? 'var(--app-text)' : 'auto'"
         />
         <text class="head-type">{{ typeLabel }}</text>
       </view>
@@ -70,16 +79,6 @@
           <text class="row-label">备注</text>
           <text class="row-note">{{ txn.note }}</text>
         </view>
-
-        <view class="row">
-          <text class="row-label">来源</text>
-          <text class="row-value">{{ sourceLabel }}</text>
-        </view>
-
-        <view v-if="txn.raw_text" class="row row-column">
-          <text class="row-label">速记原文</text>
-          <text class="row-note">{{ txn.raw_text }}</text>
-        </view>
       </view>
 
       <!-- 不计入预算（只有支出才有意义） -->
@@ -124,8 +123,9 @@
 
 <script>
 import { ref, computed } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
+import { handleBackPress } from '@/utils/layerStack.js'
 import TxnPanel from '@/components/TxnPanel.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -158,11 +158,11 @@ export default {
       return map[txn.value.type] || ''
     })
 
-    const sourceLabel = computed(() => {
-      if (!txn.value) return ''
-      const map = { manual: '手动记账', quick: '速记', import: '导入', recurring: '周期记账' }
-      return map[txn.value.source] || '手动记账'
-    })
+    /*
+     * 「来源」和「速记原文」已按需求移除 —— 详情页不再展示，
+     * 数据库也不再记录（见 api/db/index.js 的 v10 迁移）。
+     * 所以这里不再有 sourceLabel，模板里对应的两行也删掉了。
+     */
 
     const iconChar = computed(() => {
       if (!txn.value) return ''
@@ -273,9 +273,12 @@ export default {
       settingStore.syncSystemTheme()
     })
 
+    // 侧滑返回：编辑面板打开时先收起面板，不退出本页
+    onBackPress(() => handleBackPress())
+
     return {
       settingStore, statusBarHeight, txn, tags, showPanel, loadingText,
-      primaryColor, pageStyle, typeLabel, sourceLabel, iconChar,
+      primaryColor, pageStyle, typeLabel, iconChar,
       dayLabel, timeLabel, excludeFromBudget,
       onEdit, onSaved, onDelete, onToggleExclude, goBack
     }

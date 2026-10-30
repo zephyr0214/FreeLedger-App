@@ -272,10 +272,20 @@ function nativeConfirm(opts) {
 }
 
 function nativeAlert(opts) {
+  /*
+   * ★ 原生弹窗不支持结构化列表 ★
+   *   所以有 list 时先把它压成纯文本（带勾叉和缩进），
+   *   保证兜底路径也能看到完整内容，而不是只剩一行标题。
+   */
+  const content = opts.list && opts.list.length
+    ? [opts.content, ...opts.list.map((it, i) =>
+        `${it.ok ? '✓' : '✗'} ${i + 1}. ${it.name}${it.detail ? `\n     ${it.detail}` : ''}`
+      )].filter(Boolean).join('\n')
+    : opts.content
   return new Promise((resolve) => {
     uni.showModal({
       title: opts.title,
-      content: opts.content,
+      content,
       showCancel: false,
       success: () => resolve(),
       fail: () => resolve()
@@ -353,7 +363,15 @@ export function alertDialog(options = {}) {
   const opts = {
     title: options.title || '提示',
     content: options.content || '',
-    confirmText: options.confirmText || '知道了'
+    confirmText: options.confirmText || '知道了',
+    /*
+     * ★ 结构化列表（可选）★
+     *   传了就优先按列表渲染（每项 { ok, name, detail }），
+     *   比把一堆长句塞进一大段 content 里好读得多
+     *   （数据库自检报告就是这么用的）。
+     *   没传则退回原来的纯文本 content。
+     */
+    list: Array.isArray(options.list) ? options.list : null
   }
   return request((host) => host.alert(opts), () => nativeAlert(opts)).then(() => undefined)
 }

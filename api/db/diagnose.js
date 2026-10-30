@@ -108,7 +108,18 @@ export async function runDbDiagnostics() {
 
 function finish(steps) {
   const ok = steps.every((s) => s.ok)
-  const lines = steps.map((s, i) => `${s.ok ? '✓' : '✗'} ${i + 1}. ${s.name}${s.detail ? ' — ' + s.detail : ''}`)
+  /*
+   * ★ 纯文本报告（用于日志 / 复制 / 旧弹窗兜底）★
+   *   每一行：✓ 1. 名称
+   *               细节（缩进两格，避免长句挤在同一行末尾）
+   *   细节单独成行，是因为有的 detail 很长（例如「不可用 → 检查 manifest.json…」），
+   *   跟在名称后面会被折行折断，看不出是哪一项的说明。
+   */
+  const lines = []
+  steps.forEach((s, i) => {
+    lines.push(`${s.ok ? '✓' : '✗'} ${i + 1}. ${s.name}`)
+    if (s.detail) lines.push(`     ${s.detail}`)
+  })
   return {
     ok,
     steps,
@@ -127,10 +138,22 @@ function safeGet(fn) {
 /** 供页面直接调用的模态框版本 */
 export async function showDbDiagnostics() {
   const report = await runDbDiagnostics()
-  // ★ 用组件库重绘的弹窗（见 utils/dialog.js），不再用原生 showModal ★
+  /*
+   * ★ 用结构化列表渲染，而不是把整段文本塞进 content ★
+   *   自检有 7~9 条，其中「SQLite 模块不可用 → 检查 manifest.json…」
+   *   这类细节很长。原先全部堆成一段纯文本，折行后完全看不出
+   *   哪一行属于哪一项 —— 这就是「排版好丑」的原因。
+   *
+   *   现在把 steps 直接交给弹窗：每条一个状态勾叉 + 名称，
+   *   细节缩进另起一行、字号更小、颜色更淡，
+   *   AppDialog 里对应 .chk-row / .chk-name / .chk-detail。
+   *   同时仍保留 content（text）作为兜底 —— 万一宿主不支持 list，
+   *   退回纯文本也不会什么都没有。
+   */
   await alertDialog({
     title: report.ok ? '数据库正常' : '数据库异常',
-    content: report.text
+    content: report.ok ? '' : '以下检查项未通过，可据此排查：',
+    list: report.steps
   })
   return report
 }

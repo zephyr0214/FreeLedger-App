@@ -121,7 +121,8 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -130,6 +131,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
 import { query } from '@/api/db/index.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: { PageNav, EmptyState, AppDialog, LineIcon },
@@ -261,10 +263,33 @@ export default {
      *   传 false 会触发「Expected String, got Boolean」的类型警告，而且不生效。
      */
     watch(showEditor, (open) => {
-      if (open) return
+      if (open) {
+        // 编辑弹层打开 → 登记进弹层栈，侧滑返回先收起它而不是退出本页
+        if (!unregisterLayer) {
+          unregisterLayer = pushLayer(() => { showEditor.value = false }, 'tagEditor')
+        }
+        return
+      }
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
       const id = editingId.value
       if (id) swipeStates[id] = 'close'
     })
+
+    /** 弹层栈注销函数 */
+    let unregisterLayer = null
+
+    onUnmounted(() => {
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
+    })
+
+    // 侧滑返回 / 返回键：标签编辑弹层打开时先收起弹层
+    onBackPress(() => handleBackPress())
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()

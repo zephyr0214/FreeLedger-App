@@ -50,7 +50,6 @@
                   type="expense"
                   :size="44"
                   :weight="600"
-                  color="var(--app-text)"
                 />
               </view>
             </view>
@@ -63,7 +62,6 @@
                   type="expense"
                   :size="44"
                   :weight="600"
-                  color="var(--app-text)"
                 />
               </view>
             </view>
@@ -74,22 +72,21 @@
           <view class="ov-split">
             <view class="ov-item">
               <text class="ov-item-label">今日收入</text>
-              <MoneyText :cents="overview.todayIncome" type="income" :size="30" :weight="500" color="var(--app-text)" />
+              <MoneyText :cents="overview.todayIncome" type="income" :size="30" :weight="500" />
             </view>
             <view class="ov-divider" />
             <view class="ov-item">
               <text class="ov-item-label">本月收入</text>
-              <MoneyText :cents="overview.monthIncome" type="income" :size="30" :weight="500" color="var(--app-text)" />
+              <MoneyText :cents="overview.monthIncome" type="income" :size="30" :weight="500" />
             </view>
             <view class="ov-divider" />
             <view class="ov-item">
               <text class="ov-item-label">本月结余</text>
               <MoneyText
                 :cents="overview.monthBalance"
+                variant="balance"
                 :size="30"
                 :weight="500"
-                sign
-                :color="overview.monthBalance >= 0 ? 'var(--app-success)' : 'var(--app-danger)'"
               />
             </view>
           </view>
@@ -115,7 +112,7 @@
                   </text>
                 </view>
                 <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                  日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(0) }}
+                  日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(2) }}
                 </text>
               </view>
               <view class="ov-budget-bar">
@@ -145,7 +142,7 @@
                   </text>
                 </view>
                 <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                  日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(0) }}
+                  日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(2) }}
                 </text>
               </view>
               <view class="ov-budget-bar">
@@ -207,8 +204,13 @@
               <view class="recent-day-head">
                 <text class="recent-day-title">{{ group.title }}</text>
                 <text class="recent-day-sum">
-                  <text v-if="group.expense > 0" class="recent-day-exp">支出 {{ (group.expense / 100).toFixed(2) }}</text>
-                  <text v-if="group.income > 0" class="recent-day-inc">收入 {{ (group.income / 100).toFixed(2) }}</text>
+                  <!--
+                    分组汇总：「支出 / 收入」标签无色，
+                    数字按统一规则着色（支出无色、收入绿色），符号也统一（- / +）。
+                    与「全部交易」页同一套做法。
+                  -->
+                  <text v-if="group.expense > 0" class="recent-day-exp">支出 -{{ (group.expense / 100).toFixed(2) }}</text>
+                  <text v-if="group.income > 0" class="recent-day-inc">收入 <text class="recent-day-income-num">+{{ (group.income / 100).toFixed(2) }}</text></text>
                 </text>
               </view>
 
@@ -252,7 +254,6 @@
                   :type="txn.type"
                   :size="30"
                   :weight="500"
-                  :color="txn.type === 'expense' ? 'var(--app-text)' : (txn.type === 'income' ? 'var(--app-success)' : 'var(--app-text-2)')"
                 />
               </view>
               </view>
@@ -309,7 +310,7 @@
 
 <script>
 import { ref, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onBackPress } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -326,6 +327,7 @@ import { getBudgetUsage } from '@/api/stats.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction },
@@ -645,6 +647,13 @@ export default {
       if (pending) openQuickAddFor(pending)
     })
 
+    /*
+     * ★ 侧滑返回 / 返回键：有弹层时先收起弹层，不退出页面 ★
+     *   TxnPanel / QuickAddBar 打开时会登记进弹层栈（utils/layerStack.js），
+     *   这里返回 true 表示「本次返回已消费」，页面不动。
+     */
+    onBackPress(() => handleBackPress())
+
     return {
       settingStore, accountStore, txnStore,
       showPanel, panelPreset,
@@ -902,6 +911,11 @@ export default {
   gap: 16rpx;
 }
 
+/*
+ * ★ 分组头：「支出 / 收入」标签无色，数字按统一规则着色 ★
+ *   标签本身保持 text-3（不要整段泛绿），
+ *   收入的**数字**仍是绿色，和流水金额的观感一致。
+ */
 .recent-day-exp {
   font-size: 21rpx;
   color: var(--app-text-3);
@@ -909,6 +923,11 @@ export default {
 
 .recent-day-inc {
   font-size: 21rpx;
+  color: var(--app-text-3);
+}
+
+/* 收入金额数字：绿色（只有数字着色，标签保持无色） */
+.recent-day-income-num {
   color: var(--app-success);
 }
 

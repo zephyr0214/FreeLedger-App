@@ -2,8 +2,8 @@
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader @avatar-click="goProfile">
       <template #right>
-        <!-- AI 对话入口：和首页一样，通向同一个子页面 -->
-        <HeaderAction @action-click="goAiChat">AI 助手</HeaderAction>
+        <!-- 右上角入口：全部交易（原先是 AI 助手，按需求改为交易列表） -->
+        <HeaderAction @action-click="goAllTxn">全部交易</HeaderAction>
       </template>
     </AppHeader>
 
@@ -17,21 +17,21 @@
       <view class="ov-summary">
         <view class="ov-item">
           <text class="ov-label">支出</text>
-          <MoneyText :cents="overview.expense" :size="34" :weight="600" color="var(--app-text)" />
+          <MoneyText :cents="overview.expense" type="expense" :size="34" :weight="600" />
         </view>
         <view class="ov-line" />
         <view class="ov-item">
           <text class="ov-label">收入</text>
-          <MoneyText :cents="overview.income" :size="34" :weight="600" color="var(--app-text)" />
+          <MoneyText :cents="overview.income" type="income" :size="34" :weight="600" />
         </view>
         <view class="ov-line" />
         <view class="ov-item">
           <text class="ov-label">结余</text>
           <MoneyText
             :cents="overview.balance"
+            variant="balance"
             :size="34"
             :weight="600"
-            :color="overview.balance >= 0 ? 'var(--app-success)' : 'var(--app-danger)'"
           />
         </view>
       </view>
@@ -79,7 +79,12 @@
             <image class="donut-img" :src="categoryDonutUri" mode="widthFix" />
             <view class="donut-center">
               <text class="donut-center-label">合计</text>
-              <MoneyText :cents="categoryTotal" :size="28" :weight="600" color="var(--app-text)" />
+              <MoneyText
+                :cents="categoryTotal"
+                :type="categoryStatType"
+                :size="28"
+                :weight="600"
+              />
             </view>
           </view>
 
@@ -100,7 +105,7 @@
                 <text class="rank-count-unit">笔</text>
               </view>
               <view class="rank-amount">
-                <MoneyText :cents="cat.amount" :size="26" color="var(--app-text)" />
+                <MoneyText :cents="cat.amount" :type="categoryStatType" :size="26" />
               </view>
             </view>
           </view>
@@ -151,9 +156,9 @@
               <text class="donut-center-label">合计</text>
               <MoneyText
                 :cents="accountViewMode === 'type' ? accountTypeTotal : accountTotal"
+                :type="accountStatType"
                 :size="28"
                 :weight="600"
-                color="var(--app-text)"
               />
             </view>
           </view>
@@ -166,7 +171,7 @@
                 <text class="rank-count-unit">笔</text>
               </view>
               <view class="rank-amount">
-                <MoneyText :cents="acc.amount" :size="26" color="var(--app-text)" />
+                <MoneyText :cents="acc.amount" :type="accountStatType" :size="26" />
               </view>
             </view>
           </view>
@@ -204,12 +209,12 @@
             <view class="daily-extreme">
               <text class="extreme-label">最高{{ trendUnit === '月' ? '月' : '日' }}</text>
               <text class="extreme-value">{{ dailyExtremes.max.label }}{{ trendUnit }} · </text>
-              <MoneyText :cents="dailyExtremes.max.expense" :size="24" color="var(--app-text)" />
+              <MoneyText :cents="dailyExtremes.max.expense" type="expense" :size="24" />
             </view>
             <view class="daily-extreme">
               <text class="extreme-label">最低{{ trendUnit === '月' ? '月' : '日' }}</text>
               <text class="extreme-value">{{ dailyExtremes.min.label }}{{ trendUnit }} · </text>
-              <MoneyText :cents="dailyExtremes.min.expense" :size="24" color="var(--app-text)" />
+              <MoneyText :cents="dailyExtremes.min.expense" type="expense" :size="24" />
             </view>
           </view>
         </view>
@@ -252,12 +257,12 @@
         <view class="avg-grid">
           <view class="avg-item">
             <text class="avg-label">日均{{ averageStatType === 'expense' ? '支出' : '收入' }}</text>
-            <MoneyText :cents="averages.avgPerDay" :size="34" :weight="600" color="var(--app-text)" />
+            <MoneyText :cents="averages.avgPerDay" :type="averageStatType" :size="34" :weight="600" />
             <text class="avg-hint">{{ averages.daysPassed }} 天</text>
           </view>
           <view class="avg-item">
             <text class="avg-label">笔均{{ averageStatType === 'expense' ? '支出' : '收入' }}</text>
-            <MoneyText :cents="averages.avgPerTxn" :size="34" :weight="600" color="var(--app-text)" />
+            <MoneyText :cents="averages.avgPerTxn" :type="averageStatType" :size="34" :weight="600" />
             <text class="avg-hint">{{ averages.count }} 笔</text>
           </view>
         </view>
@@ -281,11 +286,11 @@
             <view class="cat-avg-values">
               <view class="cat-avg-value">
                 <text class="cat-avg-label">日均</text>
-                <MoneyText :cents="c.avgPerDay" :size="26" color="var(--app-text)" />
+                <MoneyText :cents="c.avgPerDay" :type="averageStatType" :size="26" />
               </view>
               <view class="cat-avg-value">
                 <text class="cat-avg-label">笔均</text>
-                <MoneyText :cents="c.avgPerTxn" :size="26" color="var(--app-text)" />
+                <MoneyText :cents="c.avgPerTxn" :type="averageStatType" :size="26" />
               </view>
             </view>
           </view>
@@ -316,7 +321,7 @@
               <text class="top-sub ellipsis">{{ t.note || t.account_name || '无账户' }}</text>
             </view>
             <view class="top-right">
-              <MoneyText :cents="t.amount_cents" :size="28" :weight="500" color="var(--app-text)" />
+              <MoneyText :cents="t.amount_cents" type="expense" :size="28" :weight="500" />
               <text class="top-day">{{ shortDay(t.occurred_day) }}</text>
             </view>
           </view>
@@ -599,9 +604,9 @@ export default {
       uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
     }
 
-    /** AI 对话（和首页同一个子页面） */
-    function goAiChat() {
-      uni.navigateTo({ url: '/pages/ai/chat' })
+    /** 全部交易（右上角入口） */
+    function goAllTxn() {
+      uni.navigateTo({ url: '/pages/txn/list' })
     }
 
     function goProfile() {
@@ -753,7 +758,7 @@ export default {
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
       onAddTap, onAddHoldEnd,
-      goTxnDetail, goAiChat, goProfile
+      goTxnDetail, goAllTxn, goProfile
     }
   }
 }

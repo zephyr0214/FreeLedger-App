@@ -110,11 +110,16 @@
               </view>
 
               <view class="acc-right">
+                <!--
+                  账户余额：无论正负都不加颜色、不加符号（用户要求）。
+                  ★ 唯一例外：不计入资产的账户用中性浅灰 ★
+                    这类账户不参与总资产，浅灰提示「它不算在这本账里」。
+                -->
                 <MoneyText
                   :cents="acc.balance_cents"
+                  :muted="!acc.include_in_total"
                   :size="32"
                   :weight="500"
-                  :color="acc.balance_cents < 0 ? 'var(--app-danger)' : 'var(--app-text)'"
                 />
                 <text v-if="acc.isCredit && acc.credit_limit_cents" class="acc-limit">
                   额度 {{ (acc.credit_limit_cents / 100).toFixed(0) }}
