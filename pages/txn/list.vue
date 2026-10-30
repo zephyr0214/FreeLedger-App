@@ -69,7 +69,6 @@
             :key="txn.id"
             class="txn-item"
             @click="goDetail(txn.id)"
-            @longpress="onLongPress(txn)"
           >
             <view
               class="txn-icon"
@@ -83,18 +82,15 @@
             <view class="txn-info">
               <view class="txn-name-row">
                 <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
-                <!-- 周期记账标记：按规则自动/补记的流水打上「周期」徽标 -->
-                <text v-if="txn.cycle_id" class="txn-cycle-tag">周期</text>
-                <!-- 标签：跟在分类名后面（txnTitle 就是分类名），
-                     小 tag 胶囊形态，背景用标签自己的颜色 -->
-                <view v-if="txnTags(txn).length" class="txn-tag-list">
-                  <text
-                    v-for="t in txnTags(txn)"
-                    :key="t.key"
-                    class="txn-tag"
-                    :style="t.bg ? { backgroundColor: t.bg, color: t.color } : null"
-                  >{{ t.name }}</text>
-                </view>
+              </view>
+              <!-- 徽标：周期 / 组合账户 / 标签，统一描边胶囊，全部跟在分类名下面 -->
+              <view v-if="txnBadges(txn).length" class="txn-tag-list">
+                <text
+                  v-for="t in txnBadges(txn)"
+                  :key="t.key"
+                  class="txn-tag"
+                  :style="{ backgroundColor: t.bg, color: t.color, borderColor: t.border }"
+                >{{ t.name }}</text>
               </view>
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>
@@ -312,14 +308,13 @@ import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
-import { listTransactions, sumTransactions, deleteTransaction, parseTxnQueryOptions } from '@/api/transaction.js'
+import { listTransactions, sumTransactions, parseTxnQueryOptions } from '@/api/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { listCycles, recurrenceLabel } from '@/api/cycle.js'
 import { formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
-import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 const PAGE_SIZE = 50
@@ -416,7 +411,11 @@ export default {
       const kind = pickerKind.value
       if (kind === 'account') {
         const list = [{ name: '全部账户', value: '' }]
-        for (const acc of accountStore.list) list.push({ name: acc.name, value: acc.id })
+        // 组合账户没有流水（交易都解析到真实账户名下），筛它只会得到空列表
+        for (const acc of accountStore.list) {
+          if (acc.isCombo) continue
+          list.push({ name: acc.name, value: acc.id })
+        }
         return list
       }
       if (kind === 'parent') {
@@ -482,6 +481,9 @@ export default {
     ]
 
     const primaryColor = computed(() => settingStore.primaryColor)
+
+    /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
+    const COMBO_BADGE_COLOR = '#8B5CF6'
     const pageStyle = computed(() => settingStore.cssVars)
 
     const rangeLabel = computed(() => {
@@ -855,24 +857,37 @@ export default {
      * 最多取前 2 个：标签太多会撑破一行，
      * 剩下的用「+N」在最后一个位置表示。
      */
-    function txnTags(txn) {
-      const ids = txn.tag_ids
-      if (!ids || !ids.length) return []
+    /**
+     * 一笔交易的「徽标」集合：周期 / 组合账户 / 用户标签，按固定顺序。
+     *
+     * ★ 用户要求 ★
+     *   周期、组合账户、标签都统一成同一种「描边胶囊」样式（见 .txn-tag），
+     *   颜色/内容各不相同，但样式一致；全部跟在分类名下面。
+     *   组合账户不是标签，是独立标记（来自 via_combo_id）。
+     */
+    function txnBadges(txn) {
       const list = []
-      for (const id of ids) {
-        const t = tagNameMap.value[id]
-        if (!t) continue
-        list.push({
-          key: id,
-          name: t.name,
-          color: t.color || 'var(--app-text-2)',
-          bg: t.color ? t.color + '22' : ''
-        })
+      // 周期
+      if (txn.cycle_id) {
+        const c = primaryColor.value
+        list.push({ key: '__cycle__', name: '周期', color: c, bg: c + '22', border: c })
       }
-      if (list.length <= 2) return list
-      const rest = list.slice(0, 2)
-      rest.push({ key: '__more__', name: `+${list.length - 2}`, color: 'var(--app-text-3)', bg: '' })
-      return rest
+      // 组合账户（独立标记，不是标签）
+      if (txn.via_combo_id) {
+        list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
+      }
+      // 用户标签
+      const ids = txn.tag_ids
+      if (ids && ids.length) {
+        for (const id of ids) {
+          const t = tagNameMap.value[id]
+          if (!t) continue
+          const c = t.color || 'var(--app-text-2)'
+          const bd = t.color || 'var(--app-text-3)'
+          list.push({ key: id, name: t.name, color: c, bg: t.color ? t.color + '22' : 'var(--app-card-2)', border: bd })
+        }
+      }
+      return list
     }
 
     function timeLabel(ts) {
@@ -885,24 +900,6 @@ export default {
 
     function goBack() {
       uni.navigateBack()
-    }
-
-    /** 长按删除（软删除 + 二次确认） */
-    async function onLongPress(txn) {
-      const ok = await confirmDialog({
-        title: '删除这笔记录？',
-        content: `${txnTitle(txn)} ¥${(txn.amount_cents / 100).toFixed(2)}`,
-        confirmText: '删除',
-        danger: true
-      })
-      if (!ok) return
-      try {
-        await deleteTransaction(txn.id)
-        uni.showToast({ title: '已删除', icon: 'success' })
-        await loadFirstPage()
-      } catch (e) {
-        await alertDialog({ title: '删除失败', content: e.message })
-      }
     }
 
     /* ------------------------------------------------- URL 参数（深链） */
@@ -1109,7 +1106,7 @@ export default {
       accountLabel, parentCategoryLabel, subCategoryLabel, tagLabel, cycleFilterLabel,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
       onTypeChange, onParentCategoryChange, onSubCategoryChange,
-      iconChar, txnTitle, txnSub, txnTags, timeLabel, goDetail, goBack, onLongPress
+      iconChar, txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
     }
   }
 }
@@ -1295,56 +1292,41 @@ export default {
   min-width: 0;
 }
 
-/* 周期记账标记：小徽标，主题色描边 + 浅底，和标签胶囊区分开 */
-.txn-cycle-tag {
+/**
+ * 标签：单独一行，可换行，全部展示
+ *
+ * ★ 改法 ★
+ *   之前是「跟分类名同一行、不换行、最多 2 个 + +N」。
+ *   用户要求显示全部 tag，所以把标签从名称行挪到独立一行，
+ *   用 flex-wrap: wrap 让多标签自动换行，不把行高撑爆。
+ */
+.txn-tag-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+/**
+ * 徽标：周期 / 组合账户 / 标签统一成同一种「描边胶囊」。
+ *
+ * ★ 用户要求（以周期的样式为准）★
+ *   颜色、内容可不同，但边框描边、圆角、字号、内边距一致：
+ *   1rpx 实线描边 + 12% 同色浅底 + 同色文字。
+ *   color / background-color / border-color 由模板内联覆盖（见 txnBadges）。
+ *   这里只是「标签没设颜色」时的中性灰兜底。
+ */
+.txn-tag {
   flex-shrink: 0;
   font-size: 18rpx;
   line-height: 1;
   padding: 4rpx 10rpx;
   border-radius: 8rpx;
-  color: var(--app-primary);
-  background-color: var(--app-primary-light);
-  border: 1rpx solid var(--app-primary);
-  font-weight: 500;
-}
-
-/**
- * 标签：跟在分类名后面的一排小胶囊
- *
- * ★ 高度必须小 ★
- *   用户反馈「标签显示的高度略高，不协调」——
- *   原来是一个带背景的方块（padding 2rpx 10rpx + 18rpx 字），
- *   跟 28rpx 的分类名放一行时会明显高出一截，把整行撑得松散。
- *   现在：上下 padding 2rpx + 20rpx 字 + 8rpx 行高 ≈ 28rpx，
- *   和分类名同一行齐平，整行高度不受影响。
- *
- * ★ 背景用标签自己的颜色（12% 透明度），文字用标签本色 ★
- *   由模板的 :style 内联覆盖（见 txnTags()）。
- *   这里的 background-color / color 是「标签没设颜色」时的兜底。
- *
- * ★ 不换行 ★
- *   flex-wrap: nowrap + overflow: hidden，
- *   标签多了就横向截断，不换行把行高撑开。
- *   （txnTags() 里已经限死最多 2 个 + 「+N」，这里只是兜底）
- */
-.txn-tag-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 6rpx;
-  flex-shrink: 0;
-  max-width: 220rpx;
-  overflow: hidden;
-}
-
-.txn-tag {
-  flex-shrink: 0;
-  font-size: 20rpx;
-  line-height: 20rpx;
   color: var(--app-text-2);
   background-color: var(--app-card-2);
-  border-radius: 6rpx;
-  padding: 2rpx 8rpx;
+  border: 1rpx solid var(--app-text-3);
+  font-weight: 500;
 }
 
 .txn-sub {

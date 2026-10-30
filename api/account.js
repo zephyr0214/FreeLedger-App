@@ -35,19 +35,36 @@ export const ACCOUNT_TYPES = [
   { key: 'credit',  name: '信用卡',   icon: 'creditcard', isCredit: true,  group: 'credit' },
   { key: 'debit',   name: '储蓄卡',   icon: 'card',       isCredit: false, group: 'debit' },
   { key: 'cash',    name: '现金',     icon: 'wallet',     isCredit: false, group: 'cash' },
-  { key: 'prepaid', name: '充值卡',   icon: 'prepaid',    isCredit: false, group: 'prepaid' }
+  { key: 'prepaid', name: '充值卡',   icon: 'prepaid',    isCredit: false, group: 'prepaid' },
+  /*
+   * ★ 组合账户（combo）★
+   *   不是一个真实的资金账户：没有余额、不计入总资产、不产生流水。
+   *   它只是一组「按顺序扣款」的真实账户，
+   *   记账时被解析成其中某一个真实账户（见 utils/combo.js）。
+   *   放在 ACCOUNT_TYPES 里是为了复用现成的账户表结构，
+   *   但 groups 里单独成组，不混进真实账户的分组。
+   */
+  { key: 'combo',   name: '组合账户', icon: 'layers',     isCredit: false, group: 'combo', isCombo: true }
 ]
 
 /**
- * 账户页的展示分组（就是上面这五类，顺序按用户给的）
+ * 账户页的展示分组
+ *
+ * ★ 组合账户单独成组、排在最后 ★
+ *   它不是真实资金账户，和「网络支付 / 信用卡」并列会误导；
+ *   放最后也符合「它是记账时用的辅助工具」这个定位。
  */
 export const ACCOUNT_GROUPS = [
   { key: 'online',  name: '网络支付' },
   { key: 'credit',  name: '信用卡' },
   { key: 'debit',   name: '储蓄卡' },
   { key: 'cash',    name: '现金' },
-  { key: 'prepaid', name: '充值卡' }
+  { key: 'prepaid', name: '充值卡' },
+  { key: 'combo',   name: '组合账户' }
 ]
+
+/** 真实账户分组（不含组合）—— 组合成员的候选项只能用这些 */
+export const REAL_ACCOUNT_GROUPS = ACCOUNT_GROUPS.filter((g) => g.key !== 'combo')
 
 export function getTypeMeta(type) {
   return ACCOUNT_TYPES.find((t) => t.key === type) || ACCOUNT_TYPES[0]
@@ -55,6 +72,11 @@ export function getTypeMeta(type) {
 
 export function isCreditType(type) {
   return getTypeMeta(type).isCredit
+}
+
+/** 是否是组合账户 */
+export function isComboType(type) {
+  return type === 'combo'
 }
 
 /* ------------------------------------------------------------------ 查询 */
@@ -92,7 +114,9 @@ function normalizeAccount(row) {
     typeName: meta.name,
     typeIcon: meta.icon,
     group: meta.group,
-    isCredit: meta.isCredit
+    isCredit: meta.isCredit,
+    /** 是否是组合账户（无余额、不计入总资产、记账时解析成真实账户） */
+    isCombo: isComboType(row.type)
   }
 }
 
@@ -127,12 +151,121 @@ export async function getTotalDebt() {
 
 /* ------------------------------------------------------------------ 写入 */
 
+/* ------------------------------------------------------------ 组合账户成员 */
+
+/**
+ * 覆盖式写入组合账户的成员（按传入顺序决定扣款顺序）。
+ *
+ * ★ 为什么是「先全删再全插」★
+ *   成员是一组有序关系，用户调序时可能整体上移下移，
+ *   逐条 diff 维护 sort 很容易出现重复序号。
+ *   直接重写整组最简单、结果确定 —— 成员通常只有 2~4 个，开销可忽略。
+ *
+ * ★ 过滤规则 ★
+ *   · 组合不能作为成员（禁止嵌套）
+ *   · 信用卡不能作为成员（按需求：组合账户不支持选择信用卡）
+ *   · 不存在的账户直接丢弃（防止脏 id 写进来）
+ *
+ * @param {string} comboId
+ * @param {string[]} memberIds 有序的真实账户 id 列表
+ */
+export async function replaceComboMembers(comboId, memberIds) {
+  await execute('DELETE FROM account_combo_member WHERE combo_id = ?', [comboId])
+
+  const ids = Array.isArray(memberIds) ? memberIds.filter(Boolean) : []
+  if (ids.length === 0) return
+
+  // 一次性取回这些账户的类型，用来过滤组合/信用卡
+  const rows = await query(
+    `SELECT id, type FROM account WHERE deleted_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`,
+    ids
+  )
+  const typeOf = {}
+  rows.forEach((r) => { typeOf[r.id] = r.type })
+
+  let sort = 0
+  for (const mid of ids) {
+    const t = typeOf[mid]
+    if (!t) continue                     // 账户不存在
+    if (isComboType(t)) continue         // 禁止嵌套
+    if (isCreditType(t)) continue        // 不支持信用卡
+    await execute(
+      'INSERT OR IGNORE INTO account_combo_member (combo_id, member_id, sort) VALUES (?,?,?)',
+      [comboId, mid, sort]
+    )
+    sort += 1
+  }
+}
+
+/**
+ * 读取组合账户的成员（按扣款顺序）。
+ *
+ * @param {string} comboId
+ * @returns {Promise<Array>} 真实账户对象数组，已按 sort 排好
+ */
+export async function listComboMembers(comboId) {
+  try {
+    const rows = await query(
+      `SELECT a.* FROM account_combo_member m
+       JOIN account a ON a.id = m.member_id
+       WHERE m.combo_id = ? AND a.deleted_at IS NULL AND a.archived = 0
+       ORDER BY m.sort ASC, m.member_id ASC`,
+      [comboId]
+    )
+    return rows.map(normalizeAccount)
+  } catch (e) {
+    // 表还不存在（老库未迁移）时按无成员处理，不影响主流程
+    return []
+  }
+}
+
+/** 读取成员 id 列表（保持顺序），编辑页回填用 */
+export async function listComboMemberIds(comboId) {
+  try {
+    const rows = await query(
+      'SELECT member_id FROM account_combo_member WHERE combo_id = ? ORDER BY sort ASC, member_id ASC',
+      [comboId]
+    )
+    return rows.map((r) => r.member_id)
+  } catch (e) {
+    return []
+  }
+}
+
+/**
+ * 把某个真实账户从所有组合里移除。
+ *
+ * ★ 为什么必须做 ★
+ *   删掉一个真实账户后，如果它还留在某个组合的成员表里，
+ *   组合就指向一个「幽灵账户」：解析扣款时会找不到它，
+ *   甚至可能把一笔钱算到已删除的账户上。
+ */
+export async function removeAccountFromAllCombos(accountId) {
+  try {
+    await execute('DELETE FROM account_combo_member WHERE member_id = ?', [accountId])
+  } catch (e) {
+    console.warn('[account] 从组合中移除失败:', e && e.message)
+  }
+}
+
+/* ------------------------------------------------------------------ 写入 */
+
 export async function createAccount(input) {
   const now = Date.now()
   const id = input.id || prefixedId('acc')
   const meta = getTypeMeta(input.type)
+  const isCombo = isComboType(input.type)
 
-  const initial = Number(input.initial_balance_cents) || 0
+  /*
+   * ★ 组合账户没有钱 ★
+   *   它不是真实资金账户，所以：
+   *     · 期初余额强制 0（界面上也不显示这两个字段）
+   *     · 不计入总资产强制 0
+   *     · 余额恒 0，永不参与 recalcBalance
+   *   不这样强制的话，一旦有值混进来，总资产就会凭空多出一笔。
+   */
+  const initial = isCombo ? 0 : (Number(input.initial_balance_cents) || 0)
+  const includeInTotal = isCombo ? 0 : (input.include_in_total === false ? 0 : 1)
   const sort = input.sort !== undefined ? input.sort : await nextSort()
 
   await transaction(async () => {
@@ -149,8 +282,8 @@ export async function createAccount(input) {
         input.icon || null,
         input.color || null,
         initial,
-        initial, // 新账户余额 = 期初
-        input.include_in_total === false ? 0 : 1,
+        initial, // 新账户余额 = 期初（组合账户恒为 0）
+        includeInTotal,
         input.credit_limit_cents === undefined || input.credit_limit_cents === null ? null : Number(input.credit_limit_cents),
         input.bill_day === undefined ? null : input.bill_day,
         input.repay_day === undefined ? null : input.repay_day,
@@ -160,7 +293,14 @@ export async function createAccount(input) {
         now
       ]
     )
-    await writeTodaySnapshot(id)
+
+    // 组合账户的成员（按顺序），真实账户没有这一步
+    if (isCombo && Array.isArray(input.member_ids)) {
+      await replaceComboMembers(id, input.member_ids)
+    }
+
+    // 组合账户不写资产快照 —— 它没有余额，写进去会在资产趋势里出现 0 元点
+    if (!isCombo) await writeTodaySnapshot(id)
   })
 
   return getAccount(id)
@@ -179,11 +319,31 @@ export async function updateAccount(id, patch) {
     params.push(val)
   }
 
+  /*
+   * ★ 账户类型不可改 ★
+   *   界面在编辑时已经把类型项锁掉了；这里再拦一道，
+   *   防止「真实账户被改成组合」或「组合被改成真实账户」
+   *   造成余额/成员语义混乱（组合没有余额，真实账户有成员也不合理）。
+   */
+  const willBeCombo = patch.type !== undefined
+    ? isComboType(patch.type)
+    : existing.isCombo
+  if (patch.type !== undefined && isComboType(patch.type) !== existing.isCombo) {
+    throw new Error('账户类型创建后不可修改')
+  }
+
   if (patch.name !== undefined) assign('name', patch.name)
   if (patch.type !== undefined) assign('type', patch.type)
   if (patch.icon !== undefined) assign('icon', patch.icon)
   if (patch.color !== undefined) assign('color', patch.color)
-  if (patch.include_in_total !== undefined) assign('include_in_total', patch.include_in_total ? 1 : 0)
+
+  // 组合账户永远不计入总资产，忽略外部传入
+  if (willBeCombo) {
+    assign('include_in_total', 0)
+  } else if (patch.include_in_total !== undefined) {
+    assign('include_in_total', patch.include_in_total ? 1 : 0)
+  }
+
   if (patch.credit_limit_cents !== undefined) {
     assign('credit_limit_cents', patch.credit_limit_cents === null ? null : Number(patch.credit_limit_cents))
   }
@@ -193,9 +353,9 @@ export async function updateAccount(id, patch) {
   if (patch.archived !== undefined) assign('archived', patch.archived ? 1 : 0)
   if (patch.sort !== undefined) assign('sort', patch.sort)
 
-  // 期初余额变动 → 需要重算余额
+  // 期初余额变动 → 需要重算余额（组合账户没有余额，忽略）
   let needRecalc = false
-  if (patch.initial_balance_cents !== undefined) {
+  if (!willBeCombo && patch.initial_balance_cents !== undefined) {
     assign('initial_balance_cents', Number(patch.initial_balance_cents) || 0)
     needRecalc = true
   }
@@ -205,9 +365,15 @@ export async function updateAccount(id, patch) {
 
   await transaction(async () => {
     await execute(`UPDATE account SET ${fields.join(', ')} WHERE id = ?`, params)
+
+    // 组合账户：成员变化整体重写（顺序即扣款顺序）
+    if (willBeCombo && Array.isArray(patch.member_ids)) {
+      await replaceComboMembers(id, patch.member_ids)
+    }
+
     if (needRecalc) await recalcBalance(id)
-    // 类型/名称变化不影响余额，但快照的展示值需要跟上
-    await writeTodaySnapshot(id)
+    // 组合账户不写快照（没有余额，写了会在趋势图出现 0 元点）
+    if (!willBeCombo) await writeTodaySnapshot(id)
   })
 
   return getAccount(id)
@@ -308,6 +474,21 @@ export async function recalcBalance(accountId) {
   const acc = await queryOne('SELECT * FROM account WHERE id = ?', [accountId])
   if (!acc) return 0
 
+  /*
+   * ★ 组合账户没有余额，直接跳过 ★
+   *   它不是资金账户：钱都记在真实账户名下，
+   *   组合名下本来就不该有流水（记账时已解析掉）。
+   *   万一有历史脏数据挂上来，也不能让它影响总资产 ——
+   *   所以这里强制保持 0，绝不参与计算。
+   */
+  if (isComboType(acc.type)) {
+    await execute('UPDATE account SET balance_cents = 0, updated_at = ? WHERE id = ?', [
+      Date.now(),
+      accountId
+    ])
+    return 0
+  }
+
   const initial = Number(acc.initial_balance_cents) || 0
 
   // 支出、转出（减）
@@ -336,12 +517,17 @@ export async function recalcBalance(accountId) {
 /** 重算所有账户（设置页的"修复数据"工具） */
 export async function recalcAllBalances() {
   const accounts = await listAccounts(true)
+  /*
+   * 组合账户不参与重算（它没有余额）——
+   * recalcBalance 内部虽然也会跳过，但这里先过滤掉可以少走一趟循环。
+   */
+  const real = accounts.filter((a) => !a.isCombo)
   await transaction(async () => {
-    for (const acc of accounts) {
+    for (const acc of real) {
       await recalcBalance(acc.id)
     }
   })
-  return accounts.length
+  return real.length
 }
 
 /**
@@ -428,6 +614,40 @@ export async function deleteAccount(id) {
     await execute('UPDATE account SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
     await execute('DELETE FROM account_snapshot WHERE account_id = ?', [id])
 
+    /*
+     * 3.5) 组合账户的成员关系必须清掉
+     *
+     * 两种方向都要处理：
+     *   · 被删的是真实账户 → 它可能是某些组合的成员，留着会变成「幽灵账户」，
+     *     解析扣款时找不到它，甚至可能把钱算到已删除账户上
+     *   · 被删的是组合账户 → 它自己的成员关系整组作废
+     *
+     * ★ 放在事务内 ★
+     *   和上面的软删一起提交，不会出现「账户删了、成员还在」的中间态。
+     */
+    await execute('DELETE FROM account_combo_member WHERE member_id = ?', [id])
+    await execute('DELETE FROM account_combo_member WHERE combo_id = ?', [id])
+
+    /*
+     * 3.6) 被删的是组合账户 → 清掉经它记的交易的 via_combo_id
+     *
+     * ★ 用户要求 ★
+     *   组合账户删除后，交易记录**不设为无账户**（它们本来就记在真实账户名下），
+     *   只是去掉「组合账户」这个标记（via_combo_id 是它的来源）。
+     *   清掉后这些交易在列表里不再显示「组合账户」徽标，变回普通交易。
+     *
+     * ★ 为什么不动 account_id / to_account_id ★
+     *   组合从不作为 txn 的 account_id 落库（记账时已解析成真实账户），
+     *   上面的 account_id='' / to_account_id=NULL 更新对组合是空操作。
+     *   这里只需清 via_combo_id。
+     */
+    if (acc.isCombo) {
+      await execute(
+        'UPDATE txn SET via_combo_id = NULL, updated_at = ? WHERE via_combo_id = ?',
+        [now, id]
+      )
+    }
+
     // 4) 重算对方账户的余额
     for (const cid of counterpartIds) {
       await recalcBalance(cid)
@@ -460,8 +680,14 @@ export async function deleteAccount(id) {
 
 /** 写今日快照（幂等，用 upsert 兼容旧 SQLite 内核） */
 export async function writeTodaySnapshot(accountId) {
-  const acc = await queryOne('SELECT balance_cents FROM account WHERE id = ?', [accountId])
+  /*
+   * ★ 组合账户不写快照 ★
+   *   它是虚拟账户，没有余额可言；
+   *   写进去只会在资产趋势里多一条无意义的 0 元记录。
+   */
+  const acc = await queryOne('SELECT balance_cents, type FROM account WHERE id = ?', [accountId])
   if (!acc) return
+  if (isComboType(acc.type)) return
   const day = toDayKey()
   const existing = await queryOne(
     'SELECT id FROM account_snapshot WHERE account_id = ? AND day = ?',
@@ -486,7 +712,14 @@ export async function writeAllTodaySnapshots() {
   const accounts = await queryOne('SELECT COUNT(*) AS c FROM account WHERE deleted_at IS NULL')
   if (!accounts || Number(accounts.c) === 0) return 0
 
-  const list = await query('SELECT id, balance_cents FROM account WHERE deleted_at IS NULL')
+  /*
+   * ★ 排除组合账户 ★
+   *   组合没有余额，写进快照会在「资产趋势」里多出一条 0 元线，
+   *   而且和真实资产的量级混在一起，图上看着很脏。
+   */
+  const list = await query(
+    "SELECT id, balance_cents FROM account WHERE deleted_at IS NULL AND type != 'combo'"
+  )
   const day = toDayKey()
   const now = Date.now()
 

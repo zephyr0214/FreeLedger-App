@@ -37,24 +37,15 @@
             <view class="txn-info">
               <view class="txn-name-row">
                 <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
-                <!-- 周期记账标记：按规则自动/补记的流水打上「周期」徽标。
-                     ★ props 在 setup() 里没暴露给模板，模板里直接用 hideCycleTag 这个 prop ★
-                       （之前写 props.hideCycleTag，遇到 cycle_id 的交易时渲染直接抛错，
-                         周期详情页下方就什么都不显示）。 -->
-                <text v-if="txn.cycle_id && !hideCycleTag" class="txn-cycle-tag">周期</text>
-                <!--
-                  标签胶囊：跟在分类名后面（与首页 / 全部交易页同一套做法）。
-                  交易里只存 tag_ids，名字和颜色靠标签表反查；
-                  最多显示 2 个，多出来的折成「+N」。
-                -->
-                <view v-if="txnTags(txn).length" class="txn-tag-list">
-                  <text
-                    v-for="t in txnTags(txn)"
-                    :key="t.key"
-                    class="txn-tag"
-                    :style="t.bg ? { backgroundColor: t.bg, color: t.color } : null"
-                  >{{ t.name }}</text>
-                </view>
+              </view>
+              <!-- 徽标：周期 / 组合账户 / 标签，统一描边胶囊，全部跟在分类名下面 -->
+              <view v-if="txnBadges(txn).length" class="txn-tag-list">
+                <text
+                  v-for="t in txnBadges(txn)"
+                  :key="t.key"
+                  class="txn-tag"
+                  :style="{ backgroundColor: t.bg, color: t.color, borderColor: t.border }"
+                >{{ t.name }}</text>
               </view>
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>
@@ -98,6 +89,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { listTags } from '@/api/tag.js'
+import { useSettingStore } from '@/stores/setting.js'
 
 export default {
   name: 'RecentTxnList',
@@ -123,14 +115,13 @@ export default {
      * 不给则转账不显示正负号（用中性色）。
      */
     accountId: { type: String, default: '' },
-    /**
-     * 是否隐藏「周期」徽标。
-     * 周期详情页整页都是周期流水，逐行打徽标很吵；首页/全部交易等混排列表要显示。
-     */
-    hideCycleTag: { type: Boolean, default: false }
   },
   emits: ['more'],
   setup(props, { emit }) {
+    const settingStore = useSettingStore()
+    const primaryColor = computed(() => settingStore.primaryColor)
+    /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
+    const COMBO_BADGE_COLOR = '#8B5CF6'
     /** 截断到 limit 条 */
     const visibleTxns = computed(() => (props.txns || []).slice(0, props.limit))
 
@@ -190,27 +181,32 @@ export default {
     })
 
     /**
-     * 这笔交易的标签胶囊（名字 + 用自己的颜色做浅底），最多 2 个 +「+N」。
-     * 与 pages/index/index.vue、pages/txn/list.vue 的 txnTags 保持一致。
+     * 一笔交易的「徽标」集合：周期 / 组合账户 / 用户标签，按固定顺序。
+     * 样式统一描边胶囊（见 .txn-tag），全部跟在分类名下面。
      */
-    function txnTags(txn) {
-      const ids = txn && txn.tag_ids
-      if (!ids || !ids.length) return []
+    function txnBadges(txn) {
       const list = []
-      for (const id of ids) {
-        const t = tagNameMap.value[id]
-        if (!t) continue
-        list.push({
-          key: id,
-          name: t.name,
-          color: t.color || 'var(--app-text-2)',
-          bg: t.color ? t.color + '22' : ''
-        })
+      // 周期（所有用到 RecentTxnList 的详情页都展示，包括周期详情页）
+      if (txn.cycle_id) {
+        const c = primaryColor.value
+        list.push({ key: '__cycle__', name: '周期', color: c, bg: c + '22', border: c })
       }
-      if (list.length <= 2) return list
-      const rest = list.slice(0, 2)
-      rest.push({ key: '__more__', name: `+${list.length - 2}`, color: 'var(--app-text-3)', bg: '' })
-      return rest
+      // 组合账户（独立标记，不是标签）
+      if (txn.via_combo_id) {
+        list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
+      }
+      // 用户标签
+      const ids = txn && txn.tag_ids
+      if (ids && ids.length) {
+        for (const id of ids) {
+          const t = tagNameMap.value[id]
+          if (!t) continue
+          const c = t.color || 'var(--app-text-2)'
+          const bd = t.color || 'var(--app-text-3)'
+          list.push({ key: id, name: t.name, color: c, bg: t.color ? t.color + '22' : 'var(--app-card-2)', border: bd })
+        }
+      }
+      return list
     }
 
     /* ------------------------------------------------------ 展示内容 */
@@ -332,7 +328,7 @@ export default {
     return {
       visibleTxns, groups,
       iconChar, iconBgStyle, iconFgStyle,
-      txnTitle, txnSub, txnTags, amountCents, amountType, amountSign, amountColor,
+      txnTitle, txnSub, txnBadges, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore
     }
   }
@@ -448,38 +444,30 @@ export default {
   color: var(--app-text);
 }
 
-/* 周期记账标记：小徽标，主题色描边 + 浅底，和标签胶囊区分开 */
-.txn-cycle-tag {
-  flex-shrink: 0;
-  font-size: 18rpx;
-  line-height: 1;
-  padding: 4rpx 10rpx;
-  border-radius: 8rpx;
-  color: var(--app-primary);
-  background-color: var(--app-primary-light);
-  border: 1rpx solid var(--app-primary);
-  font-weight: 500;
-}
-
-/* 标签：跟在分类名后面的一排小胶囊（与首页 / 全部交易页一致） */
+/**
+ * 徽标：周期 / 组合账户 / 标签统一成同一种「描边胶囊」。
+ * 颜色、内容可不同，但边框描边、圆角、字号、内边距一致。
+ * color / background-color / border-color 由模板内联覆盖（见 txnBadges）。
+ * 这里只是「标签没设颜色」时的中性灰兜底。
+ */
 .txn-tag-list {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6rpx;
-  flex-shrink: 0;
-  max-width: 220rpx;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .txn-tag {
   flex-shrink: 0;
   font-size: 18rpx;
-  line-height: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
   color: var(--app-text-2);
   background-color: var(--app-card-2);
-  border-radius: 6rpx;
-  padding: 2rpx 8rpx;
+  border: 1rpx solid var(--app-text-3);
+  font-weight: 500;
 }
 
 .txn-sub {

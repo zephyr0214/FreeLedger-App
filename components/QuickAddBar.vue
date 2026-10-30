@@ -211,12 +211,20 @@ export default {
         const [categories, tags] = await Promise.all([listCategories(), listTags()])
         await accountStore.load()
 
+        // ★ AI 解析要能识别组合账户 ★
+        //   用户日常「碰一碰/自动续费」用组合记，AI 记账也该支持。
+        //   组合是虚拟账户，AI 选了它，落库时由 api 层解析成真实账户，
+        //   所以这里把**全部**账户（含组合）传给解析器。
         if (accountStore.list.length === 0) {
           throw new Error('还没有账户，请先添加一个账户')
         }
 
-        const defaultAccountId =
-          settingStore.settings.defaultAccountId || accountStore.list[0].id
+        // 默认账户必须是真实账户（组合不能当默认）
+        const realAccounts = accountStore.list.filter((a) => !a.isCombo)
+        const prefDefault = settingStore.settings.defaultAccountId || ''
+        const defaultAccountId = accountStore.list.some((a) => a.id === prefDefault && !a.isCombo)
+          ? prefDefault
+          : (realAccounts[0] || accountStore.list[0] || {}).id || ''
 
         const result = await parseMessageToTransactions(pendingText, {
           categories,

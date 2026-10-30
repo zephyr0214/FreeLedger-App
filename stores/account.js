@@ -27,9 +27,9 @@ export const useAccountStore = defineStore('account', {
     fundAccounts(state) {
       return state.list.filter((a) => !a.isCredit)
     },
-    /** 默认账户：优先设置里的 defaultAccountId，否则第一个 */
+    /** 默认账户：优先设置里的 defaultAccountId，否则第一个真实账户 */
     defaultAccount(state) {
-      return state.list[0] || null
+      return state.list.find((a) => !a.isCombo) || state.list[0] || null
     },
     hasAccounts(state) {
       return state.list.length > 0

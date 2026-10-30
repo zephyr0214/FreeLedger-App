@@ -390,7 +390,8 @@ export default {
 
     const currentAccountName = computed(() => {
       const acc = accountStore.list.find((a) => a.id === form.account_id)
-      return acc ? acc.name : '请选择'
+      if (!acc) return '请选择'
+      return acc.isCombo ? `${acc.name}（组合）` : acc.name
     })
 
     const toAccountName = computed(() => {
@@ -398,15 +399,31 @@ export default {
       return acc ? acc.name : ''
     })
 
+    /**
+     * 源账户可选列表（按当前类型过滤，规则同 TxnPanel）：
+     *   支出显示组合（置顶）、收入/转账不显示（组合只能用于支出）。
+     */
+    const sourceAccountList = computed(() => {
+      if (form.type !== 'expense') {
+        return accountStore.list.filter((a) => !a.isCombo)
+      }
+      const combos = accountStore.list.filter((a) => a.isCombo)
+      const reals = accountStore.list.filter((a) => !a.isCombo)
+      return [...combos, ...reals]
+    })
+
     const accountActions = computed(() =>
-      accountStore.list.map((a) => ({
+      sourceAccountList.value.map((a) => ({
         name: a.name,
-        subname: `余额 ${(a.balance_cents / 100).toFixed(2)}`,
+        subname: a.isCombo ? '组合账户' : `余额 ${(a.balance_cents / 100).toFixed(2)}`,
         color: a.color
       }))
     )
 
-    const toAccountList = computed(() => accountStore.list.filter((a) => a.id !== form.account_id))
+    // 转入方不能是组合账户
+    const toAccountList = computed(() =>
+      accountStore.list.filter((a) => a.id !== form.account_id && !a.isCombo)
+    )
 
     const toAccountActions = computed(() =>
       toAccountList.value.map((a) => ({
@@ -460,6 +477,14 @@ export default {
           form.category_id = defaultCategoryId.value || ''
         }
       }
+      // 组合账户只能用于支出：切到收入/转账时，若当前还是组合，换成第一个真实账户
+      if (key !== 'expense') {
+        const cur = accountStore.list.find((a) => a.id === form.account_id)
+        if (cur && cur.isCombo) {
+          const firstReal = accountStore.list.find((a) => !a.isCombo)
+          form.account_id = firstReal ? firstReal.id : ''
+        }
+      }
     }
 
     function pickCategory(cat) {
@@ -476,8 +501,8 @@ export default {
     }
 
     function openAccountPicker() {
-      if (accountStore.list.length === 0) {
-        uni.showToast({ title: '请先添加账户', icon: 'none' })
+      if (sourceAccountList.value.length === 0) {
+        uni.showToast({ title: form.type === 'income' ? '收入需要选择真实账户' : '请先添加账户', icon: 'none' })
         return
       }
       showAccountPicker.value = true
@@ -500,7 +525,7 @@ export default {
     }
 
     function onAccountSelect({ index }) {
-      const acc = accountStore.list[index]
+      const acc = sourceAccountList.value[index]
       if (!acc) return
       form.account_id = acc.id
       if (form.to_account_id === acc.id) form.to_account_id = ''
@@ -548,7 +573,14 @@ export default {
       form.weekday = 1
       form.day_of_month = 1
       form.to_account_id = ''
-      form.account_id = settingStore.settings.defaultAccountId || (accountStore.list[0] || {}).id || ''
+      // ★ 默认账户不能是组合账户 ★
+      let def = settingStore.settings.defaultAccountId || ''
+      const defAcc = accountStore.list.find((a) => a.id === def)
+      if (!defAcc || defAcc.isCombo) {
+        const firstReal = accountStore.list.find((a) => !a.isCombo)
+        def = firstReal ? firstReal.id : ''
+      }
+      form.account_id = def
       // ★ 与首页「+」一致：默认选中排序后的第一个分类，避免「完成没反应」
       form.category_id = defaultCategoryId.value || ''
     }
@@ -624,7 +656,11 @@ export default {
         if (props.editing) {
           // 编辑：只改规则，不动已产生的流水；不弹「今天记一笔」
           await updateCycle(props.editing.id, patch)
-          await settingStore.update({ defaultAccountId: form.account_id })
+          // 组合账户不能作为默认账户
+          const src = accountStore.list.find((a) => a.id === form.account_id)
+          if (src && !src.isCombo) {
+            await settingStore.update({ defaultAccountId: form.account_id })
+          }
           uni.showToast({ title: '周期已更新', icon: 'success' })
           emit('saved')
           visible.value = false
@@ -636,7 +672,11 @@ export default {
         //   每周：今天恰好是该周几
         //   每月：今天恰好是该日（clamp 后仍是今天）
         const cycle = await createCycle(patch)
-        await settingStore.update({ defaultAccountId: form.account_id })
+        // 组合账户不能作为默认账户
+        const src = accountStore.list.find((a) => a.id === form.account_id)
+        if (src && !src.isCombo) {
+          await settingStore.update({ defaultAccountId: form.account_id })
+        }
 
         const today = toDayKey()
         if (occursOnDay(cycle, today)) {

@@ -59,7 +59,7 @@ async function buildExportPayload(opt = {}) {
 
   const whereNotDeleted = includeDeleted ? '' : 'WHERE deleted_at IS NULL'
 
-  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, cycles] = await Promise.all([
+  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, cycles, comboMembers] = await Promise.all([
     query(`SELECT * FROM account ${whereNotDeleted} ORDER BY sort ASC`),
     query('SELECT * FROM account_snapshot ORDER BY day ASC'),
     query(`SELECT * FROM category ${whereNotDeleted} ORDER BY sort ASC`),
@@ -67,7 +67,10 @@ async function buildExportPayload(opt = {}) {
     query(`SELECT * FROM txn ${whereNotDeleted} ORDER BY occurred_at ASC`),
     query('SELECT * FROM txn_tag'),
     query('SELECT * FROM budget'),
-    query(`SELECT * FROM cycle ${whereNotDeleted} ORDER BY created_at ASC`)
+    query(`SELECT * FROM cycle ${whereNotDeleted} ORDER BY created_at ASC`),
+    // ★ 组合账户的成员关系 ★
+    //   不导出的话，恢复后组合账户会变成「空壳」，用户还得重新配一遍。
+    query('SELECT * FROM account_combo_member ORDER BY combo_id ASC, sort ASC')
   ])
 
   return {
@@ -81,7 +84,8 @@ async function buildExportPayload(opt = {}) {
       categories: categories.length,
       tags: tags.length,
       budgets: budgets.length,
-      cycles: cycles.length
+      cycles: cycles.length,
+      comboMembers: comboMembers.length
     },
     settings: exportedSettings,
     accounts,
@@ -91,7 +95,8 @@ async function buildExportPayload(opt = {}) {
     transactions,
     txnTags,
     budgets,
-    cycles
+    cycles,
+    comboMembers
   }
 }
 
@@ -706,8 +711,14 @@ export async function importPayload(payload, opt = {}) {
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             a.id, a.name, a.type, a.icon || null, a.color || null,
-            a.initial_balance_cents || 0, a.balance_cents || 0,
-            a.include_in_total === undefined ? 1 : a.include_in_total,
+            /*
+             * ★ 组合账户强制不计入总资产、余额恒 0 ★
+             *   它是虚拟账户，备份里即使带了旧值也不能直接用 ——
+             *   否则总资产会凭空多出一笔。
+             */
+            a.type === 'combo' ? 0 : (a.initial_balance_cents || 0),
+            a.type === 'combo' ? 0 : (a.balance_cents || 0),
+            a.type === 'combo' ? 0 : (a.include_in_total === undefined ? 1 : a.include_in_total),
             a.credit_limit_cents === undefined ? null : a.credit_limit_cents,
             a.bill_day === undefined ? null : a.bill_day,
             a.repay_day === undefined ? null : a.repay_day,
@@ -716,6 +727,22 @@ export async function importPayload(payload, opt = {}) {
           ]
         )
         report.accounts++
+      }
+    }
+
+    // ---------- 组合账户成员
+    //   必须放在账户之后 —— 成员指向真实账户，账户还没导入就插不进去
+    if (Array.isArray(payload.comboMembers)) {
+      for (const m of payload.comboMembers) {
+        if (!m || !m.combo_id || !m.member_id) continue
+        const combo = await queryOne('SELECT id FROM account WHERE id = ?', [m.combo_id])
+        const member = await queryOne('SELECT id FROM account WHERE id = ?', [m.member_id])
+        // 两端都得存在，否则就是悬空引用（组合/成员没被一起导入）
+        if (!combo || !member) continue
+        await execute(
+          'INSERT OR IGNORE INTO account_combo_member (combo_id, member_id, sort) VALUES (?,?,?)',
+          [m.combo_id, m.member_id, m.sort || 0]
+        )
       }
     }
 

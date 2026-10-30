@@ -13,6 +13,7 @@
 
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { createTransaction, listTransactions } from './transaction.js'
+import { getAccount, isComboType } from './account.js'
 import { prefixedId } from '../utils/id.js'
 import { toDayKey, parseDayKey, clampDayOfMonth, toMonthKey, shiftDay } from '../utils/date.js'
 
@@ -79,6 +80,32 @@ function validateCycle(input) {
 }
 
 /**
+ * 校验周期账户是否符合组合账户规则（与交易一致）：
+ *   · 组合账户只用于支出 —— 收入、转账周期都不能用组合
+ *
+ * ★ 为什么周期这里也要拦 ★
+ *   周期面板已经过滤了组合，但 API 层不能只依赖 UI ——
+ *   万一有脏数据/别处调用，周期存进去了，到「记一笔」时
+ *   createTransaction 才抛错，用户看到的是一笔「记不上的周期」，更迷惑。
+ *   这里在创建/更新时就把不合法组合周期挡掉。
+ *
+ * @param {object} input 周期输入（含 type / account_id / to_account_id）
+ */
+async function assertCycleAccounts(input) {
+  if (input.type === 'expense') return
+  const src = await getAccount(input.account_id)
+  if (src && src.isCombo) {
+    throw new Error('组合账户只能用于支出周期，请选择真实账户')
+  }
+  if (input.type === 'transfer' && input.to_account_id) {
+    const to = await getAccount(input.to_account_id)
+    if (to && to.isCombo) {
+      throw new Error('组合账户只能用于支出，不能用于转账周期')
+    }
+  }
+}
+
+/**
  * 新建周期。
  *
  * ★ 不立刻记第一笔 ★
@@ -91,6 +118,7 @@ function validateCycle(input) {
  */
 export async function createCycle(input) {
   validateCycle(input)
+  await assertCycleAccounts(input)
 
   const now = Date.now()
   const id = input.id || prefixedId('cyc')
@@ -130,6 +158,7 @@ export async function updateCycle(id, patch) {
 
   const merged = { ...existing, ...patch }
   validateCycle(merged)
+  await assertCycleAccounts(merged)
 
   const fields = []
   const params = []

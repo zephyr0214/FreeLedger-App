@@ -282,8 +282,67 @@ const MIGRATIONS = [
     //   所以迁移只做「清空历史值」，新写入的代码完全不再碰它们。
     version: 10,
     up: migrateDropTxnSource
+  },
+  {
+    // ★ 组合账户 ★
+    //   新增成员表 + txn.via_combo_id（记录这笔是通过哪个组合花的，
+    //   纯标记、不参与任何计算）。
+    version: 11,
+    up: migrateComboAccounts
   }
 ]
+
+/**
+ * 迁移 v11 —— 组合账户
+ *
+ * 组合账户不是一个真的账户：它没有余额、不计入总资产，
+ * 记账时按顺序解析成某一个真实账户，钱实际记在真实账户名下。
+ * 因此只需要两张东西：
+ *
+ *   1. account_combo_member 表 —— 描述「由哪些真实账户、按什么顺序组成」
+ *   2. txn.via_combo_id 列     —— 这笔钱是经由哪个组合花出去的
+ *
+ * ★ via_combo_id 为什么值得加 ★
+ *   流水本身落在真实账户上，组合的痕迹就消失了。
+ *   加上这一列后，「我当时是从哪个组合付的」这个信息还在，
+ *   将来想按组合维度看统计也有数据可用；它对余额/预算零影响。
+ */
+async function migrateComboAccounts() {
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: `CREATE TABLE IF NOT EXISTS account_combo_member (
+        combo_id  TEXT    NOT NULL,
+        member_id TEXT    NOT NULL,
+        sort      INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (combo_id, member_id)
+      )`
+    })
+    console.log('[db] migration v11: account_combo_member 表已创建')
+  } catch (e) {
+    console.warn('[db] migration v11 combo 表失败:', e && e.message)
+  }
+
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'ALTER TABLE txn ADD COLUMN via_combo_id TEXT'
+    })
+    console.log('[db] migration v11: txn.via_combo_id 已添加')
+  } catch (e) {
+    // 已存在（重复迁移 / 新装库已含该列）时忽略
+    console.log('[db] migration v11: txn.via_combo_id 已存在，跳过')
+  }
+
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'CREATE INDEX IF NOT EXISTS idx_combo_member ON account_combo_member(combo_id, sort)'
+    })
+  } catch (e) {
+    console.warn('[db] migration v11 索引失败:', e && e.message)
+  }
+}
 
 /**
  * 迁移 v10 —— 停用 txn.source / txn.raw_text
@@ -1083,7 +1142,7 @@ export async function transaction(fn) {
 export async function truncateAll() {
   const tables = [
     'txn_tag', 'txn', 'account_snapshot', 'budget', 'cycle',
-    'category', 'tag', 'account', 'setting', 'app_meta'
+    'category', 'tag', 'account', 'account_combo_member', 'setting', 'app_meta'
   ]
   return transaction(async () => {
     for (const t of tables) {

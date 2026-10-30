@@ -233,17 +233,15 @@
               <view class="txn-info">
                 <view class="txn-name-row">
                   <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
-                  <!-- 周期记账标记：周期产生的流水打上「周期」徽标 -->
-                  <text v-if="txn.cycle_id" class="txn-cycle-tag">周期</text>
-                  <!-- 标签：跟在分类名后面的小胶囊（名字 + 自己的颜色做浅底） -->
-                  <view v-if="txnTags(txn).length" class="txn-tag-list">
-                    <text
-                      v-for="t in txnTags(txn)"
-                      :key="t.key"
-                      class="txn-tag"
-                      :style="t.bg ? { backgroundColor: t.bg, color: t.color } : null"
-                    >{{ t.name }}</text>
-                  </view>
+                </view>
+                <!-- 徽标：周期 / 组合账户 / 标签，统一描边胶囊，全部跟在分类名下面 -->
+                <view v-if="txnBadges(txn).length" class="txn-tag-list">
+                  <text
+                    v-for="t in txnBadges(txn)"
+                    :key="t.key"
+                    class="txn-tag"
+                    :style="{ backgroundColor: t.bg, color: t.color, borderColor: t.border }"
+                  >{{ t.name }}</text>
                 </view>
                 <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
               </view>
@@ -367,6 +365,8 @@ export default {
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
+    /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
+    const COMBO_BADGE_COLOR = '#8B5CF6'
     const pageStyle = computed(() => settingStore.cssVars)
 
     const hasAccounts = computed(() => accountStore.hasAccounts)
@@ -575,27 +575,36 @@ export default {
     })
 
     /**
-     * 这笔交易的标签胶囊（名字 + 用自己的颜色做浅底），最多显示 2 个 +「+N」。
-     * 与 pages/txn/list.vue 的 txnTags 保持一致。
+     * 一笔交易的「徽标」集合：周期 / 组合账户 / 用户标签，按固定顺序。
+     *
+     * ★ 用户要求 ★
+     *   周期、组合账户、标签都统一成同一种「描边胶囊」样式（见 .txn-tag），
+     *   颜色/内容各不相同，但样式一致；全部跟在分类名下面。
+     *   组合账户不是标签，是独立标记（来自 via_combo_id）。
      */
-    function txnTags(txn) {
-      const ids = txn.tag_ids
-      if (!ids || !ids.length) return []
+    function txnBadges(txn) {
       const list = []
-      for (const id of ids) {
-        const t = tagNameMap.value[id]
-        if (!t) continue
-        list.push({
-          key: id,
-          name: t.name,
-          color: t.color || 'var(--app-text-2)',
-          bg: t.color ? t.color + '22' : ''
-        })
+      // 周期
+      if (txn.cycle_id) {
+        const c = primaryColor.value
+        list.push({ key: '__cycle__', name: '周期', color: c, bg: c + '22', border: c })
       }
-      if (list.length <= 2) return list
-      const rest = list.slice(0, 2)
-      rest.push({ key: '__more__', name: `+${list.length - 2}`, color: 'var(--app-text-3)', bg: '' })
-      return rest
+      // 组合账户（独立标记，不是标签）
+      if (txn.via_combo_id) {
+        list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
+      }
+      // 用户标签
+      const ids = txn.tag_ids
+      if (ids && ids.length) {
+        for (const id of ids) {
+          const t = tagNameMap.value[id]
+          if (!t) continue
+          const c = t.color || 'var(--app-text-2)'
+          const bd = t.color || 'var(--app-text-3)'
+          list.push({ key: id, name: t.name, color: c, bg: t.color ? t.color + '22' : 'var(--app-card-2)', border: bd })
+        }
+      }
+      return list
     }
 
     /* ------------------------------------------------------ 路由 */
@@ -663,7 +672,7 @@ export default {
       shiftCalMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
-      iconChar, txnTitle, txnSub, txnTags,
+      iconChar, txnTitle, txnSub, txnBadges,
       goAddAccount, goProfile, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }
@@ -1021,38 +1030,33 @@ export default {
   min-width: 0;
 }
 
-/* 周期记账标记：小徽标，主题色描边 + 浅底，和标签胶囊区分开 */
-.txn-cycle-tag {
+/**
+ * 徽标：周期 / 组合账户 / 标签统一成同一种「描边胶囊」。
+ *
+ * ★ 用户要求（以周期的样式为准）★
+ *   颜色、内容可不同，但边框描边、圆角、字号、内边距一致：
+ *   1rpx 实线描边 + 12% 同色浅底 + 同色文字。
+ *   color / background-color / border-color 由模板内联覆盖（见 txnBadges）。
+ *   这里只是「标签没设颜色」时的中性灰兜底。
+ */
+.txn-tag-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+.txn-tag {
   flex-shrink: 0;
   font-size: 18rpx;
   line-height: 1;
   padding: 4rpx 10rpx;
   border-radius: 8rpx;
-  color: var(--app-primary);
-  background-color: var(--app-primary-light);
-  border: 1rpx solid var(--app-primary);
-  font-weight: 500;
-}
-
-/* 标签：跟在分类名后面的一排小胶囊（同全部交易页） */
-.txn-tag-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 6rpx;
-  flex-shrink: 0;
-  max-width: 220rpx;
-  overflow: hidden;
-}
-
-.txn-tag {
-  flex-shrink: 0;
-  font-size: 20rpx;
-  line-height: 20rpx;
   color: var(--app-text-2);
   background-color: var(--app-card-2);
-  border-radius: 6rpx;
-  padding: 2rpx 8rpx;
+  border: 1rpx solid var(--app-text-3);
+  font-weight: 500;
 }
 
 .txn-sub {

@@ -160,6 +160,13 @@ export default {
     async function load() {
       const acc = await accountStore.getById(accountId.value)
       if (!acc) return
+      // ★ 组合账户没有详情页（无流水、无余额）★
+      //   万一被直接跳到（历史入口/分享链接），重定向到编辑页，
+      //   避免本页用「无余额」渲染出奇怪的详情。
+      if (acc.isCombo) {
+        uni.redirectTo({ url: `/pages/account/edit?id=${accountId.value}` })
+        return
+      }
       account.value = acc
 
       loading.value = true

@@ -475,7 +475,8 @@ export default {
 
     const currentAccountName = computed(() => {
       const acc = accountStore.list.find((a) => a.id === form.account_id)
-      return acc ? acc.name : '请选择'
+      if (!acc) return '请选择'
+      return acc.isCombo ? `${acc.name}（组合）` : acc.name
     })
 
     const toAccountName = computed(() => {
@@ -483,16 +484,40 @@ export default {
       return acc ? acc.name : ''
     })
 
+    /**
+     * 源账户可选列表（按当前类型过滤）。
+     *
+     * ★ 组合账户按类型决定是否出现 ★
+     *   · 支出：显示（顶部，标注「组合」）—— 用户日常支付想省事就选它
+     *   · 收入 / 转账：不显示 —— 组合只能用于支出，钱不能进虚拟账户，
+     *     转账两端都必须落到真实账户。
+     *
+     * ★ 组合排在最前 ★
+     *   listAccounts 按 include_in_total DESC 排（真实账户在前、组合在后），
+     *   但这里用户就是想快速选组合，所以手动把组合提到顶部。
+     */
+    const sourceAccountList = computed(() => {
+      if (form.type !== 'expense') {
+        return accountStore.list.filter((a) => !a.isCombo)
+      }
+      const combos = accountStore.list.filter((a) => a.isCombo)
+      const reals = accountStore.list.filter((a) => !a.isCombo)
+      return [...combos, ...reals]
+    })
+
     // wd-action-sheet 的 select 回传 { item, index }，按索引回查真实 id
     const accountActions = computed(() =>
-      accountStore.list.map((a) => ({
+      sourceAccountList.value.map((a) => ({
         name: a.name,
-        subname: `余额 ${(a.balance_cents / 100).toFixed(2)}`,
+        subname: a.isCombo ? '组合账户' : `余额 ${(a.balance_cents / 100).toFixed(2)}`,
         color: a.color
       }))
     )
 
-    const toAccountList = computed(() => accountStore.list.filter((a) => a.id !== form.account_id))
+    // 转入方不能是组合账户（钱只能「从组合出」，不能「进组合」）
+    const toAccountList = computed(() =>
+      accountStore.list.filter((a) => a.id !== form.account_id && !a.isCombo)
+    )
 
     const toAccountActions = computed(() =>
       toAccountList.value.map((a) => ({
@@ -546,6 +571,14 @@ export default {
       if (key !== 'transfer') {
         form.to_account_id = ''
       }
+      // 组合账户只能用于支出：切到收入/转账时，若当前还是组合，换成第一个真实账户
+      if (key !== 'expense') {
+        const cur = accountStore.list.find((a) => a.id === form.account_id)
+        if (cur && cur.isCombo) {
+          const firstReal = accountStore.list.find((a) => !a.isCombo)
+          form.account_id = firstReal ? firstReal.id : ''
+        }
+      }
     }
 
     function pickCategory(cat) {
@@ -557,8 +590,8 @@ export default {
     }
 
     function openAccountPicker() {
-      if (accountStore.list.length === 0) {
-        uni.showToast({ title: '请先添加账户', icon: 'none' })
+      if (sourceAccountList.value.length === 0) {
+        uni.showToast({ title: form.type === 'income' ? '收入需要选择真实账户' : '请先添加账户', icon: 'none' })
         return
       }
       showAccountPicker.value = true
@@ -577,7 +610,7 @@ export default {
     }
 
     function onAccountSelect({ index }) {
-      const acc = accountStore.list[index]
+      const acc = sourceAccountList.value[index]
       if (!acc) return
       form.account_id = acc.id
       // 转账时若目标账户与新的源账户相同，清空
@@ -650,7 +683,16 @@ export default {
       // 新记录默认是「此刻」
       form.occurred_time = currentTimeText()
       form.to_account_id = ''
-      form.account_id = settingStore.settings.defaultAccountId || (accountStore.list[0] || {}).id || ''
+      // ★ 默认账户不能是组合账户 ★
+      //   组合是虚拟账户，作默认会让「记账」默认走它，用户可能没注意到。
+      //   先取设置里的默认，若它指向组合（或没有），退回第一个真实账户。
+      let def = settingStore.settings.defaultAccountId || ''
+      const defAcc = accountStore.list.find((a) => a.id === def)
+      if (!defAcc || defAcc.isCombo) {
+        const firstReal = accountStore.list.find((a) => !a.isCombo)
+        def = firstReal ? firstReal.id : ''
+      }
+      form.account_id = def
       // 默认选中第一个分类：这样用户输完金额直接按「完成」就能记一笔，
       // 不用先去点分类（之前不选分类就存不了，是「完成没反应」的真正原因）
       form.category_id = defaultCategoryId.value || ''
@@ -681,6 +723,14 @@ export default {
       form.type = p.type || 'expense'
       form.amountRaw = p.amount_cents ? String(p.amount_cents / 100) : ''
       form.account_id = p.account_id || (accountStore.list[0] || {}).id || ''
+      // 防御：组合账户只能用于支出，预置里带了组合 + 收入/转账就退回第一个真实账户
+      if (form.type !== 'expense') {
+        const cur = accountStore.list.find((a) => a.id === form.account_id)
+        if (cur && cur.isCombo) {
+          const firstReal = accountStore.list.find((a) => !a.isCombo)
+          form.account_id = firstReal ? firstReal.id : ''
+        }
+      }
       form.to_account_id = p.to_account_id || ''
       // 预置没给分类时用默认分类，保证「完成」键能直接用
       form.category_id = p.category_id || defaultCategoryId.value || ''
@@ -751,8 +801,11 @@ export default {
         } else {
           await txnStore.create(payload)
           uni.showToast({ title: '已记一笔', icon: 'success' })
-          // 记住本次账户，下次默认
-          await settingStore.update({ defaultAccountId: form.account_id })
+          // 记住本次账户，下次默认（组合账户不能当默认）
+          const srcAcc = accountStore.list.find((a) => a.id === form.account_id)
+          if (srcAcc && !srcAcc.isCombo) {
+            await settingStore.update({ defaultAccountId: form.account_id })
+          }
         }
         emit('saved')
         visible.value = false

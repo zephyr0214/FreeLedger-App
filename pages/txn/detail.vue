@@ -61,16 +61,16 @@
           <text class="row-value">{{ timeLabel }}</text>
         </view>
 
-        <view v-if="tags.length" class="row">
-          <text class="row-label">标签</text>
+        <view v-if="badges.length" class="row">
+          <text class="row-label">标记</text>
           <view class="row-tags">
             <view
-              v-for="t in tags"
-              :key="t.id"
+              v-for="b in badges"
+              :key="b.key"
               class="tag-chip"
-              :style="{ backgroundColor: (t.color || primaryColor) + '22' }"
+              :style="{ backgroundColor: b.bg, color: b.color, borderColor: b.border }"
             >
-              <text class="tag-text" :style="{ color: t.color || primaryColor }">{{ t.name }}</text>
+              <text class="tag-text" :style="{ color: b.color }">{{ b.name }}</text>
             </view>
           </view>
         </view>
@@ -145,10 +145,14 @@ export default {
     const txnId = ref('')
     const txn = ref(null)
     const tags = ref([])
+    /** 标记徽标：周期 / 组合账户 / 用户标签，统一描边胶囊样式 */
+    const badges = ref([])
     const showPanel = ref(false)
     const loadingText = ref('加载中…')
 
     const primaryColor = computed(() => settingStore.primaryColor)
+    /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
+    const COMBO_BADGE_COLOR = '#8B5CF6'
     const pageStyle = computed(() => settingStore.cssVars)
 
 
@@ -187,10 +191,27 @@ export default {
         }
         txn.value = t
 
+        const list = []
+        // 周期徽标
+        if (t.cycle_id) {
+          const c = primaryColor.value
+          list.push({ key: '__cycle__', name: '周期', color: c, bg: c + '22', border: c })
+        }
+        // 组合账户徽标（独立标记，不是标签）
+        if (t.via_combo_id) {
+          list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
+        }
+        // 用户标签
         if (t.tag_ids && t.tag_ids.length > 0) {
           const all = await getTxnTags(t.id)
           tags.value = all
+          for (const tg of all) {
+            const c = tg.color || 'var(--app-text-2)'
+            const bd = tg.color || 'var(--app-text-3)'
+            list.push({ key: tg.id, name: tg.name, color: c, bg: tg.color ? tg.color + '22' : 'var(--app-card-2)', border: bd })
+          }
         }
+        badges.value = list
       } catch (e) {
         loadingText.value = e.message
       }
@@ -277,7 +298,7 @@ export default {
     onBackPress(() => handleBackPress())
 
     return {
-      settingStore, statusBarHeight, txn, tags, showPanel, loadingText,
+      settingStore, statusBarHeight, txn, tags, badges, showPanel, loadingText,
       primaryColor, pageStyle, typeLabel, iconChar,
       dayLabel, timeLabel, excludeFromBudget,
       onEdit, onSaved, onDelete, onToggleExclude, goBack
@@ -425,6 +446,7 @@ export default {
 .tag-chip {
   padding: 4rpx 16rpx;
   border-radius: 16rpx;
+  border: 1rpx solid transparent;
 }
 
 .tag-text {

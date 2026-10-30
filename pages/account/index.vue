@@ -73,10 +73,11 @@
             v-for="acc in group.accounts"
             :key="acc.id"
             v-model="swipeStates[acc.id]"
+            :disabled="acc.isCombo"
             class="acc-swipe"
             @click="onSwipeClick(acc, $event)"
           >
-            <view class="acc-item" @click="goDetail(acc.id)">
+            <view class="acc-item" @click="goDetail(acc)">
               <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
                 <!--
                   账户图标：预设 key（用 AccountIcon 渲染，
@@ -106,16 +107,22 @@
                     <text class="default-badge-text">默认</text>
                   </view>
                 </view>
-                <text class="acc-type">{{ acc.typeName }}</text>
+                <text class="acc-type">{{ acc.isCombo ? '按顺序扣款' : acc.typeName }}</text>
               </view>
 
               <view class="acc-right">
+                <!--
+                  组合账户不显示余额 —— 它没有钱，显示 0.00 会误导。
+                  只放一个「组合账户」标签说明它是什么。
+                -->
+                <text v-if="acc.isCombo" class="acc-combo-tag">组合账户</text>
                 <!--
                   账户余额：无论正负都不加颜色、不加符号（用户要求）。
                   ★ 唯一例外：不计入资产的账户用中性浅灰 ★
                     这类账户不参与总资产，浅灰提示「它不算在这本账里」。
                 -->
                 <MoneyText
+                  v-else
                   :cents="acc.balance_cents"
                   :muted="!acc.include_in_total"
                   :size="32"
@@ -129,9 +136,10 @@
               <text class="acc-arrow">›</text>
             </view>
 
-            <!-- 右滑操作区 -->
+            <!-- 右滑操作区（组合账户 disabled，不会滑出） -->
             <template #right>
               <view
+                v-if="!acc.isCombo"
                 class="swipe-default"
                 :style="{ backgroundColor: acc.id === defaultAccountId ? 'var(--app-text-3)' : primaryColor }"
               >
@@ -251,6 +259,10 @@ export default {
     }
 
     function formatGroupSum(group) {
+      // ★ 组合账户组不显示金额合计 ★
+      //   组合没有余额（恒 0），显示「0.00」只会误导。
+      //   按用户要求：只保留「组合账户」这个组名，右侧留空。
+      if (group.key === 'combo') return ''
       const sum = group.accounts.reduce((acc, a) => acc + a.balance_cents, 0)
       return formatCents(sum, { symbol: settingStore.currencySymbol })
     }
@@ -267,6 +279,11 @@ export default {
      * 不收的话它一直露在那儿，用户会以为还能再点什么。
      */
     async function setDefault(acc) {
+      // 组合账户不能作为默认账户（它是虚拟账户，不能直接记账）
+      if (acc.isCombo) {
+        uni.showToast({ title: '组合账户不能设为默认', icon: 'none' })
+        return
+      }
       if (acc.id === defaultAccountId.value) {
         uni.showToast({ title: '已经是默认账户了', icon: 'none' })
         return
@@ -310,8 +327,14 @@ export default {
       uni.navigateTo({ url: '/pages/account/edit' })
     }
 
-    function goDetail(id) {
-      uni.navigateTo({ url: `/pages/account/detail?id=${id}` })
+    function goDetail(acc) {
+      // ★ 组合账户没有流水、没有详情页 ★
+      //   点击直接进编辑页（成员配置、排序都在编辑页里）。
+      if (acc.isCombo) {
+        uni.navigateTo({ url: `/pages/account/edit?id=${acc.id}` })
+        return
+      }
+      uni.navigateTo({ url: `/pages/account/detail?id=${acc.id}` })
     }
 
     function goProfile() {
@@ -556,6 +579,15 @@ export default {
 .acc-limit {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/* 组合账户标签（替代余额，说明它是记账用的虚拟账户） */
+.acc-combo-tag {
+  font-size: 24rpx;
+  color: var(--app-primary);
+  background-color: var(--app-primary-light);
+  padding: 8rpx 18rpx;
+  border-radius: 14rpx;
 }
 
 .acc-arrow {

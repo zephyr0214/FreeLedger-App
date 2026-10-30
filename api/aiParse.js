@@ -300,6 +300,15 @@ export function validateItem(raw, ctx) {
       }
     }
 
+    // ★ 组合账户守卫（转账转入）★
+    //   转入方不能是组合账户（钱只能从组合出、不能进组合）。
+    //   模型可能误选，清掉后下面会报「转账缺少目标账户」。
+    const toAcc = ctx.accounts.find((a) => a.id === toAccountId)
+    if (toAcc && toAcc.isCombo) {
+      toAccountId = null
+      toAccountName = ''
+    }
+
     // 转账必须有目标账户，且不能与来源相同
     if (!toAccountId) {
       return { ok: false, reason: '转账缺少目标账户' }
@@ -307,6 +316,19 @@ export function validateItem(raw, ctx) {
     if (accountId && accountId === toAccountId) {
       return { ok: false, reason: '转出与转入账户不能相同' }
     }
+  }
+
+  /*
+   * ★ 组合账户守卫（账户）★
+   *   组合账户只能用于「支出」（日常碰一碰/自动续费）；
+   *   收入、转账都不能用组合（钱不能进虚拟账户、转账两端须落真实账户）。
+   *   AI 候选列表里包含组合账户，它可能误选 —— 这里清掉，
+   *   让 parseMessageToTransactions 补一个真实默认账户。
+   */
+  const srcAcc = ctx.accounts.find((a) => a.id === accountId)
+  if (srcAcc && srcAcc.isCombo && type !== 'expense') {
+    accountId = null
+    accountName = ''
   }
 
   // 标签
@@ -708,7 +730,13 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
     if (!item.account_id) {
       item.account_id = ctx.defaultAccountId || (ctx.accounts[0] || {}).id || ''
       const acc = ctx.accounts.find((a) => a.id === item.account_id)
-      item.account_name = acc ? acc.name : ''
+      // 防御：组合账户只能用于支出，退到第一个真实账户
+      if (acc && acc.isCombo && item.type !== 'expense') {
+        const real = ctx.accounts.find((a) => !a.isCombo)
+        if (real) { item.account_id = real.id }
+      }
+      const acc2 = ctx.accounts.find((a) => a.id === item.account_id)
+      item.account_name = acc2 ? acc2.name : ''
       item.accountFromAi = false
     }
 

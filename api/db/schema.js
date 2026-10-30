@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 10
+export const SCHEMA_VERSION = 11
 
 /**
  * 「对账」固定分类（v4 起）
@@ -280,7 +280,8 @@ export const SCHEMA_V1 = [
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
     deleted_at    INTEGER,
-    exclude_from_budget INTEGER NOT NULL DEFAULT 0
+    exclude_from_budget INTEGER NOT NULL DEFAULT 0,
+    via_combo_id  TEXT
   )`,
 
   // ------------------------------------------------------------ 交易-标签
@@ -311,6 +312,24 @@ export const SCHEMA_V1 = [
   `CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
     value TEXT
+  )`,
+
+  /**
+   * 组合账户的成员表（v11）
+   *
+   * 组合账户（account.type = 'combo'）不是真实账户：
+   * 它不持有余额、不计入总资产，记账时按 sort 顺序解析成下面某一个真实账户。
+   * 所以这张表只描述「由哪些真实账户、按什么顺序组成」。
+   *
+   * ★ sort 是关键 ★
+   *   扣款顺序完全由它决定；上下箭头调序就是在改这个字段。
+   *   同 sort 时用 member_id 兜底排序，保证结果稳定可复现。
+   */
+  `CREATE TABLE IF NOT EXISTS account_combo_member (
+    combo_id  TEXT    NOT NULL,
+    member_id TEXT    NOT NULL,
+    sort      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (combo_id, member_id)
   )`
 ]
 
@@ -330,5 +349,6 @@ export const INDEXES_V1 = [
   `CREATE INDEX IF NOT EXISTS idx_snap_day       ON account_snapshot(day)`,
   `CREATE INDEX IF NOT EXISTS idx_cat_parent     ON category(parent_id, sort)`,
   `CREATE INDEX IF NOT EXISTS idx_budget_scope   ON budget(scope, start_month)`,
-  `CREATE INDEX IF NOT EXISTS idx_txn_tag_tag    ON txn_tag(tag_id)`
+  `CREATE INDEX IF NOT EXISTS idx_txn_tag_tag    ON txn_tag(tag_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_combo_member   ON account_combo_member(combo_id, sort)`
 ]

@@ -11,7 +11,10 @@
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 import { makeDateKeys, toDayKey, toMonthKey, monthRange } from '../utils/date.js'
-import { recalcBalance, writeTodaySnapshot } from './account.js'
+import {
+  recalcBalance, writeTodaySnapshot, isComboType, listComboMembers, getAccount
+} from './account.js'
+import { resolveComboAccount } from '../utils/combo.js'
 
 
 
@@ -354,6 +357,73 @@ export function resolveOccurredTime(input = {}, fallbackMs = Date.now()) {
 }
 
 /**
+ * 把「组合账户」解析成真正要扣款的真实账户。
+ *
+ * ★ 为什么在写库前解析，而不是在界面上先选好 ★
+ *   组合的成员顺序、余额会变（用户随时可能调序、其它地方也在花钱）。
+ *   界面选组合、用户确认「记一笔」这中间隔了多久不确定，
+ *   到真正落库的那一刻才知道哪个账户够用，才是最准的时机。
+ *   所以解析统一放在 api 层 —— 手动记账、AI 记账、周期补记
+ *   都走这一条路径，行为完全一致。
+ *
+ * @param {string} accountId 用户选中的账户（可能是组合）
+ * @param {number} amountCents 本笔金额（分）
+ * @param {string} type 交易类型（收入不允许用组合）
+ * @returns {Promise<{ accountId: string, viaComboId: string, warning: string }>}
+ *   accountId   最终落库的账户 id
+ *   viaComboId  若经过组合解析，这里是组合的 id，否则空串
+ *   warning     需要给用户的提示（没有则空串）
+ */
+async function resolveAccountForWrite(accountId, amountCents, type) {
+  const acc = await getAccount(accountId)
+  if (!acc) return { accountId, viaComboId: '', warning: '' }
+  if (!acc.isCombo) return { accountId, viaComboId: '', warning: '' }
+
+  // 组合账户只用于支出：收入、转账都不能用（钱不能"进"虚拟账户，
+  // 转账两端必须落到真实账户）。
+  if (type === 'income') {
+    throw new Error('组合账户不能用于收入，请选择真实账户')
+  }
+  if (type === 'transfer') {
+    throw new Error('组合账户不能用于转账，请选择真实账户')
+  }
+
+  const members = await listComboMembers(accountId)
+  const pick = resolveComboAccount(members, amountCents)
+
+  if (!pick.accountId) {
+    throw new Error('这个组合账户还没有添加成员，请先编辑它')
+  }
+
+  let warning = ''
+  if (!pick.enough) {
+    // 按约定这种情况不该发生，但真发生了也不能让整笔交易写不进去
+    warning = '组合内没有账户余额足够，已从余额最多的账户扣款'
+    console.warn('[txn] 组合账户余额不足，走兜底:', accountId, pick.accountId)
+  }
+
+  return { accountId: pick.accountId, viaComboId: accountId, warning }
+}
+
+/**
+ * 校验转账的「转入方」不能是组合账户。
+ *
+ * ★ 为什么 ★
+ *   组合是虚拟账户，钱只能「从它出」（转出=扣款），不能「进它」。
+ *   收入已经在 resolveAccountForWrite 里拦了；转入方这里是另一半。
+ *   用户选了组合作为转入目标，直接报错，别等落库了才发现。
+ *
+ * @param {string|null} toAccountId 转账目标账户 id
+ */
+async function assertTransferTargetNotCombo(toAccountId) {
+  if (!toAccountId) return
+  const to = await getAccount(toAccountId)
+  if (to && to.isCombo) {
+    throw new Error('组合账户只能作为转出方，不能作为转入方')
+  }
+}
+
+/**
  * 新增交易
  * @param {object} input
  *   type, amount_cents, account_id, to_account_id, category_id, note,
@@ -375,6 +445,19 @@ export async function createTransaction(input) {
 
   const amount = Math.abs(Math.round(Number(input.amount_cents) || 0))
 
+  /*
+   * ★ 组合账户 → 真实账户 ★
+   *   在写库之前解析，钱实际记在真实账户名下，
+   *   组合只留下一个 via_combo_id 标记（纯记录，不参与任何计算）。
+   */
+  const resolved = await resolveAccountForWrite(input.account_id, amount, input.type)
+  const finalAccountId = resolved.accountId
+
+  // ★ 转账的转入方不允许是组合账户 ★
+  if (input.type === 'transfer') {
+    await assertTransferTargetNotCombo(input.to_account_id)
+  }
+
   await transaction(async () => {
     /*
      * ★ 不再写入 source / raw_text ★
@@ -388,13 +471,13 @@ export async function createTransaction(input) {
       `INSERT INTO txn (
         id, type, amount_cents, account_id, to_account_id, category_id, note,
         occurred_at, occurred_day, month_key, year_key, tz_offset,
-        created_at, updated_at, deleted_at, cycle_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
+        created_at, updated_at, deleted_at, cycle_id, via_combo_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
       [
         id,
         input.type,
         amount,
-        input.account_id,
+        finalAccountId,
         input.type === 'transfer' ? input.to_account_id : null,
         input.type === 'transfer' ? null : (input.category_id || null),
         input.note || '',
@@ -405,7 +488,8 @@ export async function createTransaction(input) {
         keys.tz_offset,
         now,
         now,
-        input.cycle_id || null
+        input.cycle_id || null,
+        resolved.viaComboId || null
       ]
     )
 
@@ -414,15 +498,21 @@ export async function createTransaction(input) {
     }
 
     // 重算受影响账户（转账要两端）
-    await recalcBalance(input.account_id)
+    // ★ 用 finalAccountId（组合解析后的真实账户），不是原始的组合 id ★
+    await recalcBalance(finalAccountId)
     if (input.type === 'transfer' && input.to_account_id) {
       await recalcBalance(input.to_account_id)
       await writeTodaySnapshot(input.to_account_id)
     }
-    await writeTodaySnapshot(input.account_id)
+    await writeTodaySnapshot(finalAccountId)
   })
 
-  return { id, ...keys }
+  // 组合余额不足时的提示交给调用方展示（不阻断记账）
+  if (resolved.warning) {
+    console.warn('[txn]', resolved.warning)
+  }
+
+  return { id, ...keys, viaComboId: resolved.viaComboId || null }
 }
 
 /**
@@ -449,10 +539,25 @@ export async function updateTransaction(id, patch) {
   const keys = makeDateKeys(new Date(occurredAt))
   const now = Date.now()
 
+  /*
+   * ★ 组合账户 → 真实账户（编辑时同样解析）★
+   *   用户可能把一笔账改成走某个组合，
+   *   或者改了金额后需要重新挑一个够用的账户。
+   */
+  const resolved = await resolveAccountForWrite(merged.account_id, amount, merged.type)
+  const finalAccountId = resolved.accountId
+
+  // ★ 转账的转入方不允许是组合账户 ★
+  if (merged.type === 'transfer') {
+    await assertTransferTargetNotCombo(merged.to_account_id)
+  }
+
   // 需要重算的账户合集（旧的两个 + 新的两个）
   const affected = new Set([existing.account_id, patch.account_id, existing.to_account_id, patch.to_account_id])
   affected.delete(null)
   affected.delete(undefined)
+  // 组合解析出来的真实账户也要重算
+  affected.add(finalAccountId)
 
   await transaction(async () => {
     // 同样不再更新 source / raw_text（两列已停用，新库没有它们）
@@ -460,12 +565,12 @@ export async function updateTransaction(id, patch) {
       `UPDATE txn SET
         type = ?, amount_cents = ?, account_id = ?, to_account_id = ?, category_id = ?, note = ?,
         occurred_at = ?, occurred_day = ?, month_key = ?, year_key = ?,
-        updated_at = ?
+        updated_at = ?, via_combo_id = ?
        WHERE id = ?`,
       [
         merged.type,
         amount,
-        merged.account_id,
+        finalAccountId,
         merged.type === 'transfer' ? merged.to_account_id : null,
         merged.type === 'transfer' ? null : (merged.category_id || null),
         merged.note || '',
@@ -474,6 +579,7 @@ export async function updateTransaction(id, patch) {
         keys.month_key,
         keys.year_key,
         now,
+        resolved.viaComboId || null,
         id
       ]
     )
