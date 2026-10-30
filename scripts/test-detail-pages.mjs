@@ -161,5 +161,26 @@ check('txnTags 已暴露给模板', /txnTitle, txnSub, txnTags,/.test(recent), t
 check('有标签样式', /\.txn-tag\s*\{/.test(recent), true)
 check('有标签容器样式', /\.txn-tag-list\s*\{/.test(recent), true)
 
+/* ------------------------------------------------ 7. 暗色高亮块不透白 */
+
+console.log('=== 暗色：前三名高亮块 ===')
+/*
+ * 暗色下 --app-primary-light 是半透明色，铺成整行背景时
+ * 圆角边缘/条目间隙会透出父层，看起来像一圈发白的阴影。
+ * 修法：整行色块改用不透明的 --app-primary-light-solid。
+ */
+const themeSrc = read('utils/theme.js')
+check('导出 mixHex', /export function mixHex/.test(themeSrc), true)
+check(
+  '暗色有不透明高亮色',
+  /'--app-primary-light-solid': mixHex\('#1C1C1E', p\.primary, 0\.22\)/.test(themeSrc),
+  true
+)
+check('浅色有对应变量', /'--app-primary-light-solid': p\.light/.test(themeSrc), true)
+
+const statsSrc = read('pages/stats/index.vue')
+check('前三名用不透明高亮色', /--app-primary-light-solid/.test(statsSrc), true)
+check('高亮块去掉分隔线', /\.top-item-hi\s*\{[\s\S]*?border-bottom: none/.test(statsSrc), true)
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

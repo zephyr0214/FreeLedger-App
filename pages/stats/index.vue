@@ -1149,13 +1149,33 @@ export default {
   border-bottom: 1rpx solid var(--app-line);
 }
 
-/* 前三名：浅浅的主题色背景 */
+/*
+ * 前三名：浅浅的主题色背景
+ *
+ * ★ 暗色下这里原来会「透出一层白」★
+ *   --app-primary-light 在暗色下是半透明色（tintOf(primary, 0.22)），
+ *   直接当背景色铺在卡片上时，圆角边缘和条目间隙会和父卡片底色叠加，
+ *   在深色背景上看起来像一圈发白的阴影，很突兀。
+ *
+ *   所以高亮块改用不透明的混合色：把主题色以 22% 混进卡片底色，
+ *   得到和「半透明叠在卡片上」几乎一样的观感，但不依赖父层，
+ *   圆角和间隙处也不会透出白边。
+ *   --app-primary-light 仍保留给「徽标 / 胶囊」这类小面积浅底使用。
+ */
 .top-item-hi {
-  background-color: var(--app-primary-light);
+  background-color: var(
+    --app-primary-light-solid,
+    var(--app-primary-light)
+  );
   border-radius: 12rpx;
   padding-left: 16rpx;
   padding-right: 16rpx;
   margin-bottom: 8rpx;
+  /*
+   * 高亮块自带圆角背景时不要再加分隔线：
+   * 那根线沿着圆角边缘画过去，会在视觉上「描一圈边」。
+   */
+  border-bottom: none;
 }
 
 .top-item:last-child {

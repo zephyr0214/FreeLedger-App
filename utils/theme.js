@@ -284,6 +284,36 @@ export function themePrimaryLightDark(primaryHex, dark) {
 }
 
 /**
+ * 把两个 #RRGGBB 按比例混合，返回不透明的 #RRGGBB。
+ *
+ * 用于「需要一个不透明的浅色块」的场景：
+ * 半透明色叠在父层上会透出底色，圆角边缘尤其明显（看起来像发白的阴影），
+ * 直接算出等价的不透明色就没有这个问题。
+ *
+ * @param {string} baseHex   底色（通常是卡片色）
+ * @param {string} tintHex   要掺进去的颜色（通常是主题色）
+ * @param {number} ratio     掺入比例 0~1
+ * @returns {string} #RRGGBB
+ */
+export function mixHex(baseHex, tintHex, ratio) {
+  const parse = (hex) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''))
+    if (!m) return null
+    const n = parseInt(m[1], 16)
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  }
+  const a = parse(baseHex)
+  const b = parse(tintHex)
+  if (!a || !b) return baseHex
+
+  const r = Math.round(a[0] + (b[0] - a[0]) * ratio)
+  const g = Math.round(a[1] + (b[1] - a[1]) * ratio)
+  const bl = Math.round(a[2] + (b[2] - a[2]) * ratio)
+  const to2 = (v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')
+  return `#${to2(r)}${to2(g)}${to2(bl)}`
+}
+
+/**
  * 「柔光玻璃」配色 —— tabbar 和 + 弹出的对话框共用同一套。
  *
  * ★ 为什么要抽出来 ★
@@ -351,6 +381,15 @@ export function buildCssVars(presetKey, dark) {
         '--app-primary': p.primary,
         '--app-primary-light': tintOf(p.primary, 0.22),
         /*
+         * ★ 不透明的「浅主题色底」——大面积色块专用 ★
+         *   --app-primary-light 是半透明色，用在徽标、胶囊这类小面积没问题；
+         *   但铺成整行背景（如统计页前三名）时，圆角和条目间隙会和
+         *   父卡片底色叠加，在深色背景上看起来像一圈发白的阴影。
+         *   这里把主题色按 22% 直接混进卡片色，得到等价的观感但不透明，
+         *   色块边缘干净、不会透出底下的颜色。
+         */
+        '--app-primary-light-solid': mixHex('#1C1C1E', p.primary, 0.22),
+        /*
          * ★ 顶部渐变卡片的起始色（暗色下 = 卡片色，等于没有渐变）★
          *   浅色下用主题浅色做出「顶部泛一层淡淡的主题色」的效果，
          *   但暗色下那层浅色会把深底「提亮成灰」，很糊、很脏
@@ -386,6 +425,8 @@ export function buildCssVars(presetKey, dark) {
         '--app-text-3': '#969799',
         '--app-primary': p.primary,
         '--app-primary-light': p.light,
+        /* 浅色：预设的 light 本身就是不透明色，直接复用即可 */
+        '--app-primary-light-solid': p.light,
         /* 浅色：顶部渐变用主题浅色（保留原来的观感） */
         '--app-hero-from': p.light,
         '--app-danger': '#EE0A24',
