@@ -13,39 +13,45 @@
             </view>
           </view>
 
-          <text class="summary-label">单次金额</text>
+          <text class="summary-label">总支出</text>
           <MoneyText
-            :cents="cycle.amount_cents"
-            :type="cycle.type"
+            :cents="totalCents"
+            :type="totalCount > 0 ? cycle.type : ''"
             :size="72"
             :weight="600"
+            :color="totalColor"
           />
 
+          <!--
+            ★ 下方小条目 ★
+              单次金额 / 总笔数 / 扣款账户 / 最近一次已扣款时间 / 最近一次将扣款时间
+            「总支出」放在大数字位置（单次 × 已记笔数），
+            其余都是围绕它的补充说明。
+          -->
           <view class="summary-rows">
             <view class="summary-row">
-              <text class="summary-row-label">已记笔数</text>
+              <text class="summary-row-label">单次金额</text>
+              <MoneyText
+                :cents="cycle.amount_cents"
+                :type="cycle.type"
+                :size="26"
+              />
+            </view>
+            <view class="summary-row">
+              <text class="summary-row-label">总笔数</text>
               <text class="summary-row-value">{{ totalCount }} 笔</text>
             </view>
             <view class="summary-row">
-              <text class="summary-row-label">账户</text>
+              <text class="summary-row-label">扣款账户</text>
               <text class="summary-row-value">{{ accountName }}</text>
             </view>
-            <!-- 总金额 = 单次金额 × 已记笔数，支出带 - / 收入带 + / 转账不带符号。
-                 没有记录时（总金额 0）不带符号，避免出现「+¥0.00」这种怪显示 -->
             <view class="summary-row">
-              <text class="summary-row-label">总金额</text>
-              <MoneyText
-                :cents="totalCents"
-                :type="totalCount > 0 ? cycle.type : ''"
-                :size="26"
-                :color="totalColor"
-              />
+              <text class="summary-row-label">最近一次已扣款</text>
+              <text class="summary-row-value">{{ lastChargedText }}</text>
             </view>
-          </view>
-
-          <view class="summary-actions">
-            <view class="record-btn" :style="{ backgroundColor: primaryColor }" @click="onRecord">
-              <text class="record-btn-text">记一笔</text>
+            <view class="summary-row">
+              <text class="summary-row-label">最近一次将扣款</text>
+              <text class="summary-row-value">{{ nextChargeText }}</text>
             </view>
           </view>
         </view>
@@ -76,17 +82,29 @@ import RecentTxnList from '@/components/RecentTxnList.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import {
-  getCycle, listRecentCycleTxns, countCycleTxns, recordCycle, recurrenceLabel
+  getCycle, listRecentCycleTxns, countCycleTxns, recurrenceLabel, nextOccurrence
 } from '@/api/cycle.js'
 import { listCategories } from '@/api/category.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { alertDialog } from '@/utils/dialog.js'
 
 export default {
   components: { MoneyText, DetailShell, RecentTxnList },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
+
+    /**
+     * YYYY-MM-DD → 「2026年10月30日」
+     *
+     * 不直接显示 ISO 日期：中文界面里「2026-10-30」读起来像参数，
+     * 而且和周期列表里「下次于 2026年11月1日」的写法不一致。
+     */
+    function formatYmd(day) {
+      if (!day) return ''
+      const [y, m, d] = String(day).split('-').map(Number)
+      if (!y || !m || !d) return String(day)
+      return `${y}年${m}月${d}日`
+    }
 
     const cycleId = ref('')
     const cycle = ref(null)
@@ -147,6 +165,31 @@ export default {
     })
 
     /**
+     * 最近一次「已扣款」时间。
+     *
+     * listCycleTxns 按 occurred_at 倒序返回，第一条就是最近一笔；
+     * 直接读它的 occurred_day，比再查一次 MAX(occurred_day) 省一次往返。
+     * 还没有任何流水时显示占位文案，不要留空。
+     */
+    const lastChargedText = computed(() => {
+      const first = txnList.value && txnList.value[0]
+      if (!first || !first.occurred_day) return '暂无记录'
+      return formatYmd(first.occurred_day)
+    })
+
+    /** 最近一次「将扣款」时间（下一次触发日，含今天） */
+    const nextChargeText = computed(() => {
+      const c = cycle.value
+      if (!c) return '—'
+      try {
+        const next = nextOccurrence(c)
+        return next ? formatYmd(next) : '—'
+      } catch (e) {
+        return '—'
+      }
+    })
+
+    /**
      * 总金额颜色。
      *
      * ★ 交给 MoneyText 的统一规则 ★
@@ -195,16 +238,6 @@ export default {
       }
     }
 
-    async function onRecord() {
-      try {
-        await recordCycle(cycleId.value)
-        uni.showToast({ title: '已记一笔', icon: 'success' })
-        await load()
-      } catch (e) {
-        await alertDialog({ title: '记账失败', content: e.message })
-      }
-    }
-
     function goAllTxn() {
       uni.navigateTo({ url: `/pages/txn/list?cycleId=${cycleId.value}` })
     }
@@ -228,8 +261,8 @@ export default {
     return {
       settingStore, cycle: cycleView, txnList, totalCount, loading, notFound, pageStyle,
       typeName, cycleName, iconColor, accountName, primaryColor,
-      totalCents, totalColor,
-      onRecord, goAllTxn, goBack
+      totalCents, totalColor, lastChargedText, nextChargeText,
+      goAllTxn, goBack
     }
   }
 }
@@ -314,24 +347,6 @@ export default {
 .summary-row-value {
   font-size: 26rpx;
   color: var(--app-text-2);
-}
-
-.summary-actions {
-  margin-top: 28rpx;
-}
-
-.record-btn {
-  height: 80rpx;
-  border-radius: 16rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.record-btn-text {
-  color: #fff;
-  font-size: 28rpx;
-  font-weight: 600;
 }
 
 .loading-wrap {

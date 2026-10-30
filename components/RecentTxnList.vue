@@ -42,6 +42,19 @@
                        （之前写 props.hideCycleTag，遇到 cycle_id 的交易时渲染直接抛错，
                          周期详情页下方就什么都不显示）。 -->
                 <text v-if="txn.cycle_id && !hideCycleTag" class="txn-cycle-tag">周期</text>
+                <!--
+                  标签胶囊：跟在分类名后面（与首页 / 全部交易页同一套做法）。
+                  交易里只存 tag_ids，名字和颜色靠标签表反查；
+                  最多显示 2 个，多出来的折成「+N」。
+                -->
+                <view v-if="txnTags(txn).length" class="txn-tag-list">
+                  <text
+                    v-for="t in txnTags(txn)"
+                    :key="t.key"
+                    class="txn-tag"
+                    :style="t.bg ? { backgroundColor: t.bg, color: t.color } : null"
+                  >{{ t.name }}</text>
+                </view>
               </view>
               <text class="txn-sub ellipsis">{{ txnSub(txn) }}</text>
             </view>
@@ -79,11 +92,12 @@
  *   3. 点某条交易 -> /pages/txn/detail?id=xxx
  *   4. 右上角「全部 ›」-> 抛 more 事件，由页面决定跳哪里
  */
-import { computed } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { listTags } from '@/api/tag.js'
 
 export default {
   name: 'RecentTxnList',
@@ -137,6 +151,67 @@ export default {
       }
       return Array.from(map.values())
     })
+
+    /* ------------------------------------------------------ 标签 */
+
+    /**
+     * 标签表缓存。
+     *
+     * ★ 为什么要在这里自己读 ★
+     *   交易行只存 tag_ids，要显示「名字 + 自己的颜色」必须反查标签表。
+     *   首页和全部交易页各自都做了这件事，这个公共列表组件之前缺了，
+     *   所以详情页的最近流水一直看不到标签。
+     *
+     * ★ 只读一次 ★
+     *   标签是低频变更的小表，组件挂载时读一次即可；
+     *   流水刷新（props.txns 变化）不需要重读标签。
+     */
+    const tags = ref([])
+
+    async function loadTags() {
+      try {
+        tags.value = await listTags()
+      } catch (e) {
+        tags.value = []
+      }
+    }
+
+    onMounted(loadTags)
+    // 标签在别处被改动后回到本页（如标签管理），重新进来时补一次
+    watch(() => props.txns, () => {
+      if (tags.value.length === 0) loadTags()
+    })
+
+    /** id -> { name, color } 映射 */
+    const tagNameMap = computed(() => {
+      const m = {}
+      for (const t of tags.value) m[t.id] = { name: t.name, color: t.color || '' }
+      return m
+    })
+
+    /**
+     * 这笔交易的标签胶囊（名字 + 用自己的颜色做浅底），最多 2 个 +「+N」。
+     * 与 pages/index/index.vue、pages/txn/list.vue 的 txnTags 保持一致。
+     */
+    function txnTags(txn) {
+      const ids = txn && txn.tag_ids
+      if (!ids || !ids.length) return []
+      const list = []
+      for (const id of ids) {
+        const t = tagNameMap.value[id]
+        if (!t) continue
+        list.push({
+          key: id,
+          name: t.name,
+          color: t.color || 'var(--app-text-2)',
+          bg: t.color ? t.color + '22' : ''
+        })
+      }
+      if (list.length <= 2) return list
+      const rest = list.slice(0, 2)
+      rest.push({ key: '__more__', name: `+${list.length - 2}`, color: 'var(--app-text-3)', bg: '' })
+      return rest
+    }
 
     /* ------------------------------------------------------ 展示内容 */
 
@@ -257,7 +332,7 @@ export default {
     return {
       visibleTxns, groups,
       iconChar, iconBgStyle, iconFgStyle,
-      txnTitle, txnSub, amountCents, amountType, amountSign, amountColor,
+      txnTitle, txnSub, txnTags, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore
     }
   }
@@ -384,6 +459,27 @@ export default {
   background-color: var(--app-primary-light);
   border: 1rpx solid var(--app-primary);
   font-weight: 500;
+}
+
+/* 标签：跟在分类名后面的一排小胶囊（与首页 / 全部交易页一致） */
+.txn-tag-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6rpx;
+  flex-shrink: 0;
+  max-width: 220rpx;
+  overflow: hidden;
+}
+
+.txn-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 18rpx;
+  color: var(--app-text-2);
+  background-color: var(--app-card-2);
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
 }
 
 .txn-sub {

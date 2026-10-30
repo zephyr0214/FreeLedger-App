@@ -8,35 +8,41 @@
             <view class="summary-dot" :style="{ backgroundColor: tagColor }" />
             <view class="summary-info">
               <text class="summary-name">{{ tag.name }}</text>
-              <text class="summary-type">标签（项目）· 共 {{ totalCount }} 笔交易</text>
+              <text class="summary-type">标签（项目）· 共 {{ totalStats.count }} 笔交易</text>
             </view>
           </view>
 
-          <text class="summary-label">本月支出</text>
+          <text class="summary-label">总支出</text>
           <MoneyText
-            :cents="monthStats.expense"
+            :cents="totalStats.expense"
             type="expense"
             :size="72"
             :weight="600"
           />
 
+          <!-- 下方小条目：总收入 / 本月笔数 / 总笔数 -->
           <view class="summary-rows">
             <view class="summary-row">
-              <text class="summary-row-label">本月收入</text>
-              <MoneyText :cents="monthStats.income" type="income" :size="26" />
+              <text class="summary-row-label">总收入</text>
+              <MoneyText :cents="totalStats.income" type="income" :size="26" />
             </view>
             <view class="summary-row">
               <text class="summary-row-label">本月笔数</text>
               <text class="summary-row-value">{{ monthStats.count }} 笔</text>
             </view>
             <view class="summary-row">
-              <text class="summary-row-label">全部笔数</text>
-              <text class="summary-row-value">{{ totalCount }} 笔</text>
+              <text class="summary-row-label">总笔数</text>
+              <text class="summary-row-value">{{ totalStats.count }} 笔</text>
             </view>
           </view>
         </view>
 
-        <!-- 本月收支 -->
+        <!--
+          本月收支卡
+          ★ 这块在其他详情页已删除，本页按要求保留 ★
+            它展示的是「本月」口径的收支，和汇总卡里的
+            「总支出 / 总收入 / 总笔数」是不同区间，不是重复信息。
+        -->
         <view class="month-card">
           <view class="month-item">
             <text class="month-label">本月支出</text>
@@ -97,8 +103,11 @@ export default {
     const tag = ref(null)
     const txnList = ref([])
     const monthStats = ref({ expense: 0, income: 0, count: 0 })
-    /** 全部时间（不限月份）的笔数 */
-    const totalCount = ref(0)
+    /**
+     * 全部时间（不限月份）的本标签统计。
+     * 汇总卡的大数字用它的 expense，下方小条目用它的 income / count。
+     */
+    const totalStats = ref({ expense: 0, income: 0, count: 0 })
     const loading = ref(false)
     /** 已经加载完但没找到这个标签（被删了 / id 不对） */
     const notFound = ref(false)
@@ -130,7 +139,11 @@ export default {
           income: sum.income,
           count: sum.count
         }
-        totalCount.value = all.count
+        totalStats.value = {
+          expense: all.expense,
+          income: all.income,
+          count: all.count
+        }
       } finally {
         loading.value = false
       }
@@ -162,7 +175,7 @@ export default {
     })
 
     return {
-      settingStore, tag, txnList, monthStats, totalCount, loading, notFound,
+      settingStore, tag, txnList, monthStats, totalStats, loading, notFound,
       pageStyle, tagColor,
       goAllTxn, goBack
     }
@@ -245,7 +258,7 @@ export default {
   color: var(--app-text-2);
 }
 
-/* 本月 */
+/* 本月收支卡 */
 .month-card {
   display: flex;
   align-items: center;

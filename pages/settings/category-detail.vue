@@ -25,32 +25,33 @@
             :weight="600"
           />
 
+          <!--
+            ★ 下方小条目 ★
+              本月笔数 / 本月支出占比 / 总支出 / 总笔数 / 总支出占比
+            「总支出」指不限月份的全部支出，「总支出占比」同理用全部支出口径，
+            这样本月和总计两组数据是同一套读法，只是区间不同。
+          -->
           <view class="summary-rows">
-            <view class="summary-row">
-              <text class="summary-row-label">本月收入</text>
-              <MoneyText :cents="monthStats.income" type="income" :size="26" />
-            </view>
             <view class="summary-row">
               <text class="summary-row-label">本月笔数</text>
               <text class="summary-row-value">{{ monthStats.count }} 笔</text>
             </view>
             <view class="summary-row">
-              <text class="summary-row-label">支出占比</text>
+              <text class="summary-row-label">本月支出占比</text>
               <text class="summary-row-value">{{ sharePercent }}%</text>
             </view>
-          </view>
-        </view>
-
-        <!-- 本月收支 -->
-        <view class="month-card">
-          <view class="month-item">
-            <text class="month-label">本月支出</text>
-            <MoneyText :cents="monthStats.expense" type="expense" :size="32" :weight="500" />
-          </view>
-          <view class="month-divider" />
-          <view class="month-item">
-            <text class="month-label">本月收入</text>
-            <MoneyText :cents="monthStats.income" type="income" :size="32" :weight="500" />
+            <view class="summary-row">
+              <text class="summary-row-label">总支出</text>
+              <MoneyText :cents="totalStats.expense" type="expense" :size="26" />
+            </view>
+            <view class="summary-row">
+              <text class="summary-row-label">总笔数</text>
+              <text class="summary-row-value">{{ totalStats.count }} 笔</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-row-label">总支出占比</text>
+              <text class="summary-row-value">{{ totalSharePercent }}%</text>
+            </view>
           </view>
         </view>
 
@@ -106,6 +107,12 @@ export default {
     const monthStats = ref({ expense: 0, income: 0, count: 0 })
     /** 本月全部支出，用来算这个分类的占比 */
     const monthTotalExpense = ref(0)
+    /**
+     * 全部时间（不限月份）的本分类统计与全部分类总支出，
+     * 用于「总支出 / 总笔数 / 总支出占比」。
+     */
+    const totalStats = ref({ expense: 0, income: 0, count: 0 })
+    const allTotalExpense = ref(0)
     const loading = ref(false)
     /** 已经加载完但没找到这个分类（被删了 / id 不对） */
     const notFound = ref(false)
@@ -133,6 +140,13 @@ export default {
       return Math.round((monthStats.value.expense / total) * 1000) / 10
     })
 
+    /** 该分类全部支出占全部总支出的百分比（不限月份） */
+    const totalSharePercent = computed(() => {
+      const total = allTotalExpense.value
+      if (!total) return 0
+      return Math.round((totalStats.value.expense / total) * 1000) / 10
+    })
+
     async function load() {
       const cat = await getCategory(categoryId.value)
       if (!cat) {
@@ -145,7 +159,7 @@ export default {
 
       loading.value = true
       try {
-        const [list, sum, all] = await Promise.all([
+        const [list, sum, all, totalSum, allTotal] = await Promise.all([
           listTransactions({
             categoryId: categoryId.value,
             includeSubcategories: isParent.value,
@@ -156,7 +170,14 @@ export default {
             includeSubcategories: isParent.value,
             monthKey: toMonthKey()
           }),
-          sumTransactions({ monthKey: toMonthKey() })
+          sumTransactions({ monthKey: toMonthKey() }),
+          // 不限月份：本分类的总支出/总笔数
+          sumTransactions({
+            categoryId: categoryId.value,
+            includeSubcategories: isParent.value
+          }),
+          // 不限月份：全部分类的总支出（算总支出占比的分母）
+          sumTransactions({})
         ])
         txnList.value = list
         monthStats.value = {
@@ -165,6 +186,12 @@ export default {
           count: sum.count
         }
         monthTotalExpense.value = all.expense
+        totalStats.value = {
+          expense: totalSum.expense,
+          income: totalSum.income,
+          count: totalSum.count
+        }
+        allTotalExpense.value = allTotal.expense
       } finally {
         loading.value = false
       }
@@ -205,8 +232,8 @@ export default {
     })
 
     return {
-      settingStore, category, txnList, monthStats, loading, notFound,
-      pageStyle, isParent, categoryColor, iconChar, sharePercent,
+      settingStore, category, txnList, monthStats, totalStats, loading, notFound,
+      pageStyle, isParent, categoryColor, iconChar, sharePercent, totalSharePercent,
       goAllTxn, goBack
     }
   }
@@ -299,35 +326,6 @@ export default {
 .summary-row-value {
   font-size: 26rpx;
   color: var(--app-text-2);
-}
-
-/* 本月 */
-.month-card {
-  display: flex;
-  align-items: center;
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 28rpx 0;
-  margin-top: 20rpx;
-}
-
-.month-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.month-label {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
-.month-divider {
-  width: 1rpx;
-  height: 48rpx;
-  background-color: var(--app-line);
 }
 
 .loading-wrap {

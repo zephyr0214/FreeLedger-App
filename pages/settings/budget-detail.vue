@@ -70,19 +70,6 @@
           </text>
         </view>
 
-        <!-- 本月收支 -->
-        <view class="month-card">
-          <view class="month-item">
-            <text class="month-label">本月支出</text>
-            <MoneyText :cents="monthStats.expense" type="expense" :size="32" :weight="500" />
-          </view>
-          <view class="month-divider" />
-          <view class="month-item">
-            <text class="month-label">本月收入</text>
-            <MoneyText :cents="monthStats.income" type="income" :size="32" :weight="500" />
-          </view>
-        </view>
-
         <!-- 最近流水 -->
         <RecentTxnList
           :txns="txnList"
@@ -106,8 +93,12 @@
  *
  *   DetailShell（标题 = 预算名）
  *     汇总卡（额度 / 已用 / 剩余 / 百分比 + 进度条）
- *     本月收支卡
  *     RecentTxnList（按日期分组的最近流水 + 「全部 ›」）
+ *
+ * ★ 中间那块「本月收支」已删除 ★
+ *   它和汇总卡里的「已用」是同一笔钱，重复展示；
+ *   预算页关心的是「额度还剩多少、都花在哪」，
+ *   收入跟预算没有关系，放在这里只是噪音。
  *
  * ★ URL 参数 ★
  *   id  预算 id（可选）
@@ -197,19 +188,29 @@ export default {
         notFound.value = false
 
         /**
-         * 流水筛选条件
+         * 流水筛选条件 —— 必须和这条预算真正的归属分类一致。
          *
-         * ★ 必须和 getBudgetUsage 算「已用」的口径一致 ★
-         *   getBudgetUsage 把分类支出按**一级分类**归并
-         *   （GROUP BY COALESCE(c.parent_id, c.id)），
-         *   所以这里也按一级分类 + 含二级来查，
-         *   否则「已用 800」下面却列不出对应的流水，对不上账。
+         * ★ 原来的 bug ★
+         *   这里无条件把分类归到一级：
+         *     rootId = (cat && cat.parent_id) || u.categoryId
+         *   于是「二级分类预算」（比如只给「午餐」设了预算）
+         *   下方流水却按「餐饮」一级去查、且 includeSubcategories，
+         *   把「外卖」「聚餐」等同级分类的交易也列了出来 ——
+         *   和上方「已用」对不上。
+         *
+         * ★ 正确口径 ★
+         *   预算的 category_id 就是用户当时选的分类：
+         *     · 选的是二级 → 只统计这一个二级分类自己
+         *     · 选的是 一级 → 统计整个分类族（含所有二级）
+         *   所以要先判断该分类有没有 parent_id 再决定。
          */
         let filter = {}
         if (u.scope === 'category' && u.categoryId) {
           const cat = await getCategory(u.categoryId)
-          const rootId = (cat && cat.parent_id) || u.categoryId
-          filter = { categoryId: rootId, includeSubcategories: true }
+          const isLeaf = !!(cat && cat.parent_id)
+          filter = isLeaf
+            ? { categoryId: u.categoryId, includeSubcategories: false }
+            : { categoryId: u.categoryId, includeSubcategories: true }
         }
 
         const [list, sum] = await Promise.all([
@@ -244,9 +245,20 @@ export default {
       const u = usage.value
       if (u && u.scope === 'category' && u.categoryId) {
         const cat = categories.value.find((c) => c.id === u.categoryId)
-        const rootId = (cat && cat.parent_id) || u.categoryId
+        /*
+         * ★ 与上方「已用」保持同一口径 ★
+         *   这块之前和列表查询犯了同一个错：无条件归到一级 →
+         *   二级分类预算点「全部」也会跳到一级，看到别的二级分类。
+         *   现在按「是不是叶子」分别处理：
+         *     二级 → 只带自己，不带 includeSubcategories
+         *     一级 → 带上 includeSubcategories，看整个分类族
+         */
+        const isLeaf = !!(cat && cat.parent_id)
+        const param = isLeaf
+          ? `categoryId=${u.categoryId}`
+          : `categoryId=${u.categoryId}&includeSubcategories=1`
         uni.navigateTo({
-          url: `/pages/txn/list?monthKey=${toMonthKey()}&categoryId=${rootId}&includeSubcategories=1`
+          url: `/pages/txn/list?monthKey=${toMonthKey()}&${param}`
         })
         return
       }
@@ -394,35 +406,6 @@ export default {
 
 .summary-tip.danger {
   color: var(--app-danger);
-}
-
-/* 本月 */
-.month-card {
-  display: flex;
-  align-items: center;
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 28rpx 0;
-  margin-top: 20rpx;
-}
-
-.month-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.month-label {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
-.month-divider {
-  width: 1rpx;
-  height: 48rpx;
-  background-color: var(--app-line);
 }
 
 .loading-wrap {
