@@ -40,35 +40,6 @@
           />
         </view>
 
-        <view class="form-row form-row-column">
-          <view class="label-row">
-            <text class="form-label">回答的随机程度</text>
-            <text class="label-value">{{ form.temperature.toFixed(1) }}</text>
-          </view>
-          <view class="slider-wrap">
-            <slider
-              :value="form.temperature * 100"
-              :min="0"
-              :max="100"
-              :step="10"
-              active-color="var(--app-primary)"
-              block-size="20"
-              style="flex: 1"
-              @change="(e) => form.temperature = e.detail.value / 100"
-            />
-          </view>
-          <!--
-            ★ 把「温度」翻译成人话 ★
-              原文写「温度」，用户根本不知道是什么意思、调了会怎样。
-              它其实是采样随机性：越低越稳定保守，越高越发散有创意。
-              记账场景要的是稳定，所以默认 0.3 偏低。
-          -->
-          <text class="form-hint">
-            越低回答越稳定、越贴事实（记账推荐 0.1~0.3）；
-            越高越灵活、越有创意，但也更容易不按格式来。
-          </text>
-        </view>
-
         <view class="form-row">
           <text class="form-label">超时（秒）</text>
           <input
@@ -78,6 +49,60 @@
             placeholder="20"
             placeholder-class="form-placeholder"
           />
+        </view>
+      </view>
+
+      <!--
+        ★ AI 对话专属设置 ★
+          对话和记账的诉求完全不同，所以配置分开：
+            · AI 记账：要稳定，temperature 固定 0，不思考
+            · AI 对话：要发散和透彻，有自己的温度、开着深度思考
+          以前两边共用一个 temperature 滑块，调哪个都会影响另一个。
+      -->
+      <view class="form-card" style="margin-top: 32rpx">
+        <view class="card-title">AI 对话</view>
+
+        <view class="form-row form-row-column">
+          <view class="label-row">
+            <text class="form-label">深度思考</text>
+            <switch
+              :checked="chatForm.deepThinking"
+              :color="primaryColor"
+              @change="(e) => chatForm.deepThinking = e.detail.value"
+            />
+          </view>
+          <text class="form-hint">
+            开启后模型会先推演再回答，分析更透彻，但响应更慢、消耗更多额度。
+            需要模型本身支持推理（如 deepseek-reasoner）。
+          </text>
+        </view>
+
+        <view class="form-row form-row-column">
+          <view class="label-row">
+            <text class="form-label">回答附带图表</text>
+            <switch
+              :checked="chatForm.showCharts"
+              :color="primaryColor"
+              @change="(e) => chatForm.showCharts = e.detail.value"
+            />
+          </view>
+          <text class="form-hint">
+            回答涉及「构成 / 占比 / 排名」时附上图。图表里的数字取自你的本地账本，不会被 AI 编造。
+          </text>
+        </view>
+
+        <view class="form-row form-row-column">
+          <text class="form-label">回答长度上限（token）</text>
+          <input
+            v-model="chatForm.maxTokens"
+            class="form-input-full"
+            type="number"
+            placeholder="2000"
+            placeholder-class="form-placeholder"
+          />
+          <text class="form-hint">
+            越大回答越详细（深度思考建议 2000 以上），也越费额度。
+          </text>
         </view>
       </view>
 
@@ -148,7 +173,19 @@ export default {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
       model: 'deepseek-chat',
-      temperature: 0.3,
+    })
+
+    /**
+     * AI 对话专属配置。
+     *
+     * ★ 温度没有滑块了 ★
+     *   用户不需要调「采样随机性」这种技术参数，
+     *   固定用 0.6（比原来的 0.3 略高，适合聊天发挥）。
+     */
+    const chatForm = reactive({
+      deepThinking: true,
+      showCharts: true,
+      maxTokens: 2000
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -168,7 +205,6 @@ export default {
           baseUrl: form.baseUrl.trim(),
           apiKey: form.apiKey.trim(),
           model: form.model.trim(),
-          temperature: form.temperature,
           timeoutMs: Number(timeoutSec.value) * 1000
         })
         const res = await testConnection()
@@ -192,8 +228,14 @@ export default {
           baseUrl: form.baseUrl.trim(),
           apiKey: form.apiKey.trim(),
           model: form.model.trim(),
-          temperature: form.temperature,
           timeoutMs: Number(timeoutSec.value) * 1000,
+        })
+        // ★ 对话配置单独存 ★
+        //   记账解析那边不碰（它的 temperature 固定 0、不思考）
+        await settingStore.setAiChat({
+          deepThinking: chatForm.deepThinking,
+          showCharts: chatForm.showCharts,
+          maxTokens: Math.max(500, Number(chatForm.maxTokens) || 2000)
         })
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
@@ -223,12 +265,17 @@ export default {
       form.baseUrl = ai.baseUrl || 'https://api.deepseek.com/v1'
       form.apiKey = ai.apiKey || ''
       form.model = ai.model || 'deepseek-chat'
-      form.temperature = ai.temperature !== undefined ? ai.temperature : 0.3
       timeoutSec.value = String(Math.round((ai.timeoutMs || 20000) / 1000))
+
+      // 对话专属配置
+      const chat = settingStore.settings.aiChat || {}
+      chatForm.deepThinking = chat.deepThinking !== false
+      chatForm.showCharts = chat.showCharts !== false
+      chatForm.maxTokens = chat.maxTokens || 2000
     })
 
     return {
-      showKey, testing, timeoutSec, form,
+      showKey, testing, timeoutSec, form, chatForm,
       primaryColor, pageStyle,
       onTest, onSave, clearCache, goBack, settingStore
     }
@@ -355,24 +402,13 @@ export default {
   flex-shrink: 0;
 }
 
-.slider-wrap {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  flex: 1;
-  width: 100%;
-  /* 同理：slider 也不在全局 border-box 名单里，min-width: 0 防止撑破容器 */
-  min-width: 0;
-}
+/*
+  ★ 滑块相关的样式删掉了 ★
+    「回答的随机程度」滑块已移除（temperature 固定 0.6，不再给用户调），
+    slider-wrap / slider-value / label-value 都不再使用。
+*/
 
-.slider-value {
-  font-size: 24rpx;
-  color: var(--app-text-2);
-  width: 60rpx;
-  text-align: right;
-}
-
-/* 「回答的随机程度」：标签和数值同一行 */
+/* 「深度思考」这类开关：标签和开关同一行 */
 .label-row {
   display: flex;
   align-items: center;
@@ -380,10 +416,13 @@ export default {
   width: 100%;
 }
 
-.label-value {
+/* 卡片小标题（AI 对话 / AI 记账 分区） */
+.card-title {
   font-size: 26rpx;
-  color: var(--app-primary);
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--app-text-2);
+  display: block;
+  padding-bottom: 8rpx;
 }
 
 /* 参数说明（把「温度」翻译成人话） */

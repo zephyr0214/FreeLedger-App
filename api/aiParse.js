@@ -686,7 +686,7 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
       { role: 'user', content: userPrompt }
     ],
     // 记账解析不需要推理过程，关掉深度思考能把响应从数秒压到 1~2 秒
-    { maxTokens: 1200, temperature: 0, disableThinking: true }
+    { maxTokens: 1200, temperature: 0, thinking: false }
   )
 
   // ---- 提取 JSON
@@ -800,28 +800,146 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
 /* --------------------------------------------------------- AI 对话问答 */
 
 /**
+ * 从模型回复里抠出 JSON 对象。
+ *
+ * 模型有时会在 JSON 外面裹一层 ```json ... ```，
+ * 或者前后带一句「好的，分析如下：」。
+ * 这里做几层兜底：
+ *   1. 直接 JSON.parse
+ *   2. 抠出第一个 {...} 再 parse
+ *   3. 抠出第一个 {...} 后做一次「去掉尾逗号」的修正再 parse
+ */
+function extractJsonObject(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return null
+
+  // 1. 直接解析
+  try {
+    const obj = JSON.parse(raw)
+    if (obj && typeof obj === 'object') return obj
+  } catch (e) {}
+
+  // 2. 抠出第一个 {...}（注意别把字符串里的花括号算进去）
+  const start = raw.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inStr = false
+  let escape = false
+  let end = -1
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i]
+    if (escape) { escape = false; continue }
+    if (ch === '\\') { escape = true; continue }
+    if (ch === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) { end = i; break }
+    }
+  }
+  if (end === -1) return null
+
+  const slice = raw.slice(start, end + 1)
+  try {
+    const obj = JSON.parse(slice)
+    if (obj && typeof obj === 'object') return obj
+  } catch (e) {}
+
+  // 3. 去掉尾逗号再试一次
+  try {
+    const fixed = slice.replace(/,\s*([}\]])/g, '$1')
+    const obj = JSON.parse(fixed)
+    if (obj && typeof obj === 'object') return obj
+  } catch (e) {}
+
+  return null
+}
+
+/**
  * 财务问答：回答关于收入、支出、月报、周报的问题
+ *
+ * ★ 返回结构化结果（不是纯文本）★
+ *   { text, charts, reason }
+ *   text   = 回答正文（markdown）
+ *   charts = 图表规格数组（只有规格，没有数字！）
+ *
+ * ★ 为什么不返回纯文本 ★
+ *   要画图就得让模型输出结构化数据。
+ *   但**绝不让模型输出数字** —— 它可能算错、可能编。
+ *   所以模型只说「画哪张图」（类型/维度/标题），
+ *   数字由前端拿规格去本地库取（见 api/aiChartData.js）。
  *
  * @param {Array} history  [{role, content}] 最近几轮
  * @param {object} summary 由 getAiSummary 生成的聚合数据
+ * @param {object} opt { maxTokens, temperature, thinking, allowCharts }
  */
-export async function askFinance(history, summary) {
+export async function askFinance(history, summary, opt = {}) {
+  const allowCharts = opt.allowCharts !== false
+
+  /**
+   * ★ 提示词 ★
+   *   老版把回答限制在「150 字以内、不要 markdown 标题」，
+   *   那是「能答就行」的标准 —— 用户要的是**分析透彻**。
+   *   现在放开长度限制，明确要求：
+   *     · 先给结论，再给依据
+   *     · 有对比就对比（有环比、有环比就有意义）
+   *     · 能画图就画图（但只准给规格，不准自己编数字）
+   */
+  const chartRule = allowCharts
+    ? `
+5. 如果回答涉及「构成 / 占比 / 排名」这类适合看图的内容，在 charts 数组里给出图表规格。
+   可用的图表类型只有三种：
+   - {"type":"donut","dimension":"category","title":"本月支出构成"}     环形图：按一级分类看构成
+   - {"type":"donut","dimension":"subcategory","title":"本月支出明细"}   环形图：按二级分类看构成
+   - {"type":"bar","dimension":"category","title":"各类消费对比"}        条形图：分类之间比大小
+   - {"type":"trend","title":"每日支出趋势","days":30}                 折线图：按天看变化
+   最多给 2 张图。没有必要时就给空数组 []。`
+    : `
+5. 不要生成图表，charts 一律给空数组 []。`
+
   const system = `你是一个个人记账助手。请基于下面这份账务摘要回答用户的问题。
 
 摘要数据（JSON）：
 ${JSON.stringify(summary)}
 
 回答要求：
-1. 用简洁的中文口语回答，直接给结论和数字。
+1. 用简洁的中文口语回答，**先给结论，再给依据**。
 2. 涉及金额时用「元」为单位，保留到小数点后两位。
 3. 如果摘要里没有用户问的数据，如实说「当前数据里没有这部分信息」，不要编造。
-4. 回答控制在 150 字以内，不要用 markdown 标题。
-5. 不要道德说教，不要说「建议你节约」这类空话。`
+4. 回答要有分析深度：能对比就对比（环比、占比、异常值），能指出趋势就指出趋势，
+   能给出结构化的建议就给出，但**不要道德说教**，不要说「建议你节约」这类空话。
+5. 可以用 markdown 排版（## 标题、- 列表、**加粗**），让回答更清楚易读。
+6. **只输出一个 JSON 对象**，不要在 JSON 前后加任何解释文字、不要用 markdown 代码块包裹。
+   格式：
+   {"text":"回答正文（markdown）","charts":[]}
+   charts 里每一项是图表规格，**只写类型、维度、标题，不要写任何数字** ——
+   数字会由程序从本地账本里取，你写了也会被忽略。${chartRule}`
 
   const messages = [
     { role: 'system', content: system },
     ...history.slice(-8)
   ]
 
-  return chat(messages, { maxTokens: 500 })
+  const reply = await chat(messages, {
+    maxTokens: opt.maxTokens || 2000,
+    temperature: opt.temperature,
+    thinking: opt.thinking !== false
+  })
+
+  // 解析结构化结果；解析不了就把整段回复当正文显示（不能让用户看到空白）
+  const obj = extractJsonObject(reply)
+  if (!obj) {
+    return { text: String(reply || '').trim(), charts: [], reason: '' }
+  }
+
+  const text = typeof obj.text === 'string' ? obj.text.trim() : ''
+  const charts = Array.isArray(obj.charts) ? obj.charts : []
+
+  // 正文为空但有图表 → 至少给一句提示，不能整条消息空着
+  return {
+    text: text || '（以上是本次查询的数据，详见下方图表）',
+    charts,
+    reason: ''
+  }
 }

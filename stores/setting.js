@@ -47,7 +47,9 @@ export const useSettingStore = defineStore('setting', {
       privacyMode: false,
       quickAddHoldAction: 'manual',
       quickAddTapAction: 'ai',
-      ai: { baseUrl: '', apiKey: '', model: 'deepseek-chat', temperature: 0.3, timeoutMs: 20000, quickFallback: false },
+      ai: { baseUrl: '', apiKey: '', model: 'deepseek-chat', timeoutMs: 20000 },
+      aiChat: { temperature: 0.6, deepThinking: true, maxTokens: 2000, showCharts: true },
+      aiParse: { enabled: true },
       autoBackup: true,
       lastBackupAt: 0
     },
@@ -324,10 +326,37 @@ export const useSettingStore = defineStore('setting', {
       await setSettings(patch)
     },
 
+    /**
+     * 改 AI 公共配置（接口地址 / Key / 模型 / 超时）。
+     *
+     * ★ 对话和记账共用这一份 ★
+     *   两边用同一个模型服务，没必要配两遍。
+     */
     async setAi(patch) {
       const ai = { ...this.settings.ai, ...patch }
       this.settings.ai = ai
       await setSettings({ ai })
+    },
+
+    /**
+     * 改 AI 对话专属配置。
+     *
+     * ★ 和记账分开 ★
+     *   对话要发散、开着深度思考、回答可以长；
+     *   记账要稳定、temperature 固定 0、不思考。
+     *   两边的诉求完全相反，所以配置分开存。
+     */
+    async setAiChat(patch) {
+      const aiChat = { ...this.settings.aiChat, ...patch }
+      this.settings.aiChat = aiChat
+      await setSettings({ aiChat })
+    },
+
+    /** 改 AI 记账（速记解析）专属配置 */
+    async setAiParse(patch) {
+      const aiParse = { ...this.settings.aiParse, ...patch }
+      this.settings.aiParse = aiParse
+      await setSettings({ aiParse })
     },
 
     async setPrivacyMode(on) {

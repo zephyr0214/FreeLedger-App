@@ -9,7 +9,6 @@
  */
 
 import { getSetting, setSetting, getAllSettings } from './settings.js'
-import { getAiSummary, getAiSummaryRange } from './stats.js'
 
 const CACHE_KEY = 'aiCache'
 
@@ -73,12 +72,21 @@ function extractContent(data) {
 
 /**
  * 统一的 chat completion 调用
+ *
  * @param {Array} messages [{role, content}]
- * @param {object} opt { temperature, timeoutMs, maxTokens }
+ * @param {object} opt
+ *   - temperature    采样随机性；不传则读 settings.aiChat.temperature
+ *   - timeoutMs      超时
+ *   - maxTokens      输出上限
+ *   - thinking       是否开启「深度思考」
+ *                     true  = 开启（对话页用，模型自己决定要不要推理）
+ *                     false = 关闭（记账解析用，要的是快和稳）
+ *                     不传  = 按 opt.disableThinking 的老逻辑（向后兼容）
  */
 export async function chat(messages, opt = {}) {
   const settings = await getAllSettings()
   const ai = settings.ai || {}
+  const aiChat = settings.aiChat || {}
 
   if (!ai.apiKey) throw new Error('未配置 API Key，请到「设置 → AI」中填写')
   if (!ai.baseUrl) throw new Error('未配置 Base URL')
@@ -89,24 +97,37 @@ export async function chat(messages, opt = {}) {
   const body = {
     model: ai.model || 'deepseek-chat',
     messages,
-    temperature: opt.temperature !== undefined ? opt.temperature : (ai.temperature || 0.3),
+    temperature: opt.temperature !== undefined ? opt.temperature : (aiChat.temperature || 0.6),
     stream: false
   }
   if (opt.maxTokens) body.max_tokens = opt.maxTokens
 
   /**
-   * 关闭「深度思考」以降低延迟。
+   * 「深度思考」的开关。
    *
-   * 各家参数名不统一，这里一次性把常见的都带上：
+   * ★ 两套语义要分清 ★
+   *   opt.thinking 明确给 true/false  → 以它为准（新的显式开关）
+   *   opt.thinking 没给              → 走老的 disableThinking 逻辑
+   *
+   * ★ 关闭时各家的参数名不统一，这里一次性把常见的都带上 ★
    *   - DeepSeek / 多数 OpenAI 兼容网关：thinking: { type: 'disabled' }
    *   - 部分厂商：enable_thinking: false
    *   - 部分厂商：reasoning: { enabled: false }
-   * 不认识的字段会被服务端忽略，不会报错。
+   *   不认识的字段会被服务端忽略，不会报错。
    *
-   * 另外：如果用户自己把模型名填成 deepseek-reasoner 这类推理模型，
-   * 那是模型本身的行为，参数关不掉 —— 这种情况在设置页给了提示。
+   * ★ 开启时怎么办 ★
+   *   很多推理模型（deepseek-reasoner、o1、qwen-max 的思考模式等）
+   *   **默认就是开思考的**，不需要传任何参数 ——
+   *   传一堆「打开思考」的字段反而可能让不支持的网关报错。
+   *   所以开启时我们**什么都不加**，只把关闭的参数撤掉。
+   *   如果用户自己把模型名填成 deepseek-reasoner 这类推理模型，
+   *   那是模型本身的行为，参数关不掉 —— 这种情况在设置页给了提示。
    */
-  if (opt.disableThinking !== false) {
+  const thinkingEnabled = opt.thinking === undefined
+    ? opt.disableThinking === false
+    : !!opt.thinking
+
+  if (!thinkingEnabled) {
     body.thinking = { type: 'disabled' }
     body.enable_thinking = false
     body.reasoning = { enabled: false }
@@ -237,26 +258,18 @@ function hashSummary(summary) {
 
 /* ------------------------------------------------------------ 对话 */
 
-/**
- * 自然语言问答
- * @param {Array} history [{role, content}]
+/*
+ * ★ 这里曾经有个 ask()，已经删掉了 ★
+ *   它是「自然语言问答」的第一版实现：
+ *     · 提示词限制「不超过 100 字」
+ *     · 只返回纯文本，没有图表
+ *     · 没有深度思考
+ *   后来对话页改用 aiParse.js 的 askFinance()
+ *   （结构化 JSON 返回 + 图表规格 + 更透彻的提示词 + 深度思考）。
+ *
+ *   两个实现并存很容易改错 —— 改了一个另一个还在跑。
+ *   所以把旧的删掉，只留 askFinance 一份。
  */
-export async function ask(history, monthKey) {
-  const summary = await getAiSummary(monthKey)
-
-  const system = `你是用户的个人记账助手。你只能基于下面这份本月账务摘要回答，摘要里没有的信息要如实说"数据里没有"。
-
-本月摘要：${JSON.stringify(summary)}
-
-回答要求：简洁口语化，中文，不要说教，不超过 100 字。`
-
-  const messages = [
-    { role: 'system', content: system },
-    ...history.slice(-6)  // 只带最近 3 轮，控制 Token
-  ]
-
-  return chat(messages, { maxTokens: 300 })
-}
 
 /* ------------------------------------------------ 速记解析的 AI 兜底 */
 

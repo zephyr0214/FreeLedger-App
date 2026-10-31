@@ -104,8 +104,20 @@ check('.form-input 有 min-width: 0', /min-width:\s*0/.test(formInput), true)
 // 注意：不能写成 /width:\s*\d/ —— 那会连 min-width 一起匹配上
 check('.form-input 没有固定宽度', !/(^|[^-\w])width:\s*\d/.test(formInput), true)
 
-const sliderWrap = (style.match(/\.slider-wrap\s*\{([^}]*)\}/) || [])[1] || ''
-check('.slider-wrap 有 min-width: 0', /min-width:\s*0/.test(sliderWrap), true)
+/*
+ * ★ 「回答的随机程度」滑块已删除 ★
+ *   温度固定 0.6，不再给用户调 —— 技术参数不该暴露给普通用户。
+ *   原来这里检查 .slider-wrap 的 min-width，现在改查新的开关行布局：
+ *   .label-row 里标签和 switch 要分居两端，不能挤在一起。
+ */
+const labelRow = (style.match(/\.label-row\s*\{([^}]*)\}/) || [])[1] || ''
+check('.label-row 存在', labelRow.length > 0, true)
+check('.label-row 用 space-between 分居两端', /justify-content:\s*space-between/.test(labelRow), true)
+check('.label-row 铺满整行', /width:\s*100%/.test(labelRow), true)
+
+// 滑块相关样式应该整个消失，避免留下死 CSS
+check('不再有 .slider-wrap 规则', /\.slider-wrap/.test(style), false)
+check('不再有 .slider-value 规则', /\.slider-value/.test(style), false)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

@@ -35,14 +35,46 @@ export const DEFAULT_SETTINGS = {
   themePreset: 'green',
   privacyMode: false,         // 金额脱敏
 
-  // AI
+  // AI —— 公共配置（两端共用：接口地址 / Key / 模型 / 超时）
   ai: {
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
     model: 'deepseek-chat',
-    temperature: 0.3,
-    timeoutMs: 20000,
-    quickFallback: false      // ⚠️ 已废弃：无任何调用方，UI 入口已删除（见 api/ai.js 的说明）
+    timeoutMs: 20000
+  },
+
+  /**
+   * AI 记账（速记解析）专属设置
+   *
+   * ★ 为什么和对话分开 ★
+   *   两者诉求完全相反：
+   *     · AI 记账：抽 JSON，要**稳定** —— temperature 固定 0、不思考
+   *     · AI 对话：要**发散和透彻** —— 有自己的温度、开着深度思考
+   *   以前共用一个 ai.temperature，调对话的滑块会顺手影响记账解析，
+   *   调记账又会毁掉对话的发挥空间。
+   *
+   * ★ 迁移说明 ★
+   *   旧版本只有 settings.ai.temperature（默认 0.3）。
+   *   升级后老用户的这个值会被搬到 aiChat.temperature（见 migrateAiSettings），
+   *   不会白白丢掉。
+   */
+  aiParse: {
+    enabled: true
+  },
+
+  /**
+   * AI 对话专属设置
+   *
+   * · temperature  对话用的采样随机性（固定 0.6，不再给用户滑块）
+   * · deepThinking 深度思考开关
+   * · maxTokens    单次回答的 token 上限（比记账宽松，回答更完整）
+   * · showCharts   是否允许 AI 附图表
+   */
+  aiChat: {
+    temperature: 0.6,
+    deepThinking: true,
+    maxTokens: 2000,
+    showCharts: true
   },
 
   // 数据
@@ -84,20 +116,90 @@ export function normalizeQuickAddAction(raw, fallback = 'ai') {
 
 const CACHE = {}
 
+/**
+ * ★ 旧版 AI 设置的迁移 ★
+ *
+ * 旧版本只有 settings.ai 一个对象，里面带着 temperature / quickFallback。
+ * 现在拆成了：
+ *   settings.ai      公共（baseUrl / apiKey / model / timeoutMs）
+ *   settings.aiChat  对话专属（temperature / deepThinking / maxTokens / showCharts）
+ *   settings.aiParse 记账专属
+ *
+ * 迁移规则：
+ *   1. ai.temperature → aiChat.temperature（老用户调过的值不丢）
+ *      —— 只有当 aiChat 里还没有 temperature 时才搬，
+ *         避免每次读设置都把新值覆盖回旧值。
+ *   2. ai.quickFallback 是废弃字段（无任何调用方），直接丢掉。
+ *   3. ai 里多余的键不写回去，保持结构干净。
+ *
+ * @param {object} settings getAllSettings 组装出来的对象
+ * @returns {object} 同一个对象（原地改）
+ */
+function migrateAiSettings(settings, rawChat) {
+  const ai = settings.ai || {}
+  const legacyTemp = ai.temperature
+
+  // 1. 旧的 temperature 搬到 aiChat
+  //    ★ 要看「库里原样存的 aiChat」，不能用合并后的值 ★
+  //      合并后 temperature 一定有默认值（0.6），
+  //      那样就永远判定不了「老用户从没设过」，迁移也就永远不会发生。
+  //    ★ 用 hasOwnProperty 判断「有没有这一项」★
+  //      不能只判 rawTemp === undefined：
+  //      万一用户显式存了 temperature: undefined，
+  //      会被当成「没设过」而被旧值覆盖。
+  const hasOwnTemp = !!(rawChat && typeof rawChat === 'object') &&
+    Object.prototype.hasOwnProperty.call(rawChat, 'temperature')
+
+  if (
+    legacyTemp !== undefined &&
+    legacyTemp !== null &&
+    !hasOwnTemp
+  ) {
+    settings.aiChat = { ...settings.aiChat, temperature: Number(legacyTemp) }
+  }
+
+  // 2. ai 只保留公共字段
+  const cleanAi = {}
+  for (const k of ['baseUrl', 'apiKey', 'model', 'timeoutMs']) {
+    if (ai[k] !== undefined) cleanAi[k] = ai[k]
+  }
+  settings.ai = { ...DEFAULT_SETTINGS.ai, ...cleanAi }
+
+  return settings
+}
+
 /** 读全部设置（含默认值合并） */
 export async function getAllSettings() {
   const rows = await query('SELECT key, value FROM setting')
   const out = { ...DEFAULT_SETTINGS }
+
+  /*
+   * ★ 记下「库里原样存了什么」★
+   *   out 一开始就带上了 DEFAULT_SETTINGS，
+   *   所以 out.aiChat.temperature 永远是 0.6 ——
+   *   分不出「老用户没设过」和「老用户就想要 0.6」。
+   *   迁移必须看**数据库里到底存没存这一条**，
+   *   所以单独用 raw 记下原始值。
+   */
+  const raw = {}
+
   for (const row of rows) {
     try {
       out[row.key] = JSON.parse(row.value)
+      raw[row.key] = out[row.key]
     } catch (e) {
       out[row.key] = row.value
+      raw[row.key] = row.value
     }
     CACHE[row.key] = out[row.key]
   }
+
   // 对象型字段做浅合并，防止旧版本缺少新字段
   out.ai = { ...DEFAULT_SETTINGS.ai, ...(out.ai || {}) }
+  out.aiChat = { ...DEFAULT_SETTINGS.aiChat, ...(out.aiChat || {}) }
+  out.aiParse = { ...DEFAULT_SETTINGS.aiParse, ...(out.aiParse || {}) }
+  // 旧版 ai.temperature 迁移到 aiChat.temperature
+  migrateAiSettings(out, raw.aiChat)
   return out
 }
 
