@@ -3,52 +3,62 @@
     <PageNav title="AI 大模型" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <view class="form-card">
-        <view class="form-row form-row-column">
-          <text class="form-label">接口地址 (Base URL)</text>
-          <input
-            v-model="form.baseUrl"
-            class="form-input-full"
-            placeholder="https://api.deepseek.com/v1"
-            placeholder-class="form-placeholder"
-          />
-        </view>
-
-        <view class="form-row form-row-column">
-          <text class="form-label">API Key</text>
-          <view class="key-row">
+      <!--
+        ★ 分区标题的写法跟着别的设置页走 ★
+          「深浅模式」「主题色」「导出」「数据管理」那些页
+          都是「灰色小标题 + 下面的卡片」，
+          这里原来把「AI 对话」写成了卡片里的第一行（.card-title），
+          跟其他页长得不一样。改成一样的 section 结构。
+      -->
+      <view class="section">
+        <text class="section-title">模型配置</text>
+        <view class="form-card">
+          <view class="form-row form-row-column">
+            <text class="form-label">接口地址 (Base URL)</text>
             <input
-              v-model="form.apiKey"
+              v-model="form.baseUrl"
               class="form-input-full"
-              :password="!showKey"
-              placeholder="sk-..."
+              placeholder="https://api.deepseek.com/v1"
               placeholder-class="form-placeholder"
             />
-            <text class="key-toggle" @click="showKey = !showKey">
-              {{ showKey ? '隐藏' : '显示' }}
-            </text>
           </view>
-        </view>
 
-        <view class="form-row">
-          <text class="form-label">模型名</text>
-          <input
-            v-model="form.model"
-            class="form-input"
-            placeholder="deepseek-chat"
-            placeholder-class="form-placeholder"
-          />
-        </view>
+          <view class="form-row form-row-column">
+            <text class="form-label">API Key</text>
+            <view class="key-row">
+              <input
+                v-model="form.apiKey"
+                class="form-input-full"
+                :password="!showKey"
+                placeholder="sk-..."
+                placeholder-class="form-placeholder"
+              />
+              <text class="key-toggle" @click="showKey = !showKey">
+                {{ showKey ? '隐藏' : '显示' }}
+              </text>
+            </view>
+          </view>
 
-        <view class="form-row">
-          <text class="form-label">超时（秒）</text>
-          <input
-            v-model="timeoutSec"
-            class="form-input"
-            type="number"
-            placeholder="20"
-            placeholder-class="form-placeholder"
-          />
+          <view class="form-row">
+            <text class="form-label">模型名</text>
+            <input
+              v-model="form.model"
+              class="form-input"
+              placeholder="deepseek-chat"
+              placeholder-class="form-placeholder"
+            />
+          </view>
+
+          <view class="form-row">
+            <text class="form-label">超时（秒）</text>
+            <input
+              v-model="timeoutSec"
+              class="form-input"
+              type="number"
+              placeholder="30"
+              placeholder-class="form-placeholder"
+            />
+          </view>
         </view>
       </view>
 
@@ -59,50 +69,41 @@
             · AI 对话：要发散和透彻，有自己的温度、开着深度思考
           以前两边共用一个 temperature 滑块，调哪个都会影响另一个。
       -->
-      <view class="form-card" style="margin-top: 32rpx">
-        <view class="card-title">AI 对话</view>
+      <view class="section">
+        <text class="section-title">AI 对话</text>
+        <view class="form-card">
+          <view class="form-row">
+            <view class="label-row">
+              <text class="form-label">深度思考</text>
+              <switch
+                :checked="chatForm.deepThinking"
+                :color="primaryColor"
+                @change="(e) => chatForm.deepThinking = e.detail.value"
+              />
+            </view>
+          </view>
 
-        <view class="form-row form-row-column">
-          <view class="label-row">
-            <text class="form-label">深度思考</text>
-            <switch
-              :checked="chatForm.deepThinking"
-              :color="primaryColor"
-              @change="(e) => chatForm.deepThinking = e.detail.value"
+          <view class="form-row">
+            <view class="label-row">
+              <text class="form-label">回答附带图表</text>
+              <switch
+                :checked="chatForm.showCharts"
+                :color="primaryColor"
+                @change="(e) => chatForm.showCharts = e.detail.value"
+              />
+            </view>
+          </view>
+
+          <view class="form-row">
+            <text class="form-label">回答长度上限（token）</text>
+            <input
+              v-model="chatForm.maxTokens"
+              class="form-input"
+              type="number"
+              placeholder="2000"
+              placeholder-class="form-placeholder"
             />
           </view>
-          <text class="form-hint">
-            开启后模型会先推演再回答，分析更透彻，但响应更慢、消耗更多额度。
-            需要模型本身支持推理（如 deepseek-reasoner）。
-          </text>
-        </view>
-
-        <view class="form-row form-row-column">
-          <view class="label-row">
-            <text class="form-label">回答附带图表</text>
-            <switch
-              :checked="chatForm.showCharts"
-              :color="primaryColor"
-              @change="(e) => chatForm.showCharts = e.detail.value"
-            />
-          </view>
-          <text class="form-hint">
-            回答涉及「构成 / 占比 / 排名」时附上图。图表里的数字取自你的本地账本，不会被 AI 编造。
-          </text>
-        </view>
-
-        <view class="form-row form-row-column">
-          <text class="form-label">回答长度上限（token）</text>
-          <input
-            v-model="chatForm.maxTokens"
-            class="form-input-full"
-            type="number"
-            placeholder="2000"
-            placeholder-class="form-placeholder"
-          />
-          <text class="form-hint">
-            越大回答越详细（深度思考建议 2000 以上），也越费额度。
-          </text>
         </view>
       </view>
 
@@ -136,13 +137,15 @@
         </wd-button>
       </view>
 
-      <!-- 高级 -->
-      <view class="form-card" style="margin-top: 32rpx">
-        <view class="action-row" @click="clearCache">
-          <text class="action-name">清除 AI 缓存</text>
-          <text class="action-arrow">›</text>
-        </view>
-      </view>
+      <!--
+        ★ 「清除 AI 缓存」入口已删除 ★
+          它背后的缓存机制**从来就没有生效过**：
+            · api/ai.js 里的 readCache / writeCache / hashSummary
+              全都没有调用方（它们服务的是早已下线的「首页洞察」「统计页分析」）
+            · 也就是说 setting 表里的 aiCache 这一项永远是空的
+          唯一的作用是往数据库写一条空记录 —— 纯误导，删掉。
+          顺带把 api/ai.js 里那套死缓存代码也清了。
+      -->
 
       <view class="bottom-space" />
     </scroll-view>
@@ -157,8 +160,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { testConnection, clearAiCache } from '@/api/ai.js'
-import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { testConnection } from '@/api/ai.js'
+import { alertDialog } from '@/utils/dialog.js'
 
 export default {
   components: { PageNav, AppDialog },
@@ -167,7 +170,7 @@ export default {
 
     const showKey = ref(false)
     const testing = ref(false)
-    const timeoutSec = ref('20')
+    const timeoutSec = ref('30')
 
     const form = reactive({
       baseUrl: 'https://api.deepseek.com/v1',
@@ -243,18 +246,6 @@ export default {
       }
     }
 
-    async function clearCache() {
-      const confirmed = await confirmDialog({
-        title: '清除 AI 缓存？',
-        content: '清除后下次进入会重新调用接口分析'
-      })
-      // ★ 取消就什么都不做 ★
-      if (!confirmed) return
-
-      await clearAiCache()
-      uni.showToast({ title: '已清除', icon: 'success' })
-    }
-
     function goBack() {
       uni.navigateBack()
     }
@@ -265,7 +256,10 @@ export default {
       form.baseUrl = ai.baseUrl || 'https://api.deepseek.com/v1'
       form.apiKey = ai.apiKey || ''
       form.model = ai.model || 'deepseek-chat'
-      timeoutSec.value = String(Math.round((ai.timeoutMs || 20000) / 1000))
+      // ★ 超时默认 30 秒 ★
+      //   深度思考模式下响应可能要十几秒甚至几十秒，
+      //   20 秒太紧，很容易「AI 请求超时」。
+      timeoutSec.value = String(Math.round((ai.timeoutMs || 30000) / 1000))
 
       // 对话专属配置
       const chat = settingStore.settings.aiChat || {}
@@ -277,7 +271,7 @@ export default {
     return {
       showKey, testing, timeoutSec, form, chatForm,
       primaryColor, pageStyle,
-      onTest, onSave, clearCache, goBack, settingStore
+      onTest, onSave, goBack, settingStore
     }
   }
 }
@@ -288,11 +282,35 @@ export default {
   padding: 0 32rpx;
 }
 
+/*
+  ★ 分区结构 ★
+    跟「主题外观」「数据与备份」那些页保持一致：
+    灰色小标题（section-title）+ 下面的白色卡片（form-card）。
+    以前「AI 对话」是写在卡片里的第一行（.card-title），
+    跟别的设置页长得不一样。
+*/
+.section {
+  margin-top: 32rpx;
+}
+
+.section-title {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  padding-left: 8rpx;
+  display: block;
+  margin-bottom: 12rpx;
+}
+
 .form-card {
   background-color: var(--app-card);
   border-radius: 20rpx;
   padding: 0 28rpx;
   margin-top: 20rpx;
+}
+
+/* 分区里的第一张卡片不用再留上边距（标题已经隔开了） */
+.section .form-card {
+  margin-top: 0;
 }
 
 .form-row {
@@ -416,51 +434,6 @@ export default {
   width: 100%;
 }
 
-/* 卡片小标题（AI 对话 / AI 记账 分区） */
-.card-title {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: var(--app-text-2);
-  display: block;
-  padding-bottom: 8rpx;
-}
-
-/* 参数说明（把「温度」翻译成人话） */
-.form-hint {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.6;
-  width: 100%;
-  margin-top: 4rpx;
-}
-
-/* 开关行 */
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx 0;
-  gap: 20rpx;
-}
-
-.switch-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.switch-name {
-  font-size: 28rpx;
-  color: var(--app-text);
-}
-
-.switch-desc {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.5;
-}
-
 /* 操作 */
 .action-area {
   display: flex;
@@ -470,23 +443,6 @@ export default {
 
 .act-btn {
   flex: 1;
-}
-
-.action-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx 0;
-}
-
-.action-name {
-  font-size: 28rpx;
-  color: var(--app-text);
-}
-
-.action-arrow {
-  font-size: 32rpx;
-  color: var(--app-text-3);
 }
 
 </style>

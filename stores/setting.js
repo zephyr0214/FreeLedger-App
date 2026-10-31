@@ -47,7 +47,7 @@ export const useSettingStore = defineStore('setting', {
       privacyMode: false,
       quickAddHoldAction: 'manual',
       quickAddTapAction: 'ai',
-      ai: { baseUrl: '', apiKey: '', model: 'deepseek-chat', timeoutMs: 20000 },
+      ai: { baseUrl: '', apiKey: '', model: 'deepseek-chat', timeoutMs: 30000 },
       aiChat: { temperature: 0.6, deepThinking: true, maxTokens: 2000, showCharts: true },
       aiParse: { enabled: true },
       autoBackup: true,

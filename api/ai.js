@@ -3,14 +3,17 @@
  *
  * 约束（与计划书 §8.3 一致）：
  *   1. prompt 里只放聚合摘要，绝不塞原始交易明细
- *   2. 结果按 hash(区间+数据) 缓存到本地，数据不变不重算
- *   3. 超时/失败一律降级为「暂不可用」，不影响任何账务功能
- *   4. 不允许 AI 直接写库
+ *   2. 超时/失败一律降级为「暂不可用」，不影响任何账务功能
+ *   3. 不允许 AI 直接写库
+ *
+ * ★ 关于「结果缓存」★
+ *   原来这里有一套缓存（readCache / writeCache / hashSummary），
+ *   但它服务的「首页洞察」「统计页分析」功能已经下线，
+ *   而且这套缓存从来就没有调用方 —— 已经连同设置页的
+ *   「清除 AI 缓存」按钮一起删掉了。
  */
 
-import { getSetting, setSetting, getAllSettings } from './settings.js'
-
-const CACHE_KEY = 'aiCache'
+import { getAllSettings } from './settings.js'
 
 /* ------------------------------------------------------------- 底层调用 */
 
@@ -92,7 +95,7 @@ export async function chat(messages, opt = {}) {
   if (!ai.baseUrl) throw new Error('未配置 Base URL')
 
   const url = `${String(ai.baseUrl).replace(/\/+$/, '')}/chat/completions`
-  const timeoutMs = opt.timeoutMs || ai.timeoutMs || 20000
+  const timeoutMs = opt.timeoutMs || ai.timeoutMs || 30000
 
   const body = {
     model: ai.model || 'deepseek-chat',
@@ -200,32 +203,23 @@ export async function testConnection() {
 
 /* ------------------------------------------------------------------ 缓存 */
 
-async function readCache() {
-  const raw = await getSetting(CACHE_KEY, {})
-  return raw && typeof raw === 'object' ? raw : {}
-}
-
-async function writeCache(cache) {
-  // 只保留最近 50 条，防止无限增长
-  const keys = Object.keys(cache)
-  if (keys.length > 50) {
-    keys
-      .sort((a, b) => (cache[a].ts || 0) - (cache[b].ts || 0))
-      .slice(0, keys.length - 50)
-      .forEach((k) => delete cache[k])
-  }
-  await setSetting(CACHE_KEY, cache)
-}
-
-/** 由数据生成哈希，用于判断是否需要重算 */
-function hashSummary(summary) {
-  const s = JSON.stringify(summary)
-  let h = 0
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  }
-  return String(h)
-}
+/*
+ * ★ 这里曾经有一套 AI 结果缓存，已经删掉了 ★
+ *   它由 readCache / writeCache / hashSummary 三个函数组成，
+ *   用来缓存「首页一句话洞察」「统计页分析」的结果 ——
+ *   数据没变就不重新调模型，省钱省时间。
+ *
+ *   ★ 为什么现在没用了 ★
+ *     1. 上面那两个功能（首页洞察 / 统计页分析）早就不存在了，
+ *        现在只剩「AI 对话」和「AI 记账」两个入口；
+ *     2. 对话是**追问式**的 —— 每一轮的问题都不一样，
+ *        摘要变了、问题变了，缓存命中不了；
+ *     3. 这三个函数**从来没有调用方**，也就是说 setting 表里的
+ *        aiCache 这一项永远是空的。
+ *
+ *   所以设置页那个「清除 AI 缓存」按钮点了也没有任何实际作用，
+ *   已经连同按钮一起删掉。
+ */
 
 /* -------------------------------------------------------- 首页一句话洞察 */
 
@@ -321,10 +315,4 @@ ${JSON.stringify(categoryLabels)}
   if (!jsonMatch) throw new Error('AI 未返回有效 JSON')
 
   return JSON.parse(jsonMatch[0])
-}
-
-/** 清除缓存（设置页提供） */
-export async function clearAiCache() {
-  await setSetting('aiCache', {})
-  return true
 }

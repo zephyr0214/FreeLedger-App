@@ -119,5 +119,66 @@ check('.label-row 铺满整行', /width:\s*100%/.test(labelRow), true)
 check('不再有 .slider-wrap 规则', /\.slider-wrap/.test(style), false)
 check('不再有 .slider-value 规则', /\.slider-value/.test(style), false)
 
+/* ------------------- 5. 分区结构跟其它设置页保持一致 ------------------- */
+
+/*
+ * ★ 分区标题要跟别的设置页一样 ★
+ *   「主题外观」「数据与备份」那些页都是
+ *   「灰色小标题（.section-title）+ 下面的卡片（.form-card）」。
+ *   以前「AI 对话」是写在卡片里的第一行（.card-title），
+ *   跟其他页长得不一样 —— 改回统一的 section 结构。
+ */
+const template = (code.match(/<template>([\s\S]*)<\/template>/) || [])[1] || ''
+
+// 去掉注释再查 —— 注释里提到「清除 AI 缓存」是在解释为什么删掉它
+const templateNoComment = template
+  .replace(/<!--[\s\S]*?-->/g, '')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\/\/[^\n]*/g, '')
+
+check('用了 .section 分区', /class="section"/.test(template), true)
+check('用了 .section-title 分区标题', /class="section-title"/.test(template), true)
+check('有 .section-title 样式规则', /\.section-title\s*\{/.test(style), true)
+check('不再用 .card-title 当分区标题', /class="card-title"/.test(template), false)
+check('不再有 .card-title 样式规则', /\.card-title\s*\{/.test(style), false)
+
+/* ------------------- 6. 说明文字已按要求删除 ------------------- */
+
+/*
+ * ★ 开关下方的说明文字已删除 ★
+ *   「深度思考」「回答附带图表」下面那两段 form-hint
+ *   用户明确要求去掉 —— 开关本身已经够表意了。
+ */
+check('不再有 .form-hint 元素', /class="form-hint"/.test(template), false)
+check('不再有 .form-hint 样式规则', /\.form-hint\s*\{/.test(style), false)
+
+/* ------------------- 7. 「清除 AI 缓存」入口已删除 ------------------- */
+
+/*
+ * ★ 那个缓存从来就没生效过 ★
+ *   api/ai.js 里的 readCache / writeCache / hashSummary 全都没有调用方，
+ *   setting 表里的 aiCache 永远是空的 —— 点了没有任何作用。
+ */
+check('不再有「清除 AI 缓存」', /清除 AI 缓存/.test(templateNoComment), false)
+check('不再有 .action-row 样式规则', /\.action-row\s*\{/.test(style), false)
+
+const aiApi = readFileSync(join(ROOT, 'api', 'ai.js'), 'utf-8')
+check('api/ai.js 不再导出 clearAiCache', /export async function clearAiCache/.test(aiApi), false)
+check('api/ai.js 不再有 readCache 函数', /async function readCache/.test(aiApi), false)
+check('api/ai.js 不再有 writeCache 函数', /async function writeCache/.test(aiApi), false)
+check('api/ai.js 不再有 hashSummary 函数', /function hashSummary/.test(aiApi), false)
+
+/* ------------------- 8. 超时默认 30 秒 ------------------- */
+
+/*
+ * ★ 深度思考响应慢，20 秒太紧 ★
+ *   很容易出现「AI 请求超时」，用户还以为是自己网络不好。
+ */
+check('设置页默认超时 30 秒', /timeoutSec = ref\('30'\)/.test(code), true)
+check('读取时兜底 30 秒', /ai\.timeoutMs \|\| 30000/.test(code), true)
+
+const settingsApi = readFileSync(join(ROOT, 'api', 'settings.js'), 'utf-8')
+check('DEFAULT_SETTINGS 默认 30 秒', /timeoutMs:\s*30000/.test(settingsApi), true)
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

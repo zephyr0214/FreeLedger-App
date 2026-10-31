@@ -145,7 +145,8 @@ clearSettingsCache()
   check('默认 baseUrl', s.ai.baseUrl, 'https://api.deepseek.com/v1')
   check('默认 model', s.ai.model, 'deepseek-chat')
   check('默认 temperature', s.aiChat.temperature, 0.6)
-  check('默认 timeoutMs', s.ai.timeoutMs, 20000)
+  // 超时默认 30 秒：深度思考响应慢，20 秒太紧
+  check('默认 timeoutMs', s.ai.timeoutMs, 30000)
 }
 
 console.log('\n=== 记账与对话的配置互不影响 ===')

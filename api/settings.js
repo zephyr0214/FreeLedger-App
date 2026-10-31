@@ -40,7 +40,15 @@ export const DEFAULT_SETTINGS = {
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
     model: 'deepseek-chat',
-    timeoutMs: 20000
+    /*
+     * 超时默认 30 秒。
+     *
+     * ★ 为什么从 20 改成 30 ★
+     *   深度思考模式下模型要先推演再回答，
+     *   响应可能要十几秒甚至几十秒 —— 20 秒太紧，
+     *   很容易出现「AI 请求超时」，用户还以为是自己网络不好。
+     */
+    timeoutMs: 30000
   },
 
   /**
