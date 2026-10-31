@@ -100,7 +100,7 @@
               v-model="chatForm.maxTokens"
               class="form-input"
               type="number"
-              placeholder="2000"
+              placeholder="8000"
               placeholder-class="form-placeholder"
             />
           </view>
@@ -202,7 +202,7 @@ export default {
     const chatForm = reactive({
       deepThinking: true,
       showCharts: true,
-      maxTokens: 2000
+      maxTokens: 8000
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -252,7 +252,7 @@ export default {
         await settingStore.setAiChat({
           deepThinking: chatForm.deepThinking,
           showCharts: chatForm.showCharts,
-          maxTokens: Math.max(500, Number(chatForm.maxTokens) || 2000),
+          maxTokens: Math.max(1000, Number(chatForm.maxTokens) || 8000),
           // ★ 回答超时：至少 30 秒，最多 10 分钟 ★
           //   深度思考 + 2000 token 的完整分析可能要一两分钟，
           //   太短必然超时，太长用户干等受不了。
@@ -281,7 +281,7 @@ export default {
       const chat = settingStore.settings.aiChat || {}
       chatForm.deepThinking = chat.deepThinking !== false
       chatForm.showCharts = chat.showCharts !== false
-      chatForm.maxTokens = chat.maxTokens || 2000
+      chatForm.maxTokens = chat.maxTokens || 8000
       // ★ 回答超时默认 120 秒 ★
       //   深度思考 + 2000 token 的完整分析，30 秒远远不够 ——
       //   这正是「AI 请求超时」的老大难。

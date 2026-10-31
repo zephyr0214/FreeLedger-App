@@ -930,13 +930,19 @@ ${JSON.stringify(summary)}
   ]
 
   const reply = await chat(messages, {
-    maxTokens: opt.maxTokens || 2000,
+    /*
+     * ★ maxTokens 不写死，交给 chat() 按设置来 ★
+     *   不传的话 chat() 会用 settings.aiChat.maxTokens（默认 8000）。
+     *   原来这里写死 2000 —— 深度思考的推理模型光思考就吃光了，
+     *   正文一个字都写不出来（content 空 + finish_reason=length）。
+     */
+    maxTokens: opt.maxTokens,
     temperature: opt.temperature,
     thinking: opt.thinking !== false,
     /*
      * ★ kind: 'chat' —— 告诉 chat() 这是「对话」★
      *   对话要用 settings.aiChat.timeoutMs（默认 120 秒）：
-     *   深度思考 + 2000 token 的完整分析可能要一两分钟，
+     *   深度思考 + 完整分析可能要一两分钟，
      *   用通用的 30 秒必然超时（这正是「AI 请求超时」的老大难）。
      *
      *   记账解析那边不传 kind，走通用的 30 秒。

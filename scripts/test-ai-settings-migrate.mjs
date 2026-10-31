@@ -87,7 +87,9 @@ clearSettingsCache()
   ok('废弃的 quickFallback 不再出现在 ai 里', s.ai.quickFallback === undefined)
   check('对话默认开深度思考', s.aiChat.deepThinking, true)
   check('对话默认允许图表', s.aiChat.showCharts, true)
-  check('对话默认 maxTokens', s.aiChat.maxTokens, 2000)
+  // max_tokens 同时限制「思考」和「正文」——
+  // 推理模型光思考就吃掉几千 token，2000 太小，默认改成 8000
+  check('对话默认 maxTokens', s.aiChat.maxTokens, 8000)
 }
 
 console.log('\n=== 新用户：没有 aiChat 记录时用默认值 ===')
@@ -129,7 +131,7 @@ clearSettingsCache()
 
 {
   const s = await getAllSettings()
-  check('缺失的 maxTokens 用默认', s.aiChat.maxTokens, 2000)
+  check('缺失的 maxTokens 用默认', s.aiChat.maxTokens, 8000)
   check('缺失的 showCharts 用默认', s.aiChat.showCharts, true)
   check('缺失的 temperature 用默认', s.aiChat.temperature, 0.6)
   check('用户设的 deepThinking 保留', s.aiChat.deepThinking, false)

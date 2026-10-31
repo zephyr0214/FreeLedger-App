@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 设置读写 —— 全部存 setting 表（KV），值序列化为 JSON
  *
  * 为什么不用 uni.setStorageSync：
@@ -81,14 +81,24 @@ export const DEFAULT_SETTINGS = {
    *
    * ★ 为什么对话要单独一个更长的超时 ★
    *   「AI 记账」只是抽一段 JSON，响应通常 1~3 秒；
-   *   而「AI 对话」开了深度思考、要生成 2000 token 的完整分析，
+   *   而「AI 对话」开了深度思考、要生成完整分析，
    *   正常就要 30~90 秒。用同一个超时值的话，
    *   记账那边太宽松（卡住时干等），对话这边太紧（必然超时）。
+   *
+   * ★ 为什么 maxTokens 默认是 8000 ★
+   *   ★ max_tokens 同时限制了「思考」和「正文」★
+   *     推理模型（deepseek-reasoner 这类）的推理过程本身就要吃掉
+   *     几千 token —— 预算给小了，模型「想」完就没额度写正文了，
+   *     结果是 content 全空、finish_reason=length，
+   *     用户看到「AI 返回内容为空：模型输出被 max_tokens 截断」。
+   *
+   *     2000 对普通模型够用，但对开着深度思考的推理模型远远不够。
+   *     8000 能容纳「一段推理 + 一份完整分析」。
    */
   aiChat: {
     temperature: 0.6,
     deepThinking: true,
-    maxTokens: 2000,
+    maxTokens: 8000,
     showCharts: true,
     timeoutMs: 120000
   },

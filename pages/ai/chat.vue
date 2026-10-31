@@ -503,10 +503,24 @@ export default {
         })
         saveHistory()
       } catch (e) {
+        /*
+         * ★ 截断的提示要能指导用户行动 ★
+         *   「AI 返回内容为空：模型输出被 max_tokens 截断（正文为空）」
+         *   这句话用户看不懂、也不知道该干嘛。
+         *   告诉他「是推理模型的思考超了预算，去把上限调大」，
+         *   用户就知道去哪儿改了。
+         */
+        let tip = e.message
+        if (e && e.truncated) {
+          tip =
+            '模型思考超出了长度上限，正文没写出来。\n' +
+            '请到「设置 → AI → AI 对话」把「回答长度上限」调大' +
+            '（深度思考建议 8000 以上）。'
+        }
         messages.value.push({
           role: 'assistant',
-          content: `抱歉，出错了：${e.message}`,
-          blocks: renderMarkdown(`抱歉，出错了：${e.message}`),
+          content: `抱歉，出错了：${tip}`,
+          blocks: renderMarkdown(`抱歉，出错了：${tip}`),
           charts: []
         })
       } finally {

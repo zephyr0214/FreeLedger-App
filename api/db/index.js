@@ -297,8 +297,67 @@ const MIGRATIONS = [
     //   3) 删掉从未生效的 aiCache
     version: 12,
     up: migrateAiSettings
+  },
+  {
+    // ★ 对话 maxTokens 2000 → 8000 ★
+    //   max_tokens 同时限制「思考」和「正文」——
+    //   推理模型光思考就把 2000 的预算吃光了，
+    //   正文一个字都写不出来（content 空 + finish_reason=length）。
+    version: 13,
+    up: migrateChatMaxTokens
   }
 ]
+
+/**
+ * 迁移 v13 —— 对话 maxTokens 2000 → 8000
+ *
+ * ★ 为什么需要单独一条迁移 ★
+ *   v12 已经在有些设备上跑过了（user_version 已经写成 12），
+ *   不会再执行。所以「把 maxTokens 提上去」这件事
+ *   必须放在一条新的迁移里，不然老用户永远改不了。
+ *
+ * ★ 只改「恰好等于旧默认值 2000」的 ★
+ *   用户自己设过别的数的一律不动 ——
+ *   迁移只迁默认值，不覆盖用户的个性化设置。
+ *
+ * ★ 为什么必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，会死锁。
+ */
+async function migrateChatMaxTokens() {
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v13 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v13 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  const rows = await select('SELECT value FROM setting WHERE key = ?', ['aiChat'])
+  if (!rows || rows.length === 0) return
+
+  try {
+    const chat = JSON.parse(rows[0].value)
+    if (!chat || typeof chat !== 'object') return
+    if (Number(chat.maxTokens) !== 2000) return
+
+    chat.maxTokens = 8000
+    await run('UPDATE setting SET value = ? WHERE key = ?', [JSON.stringify(chat), 'aiChat'])
+    console.log('[db] migration v13: 对话 maxTokens 2000 → 8000')
+  } catch (e) {}
+}
 
 /**
  * 迁移 v12 —— AI 设置调整
@@ -382,16 +441,42 @@ async function migrateAiSettings() {
     const aiChat = {
       temperature: legacyTemp === null ? 0.6 : legacyTemp,
       deepThinking: true,
-      maxTokens: 2000,
       showCharts: true,
-      // 回答超时：深度思考 + 2000 token 可能要一两分钟
-      timeoutMs: 120000
+      // 回答超时：深度思考 + 完整分析可能要一两分钟
+      timeoutMs: 120000,
+      // ★ 8000 而不是 2000 ★
+      //   max_tokens 同时限制「思考」和「正文」，
+      //   推理模型思考起来几千 token 就吃光了，
+      //   预算给小了正文一个字都写不出来。
+      maxTokens: 8000
     }
     await run(
       'INSERT OR REPLACE INTO setting (key, value) VALUES (?, ?)',
       ['aiChat', JSON.stringify(aiChat)]
     )
     console.log('[db] migration v12: 已创建 aiChat 设置')
+  } else {
+    /*
+     * ---- 2b) aiChat 已存在：把旧的 maxTokens 提上来 ----
+     *   之前默认是 2000，对开着深度思考的推理模型来说太小 ——
+     *   模型光思考就把预算吃光，正文是空的
+     *   （报「AI 返回内容为空：模型输出被 max_tokens 截断」）。
+     *
+     *   只提「恰好等于旧默认值 2000」的 ——
+     *   用户自己设过别的数的不动。
+     */
+    try {
+      const raw = chatRows[0].value
+      const chat = JSON.parse(raw)
+      if (chat && typeof chat === 'object' && Number(chat.maxTokens) === 2000) {
+        chat.maxTokens = 8000
+        await run(
+          'UPDATE setting SET value = ? WHERE key = ?',
+          [JSON.stringify(chat), 'aiChat']
+        )
+        console.log('[db] migration v12: 对话 maxTokens 2000 → 8000')
+      }
+    } catch (e) {}
   }
 
   // ---- 3) 清掉从未生效的 aiCache ----

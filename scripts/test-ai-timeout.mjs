@@ -191,7 +191,7 @@ const ROOT = resolve(__dirname, '..')
 const dbCode = readFileSync(join(ROOT, 'api', 'db', 'index.js'), 'utf-8')
 const schemaCode = readFileSync(join(ROOT, 'api', 'db', 'schema.js'), 'utf-8')
 
-ok('SCHEMA_VERSION 提到 12', /export const SCHEMA_VERSION = 12/.test(schemaCode))
+ok('SCHEMA_VERSION 提到 13', /export const SCHEMA_VERSION = 13/.test(schemaCode))
 ok('有 version: 12 的迁移', /version:\s*12/.test(dbCode))
 ok('迁移里把 20000 改成 30000', /Number\(ai\.timeoutMs\) === 20000/.test(dbCode))
 ok('迁移里创建 aiChat', /'aiChat'/.test(dbCode))

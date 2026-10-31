@@ -30,15 +30,26 @@ import { getAllSettings } from './settings.js'
  *   这些都当成「格式异常」抛掉的话，用户只会看到一句莫名其妙的报错，
  *   完全不知道是模型没配好还是网络问题。
  *
+ * ★ 截断时还要把「思考内容」带出来 ★
+ *   推理模型被 max_tokens 截断时，典型现象是：
+ *     · reasoning_content 有内容（想了一半）
+ *     · content 是空的（正文一个字没输出）
+ *     · finish_reason = 'length'
+ *   这时候直接把整个响应丢掉、只报一句「内容为空」，
+ *   用户完全不知道发生了什么、也不知道该怎么办。
+ *   所以把 reasoning_content 也返回去（作为「思考过程」），
+ *   上层可以据此给出更准确的提示。
+ *
  * @param {object} data 响应体
- * @returns {{text: string, reason: string}} text 为空时 reason 说明原因
+ * @returns {{text: string, reason: string, reasoning: string, truncated: boolean}}
+ *   text 为空时 reason 说明原因；reasoning 是模型的思考内容（可能为空）
  */
 function extractContent(data) {
   const choice = data && data.choices && data.choices[0]
   const msg = choice && choice.message
 
   if (!msg) {
-    return { text: '', reason: '响应里没有 choices/message' }
+    return { text: '', reason: '响应里没有 choices/message', reasoning: '', truncated: false }
   }
 
   let raw = msg.content
@@ -54,23 +65,52 @@ function extractContent(data) {
       .join('')
   }
 
-  // 推理模型：正文可能在 reasoning_content
-  if ((typeof raw !== 'string' || raw.trim() === '') && typeof msg.reasoning_content === 'string') {
-    raw = msg.reasoning_content
-  }
+  // 推理模型的思考内容（正文被截断时，靠它才知道模型其实想说什么）
+  const reasoning = typeof msg.reasoning_content === 'string' ? msg.reasoning_content.trim() : ''
+
+  /*
+   * ★ 推理内容不能当正文用 ★
+   *   早先这里是「content 为空就拿 reasoning_content 顶上」，
+   *   结果推理模型被 max_tokens 截断时，
+   *   用户看到的是一段**半截的思考过程**（像是胡言乱语），
+   *   而不是「回答被截断了」这个能指导他行动的信息。
+   *
+   *   而且这样一来，上层根本判断不出「被截断了」，
+   *   也就没机会加大预算重试。
+   *
+   *   所以：content 为空 + finish_reason=length → 明确报「被截断」，
+   *   reasoning_content 只作为诊断信息带出去。
+   */
+  const truncated = !!(choice && choice.finish_reason === 'length')
 
   const text = typeof raw === 'string' ? raw.trim() : ''
 
-  if (text) return { text, reason: '' }
+  if (text) return { text, reason: '', reasoning, truncated: false }
 
   // 空正文时给出能看懂的原因
-  if (choice && choice.finish_reason === 'length') {
-    return { text: '', reason: '模型输出被 max_tokens 截断（正文为空）' }
+  if (truncated) {
+    return {
+      text: '',
+      reason: '模型输出被 max_tokens 截断（正文为空）',
+      reasoning,
+      truncated: true
+    }
   }
   if (choice && choice.finish_reason === 'content_filter') {
-    return { text: '', reason: '内容被服务端过滤' }
+    return { text: '', reason: '内容被服务端过滤', reasoning, truncated: false }
   }
-  return { text: '', reason: '模型返回了空正文' }
+
+  /*
+   * 不是被截断，但 content 也是空的。
+   * 这时候 reasoning_content 里往往真的有正文
+   * （有些网关把正文放在 reasoning_content 里）。
+   * 所以这时候才用它顶上。
+   */
+  if (reasoning) {
+    return { text: reasoning, reason: '', reasoning, truncated: false }
+  }
+
+  return { text: '', reason: '模型返回了空正文', reasoning, truncated: false }
 }
 
 /**
@@ -120,13 +160,31 @@ export async function chat(messages, opt = {}) {
     ai.timeoutMs ||
     30000
 
+  /**
+   * ★ 初始的 max_tokens ★
+   *   对话走 settings.aiChat.maxTokens（默认 8000）。
+   *
+   *   ★ 为什么不能太小 ★
+   *     max_tokens 同时限制了「思考」和「正文」。
+   *     推理模型（deepseek-reasoner 这类）思考几千 token 是常事 ——
+   *     预算给小了，模型「想」完就没额度写正文，
+   *     于是 content 全空、finish_reason=length，
+   *     用户看到「AI 返回内容为空：模型输出被 max_tokens 截断」。
+   *
+   *   ★ 兜底值从 2000 提到 8000 ★
+   *     原来的 2000 对开着深度思考的推理模型远远不够。
+   */
+  const initialMaxTokens =
+    opt.maxTokens ||
+    (isChat ? aiChat.maxTokens : 0) ||
+    0
+
   const body = {
     model: ai.model || 'deepseek-chat',
     messages,
     temperature: opt.temperature !== undefined ? opt.temperature : (aiChat.temperature || 0.6),
     stream: false
   }
-  if (opt.maxTokens) body.max_tokens = opt.maxTokens
 
   /**
    * 「深度思考」的开关。
@@ -159,90 +217,149 @@ export async function chat(messages, opt = {}) {
     body.reasoning = { enabled: false }
   }
 
-  return new Promise((resolve, reject) => {
-    let settled = false
-    /** 底层请求任务（超时后要主动 abort，否则请求还在跑） */
-    let task = null
+  /**
+   * 发一次请求。
+   *
+   * @param {number} maxTokens 本次的 max_tokens
+   * @returns {Promise<{text: string, reasoning: string, truncated: boolean}>}
+   *   正常返回正文；被截断时 text 为空、truncated 为 true
+   */
+  function requestOnce(maxTokens) {
+    const reqBody = { ...body }
+    if (maxTokens) reqBody.max_tokens = maxTokens
+    else delete reqBody.max_tokens
 
-    /**
-     * 收尾：清计时器、标记已结算。
-     * ★ settled 这个闸门必须有 ★
-     *   超时和请求回调可能同时到达（谁先谁后不确定），
-     *   不加闸门会出现「Promise 已 reject 又 resolve」，
-     *   或者重复 reject。
-     */
-    function finish() {
-      if (settled) return false
-      settled = true
-      clearTimeout(timer)
-      return true
-    }
+    return new Promise((resolve, reject) => {
+      let settled = false
+      /** 底层请求任务（超时后要主动 abort，否则请求还在跑） */
+      let task = null
 
-    const timer = setTimeout(() => {
-      if (!finish()) return
-      // ★ 超时后主动中断底层请求 ★
-      //   不中断的话，这个请求会继续占着连接和内存，
-      //   用户连着问几句就攒下一堆僵尸请求。
-      try {
-        if (task && typeof task.abort === 'function') task.abort()
-      } catch (e) {}
-      reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
-    }, timeoutMs)
-
-    task = uni.request({
-      url,
-      method: 'POST',
-      header: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ai.apiKey}`
-      },
-      data: body,
       /**
-       * ★ 必须把超时值告诉 uni.request ★
-       *
-       *   uni.request 自己有个默认超时（各平台不一样，App 端常见 60 秒），
-       *   到点会直接走 fail 回调。
-       *   如果不显式设置：
-       *     · 我们想给对话 120 秒，但 uni.request 60 秒就断了 → 用户看到超时
-       *     · 我们想给解析 20 秒，但 uni.request 60 秒才断 → 界面干等
-       *   显式传 timeout 后，两边的时间才一致。
-       *
-       *   ★ 还要留一点余量给我们的计时器 ★
-       *     uni.request 的 timeout 是「网络层」的超时，
-       *     我们的 setTimeout 是「整体」的超时。
-       *     让网络层比整体晚一点点触发，
-       *     这样「我们自己判定超时」总是先发生，报错信息更准
-       *     （否则拿到的是 uni 的 errMsg，看不出是自己超时了）。
+       * 收尾：清计时器、标记已结算。
+       * ★ settled 这个闸门必须有 ★
+       *   超时和请求回调可能同时到达（谁先谁后不确定），
+       *   不加闸门会出现「Promise 已 reject 又 resolve」，
+       *   或者重复 reject。
        */
-      timeout: timeoutMs + 3000,
-      success: (res) => {
-        if (!finish()) return
-
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          const msg = extractError(res)
-          reject(new Error(msg))
-          return
-        }
-
-        const { text, reason } = extractContent(res.data)
-        if (!text) {
-          reject(new Error(`AI 返回内容为空：${reason}`))
-          return
-        }
-        resolve(text)
-      },
-      fail: (e) => {
-        if (!finish()) return
-        const msg = e && e.errMsg ? e.errMsg : '网络请求失败'
-        // uni.request 自己超时了 —— 也报成我们能看懂的超时提示
-        if (/timeout/i.test(msg)) {
-          reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
-          return
-        }
-        reject(new Error(msg))
+      function finish() {
+        if (settled) return false
+        settled = true
+        clearTimeout(timer)
+        return true
       }
+
+      const timer = setTimeout(() => {
+        if (!finish()) return
+        // ★ 超时后主动中断底层请求 ★
+        //   不中断的话，这个请求会继续占着连接和内存，
+        //   用户连着问几句就攒下一堆僵尸请求。
+        try {
+          if (task && typeof task.abort === 'function') task.abort()
+        } catch (e) {}
+        reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
+      }, timeoutMs)
+
+      task = uni.request({
+        url,
+        method: 'POST',
+        header: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${ai.apiKey}`
+        },
+        data: reqBody,
+        /**
+         * ★ 必须把超时值告诉 uni.request ★
+         *
+         *   uni.request 自己有个默认超时（各平台不一样，App 端常见 60 秒），
+         *   到点会直接走 fail 回调。
+         *   如果不显式设置：
+         *     · 我们想给对话 120 秒，但 uni.request 60 秒就断了 → 用户看到超时
+         *     · 我们想给解析 20 秒，但 uni.request 60 秒才断 → 界面干等
+         *   显式传 timeout 后，两边的时间才一致。
+         *
+         * ★ 还要留一点余量给我们的计时器 ★
+         *   uni.request 的 timeout 是「网络层」的超时，
+         *   我们的 setTimeout 是「整体」的超时。
+         *   让网络层比整体晚一点点触发，
+         *   这样「我们自己判定超时」总是先发生，报错信息更准
+         *   （否则拿到的是 uni 的 errMsg，看不出是自己超时了）。
+         */
+        timeout: timeoutMs + 3000,
+        success: (res) => {
+          if (!finish()) return
+
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const msg = extractError(res)
+            reject(new Error(msg))
+            return
+          }
+
+          const r = extractContent(res.data)
+          if (!r.text) {
+            /*
+             * ★ 把「被截断」这个信息带出去 ★
+             *   上层要靠 truncated 判断要不要加大预算重试，
+             *   也要靠它给用户一句能看懂的提示
+             *   （而不是干巴巴的「内容为空」）。
+             */
+            const err = new Error(`AI 返回内容为空：${r.reason}`)
+            err.truncated = r.truncated
+            err.reasoning = r.reasoning
+            reject(err)
+            return
+          }
+          resolve(r)
+        },
+        fail: (e) => {
+          if (!finish()) return
+          const msg = e && e.errMsg ? e.errMsg : '网络请求失败'
+          // uni.request 自己超时了 —— 也报成我们能看懂的超时提示
+          if (/timeout/i.test(msg)) {
+            reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
+            return
+          }
+          reject(new Error(msg))
+        }
+      })
     })
-  })
+  }
+
+  /**
+   * ★ 截断了就加大预算重试一次 ★
+   *
+   *   为什么要有这层兜底：
+   *     max_tokens 同时限制「思考」和「正文」，
+   *     推理模型思考起来很容易把预算吃光 ——
+   *     而「模型想了多少」我们事先根本猜不准。
+   *     所以第一次被截断时，**把预算翻一倍再试一次**，
+   *     比直接报错给用户友好得多。
+   *
+   *   只重试一次，避免无限循环烧额度。
+   *   记账解析那边不重试（opt.retryOnTruncate 为 false）——
+   *   解析要的是快，重试一遍反而更慢。
+   */
+  const canRetry = opt.retryOnTruncate !== false && isChat
+  let result
+  try {
+    result = await requestOnce(initialMaxTokens)
+  } catch (e) {
+    if (!e || !e.truncated || !canRetry) throw e
+
+    /*
+     * ★ 重试时把预算翻倍 ★
+     *   上限 32K —— 再大就没意义了（模型本身也用不了那么多），
+     *   而且万一用户模型不支持这么大的 max_tokens，
+     *   服务端会直接报错（400），那就白重试了。
+     */
+    const bigger = Math.min(32000, Math.max((initialMaxTokens || 4000) * 2, 8000))
+    console.warn(
+      `[ai] 回答被 max_tokens 截断（用了 ${initialMaxTokens}），` +
+      `加大到 ${bigger} 重试`
+    )
+    result = await requestOnce(bigger)
+  }
+
+  return result.text
 }
 
 function extractError(res) {
