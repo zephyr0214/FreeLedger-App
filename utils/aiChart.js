@@ -44,6 +44,16 @@ export function escapeXml(s) {
 /**
  * 环形图（分类构成）
  *
+ * ★ 版面：环在左、标签在右 ★
+ *   早先把标签摆在环的两侧（x=4 和 x=136），
+ *   而环的范围是 38~222 —— **标签压在环上面**，糊成一团。
+ *   现在把环缩到左边一块地方，标签全部排到右边，
+ *   两者各占各的，互不干扰。
+ *
+ * ★ 标签带占比 ★
+ *   以前标签只有分类名，读者还要自己心算占比。
+ *   现在直接标出「餐饮 42%」，不用另配一份图例。
+ *
  * @param {Array} items [{name, amount, color}]
  * @param {object} opts { title, textColor, total }
  * @returns {string} SVG 源码
@@ -58,15 +68,21 @@ export function buildAiDonutSvg(items, opts = {}) {
     : list.reduce((a, b) => a + Number(b.amount), 0)
   if (!sum) return ''
 
-  const size = 260
-  const cx = 130
-  const cy = 130
-  const r = 92
-  const strokeWidth = 30
+  // 整体版面
+  const width = 300
+  const rowH = 26
+  const height = Math.max(160, list.length * rowH + 24)
+
+  // 环：放在左边
+  const cx = 82
+  const cy = height / 2
+  const r = Math.min(58, (height - 40) / 2)
+  const strokeWidth = 24
 
   const parts = []
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">`
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" ` +
+    `width="${width}" height="${height}">`
   )
 
   let acc = -90 // 从 12 点开始
@@ -107,48 +123,49 @@ export function buildAiDonutSvg(items, opts = {}) {
     )
   })
 
-  // 中心：合计金额
+  // 环中心：合计金额
   parts.push(
-    `<text x="${cx}" y="${cy - 4}" fill="${textColor}" font-size="13" ` +
+    `<text x="${cx}" y="${cy - 6}" fill="${textColor}" font-size="11" ` +
     'text-anchor="middle" dominant-baseline="middle" ' +
     'font-family="-apple-system, \'PingFang SC\', sans-serif">合计</text>'
   )
   parts.push(
-    `<text x="${cx}" y="${cy + 18}" fill="${textColor}" font-size="17" font-weight="600" ` +
+    `<text x="${cx}" y="${cy + 12}" fill="${textColor}" font-size="15" font-weight="600" ` +
     'text-anchor="middle" dominant-baseline="middle" ' +
     'font-family="-apple-system, \'PingFang SC\', sans-serif">' +
     `${escapeXml(formatShortMoney(sum))}</text>`
   )
 
   /*
-   * ★ 分类名要出现在图上 ★
-   *   环形图只有颜色块的话，读者根本不知道哪块是什么 ——
-   *   必须把名字标出来（截断以免挤爆）。
+   * ★ 标签：全部排在环的右边，各占一行 ★
+   *   每行 = 色块 + 分类名 + 占比。
    *   名字来自用户输入（含分类名），所以要转义。
    */
-  const labelW = 92
-  const labelH = 20
-  const labelGap = 6
-  const perCol = Math.ceil(list.length / 2)
-  const startY = cy - (perCol * (labelH + labelGap)) / 2 + labelH / 2
+  const labelX = 158
+  const startY = height / 2 - (list.length * rowH) / 2 + rowH / 2
 
   list.forEach((item, i) => {
-    const col = Math.floor(i / perCol)
-    const row = i % perCol
-    const x = col === 0 ? 4 : size / 2 + 6
-    const y = startY + row * (labelH + labelGap)
+    const y = startY + i * rowH
     const color = item.color || AI_CHART_PALETTE[i % AI_CHART_PALETTE.length]
+    const pct = ((Number(item.amount) / sum) * 100).toFixed(1).replace(/\.0$/, '')
 
     // 色块
     parts.push(
-      `<rect x="${x}" y="${y - 5}" width="9" height="9" rx="2" fill="${color}"/>`
+      `<rect x="${labelX}" y="${y - 4.5}" width="9" height="9" rx="2" fill="${color}"/>`
     )
-    // 名字
+    // 分类名
     parts.push(
-      `<text x="${x + 14}" y="${y}" fill="${textColor}" font-size="11" ` +
+      `<text x="${labelX + 15}" y="${y}" fill="${textColor}" font-size="12" ` +
       'dominant-baseline="middle" ' +
       'font-family="-apple-system, \'PingFang SC\', sans-serif">' +
-      `${escapeXml(truncate(item.name, 6))}</text>`
+      `${escapeXml(truncate(item.name, 8))}</text>`
+    )
+    // 占比（右边对齐）
+    parts.push(
+      `<text x="${width}" y="${y}" fill="${textColor}" font-size="12" ` +
+      'text-anchor="end" dominant-baseline="middle" ' +
+      'font-family="-apple-system, \'PingFang SC\', sans-serif">' +
+      `${escapeXml(pct + '%')}</text>`
     )
   })
 

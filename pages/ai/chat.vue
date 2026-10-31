@@ -47,53 +47,60 @@
               :style="{ color: '#ffffff' }"
             >{{ msg.content }}</text>
 
-            <!-- AI 消息：markdown 渲染 + 图表 -->
+            <!--
+              AI 消息：markdown 渲染 + 图表
+
+              ★ 必须有 content 兜底 ★
+                早期版本只渲染 msg.blocks，
+                而 blocks 是「发送时算出来的」，历史记录里并没有 ——
+                结果退出再进来，历史消息全是空白气泡。
+                现在 blocks 为空就退回渲染纯文本 content，
+                无论历史记录里有没有 blocks 都能正常显示。
+            -->
             <view v-else class="ai-content">
-              <view v-for="(blk, bi) in msg.blocks" :key="bi" class="md-block">
-                <!-- 标题 -->
-                <text v-if="blk.type === 'h'" class="md-h" :class="'md-h' + blk.level">
-                  <text
-                    v-for="(seg, si) in blk.segments"
-                    :key="si"
-                    :class="{ 'md-bold': seg.bold, 'md-code': seg.code }"
-                  >{{ seg.text }}</text>
-                </text>
+              <template v-if="msg.blocks && msg.blocks.length">
+                <view v-for="(blk, bi) in msg.blocks" :key="bi" class="md-block">
+                  <!-- 标题 -->
+                  <text v-if="blk.type === 'h'" class="md-h" :class="'md-h' + blk.level">
+                    <text
+                      v-for="(seg, si) in blk.segments"
+                      :key="si"
+                      :class="{ 'md-bold': seg.bold, 'md-code': seg.code }"
+                    >{{ seg.text }}</text>
+                  </text>
 
-                <!-- 段落 -->
-                <text v-else-if="blk.type === 'p'" class="md-p">
-                  <text
-                    v-for="(seg, si) in blk.segments"
-                    :key="si"
-                    :class="{ 'md-bold': seg.bold, 'md-code': seg.code }"
-                  >{{ seg.text }}</text>
-                </text>
+                  <!-- 段落 -->
+                  <text v-else-if="blk.type === 'p'" class="md-p">
+                    <text
+                      v-for="(seg, si) in blk.segments"
+                      :key="si"
+                      :class="{ 'md-bold': seg.bold, 'md-code': seg.code }"
+                    >{{ seg.text }}</text>
+                  </text>
 
-                <!-- 列表 -->
-                <view v-else-if="blk.type === 'ul'" class="md-ul">
-                  <view v-for="(item, ii) in blk.items" :key="ii" class="md-li">
-                    <text class="md-li-dot">•</text>
-                    <text class="md-li-text">
-                      <text
-                        v-for="(seg, si) in item.segments"
-                        :key="si"
-                        :class="{ 'md-bold': seg.bold, 'md-code': seg.code }"
-                      >{{ seg.text }}</text>
-                    </text>
+                  <!-- 列表 -->
+                  <view v-else-if="blk.type === 'ul'" class="md-ul">
+                    <view v-for="(item, ii) in blk.items" :key="ii" class="md-li">
+                      <text class="md-li-dot">•</text>
+                      <text class="md-li-text">
+                        <text
+                          v-for="(seg, si) in item.segments"
+                          :key="si"
+                          :class="{ 'md-bold': seg.bold, 'md-code': seg.code }"
+                        >{{ seg.text }}</text>
+                      </text>
+                    </view>
                   </view>
                 </view>
-              </view>
+              </template>
+
+              <!-- 兜底：没有 blocks 就显示纯文本 -->
+              <text v-else class="md-p">{{ msg.content }}</text>
 
               <!-- 图表 -->
               <view v-if="msg.charts && msg.charts.length" class="chart-list">
                 <view v-for="(c, ci) in msg.charts" :key="ci" class="chart-card">
                   <text v-if="c.title" class="chart-title">{{ c.title }}</text>
-                  <view v-if="c.legend" class="chart-legend">
-                    <view v-for="(lg, li) in c.legend" :key="li" class="legend-item">
-                      <view class="legend-dot" :style="{ backgroundColor: lg.color }" />
-                      <text class="legend-name">{{ lg.name }}</text>
-                      <text class="legend-value">{{ lg.value }}</text>
-                    </view>
-                  </view>
                   <image
                     v-if="c.uri"
                     class="chart-img"
@@ -181,7 +188,7 @@ import {
 import { askFinance } from '@/api/aiParse.js'
 import { normalizeChartSpec, fetchChartData } from '@/api/aiChartData.js'
 import { renderMarkdown } from '@/utils/markdown.js'
-import { buildAiChartUri, formatShortMoney } from '@/utils/aiChart.js'
+import { buildAiChartUri } from '@/utils/aiChart.js'
 import { toMonthKey, toDayKey, shiftDay, monthRange } from '@/utils/date.js'
 import { confirmDialog } from '@/utils/dialog.js'
 
@@ -392,20 +399,15 @@ export default {
         })
         if (!uri) continue
 
-        // 图例：环形图有引导线太挤，用图例更清楚
-        // ★ 颜色直接用 item.color ★
-        //   和环形图上的色块同源，不会出现「色块一个色、图例另一个色」
-        const legend = data.items.slice(0, 6).map((it) => ({
-          name: it.name,
-          color: it.color,
-          value: formatShortMoney(it.amount) + '元'
-        }))
-
+        /*
+         * ★ 不再生成图例 ★
+         *   环形图里已经在图的两侧标了「分类名 + 占比」，
+         *   下面再来一份图例是重复的，还容易和图叠在一起。
+         */
         out.push({
           type: spec.type,
           title: spec.title,
-          uri,
-          legend: spec.type === 'donut' ? legend : null
+          uri
         })
       }
       return out
@@ -497,12 +499,53 @@ export default {
 
     /* ---------------------------------------------------------- 历史 */
 
+    /**
+     * 保存历史对话。
+     *
+     * ★ 只存「role + content」★
+     *   以前存的是整个消息对象，里面带着：
+     *     · blocks —— 发送时算出来的 markdown 分片，读出来还要重算
+     *     · charts —— 每张图的 SVG data URI，**一张就 2.7 KB**
+     *   30 条消息带图能到 50 KB，
+     *   而 uni.setStorageSync 在 App 端有容量上限 ——
+     *   超了会直接抛异常。
+     *
+     * ★ 以前为什么会「退出再进入就不渲染」★
+     *   1. 存不下 → setStorageSync 抛异常
+     *   2. catch 是空的，异常被吞掉，**整份历史一条都没存进去**
+     *   3. 下次进来读到的是上一次的旧数据或空
+     *   4. 而模板当时只渲染 msg.blocks（历史记录里根本没有这个字段）
+     *      → 空白气泡
+     *
+     *   现在：存轻量的 content，读出来用 renderMarkdown 重算 blocks。
+     */
     function saveHistory() {
       try {
-        // 只存最近 30 条
-        const toSave = messages.value.slice(-30)
+        // 只存最近 30 条，且只保留 role + content
+        const toSave = messages.value
+          .slice(-30)
+          .map((m) => ({ role: m.role, content: m.content }))
         uni.setStorageSync(HISTORY_KEY, JSON.stringify(toSave))
-      } catch (e) {}
+      } catch (e) {
+        /*
+         * ★ 存不下的时候，不能把旧记录一起弄丢 ★
+         *   逐级减少条数重试：20 → 10 → 5 → 1。
+         *   宁可只留下最近几条，也不能整个历史都没了。
+         */
+        console.warn('[ai] 保存历史失败，尝试精简:', e && e.message)
+        for (const keep of [20, 10, 5, 1]) {
+          try {
+            const slim = messages.value
+              .slice(-keep)
+              .map((m) => ({ role: m.role, content: m.content }))
+            uni.setStorageSync(HISTORY_KEY, JSON.stringify(slim))
+            return
+          } catch (e2) {
+            // 继续试更少的条数
+          }
+        }
+        console.warn('[ai] 历史记录保存失败')
+      }
     }
 
     function loadHistory() {
@@ -518,15 +561,21 @@ export default {
               .map((m) => ({
                 role: m.role,
                 content: m.content,
-                // ★ 历史消息要重新渲染 markdown、并且不保留图表 ★
-                //   图表是 SVG data URI，存进 localStorage 又大又没必要
-                //   （下次问同样的问题时模型会重新给规格）
-                blocks: m.role === 'assistant' ? renderMarkdown(m.content) : null,
+                // ★ blocks 在读出来时重算 ★
+                //   历史记录里没有这个字段（存的时候只存了 content），
+                //   这里重新渲染一遍 markdown。
+                //   顺带兼容「老版本存过 blocks」的记录 —— 那种直接用。
+                blocks: m.blocks && m.blocks.length
+                  ? m.blocks
+                  : (m.role === 'assistant' ? renderMarkdown(m.content) : null),
+                // 图表不保留：SVG data URI 太大，且重新问一次就会重新生成
                 charts: []
               }))
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[ai] 读取历史失败:', e && e.message)
+      }
     }
 
     async function clearHistory() {
@@ -772,42 +821,6 @@ export default {
   color: var(--app-text-3);
   text-align: center;
   padding: 20rpx 0;
-}
-
-.chart-legend {
-  margin-top: 12rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-}
-
-.legend-dot {
-  width: 14rpx;
-  height: 14rpx;
-  border-radius: 50%;
-  margin-right: 10rpx;
-  flex-shrink: 0;
-}
-
-.legend-name {
-  flex: 1;
-  font-size: 24rpx;
-  color: var(--app-text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.legend-value {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  margin-left: 12rpx;
-  flex-shrink: 0;
 }
 
 /* ---------------- 思考状态 ---------------- */
