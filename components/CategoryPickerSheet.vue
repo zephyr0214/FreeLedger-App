@@ -76,7 +76,7 @@ import { computed, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { groupCategoriesByParent } from '@/utils/categorySort.js'
-import { categoryIconStyle } from '@/utils/categoryIcon.js'
+import { categoryIconStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
@@ -125,14 +125,14 @@ export default {
       return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
     }
 
-    /** 分类图标的配色（浅色底 + 本色图标，与交易流水一致） */
+    /** 分类图标的配色（未选中浅灰底、选中浅色底，图标是分类本色） */
     function iconStyle(cat, active) {
       return categoryIconStyle(cat, primaryColor.value, active)
     }
 
-    /** 分组标题（一级分类）的图标配色 */
+    /** 分组标题（一级分类）的图标配色：始终是分类色的浅色底 */
     function groupIconStyle(parent) {
-      return categoryIconStyle(parent, primaryColor.value)
+      return categoryGroupIconStyle(parent, primaryColor.value)
     }
 
     /** 选中一个分类 */
@@ -282,12 +282,6 @@ export default {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
-  /*
-    描边由内联样式给（选中时是分类本色，不选是 transparent）——
-    底色改成浅色后靠它标出选中项。宽度固定 2rpx，避免选中/不选中之间位置跳动。
-  */
-  border: 2rpx solid transparent;
-  box-sizing: border-box;
 }
 
 /*

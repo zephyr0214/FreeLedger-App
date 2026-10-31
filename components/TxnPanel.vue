@@ -1053,12 +1053,6 @@ export default {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
-  /*
-    描边由内联样式给（选中时是分类本色，不选是 transparent）——
-    底色改成浅色后靠它标出选中项。宽度固定 2rpx，避免选中/不选中之间位置跳动。
-  */
-  border: 2rpx solid transparent;
-  box-sizing: border-box;
 }
 
 /*

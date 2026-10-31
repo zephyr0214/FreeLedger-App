@@ -1,15 +1,17 @@
 /**
- * 「更多分类」按一级分类分组的单测
+ * 「更多分类」按一级分类分组 + 分类图标配色的单测
  *
  *   node scripts/test-category-group.mjs
  *
  * 背景（用户需求）
- *   1. 记账弹层（含周期弹层）里的分类图标底色要跟交易流水一致 ——
- *      浅色底（分类色 + '22'）+ 分类本色图标，而不是深色实底 + 白图标。
+ *   1. 记账弹层（含周期弹层）里的分类图标底色：
+ *      未选中 = 浅浅的灰色底（深浅色模式自适应）；
+ *      选中   = 分类色的浅色底（与交易流水一致）；
+ *      图标   = 始终是分类本色。
  *   2. 「更多分类」面板要按一级分类分组，把所有二级分类显示在它的一级分类下面。
  *
  * 检查项：
- *   1. categoryIconStyle：浅色底 + 本色图标，选中时加同色描边
+ *   1. categoryIconStyle：未选中浅灰底、选中分类色浅底、图标始终本色
  *   2. groupCategoriesByParent：二级归到一级下面、无二级的一级自己成组、
  *      父级缺失时不丢分类、组顺序按首次出现位置
  */
@@ -20,6 +22,8 @@ import {
   categoryIconBg,
   categoryIconFg,
   categoryColor,
+  categoryGroupIconStyle,
+  UNSELECTED_ICON_BG,
   FALLBACK_CATEGORY_COLOR
 } from '../utils/categoryIcon.js'
 
@@ -41,11 +45,23 @@ const PRIMARY = '#07C160'
 
 /* ==================================================== 1. 图标配色 */
 
-console.log('=== 图标配色（与交易流水一致：浅色底 + 本色图标） ===')
+console.log('=== 图标配色（未选中浅灰底 / 选中分类色浅底 / 图标本色） ===')
 
 check(
-  '分类色 + 22 = 浅色底',
+  '未选中时是浅灰底（走 CSS 变量，深浅色自动适配）',
   categoryIconBg({ color: '#FF976A' }),
+  UNSELECTED_ICON_BG
+)
+
+check(
+  '未选中时底色是 var(--app-card-2)',
+  categoryIconBg({ color: '#FF976A' }),
+  'var(--app-card-2)'
+)
+
+check(
+  '选中时是分类色 + 22 的浅色底',
+  categoryIconBg({ color: '#FF976A' }, FALLBACK_CATEGORY_COLOR, true),
   '#FF976A22'
 )
 
@@ -74,21 +90,33 @@ check(
 )
 
 check(
-  '默认样式：浅色底 + 本色图标 + 无描边',
+  '未选中：浅灰底 + 本色图标',
   categoryIconStyle({ color: '#1989FA' }, PRIMARY),
-  { backgroundColor: '#1989FA22', color: '#1989FA', borderColor: 'transparent' }
+  { backgroundColor: 'var(--app-card-2)', color: '#1989FA' }
 )
 
 check(
-  '选中时加一圈同色描边',
+  '选中：分类色浅底 + 本色图标',
   categoryIconStyle({ color: '#1989FA' }, PRIMARY, true),
-  { backgroundColor: '#1989FA22', color: '#1989FA', borderColor: '#1989FA' }
+  { backgroundColor: '#1989FA22', color: '#1989FA' }
 )
 
 check(
-  '没有颜色时整组用主题色',
+  '没有颜色时选中态用主题色做浅底',
+  categoryIconStyle({}, PRIMARY, true),
+  { backgroundColor: PRIMARY + '22', color: PRIMARY }
+)
+
+check(
+  '没有颜色时未选中仍是浅灰底',
   categoryIconStyle({}, PRIMARY),
-  { backgroundColor: PRIMARY + '22', color: PRIMARY, borderColor: 'transparent' }
+  { backgroundColor: 'var(--app-card-2)', color: PRIMARY }
+)
+
+check(
+  '分组标题的图标：始终是分类色浅底（不跟选中态变）',
+  categoryGroupIconStyle({ color: '#07C160' }, PRIMARY),
+  { backgroundColor: '#07C16022', color: '#07C160' }
 )
 
 /* ============================================== 2. 按一级分类分组 */
