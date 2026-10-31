@@ -71,14 +71,11 @@
             :class="{ active: form.category_id === cat.id }"
             @click="pickCategory(cat)"
           >
-            <view
-              class="cat-icon-wrap"
-              :style="{
-                backgroundColor: form.category_id === cat.id
-                  ? (cat.color || primaryColor)
-                  : 'var(--app-card-2)'
-              }"
-            >
+            <!--
+              图标配色与交易流水一致：浅色底 + 分类本色图标。
+              （以前这里是「深色实底 + 白图标」，选中时整块分类色，和流水对不上）
+            -->
+            <view class="cat-icon-wrap" :style="catIconStyle(cat, form.category_id === cat.id)">
               <text class="cat-icon-text">{{ iconChar(cat) }}</text>
             </view>
             <text
@@ -211,48 +208,17 @@
       @select="onDaySelect"
     />
 
-    <!-- 更多分类 -->
-    <wd-popup
+    <!--
+      更多分类：按一级分类分组的网格面板。
+      ★ 与记账弹层共用同一个组件（components/CategoryPickerSheet.vue）★
+    -->
+    <CategoryPickerSheet
       v-model="showMoreCategories"
-      position="bottom"
-      :safe-area-inset-bottom="true"
-      custom-style="background-color: var(--app-card); border-radius: 28rpx 28rpx 0 0;"
-    >
-      <view class="more-sheet">
-        <view class="more-sheet-head">
-          <text class="more-sheet-title">选择分类</text>
-          <text class="more-sheet-close" @click="showMoreCategories = false">关闭</text>
-        </view>
-        <scroll-view class="more-sheet-scroll" scroll-y>
-          <view class="more-grid">
-            <view
-              v-for="cat in allCategoryItems"
-              :key="cat.id"
-              class="more-item"
-              :class="{ active: form.category_id === cat.id }"
-              @click="pickCategoryFromMore(cat)"
-            >
-              <view
-                class="more-icon-wrap"
-                :style="{
-                  backgroundColor: form.category_id === cat.id
-                    ? (cat.color || primaryColor)
-                    : 'var(--app-card-2)'
-                }"
-              >
-                <text class="more-icon-text">{{ iconChar(cat) }}</text>
-              </view>
-              <text
-                class="more-name"
-                :style="{
-                  color: form.category_id === cat.id ? 'var(--app-text)' : 'var(--app-text-2)'
-                }"
-              >{{ cat.name }}</text>
-            </view>
-          </view>
-        </scroll-view>
-      </view>
-    </wd-popup>
+      :categories="allCategoryItems"
+      :all-categories="categories"
+      :selected-id="form.category_id"
+      @pick-category="pickCategoryFromMore"
+    />
 
     <AppDialog />
   </wd-popup>
@@ -262,6 +228,7 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import CategoryPickerSheet from '@/components/CategoryPickerSheet.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
@@ -269,6 +236,7 @@ import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay, 
 import { evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
+import { categoryIconStyle } from '@/utils/categoryIcon.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
@@ -283,7 +251,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { NumberKeyboard, AppDialog },
+  components: { NumberKeyboard, AppDialog, CategoryPickerSheet },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -455,6 +423,21 @@ export default {
 
     function iconChar(cat) {
       return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
+    }
+
+    /**
+     * 分类图标的配色。
+     *
+     * ★ 与交易流水保持一致 ★
+     *   浅色底（分类色 + '22'）+ 分类本色图标。
+     *   以前这里是「深色实底 + 白图标」，选中时整块分类色，
+     *   同一个分类在流水里和记账弹层里完全是两种观感。
+     *
+     * @param {object} cat 分类对象
+     * @param {boolean} active 是否选中（选中时加一圈同色描边）
+     */
+    function catIconStyle(cat, active) {
+      return categoryIconStyle(cat, primaryColor.value, active)
     }
 
     /** 周期简称（弹窗文案用）：分类名 / 转账两端名 */
@@ -797,7 +780,13 @@ export default {
     bindSheet('cycRecurrencePicker', showRecurrencePicker)
     bindSheet('cycWeekdayPicker', showWeekdayPicker)
     bindSheet('cycDayPicker', showDayPicker)
-    bindSheet('cycMoreCategories', showMoreCategories)
+    /*
+     * ★ 「更多分类」不在这里登记 ★
+     *   它现在是独立组件 CategoryPickerSheet，
+     *   由那个组件自己 pushLayer / 摘掉（见 components/CategoryPickerSheet.vue）。
+     *   两边都登记的话栈里会有两条记录，
+     *   侧滑返回要按两次才关得掉周期面板。
+     */
 
     onUnmounted(() => {
       if (unregisterLayer) {
@@ -826,7 +815,7 @@ export default {
 
     return {
       visible, editing, types, typeName, form, primaryColor, currencySymbol,
-      categoryRows, moreRowItems, allCategoryItems,
+      categories, categoryRows, moreRowItems, allCategoryItems,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, amountFilled,
       currentAccountName, toAccountName, accountActions, toAccountActions,
@@ -834,7 +823,7 @@ export default {
       dayActions, dayOfMonthLabel,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
       showWeekdayPicker, showDayPicker,
-      iconChar, switchType, pickCategory,
+      iconChar, catIconStyle, switchType, pickCategory,
       openAccountPicker, openToAccountPicker, openRecurrencePicker,
       openWeekdayPicker, openDayPicker,
       onAccountSelect, onToAccountSelect, onRecurrenceSelect,
@@ -1006,11 +995,20 @@ export default {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
+  /*
+    描边由内联样式给（选中时是分类本色，不选是 transparent）——
+    底色改成浅色后靠它标出选中项。宽度固定 2rpx，避免选中/不选中之间位置跳动。
+  */
+  border: 2rpx solid transparent;
+  box-sizing: border-box;
 }
 
+/*
+  图标文字颜色由内联样式给（分类本色，见 utils/categoryIcon.js），
+  这里不写死颜色 —— 写成 #ffffff 会盖掉内联的浅色底 + 本色图标。
+*/
 .cat-icon-text {
   font-size: 30rpx;
-  color: #ffffff;
   font-weight: 500;
 }
 
@@ -1031,72 +1029,6 @@ export default {
   color: var(--app-text-3);
   line-height: 1;
   letter-spacing: 2rpx;
-}
-
-.more-sheet {
-  background-color: var(--app-card);
-  padding-bottom: env(safe-area-inset-bottom);
-  max-height: 72vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.more-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx 32rpx 20rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.more-sheet-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.more-sheet-close {
-  font-size: 28rpx;
-  color: var(--app-text-3);
-}
-
-.more-sheet-scroll {
-  max-height: 54vh;
-}
-
-.more-grid {
-  display: flex;
-  flex-wrap: wrap;
-  padding: 16rpx 32rpx 24rpx;
-}
-
-.more-item {
-  width: 20%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  padding: 12rpx 0;
-}
-
-.more-icon-wrap {
-  width: 80rpx;
-  height: 80rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.more-icon-text {
-  font-size: 30rpx;
-  color: #ffffff;
-  font-weight: 500;
-}
-
-.more-name {
-  font-size: 22rpx;
-  text-align: center;
 }
 
 .form-rows {

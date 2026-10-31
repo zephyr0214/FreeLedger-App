@@ -73,3 +73,74 @@ export function isSelectableCategory(cat, all) {
   // 一级分类：仅当它下面没有任何二级时才可选
   return !all.some((c) => c.parent_id === cat.id)
 }
+
+/**
+ * 把可选分类按「一级分类」分组。
+ *
+ * ★ 为什么要分组 ★
+ *   「更多分类」面板以前是一张平铺的网格，一二十个分类混在一起，
+ *   用户根本分不清「正餐」属于餐饮、「学费」属于学校学习。
+ *   改成按一级分类分组后，一眼就能看出层级关系。
+ *
+ * ★ 分组规则 ★
+ *   1. 二级分类 → 归到它的一级分类下面
+ *   2. 「没有二级」的一级分类（如收入的「工资」）→ 自己就是一组
+ *   3. 找不到父级（父级被隐藏/删掉）→ 自己独立成组，避免被丢掉
+ *
+ * ★ 组的顺序 ★
+ *   按 members 在传入列表里的**首次出现位置**排序
+ *   （members 本身已按使用频率排好序，见 sortCategoriesByUsage）。
+ *   所以「最近最常用的那个分类」所在的组一定排在最前面，
+ *   和面板顶部那两行直接显示的分类是同一套排序逻辑。
+ *
+ * @param {Array} selectable  可选分类（已排序）[{id, name, parent_id, ...}]
+ * @param {Array} all         当前类型下的全部分类（用来找一级分类）
+ * @returns {Array} [{ parent, members }] —— parent 是一级分类对象，
+ *            members 是该组下的可选分类
+ */
+export function groupCategoriesByParent(selectable, all = []) {
+  if (!Array.isArray(selectable) || selectable.length === 0) return []
+
+  const list = Array.isArray(all) ? all : []
+  const parentMap = new Map()
+
+  /** 找到某分类的一级分类对象（找不到就是 null） */
+  function findParent(cat) {
+    if (!cat || !cat.parent_id) return null
+    if (parentMap.has(cat.parent_id)) return parentMap.get(cat.parent_id)
+    const p = list.find((c) => c.id === cat.parent_id) || null
+    parentMap.set(cat.parent_id, p)
+    return p
+  }
+
+  const groups = []
+  /** id -> group，用于把同一父级下的二级分类归到一起 */
+  const groupByParentId = new Map()
+
+  for (const cat of selectable) {
+    if (!cat) continue
+
+    // 一级分类（自己就是组）
+    if (!cat.parent_id) {
+      groups.push({ parent: cat, members: [cat] })
+      continue
+    }
+
+    const parent = findParent(cat)
+    if (!parent) {
+      // 父级不在当前可见列表里（被隐藏或删掉了）→ 自己独立成组
+      groups.push({ parent: cat, members: [cat] })
+      continue
+    }
+
+    let group = groupByParentId.get(parent.id)
+    if (!group) {
+      group = { parent, members: [] }
+      groupByParentId.set(parent.id, group)
+      groups.push(group)
+    }
+    group.members.push(cat)
+  }
+
+  return groups
+}
