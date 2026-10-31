@@ -79,8 +79,10 @@ function extractContent(data) {
  * @param {Array} messages [{role, content}]
  * @param {object} opt
  *   - temperature    采样随机性；不传则读 settings.aiChat.temperature
- *   - timeoutMs      超时
+ *   - timeoutMs      超时；不传则按 kind 决定（见下面）
  *   - maxTokens      输出上限
+ *   - kind           'chat' = 对话（用 settings.aiChat.timeoutMs，默认 120 秒）
+ *                     不传   = 其它（用 settings.ai.timeoutMs，默认 30 秒）
  *   - thinking       是否开启「深度思考」
  *                     true  = 开启（对话页用，模型自己决定要不要推理）
  *                     false = 关闭（记账解析用，要的是快和稳）
@@ -95,7 +97,28 @@ export async function chat(messages, opt = {}) {
   if (!ai.baseUrl) throw new Error('未配置 Base URL')
 
   const url = `${String(ai.baseUrl).replace(/\/+$/, '')}/chat/completions`
-  const timeoutMs = opt.timeoutMs || ai.timeoutMs || 30000
+
+  /**
+   * ★ 超时怎么算 ★
+   *   优先级：
+   *     1. opt.timeoutMs       —— 调用方显式指定（记账解析走这条）
+   *     2. opt.kind === 'chat' —— 对话：用 settings.aiChat.timeoutMs（120 秒）
+   *     3. settings.ai.timeoutMs —— 通用（30 秒）
+   *     4. 兜底 30 秒
+   *
+   *   ★ 为什么不能让「对话超时」无条件生效 ★
+   *     settings.aiChat.timeoutMs 有默认值（120 秒），
+   *     而 AI 记账也走同一个 chat()。
+   *     如果无条件用 aiChat.timeoutMs，记账解析就会变成 120 秒 ——
+   *     网络卡住时用户对着转圈干等两分钟。
+   *     所以「用对话超时」必须由调用方**明确说这是对话**（kind: 'chat'）。
+   */
+  const isChat = opt.kind === 'chat'
+  const timeoutMs =
+    opt.timeoutMs ||
+    (isChat ? aiChat.timeoutMs : 0) ||
+    ai.timeoutMs ||
+    30000
 
   const body = {
     model: ai.model || 'deepseek-chat',
@@ -138,14 +161,35 @@ export async function chat(messages, opt = {}) {
 
   return new Promise((resolve, reject) => {
     let settled = false
+    /** 底层请求任务（超时后要主动 abort，否则请求还在跑） */
+    let task = null
+
+    /**
+     * 收尾：清计时器、标记已结算。
+     * ★ settled 这个闸门必须有 ★
+     *   超时和请求回调可能同时到达（谁先谁后不确定），
+     *   不加闸门会出现「Promise 已 reject 又 resolve」，
+     *   或者重复 reject。
+     */
+    function finish() {
+      if (settled) return false
+      settled = true
+      clearTimeout(timer)
+      return true
+    }
+
     const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true
-        reject(new Error('AI 请求超时'))
-      }
+      if (!finish()) return
+      // ★ 超时后主动中断底层请求 ★
+      //   不中断的话，这个请求会继续占着连接和内存，
+      //   用户连着问几句就攒下一堆僵尸请求。
+      try {
+        if (task && typeof task.abort === 'function') task.abort()
+      } catch (e) {}
+      reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
     }, timeoutMs)
 
-    uni.request({
+    task = uni.request({
       url,
       method: 'POST',
       header: {
@@ -153,10 +197,26 @@ export async function chat(messages, opt = {}) {
         Authorization: `Bearer ${ai.apiKey}`
       },
       data: body,
+      /**
+       * ★ 必须把超时值告诉 uni.request ★
+       *
+       *   uni.request 自己有个默认超时（各平台不一样，App 端常见 60 秒），
+       *   到点会直接走 fail 回调。
+       *   如果不显式设置：
+       *     · 我们想给对话 120 秒，但 uni.request 60 秒就断了 → 用户看到超时
+       *     · 我们想给解析 20 秒，但 uni.request 60 秒才断 → 界面干等
+       *   显式传 timeout 后，两边的时间才一致。
+       *
+       *   ★ 还要留一点余量给我们的计时器 ★
+       *     uni.request 的 timeout 是「网络层」的超时，
+       *     我们的 setTimeout 是「整体」的超时。
+       *     让网络层比整体晚一点点触发，
+       *     这样「我们自己判定超时」总是先发生，报错信息更准
+       *     （否则拿到的是 uni 的 errMsg，看不出是自己超时了）。
+       */
+      timeout: timeoutMs + 3000,
       success: (res) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
+        if (!finish()) return
 
         if (res.statusCode < 200 || res.statusCode >= 300) {
           const msg = extractError(res)
@@ -172,10 +232,14 @@ export async function chat(messages, opt = {}) {
         resolve(text)
       },
       fail: (e) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        reject(new Error(e.errMsg || '网络请求失败'))
+        if (!finish()) return
+        const msg = e && e.errMsg ? e.errMsg : '网络请求失败'
+        // uni.request 自己超时了 —— 也报成我们能看懂的超时提示
+        if (/timeout/i.test(msg)) {
+          reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
+          return
+        }
+        reject(new Error(msg))
       }
     })
   })

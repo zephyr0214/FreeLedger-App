@@ -685,8 +685,16 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    // 记账解析不需要推理过程，关掉深度思考能把响应从数秒压到 1~2 秒
-    { maxTokens: 1200, temperature: 0, thinking: false }
+    /*
+     * ★ 记账解析有自己的超时预算 ★
+     *   解析只要抽一段 JSON，1~3 秒就够了，
+     *   用 30 秒（通用值）的话，网络卡住时界面会干等很久。
+     *   显式给 20 秒 —— 超时了用户重试就行，不用一直等。
+     *
+     *   这里是唯一显式传 timeoutMs 的地方，
+     *   其它调用（AI 对话）走 settings.aiChat.timeoutMs（120 秒）。
+     */
+    { maxTokens: 1200, temperature: 0, thinking: false, timeoutMs: 20000 }
   )
 
   // ---- 提取 JSON
@@ -924,7 +932,17 @@ ${JSON.stringify(summary)}
   const reply = await chat(messages, {
     maxTokens: opt.maxTokens || 2000,
     temperature: opt.temperature,
-    thinking: opt.thinking !== false
+    thinking: opt.thinking !== false,
+    /*
+     * ★ kind: 'chat' —— 告诉 chat() 这是「对话」★
+     *   对话要用 settings.aiChat.timeoutMs（默认 120 秒）：
+     *   深度思考 + 2000 token 的完整分析可能要一两分钟，
+     *   用通用的 30 秒必然超时（这正是「AI 请求超时」的老大难）。
+     *
+     *   记账解析那边不传 kind，走通用的 30 秒。
+     */
+    kind: 'chat',
+    timeoutMs: opt.timeoutMs
   })
 
   // 解析结构化结果；解析不了就把整段回复当正文显示（不能让用户看到空白）

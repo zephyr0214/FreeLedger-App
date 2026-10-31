@@ -73,16 +73,24 @@ export const DEFAULT_SETTINGS = {
   /**
    * AI 对话专属设置
    *
-   * · temperature  对话用的采样随机性（固定 0.6，不再给用户滑块）
-   * · deepThinking 深度思考开关
-   * · maxTokens    单次回答的 token 上限（比记账宽松，回答更完整）
-   * · showCharts   是否允许 AI 附图表
+   * · temperature    对话用的采样随机性（固定 0.6，不再给用户滑块）
+   * · deepThinking   深度思考开关
+   * · maxTokens      单次回答的 token 上限（比记账宽松，回答更完整）
+   * · showCharts     是否允许 AI 附图表
+   * · timeoutMs      回答超时（比通用超时长 —— 见下面的说明）
+   *
+   * ★ 为什么对话要单独一个更长的超时 ★
+   *   「AI 记账」只是抽一段 JSON，响应通常 1~3 秒；
+   *   而「AI 对话」开了深度思考、要生成 2000 token 的完整分析，
+   *   正常就要 30~90 秒。用同一个超时值的话，
+   *   记账那边太宽松（卡住时干等），对话这边太紧（必然超时）。
    */
   aiChat: {
     temperature: 0.6,
     deepThinking: true,
     maxTokens: 2000,
-    showCharts: true
+    showCharts: true,
+    timeoutMs: 120000
   },
 
   // 数据

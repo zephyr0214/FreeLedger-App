@@ -196,7 +196,22 @@ console.log('=== 网络与鉴权错误仍然正确 ===')
   nextResponse = { fail: true, errMsg: 'request:fail timeout' }
   let err = ''
   try { await ask() } catch (e) { err = e.message }
-  check('网络失败透出 errMsg', /timeout/.test(err), true)
+  /*
+   * ★ 超时要翻译成能看懂的话 ★
+   *   uni.request 自己超时时会带 errMsg: 'request:fail timeout'，
+   *   直接透给用户等于把内部细节甩出去。
+   *   现在统一转成「AI 请求超时（xx 秒）」，并带上实际的秒数。
+   */
+  check('超时转成可读提示', /AI 请求超时/.test(err), true)
+  check('超时提示带上了秒数', /秒）/.test(err), true)
+}
+
+{
+  // 其它网络错误仍然原样透出 errMsg
+  nextResponse = { fail: true, errMsg: 'request:fail ssl hand shake error' }
+  let err = ''
+  try { await ask() } catch (e) { err = e.message }
+  check('非超时错误透出 errMsg', /ssl hand shake/.test(err), true)
 }
 
 console.log('=== 超时 ===')

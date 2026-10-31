@@ -289,8 +289,128 @@ const MIGRATIONS = [
     //   纯标记、不参与任何计算）。
     version: 11,
     up: migrateComboAccounts
+  },
+  {
+    // ★ AI 设置调整 ★
+    //   1) 超时 20s → 30s（深度思考响应慢，20 秒太紧）
+    //   2) 把旧的 ai.temperature 搬到 aiChat.temperature
+    //   3) 删掉从未生效的 aiCache
+    version: 12,
+    up: migrateAiSettings
   }
 ]
+
+/**
+ * 迁移 v12 —— AI 设置调整
+ *
+ * ★ 为什么需要迁移 ★
+ *   之前把「AI 对话」和「AI 记账」的设置拆开了（settings.aiChat），
+ *   但老用户库里只有 settings.ai 一个对象。
+ *   如果不迁移：
+ *     · 超时还是老的 20 秒 → 深度思考必然超时
+ *     · 老用户调过的 temperature 会丢
+ *
+ * ★ 为什么超时只从 20 改成 30，不动别的 ★
+ *   只改「恰好等于旧默认值 20000」的那些 ——
+ *   用户自己手动改过超时（哪怕也填的别的数）的，一律不动。
+ *   这是迁移的标准做法：只迁默认值，不覆盖用户的个性化设置。
+ *
+ * ★ 为什么必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，会死锁。
+ *   （v2 / v4 / v5 / v6 都踩过这个坑，见那边的注释。）
+ */
+async function migrateAiSettings() {
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v12 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v12 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  // ---- 1) 超时：只把「旧默认值 20000」提到 30000 ----
+  const rows = await select('SELECT key, value FROM setting WHERE key = ?', ['ai'])
+  if (rows && rows.length > 0) {
+    let ai = null
+    try {
+      ai = JSON.parse(rows[0].value)
+    } catch (e) {
+      ai = null
+    }
+    if (ai && typeof ai === 'object') {
+      // ★ 只迁默认值：用户改过别的数就不动 ★
+      if (Number(ai.timeoutMs) === 20000) {
+        ai.timeoutMs = 30000
+        await run(
+          'UPDATE setting SET value = ? WHERE key = ?',
+          [JSON.stringify(ai), 'ai']
+        )
+        console.log('[db] migration v12: AI 超时 20s → 30s')
+      }
+    }
+  }
+
+  // ---- 2) 旧的 ai.temperature → aiChat.temperature ----
+  const chatRows = await select('SELECT value FROM setting WHERE key = ?', ['aiChat'])
+  const hasChat = !!(chatRows && chatRows.length > 0)
+
+  if (!hasChat) {
+    // 还没有 aiChat 这一项：建一个，老用户调过的 temperature 带过去
+    const aiRows = await select('SELECT value FROM setting WHERE key = ?', ['ai'])
+    let legacyTemp = null
+    if (aiRows && aiRows.length > 0) {
+      try {
+        const ai = JSON.parse(aiRows[0].value)
+        if (ai && typeof ai === 'object' && ai.temperature !== undefined && ai.temperature !== null) {
+          legacyTemp = Number(ai.temperature)
+        }
+      } catch (e) {}
+    }
+    const aiChat = {
+      temperature: legacyTemp === null ? 0.6 : legacyTemp,
+      deepThinking: true,
+      maxTokens: 2000,
+      showCharts: true,
+      // 回答超时：深度思考 + 2000 token 可能要一两分钟
+      timeoutMs: 120000
+    }
+    await run(
+      'INSERT OR REPLACE INTO setting (key, value) VALUES (?, ?)',
+      ['aiChat', JSON.stringify(aiChat)]
+    )
+    console.log('[db] migration v12: 已创建 aiChat 设置')
+  }
+
+  // ---- 3) 清掉从未生效的 aiCache ----
+  //   那套缓存（readCache / writeCache / hashSummary）从来没有调用方，
+  //   aiCache 这一项永远是空的，属于纯垃圾数据。
+  await run('DELETE FROM setting WHERE key = ?', ['aiCache'])
+
+  // ---- 4) ai 里去掉废弃字段 ----
+  const aiRows2 = await select('SELECT value FROM setting WHERE key = ?', ['ai'])
+  if (aiRows2 && aiRows2.length > 0) {
+    try {
+      const ai = JSON.parse(aiRows2[0].value)
+      if (ai && typeof ai === 'object' && ai.quickFallback !== undefined) {
+        delete ai.quickFallback
+        await run('UPDATE setting SET value = ? WHERE key = ?', [JSON.stringify(ai), 'ai'])
+      }
+    } catch (e) {}
+  }
+}
 
 /**
  * 迁移 v11 —— 组合账户

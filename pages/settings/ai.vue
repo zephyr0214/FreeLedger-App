@@ -50,7 +50,7 @@
           </view>
 
           <view class="form-row">
-            <text class="form-label">超时（秒）</text>
+            <text class="form-label">记账解析超时（秒）</text>
             <input
               v-model="timeoutSec"
               class="form-input"
@@ -101,6 +101,17 @@
               class="form-input"
               type="number"
               placeholder="2000"
+              placeholder-class="form-placeholder"
+            />
+          </view>
+
+          <view class="form-row">
+            <text class="form-label">回答超时（秒）</text>
+            <input
+              v-model="chatTimeoutSec"
+              class="form-input"
+              type="number"
+              placeholder="120"
               placeholder-class="form-placeholder"
             />
           </view>
@@ -170,7 +181,10 @@ export default {
 
     const showKey = ref(false)
     const testing = ref(false)
+    /** 记账解析超时（秒） */
     const timeoutSec = ref('30')
+    /** AI 回答超时（秒）—— 深度思考慢，要给得比解析宽松得多 */
+    const chatTimeoutSec = ref('120')
 
     const form = reactive({
       baseUrl: 'https://api.deepseek.com/v1',
@@ -238,7 +252,11 @@ export default {
         await settingStore.setAiChat({
           deepThinking: chatForm.deepThinking,
           showCharts: chatForm.showCharts,
-          maxTokens: Math.max(500, Number(chatForm.maxTokens) || 2000)
+          maxTokens: Math.max(500, Number(chatForm.maxTokens) || 2000),
+          // ★ 回答超时：至少 30 秒，最多 10 分钟 ★
+          //   深度思考 + 2000 token 的完整分析可能要一两分钟，
+          //   太短必然超时，太长用户干等受不了。
+          timeoutMs: Math.min(600000, Math.max(30000, Number(chatTimeoutSec.value) * 1000 || 120000))
         })
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
@@ -256,9 +274,7 @@ export default {
       form.baseUrl = ai.baseUrl || 'https://api.deepseek.com/v1'
       form.apiKey = ai.apiKey || ''
       form.model = ai.model || 'deepseek-chat'
-      // ★ 超时默认 30 秒 ★
-      //   深度思考模式下响应可能要十几秒甚至几十秒，
-      //   20 秒太紧，很容易「AI 请求超时」。
+      // ★ 记账解析超时默认 30 秒 ★
       timeoutSec.value = String(Math.round((ai.timeoutMs || 30000) / 1000))
 
       // 对话专属配置
@@ -266,10 +282,14 @@ export default {
       chatForm.deepThinking = chat.deepThinking !== false
       chatForm.showCharts = chat.showCharts !== false
       chatForm.maxTokens = chat.maxTokens || 2000
+      // ★ 回答超时默认 120 秒 ★
+      //   深度思考 + 2000 token 的完整分析，30 秒远远不够 ——
+      //   这正是「AI 请求超时」的老大难。
+      chatTimeoutSec.value = String(Math.round((chat.timeoutMs || 120000) / 1000))
     })
 
     return {
-      showKey, testing, timeoutSec, form, chatForm,
+      showKey, testing, timeoutSec, chatTimeoutSec, form, chatForm,
       primaryColor, pageStyle,
       onTest, onSave, goBack, settingStore
     }
