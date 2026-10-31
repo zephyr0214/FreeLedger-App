@@ -366,6 +366,13 @@ export default {
      *   模型只说「画哪张图」，数字由 fetchChartData 从 SQLite 取，
      *   所以图表上的数一定是准的。
      *
+     * ★ 除了 uri，还要把原始数据（items）留着 ★
+     *   历史记录里要能还原图表。
+     *   存 SVG 的 data URI 太大（一张 2.7 KB），
+     *   而存 items 很小（一条 ~60 字节），
+     *   读出来时用 buildAiChartUri 重新画一遍就行 ——
+     *   画出来和当初一模一样（同样的数据、同样的配色）。
+     *
      * @param {Array} specs 模型给的规格数组
      * @param {object} ctx   本次查询的区间信息
      * @returns {Promise<Array>} 可直接显示的图表数组
@@ -407,10 +414,32 @@ export default {
         out.push({
           type: spec.type,
           title: spec.title,
-          uri
+          uri,
+          // ★ 原始数据：历史记录靠它还原图表 ★
+          items: data.items
         })
       }
       return out
+    }
+
+    /**
+     * 用存下来的原始数据重新画一张图。
+     *
+     * @param {object} chart 历史记录里的图表（含 type / title / items）
+     * @returns {string} data URI（画不出来返回空串）
+     */
+    function rebuildChart(chart) {
+      if (!chart || !chart.items || !chart.items.length) return ''
+      try {
+        const textColor = settingStore.isDark ? '#C8C8CC' : '#333333'
+        return buildAiChartUri(chart.type, chart.items, {
+          title: chart.title,
+          textColor,
+          color: primaryColor.value
+        })
+      } catch (e) {
+        return ''
+      }
     }
 
     /* ---------------------------------------------------------- 发送 */
@@ -502,29 +531,39 @@ export default {
     /**
      * 保存历史对话。
      *
-     * ★ 只存「role + content」★
-     *   以前存的是整个消息对象，里面带着：
-     *     · blocks —— 发送时算出来的 markdown 分片，读出来还要重算
-     *     · charts —— 每张图的 SVG data URI，**一张就 2.7 KB**
-     *   30 条消息带图能到 50 KB，
-     *   而 uni.setStorageSync 在 App 端有容量上限 ——
-     *   超了会直接抛异常。
+     * ★ 存什么 ★
+     *   role + content + 图表的**原始数据**（items）。
      *
-     * ★ 以前为什么会「退出再进入就不渲染」★
-     *   1. 存不下 → setStorageSync 抛异常
-     *   2. catch 是空的，异常被吞掉，**整份历史一条都没存进去**
-     *   3. 下次进来读到的是上一次的旧数据或空
-     *   4. 而模板当时只渲染 msg.blocks（历史记录里根本没有这个字段）
-     *      → 空白气泡
+     *   为什么不存 SVG 的 data URI：
+     *     一张环形图的 data URI 有 2.7 KB，30 条能到 50 KB ——
+     *     uni.setStorageSync 在 App 端有容量上限，超了直接抛异常，
+     *     一旦抛异常而 catch 是空的，整份历史一条都存不进去。
      *
-     *   现在：存轻量的 content，读出来用 renderMarkdown 重算 blocks。
+     *   存 items 就小得多（一条 ~60 字节），
+     *   读出来时用 buildAiChartUri 重新画一遍 ——
+     *   同样的数据、同样的配色，画出来和当初一模一样。
+     *
+     * ★ 为什么以前会出现「历史里的图表不渲染」★
+     *   1. 存的时候把 charts 整个丢掉了（只存了 content）；
+     *   2. 读出来的时候写死 charts: []；
+     *   3. 模板自然就没有图可画。
+     *   现在存 items、读出来重画，图表就能还原了。
      */
     function saveHistory() {
       try {
-        // 只存最近 30 条，且只保留 role + content
-        const toSave = messages.value
-          .slice(-30)
-          .map((m) => ({ role: m.role, content: m.content }))
+        // 只存最近 30 条
+        const toSave = messages.value.slice(-30).map((m) => {
+          const item = { role: m.role, content: m.content }
+          // ★ 图表只存原始数据，不存 SVG ★
+          if (m.charts && m.charts.length) {
+            item.charts = m.charts.map((c) => ({
+              type: c.type,
+              title: c.title,
+              items: c.items || []
+            }))
+          }
+          return item
+        })
         uni.setStorageSync(HISTORY_KEY, JSON.stringify(toSave))
       } catch (e) {
         /*
@@ -535,9 +574,17 @@ export default {
         console.warn('[ai] 保存历史失败，尝试精简:', e && e.message)
         for (const keep of [20, 10, 5, 1]) {
           try {
-            const slim = messages.value
-              .slice(-keep)
-              .map((m) => ({ role: m.role, content: m.content }))
+            const slim = messages.value.slice(-keep).map((m) => {
+              const item = { role: m.role, content: m.content }
+              if (m.charts && m.charts.length) {
+                item.charts = m.charts.map((c) => ({
+                  type: c.type,
+                  title: c.title,
+                  items: c.items || []
+                }))
+              }
+              return item
+            })
             uni.setStorageSync(HISTORY_KEY, JSON.stringify(slim))
             return
           } catch (e2) {
@@ -568,14 +615,33 @@ export default {
                 blocks: m.blocks && m.blocks.length
                   ? m.blocks
                   : (m.role === 'assistant' ? renderMarkdown(m.content) : null),
-                // 图表不保留：SVG data URI 太大，且重新问一次就会重新生成
-                charts: []
+                // ★ 图表用存下来的原始数据重新画 ★
+                //   这样退出再进来，图表照样显示。
+                charts: restoreCharts(m.charts)
               }))
           }
         }
       } catch (e) {
         console.warn('[ai] 读取历史失败:', e && e.message)
       }
+    }
+
+    /**
+     * 用存下来的原始数据把图表还原出来。
+     *
+     * @param {Array} charts 历史记录里的图表（{type, title, items}）
+     * @returns {Array} 带 uri 的图表数组
+     */
+    function restoreCharts(charts) {
+      if (!Array.isArray(charts) || charts.length === 0) return []
+      const out = []
+      for (const c of charts) {
+        if (!c || !c.items || !c.items.length) continue
+        const uri = rebuildChart(c)
+        if (!uri) continue
+        out.push({ type: c.type, title: c.title, uri, items: c.items })
+      }
+      return out
     }
 
     async function clearHistory() {
