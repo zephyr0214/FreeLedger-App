@@ -115,7 +115,7 @@
       </view>
 
       <view class="version-tip">
-        <text class="version-text">自由记 v1.0.0 · 数据全部保存在本机</text>
+        <text class="version-text">自由记 v1.13.0</text>
       </view>
 
       <view class="tabbar-space" />

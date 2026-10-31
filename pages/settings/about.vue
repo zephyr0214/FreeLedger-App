@@ -6,7 +6,7 @@
       <view class="logo-area">
         <image class="logo-img" src="/static/app/logo.png" mode="aspectFit" />
         <text class="app-name">自由记</text>
-        <text class="app-version">v1.0.0</text>
+        <text class="app-version">v1.13.0</text>
       </view>
 
       <view class="card">
