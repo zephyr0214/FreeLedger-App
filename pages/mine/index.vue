@@ -176,7 +176,16 @@ export default {
       { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
       { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
       { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
-      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' }
+      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
+      /*
+       * ★ 借出 / 借入管理 ★
+       *   同一页（pages/loan/manage）用 ?type 区分方向：
+       *     expense = 借出（钱借出去，支出方向）
+       *     income  = 借入（钱借进来，收入方向）
+       *   排在原有 4 个入口之后，宫格是 2 列，会自动排到第 3 行。
+       */
+      { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
+      { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' }
     ])
 
     /**

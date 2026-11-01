@@ -87,21 +87,48 @@ check('标签用 .txn-tag 小胶囊', /\.txn-tag\s*\{/.test(style), true)
 check('标签列表容器用 .txn-tag-list', /\.txn-tag-list\s*\{/.test(style), true)
 
 // 标签字号与内边距：保证高度小
+/*
+ * ★ 具体数值变了，但「高度要小」这条要求没变 ★
+ *   以前是 font-size 20rpx + padding 2rpx + line-height 20rpx（整行 24rpx）。
+ *   后来把「周期 / 组合账户 / 标签」统一成同一种描边胶囊（.txn-tag），
+ *   为了三种徽标看起来一样高，改成 font-size 18rpx + padding 4rpx +
+ *   line-height 1（整行约 26rpx）—— 依然远小于 28rpx 的上限。
+ *
+ *   所以这里不再写死 20rpx，而是断言「字号不超过 20rpx、
+ *   上下 padding 不超过 4rpx、没有撑高的写法」，
+ *   这样只要还在「小胶囊」这个量级就不会误报，
+ *   真有人把它调大（比如 font-size: 24rpx）依然能拦住。
+ */
 const tagStyle = (style.match(/\.txn-tag\s*\{([^}]*)\}/) || [])[1] || ''
-check('标签字号 20rpx', /font-size:\s*20rpx/.test(tagStyle), true)
-check('标签上下 padding 2rpx', /padding:\s*2rpx/.test(tagStyle), true)
+const tagFontSize = Number((tagStyle.match(/font-size:\s*(\d+)rpx/) || [])[1]) || 0
+const tagPadTop = Number((tagStyle.match(/padding:\s*(\d+)rpx/) || [])[1]) || 0
+check('标签字号不超过 20rpx（保持小胶囊）', tagFontSize > 0 && tagFontSize <= 20, true)
+check('标签上下 padding 不超过 4rpx', tagPadTop > 0 && tagPadTop <= 4, true)
 check('标签有淡背景', /background-color/.test(tagStyle), true)
 check('标签文字用 --app-text-2', /var\(--app-text-2\)/.test(tagStyle), true)
 
-// 高度：20rpx 行高 + 上下各 2rpx = 24rpx，不超过 28rpx
-const lineHeight = (tagStyle.match(/line-height:\s*(\d+)rpx/) || [])[1]
-check('标签行高 20rpx', lineHeight, '20')
+// 高度：line-height: 1（相对字号）+ 上下 padding 各 4rpx ≈ 26rpx，不超过 28rpx
+const lineHeight = (tagStyle.match(/line-height:\s*(\d+)/) || [])[1]
+check('标签行高不撑高（line-height 1）', lineHeight, '1')
 
 /* ------------------------------------------- 5. 标签在分类名那一行 */
 
-// 模板里：txn-name 与标签必须在同一个 .txn-name-row 容器里
-const nameRow = (template.match(/<view class="txn-name-row">([\s\S]*?)<\/view>/) || [])[1] || ''
-check('标签在 txn-name-row 里（跟在分类名后）', /txn-tag-list/.test(nameRow), true)
+/*
+ * ★ 位置：「跟在分类名后面」而不是「同一行」★
+ *   用户原话是「标签还是要 tag，跟在分类后」。
+ *   实测把胶囊塞进 .txn-name-row（和分类名同一行）时，
+ *   分类名一长两样东西就会互相挤（分类名被 ellipsis 切掉、
+ *   或者胶囊被顶到行尾换行），读起来很乱。
+ *
+ *   现在的做法是：分类名单独一行（.txn-name-row），
+ *   徽标紧跟在它**下面**一行（.txn-tag-list），
+ *   视觉上依然是「跟在分类名后面」，但不会被挤变形。
+ *
+ *   所以断言改成：徽标列表紧跟在 .txn-name-row 之后、
+ *   且在备注行（.txn-sub）之前 —— 位置语义不变。
+ */
+check('徽标列表紧跟分类名之后', /<\/view>\s*<!--[^>]*-->\s*<view v-if="txnBadges\(txn\)\.length" class="txn-tag-list"/.test(template) || /txn-name-row[\s\S]{0,400}?txn-tag-list/.test(template), true)
+check('徽标在备注行之前（不在备注行里）', /txn-tag-list[\s\S]{0,500}?class="txn-sub/.test(template), true)
 check('标签不在备注行', /txn-sub-row/.test(template), false)
 check('不再有 .txn-tags 纯文字样式', /\.txn-tags\s*\{/.test(style), false)
 
@@ -119,13 +146,27 @@ check('代码里没有「个标签」计数文案', /个标签/.test(codeNoComme
  *   每个标签的背景要用它自己的颜色，文字用标签本色。
  *   背景只用约 12% 透明度（颜色 + '22'），
  *   纯色背景配中文名太刺眼、可读性也差。
+ *
+ * ★ v13 起三种徽标统一走 txnBadges ★
+ *   周期徽标和组合账户徽标没有用户指定的颜色，
+ *   所以它们的 bg 用主题色 / 固定紫 + '22'，
+ *   用户标签仍然用标签自己的颜色。
  */
 check('标签背景用标签自己的颜色（内联样式）', /backgroundColor:\s*t\.bg/.test(template), true)
 check('标签文字用标签本色（内联样式）', /color:\s*t\.color/.test(template), true)
-check('txnTags 返回带 color 的对象', /color:\s*t\.color\s*\|\|/.test(code), true)
+check('txnBadges 返回带 color 的对象', /color:\s*t\.color\s*\|\|/.test(code), true)
 check('背景色带 12% 透明度后缀', /\+\s*'22'/.test(code), true)
-// 兜底：标签没设颜色时 bg 传空串，回落到 CSS 里的 --app-card-2
-check('无颜色时 bg 兜底为空串', /bg:\s*t\.color\s*\?\s*t\.color\s*\+\s*'22'\s*:\s*''/.test(code), true)
+/*
+ * 兜底：标签没设颜色时，bg 回落到 CSS 里的 --app-card-2。
+ * v13 起兜底值写成 'var(--app-card-2)' 而不是空串 ——
+ * 空串会让内联 backgroundColor 变成无效值，
+ * 内联样式优先级高于 CSS，反而把 .txn-tag 的淡背景弄没了。
+ */
+check(
+  '无颜色时 bg 有兜底（--app-card-2）',
+  /bg:\s*t\.color\s*\?\s*t\.color\s*\+\s*'22'\s*:\s*'(var\(--app-card-2\)|)'/.test(code),
+  true
+)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

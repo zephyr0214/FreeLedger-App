@@ -54,18 +54,24 @@
             wd-swipe-action 的 disabled 属性直接禁掉滑动，
             比「滑出来再提示」体验好 —— 固定分类本来就没有可改的东西，
             滑出来只会被误触。
+
+          ★ 「系统预置分类」例外：不能改，但要能展开 ★
+            以前固定分类既不能右滑、也不能展开（它们没有子类）。
+            v14 起「系统预置分类」是一个真正的父级 —— 下面挂着
+            「借出 / 对账支出」（支出）和「借入 / 对账收入」（收入），
+            所以它要能展开，只是它自己和子类都不能编辑/删除。
         -->
         <wd-swipe-action
           v-model="swipeStates[parent.id]"
           class="cat-swipe"
-          :disabled="isReconcile(parent)"
+          :disabled="isFixed(parent)"
         >
           <view class="parent-row" @click="toggleExpand(parent.id)">
             <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
               <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
             </view>
             <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
-            <text v-if="isReconcile(parent)" class="parent-locked">固定分类</text>
+            <text v-if="isFixed(parent)" class="parent-locked">固定分类</text>
             <!--
               ★ 没有子类也显示「0 个子类 ›」★
                 之前是 children.length > 0 才显示，
@@ -75,11 +81,13 @@
 
                 现在统一显示数量（没有就是 0），
                 点开就能看到「+ 添加子分类」，路径和已有子类的分类完全一致。
-                固定分类（对账支出/对账收入）除外 —— 它们本来就不能加子类。
+                固定分类没有「添加子分类」入口，但「系统预置分类」
+                本身有固定子类，数量照常显示。
             -->
-            <text v-else class="parent-count">{{ parent.children.length }} 个子类</text>
+            <text v-if="parent.children.length > 0" class="parent-count">{{ parent.children.length }} 个子类</text>
+            <text v-else-if="!isFixed(parent)" class="parent-count">0 个子类</text>
             <text
-              v-if="!isReconcile(parent)"
+              v-if="!isFixed(parent) || parent.children.length > 0"
               class="expand-icon"
               :class="{ expanded: expandedIds.includes(parent.id) }"
             >›</text>
@@ -98,7 +106,7 @@
           -->
           <template #right>
             <!-- 固定分类：滑出来只提示，不给操作按钮 -->
-            <view v-if="isReconcile(parent)" class="swipe-locked">
+            <view v-if="isFixed(parent)" class="swipe-locked">
               <text class="swipe-locked-text">固定分类</text>
             </view>
             <template v-else>
@@ -119,7 +127,7 @@
             :key="child.id"
             v-model="swipeStates[child.id]"
             class="cat-swipe cat-swipe-child"
-            :disabled="isReconcile(parent)"
+            :disabled="isFixed(child)"
           >
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
@@ -127,29 +135,45 @@
                 <text class="child-emoji">{{ iconEmoji(child.icon) }}</text>
               </view>
               <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
+              <!--
+                固定子类逐个标出来（借出 / 借入 / 对账支出 / 对账收入）。
+                ★ 为什么不只在父级标一次 ★
+                  「系统预置分类」展开后，用户看到的是几个子类，
+                  父级那行已经滚上去了 —— 每个子类都要能自己说明「我改不了」。
+              -->
+              <text v-if="isFixed(child)" class="child-locked">固定</text>
             </view>
 
             <template #right>
-              <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(child)">
-                <text class="swipe-action-text">编辑</text>
+              <view v-if="isFixed(child)" class="swipe-locked">
+                <text class="swipe-locked-text">固定分类</text>
               </view>
-              <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDelete(child)">
-                <text class="swipe-action-text">删除</text>
-              </view>
+              <template v-else>
+                <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(child)">
+                  <text class="swipe-action-text">编辑</text>
+                </view>
+                <view class="swipe-delete" style="background-color: var(--app-danger)" @click.stop="onDelete(child)">
+                  <text class="swipe-action-text">删除</text>
+                </view>
+              </template>
             </template>
           </wd-swipe-action>
 
           <!--
             「+ 添加子分类」保留：
             加子分类是「在某个父类下加」，和右上角的「加一级分类」不是一回事。
+
+            ★ 固定分类下不能加子类 ★
+              「系统预置分类」的结构是锁死的 ——
+              混进一个用户自建的子类，和固定子类就分不清了。
           -->
-          <view v-if="!isReconcile(parent)" class="child-row child-add" @click="openCreate(parent)">
+          <view v-if="!isFixed(parent)" class="child-row child-add" @click="openCreate(parent)">
             <text class="child-add-text">+ 添加子分类</text>
           </view>
 
-          <!-- 固定分类（对账支出 / 对账收入）不能编辑也不能删除 -->
-          <view v-if="isReconcile(parent)" class="child-actions">
-            <text class="action-lock">固定分类，不可编辑或删除</text>
+          <!-- 固定分类：说明为什么这些子类不能改 -->
+          <view v-if="isFixed(parent)" class="child-actions">
+            <text class="action-lock">系统预置分类，不可编辑或删除</text>
           </view>
         </view>
       </view>
@@ -231,7 +255,7 @@
           ★ 固定分类不显示 ★
             「对账支出」「对账收入」是余额对账的记账口径，不能删。
         -->
-        <view v-if="editingId && !isEditingReconcile" class="editor-danger">
+        <view v-if="editingId && !isEditingFixed" class="editor-danger">
           <text class="danger-link" @click="onDeleteFromEditor">删除这个分类</text>
         </view>
       </view>
@@ -252,7 +276,7 @@ import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, createCategory, updateCategory, deleteCategory,
-  isReconcileCategory
+  isReconcileCategory, isFixedCategory, isPresetGroupCategory
 } from '@/api/category.js'
 import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
@@ -343,14 +367,14 @@ export default {
     /**
      * 当前正在编辑的是不是固定分类
      *
-     * 固定分类（对账支出 / 对账收入）不显示弹层里的「删除这个分类」。
+     * 固定分类不显示弹层里的「删除这个分类」。
      */
-    const isEditingReconcile = computed(() => {
+    const isEditingFixed = computed(() => {
       if (!editingId.value) return false
       for (const p of tree.value) {
-        if (p.id === editingId.value) return isReconcileCategory(p)
+        if (p.id === editingId.value) return isFixedCategory(p)
         for (const c of p.children) {
-          if (c.id === editingId.value) return isReconcileCategory(c)
+          if (c.id === editingId.value) return isFixedCategory(c)
         }
       }
       return false
@@ -384,9 +408,17 @@ export default {
       }
     }
 
-    /** 是不是「对账支出」「对账收入」这类固定分类（不可删改） */
-    function isReconcile(cat) {
-      return isReconcileCategory(cat)
+    /**
+     * 是不是「固定分类」（不可改名 / 改图标 / 改颜色 / 删除）
+     *
+     * ★ v14 起固定分类是一整组 ★
+     *   一级「系统预置分类」，以及它下面挂的
+     *   「借出 / 对账支出」（支出）、「借入 / 对账收入」（收入）。
+     *   判定规则收在 api/category.js 的 isFixedCategory()，
+     *   页面只负责用它决定「给不给编辑/删除按钮」。
+     */
+    function isFixed(cat) {
+      return isFixedCategory(cat)
     }
 
     /**
@@ -395,7 +427,7 @@ export default {
      */
     function openCreate(parent) {
       // 固定分类下不能再加子分类
-      if (parent && isReconcile(parent)) {
+      if (parent && isFixed(parent)) {
         uni.showToast({ title: '固定分类不能添加子分类', icon: 'none' })
         return
       }
@@ -415,7 +447,7 @@ export default {
 
     function openEdit(cat) {
       // 固定分类不能改 —— 改名、图标、颜色都不行
-      if (isReconcile(cat)) {
+      if (isFixed(cat)) {
         uni.showToast({ title: `「${cat.name}」是固定分类，不能修改`, icon: 'none' })
         return
       }
@@ -452,7 +484,7 @@ export default {
       }
       if (editingId.value) {
         const target = all.find((c) => c.id === editingId.value)
-        if (isReconcile(target)) {
+        if (isFixed(target)) {
           uni.showToast({ title: `「${target.name}」是固定分类，不能修改`, icon: 'none' })
           closeEditor()
           return
@@ -497,7 +529,7 @@ export default {
      */
     async function onDelete(cat, fromEditor) {
       // 固定分类不能删
-      if (isReconcile(cat)) {
+      if (isFixed(cat)) {
         uni.showToast({ title: `「${cat.name}」是固定分类，不能删除`, icon: 'none' })
         return
       }
@@ -539,7 +571,7 @@ export default {
       }
       const target = all.find((c) => c.id === editingId.value)
       if (!target) return
-      if (isReconcile(target)) {
+      if (isFixed(target)) {
         uni.showToast({ title: `「${target.name}」是固定分类，不能删除`, icon: 'none' })
         return
       }
@@ -622,10 +654,10 @@ export default {
     return {
       settingStore, activeType, tree, expandedIds,
       showEditor, editingId, editorForm, types, colors, swipeStates,
-      iconOptions, iconEmoji, editorTitle, isEditingReconcile,
+      iconOptions, iconEmoji, editorTitle, isEditingFixed,
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit, parentNameOf,
-      isReconcile, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
+      isFixed, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
       onSaveCategory, onDelete, goBack
     }
   }
@@ -721,7 +753,7 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 固定分类（对账支出 / 对账收入）的标记 */
+/* 固定分类（系统预置分类及其固定子类）的标记 */
 .parent-locked {
   font-size: 20rpx;
   color: var(--app-text-3);
@@ -733,6 +765,22 @@ export default {
 .action-lock {
   font-size: 22rpx;
   color: var(--app-text-3);
+}
+
+/*
+ * 固定子类的「固定」小标记
+ *
+ * 比父级的「固定分类」标签更小、更淡 ——
+ * 父级是「这是一整组固定分类」的强提示，
+ * 子类只是逐个确认「我也改不了」，不需要同样抢眼。
+ */
+.child-locked {
+  font-size: 18rpx;
+  color: var(--app-text-3);
+  background-color: var(--app-card-2);
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
+  flex-shrink: 0;
 }
 
 .expand-icon {

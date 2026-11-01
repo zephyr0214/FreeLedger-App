@@ -133,12 +133,56 @@ export async function listAccountsGrouped() {
 
 /* ------------------------------------------------------------------ 统计 */
 
-/** 总资产：只算 include_in_total=1 的账户，信用卡负余额自然抵扣 */
+/**
+ * 所有余额之和（含负余额抵扣）—— 等价于「净资产」
+ *
+ * @deprecated 用 getAssetOverview() 代替。
+ *   这个函数的返回值 = 正余额 - 负债 = 净资产，
+ *   名字叫「总资产」但其实是净资产，容易在页面上算错
+ *   （账户页现在要把「总资产」和「净资产」分开展示）。
+ *   资产趋势（getAssetChangePoints）仍然用它这套口径 —— 趋势看的是净资产走势，
+ *   两边必须一致，所以那个函数里直接用 SQL 聚合、不调这个。
+ */
 export async function getTotalAssets() {
   const row = await queryOne(
     'SELECT COALESCE(SUM(balance_cents), 0) AS total FROM account WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1'
   )
   return Number(row ? row.total : 0)
+}
+
+/**
+ * 账户资产概览 —— 资产 / 负债 / 净资产
+ *
+ * ★ 为什么一次查三个数 ★
+ *   账户页要同时显示「总资产」「负债」「净资产」，
+ *   三次独立查询会有时间差（用户在两个查询之间刚好记了一笔），
+ *   三块数字就对不上了。一条 SQL 同时算出来最稳。
+ *
+ * ★ 口径 ★
+ *   只算 include_in_total = 1 且未归档、未删除的账户。
+ *     资产合计 = 正余额之和
+ *     负债合计 = 负余额绝对值之和（信用卡欠款等）
+ *     净资产   = 资产合计 - 负债合计
+ *
+ * ★ 为什么按余额正负拆、而不是按账户类型拆 ★
+ *   「信用卡」类型也可能有正余额（刚还多了），
+ *   而储蓄卡也可能因为记错而变成负的。
+ *   按余额正负拆才能保证「净资产 == 资产 - 负债」这条恒等式永远成立 ——
+ *   否则用户会看到「负债 0、净资产却是负数」这种自相矛盾的页面。
+ *
+ * @returns {Promise<{assets:number, debt:number, net:number}>}
+ */
+export async function getAssetOverview() {
+  const row = await queryOne(
+    `SELECT
+       COALESCE(SUM(CASE WHEN balance_cents > 0 THEN balance_cents ELSE 0 END), 0) AS assets,
+       COALESCE(SUM(CASE WHEN balance_cents < 0 THEN -balance_cents ELSE 0 END), 0) AS debt
+     FROM account
+     WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1`
+  )
+  const assets = Number(row ? row.assets : 0) || 0
+  const debt = Number(row ? row.debt : 0) || 0
+  return { assets, debt, net: assets - debt }
 }
 
 /** 总负债（信用卡/借入的绝对值） */
@@ -320,16 +364,31 @@ export async function updateAccount(id, patch) {
   }
 
   /*
-   * ★ 账户类型不可改 ★
-   *   界面在编辑时已经把类型项锁掉了；这里再拦一道，
-   *   防止「真实账户被改成组合」或「组合被改成真实账户」
-   *   造成余额/成员语义混乱（组合没有余额，真实账户有成员也不合理）。
+   * ★ 账户类型可以改（除组合账户外）★
+   *
+   * 用户要求：「组合账户保持账户类型不可编辑，但其他类型的账户都要可以编辑类型」。
+   *
+   * ★ 唯一禁止的是「组合 <-> 真实账户」的互转 ★
+   *   两者语义完全互斥：
+   *     · 真实账户有余额、有流水，参与总资产
+   *     · 组合账户没有余额（恒 0），只有成员列表，不参与总资产
+   *   互转会让余额/成员两套语义同时坏掉：
+   *     储蓄卡 -> 组合：余额没地方放了（recalcBalance 会强制写 0），
+   *       原来那笔钱从总资产里凭空消失，而且理财/流水全挂在它名下。
+   *     组合 -> 储蓄卡：成员列表变成孤儿，组合也没了「按顺序扣款」的意义。
+   *   所以这两种转换一律拦掉，其余（现金<->储蓄卡<->信用卡<->网络支付<->充值卡）随便改。
+   *
+   * ★ 改成 / 改离信用卡时的字段清理 ★
+   *   updateAccount 用 patch 里传了什么就写什么，
+   *   所以「信用卡 -> 储蓄卡」时界面会把 credit_limit_cents / bill_day /
+   *   repay_day 传成 null，这里直接写空即可（不清会残留额度，
+   *   虽然统计不再按信用卡算，但编辑页会冒出莫名其妙的额度行）。
    */
   const willBeCombo = patch.type !== undefined
     ? isComboType(patch.type)
     : existing.isCombo
   if (patch.type !== undefined && isComboType(patch.type) !== existing.isCombo) {
-    throw new Error('账户类型创建后不可修改')
+    throw new Error('组合账户不能与其它类型互相转换')
   }
 
   if (patch.name !== undefined) assign('name', patch.name)
@@ -463,6 +522,72 @@ export async function adjustAccountBalance(accountId, targetCents, opts = {}) {
   })
 
   return { changed: true, delta, txnId }
+}
+
+/**
+ * 直接把账户余额设成指定值 —— **不记对账交易**
+ *
+ * ★ 和 adjustAccountBalance 的区别 ★
+ *   adjustAccountBalance：差额记一笔「对账支出 / 对账收入」，
+ *     流水里看得见，余额公式（期初 + 收入 - 支出）依然成立。
+ *     适合「卡里实际是 4800，和我记的 5000 差 200」这种真实差异。
+ *
+ *   本函数：直接改**期初余额**，把余额凑到目标值，
+ *     不产生任何流水。适合「一开始就把期初余额填错了，
+ *     现在想改过来，别在流水里留一条假账」。
+ *
+ * ★ 怎么反推期初余额 ★
+ *   余额公式：balance = initial - Σ支出(含转出) + Σ收入(含转入)
+ *   所以：   initial = target + Σ支出 - Σ收入
+ *   两边对一遍就知道为什么是「加支出、减收入」：
+ *   支出会让余额变小，要多算一点期初才补得回来。
+ *
+ * ★ 为什么不允许对组合账户调用 ★
+ *   组合账户没有余额（恒 0），改它没有意义。
+ *
+ * @param {string} accountId 账户 id
+ * @param {number} targetCents 目标余额（分）
+ * @returns {Promise<{changed:boolean, delta:number}>}
+ */
+export async function setAccountBalanceDirect(accountId, targetCents) {
+  const acc = await getAccount(accountId)
+  if (!acc) throw new Error('账户不存在')
+  if (acc.isCombo) throw new Error('组合账户没有余额，不能修改')
+
+  const target = Math.round(Number(targetCents) || 0)
+  const current = Number(acc.balance_cents) || 0
+  const delta = target - current
+
+  if (delta === 0) return { changed: false, delta: 0 }
+
+  // 支出、转出（减）
+  const outRow = await queryOne(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS s FROM txn
+     WHERE deleted_at IS NULL AND (account_id = ? AND type IN ('expense','transfer'))`,
+    [accountId]
+  )
+  // 收入、转入（增）
+  const inRow = await queryOne(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS s FROM txn
+     WHERE deleted_at IS NULL AND ((account_id = ? AND type = 'income') OR (to_account_id = ? AND type = 'transfer'))`,
+    [accountId, accountId]
+  )
+
+  const outSum = Number(outRow ? outRow.s : 0)
+  const inSum = Number(inRow ? inRow.s : 0)
+  const initial = target + outSum - inSum
+
+  await transaction(async () => {
+    await execute('UPDATE account SET initial_balance_cents = ?, updated_at = ? WHERE id = ?', [
+      initial,
+      Date.now(),
+      accountId
+    ])
+    await recalcBalance(accountId)
+    await writeTodaySnapshot(accountId)
+  })
+
+  return { changed: true, delta }
 }
 
 /**

@@ -1,11 +1,31 @@
 <template>
-  <view
-    v-if="visible"
-    class="quick-add-mask"
-    @click="onMaskClick"
-    @touchmove.stop.prevent="noop"
-  >
-    <view class="quick-add-bar" :style="barStyle" @click.stop>
+  <view v-if="visible" class="quick-add-mask">
+    <!--
+      ★ 背景层：只负责「挡住页面 + 点空白关闭」★
+        触摸拦截必须挂在这一层，而不是包着输入条的 .quick-add-mask 上。
+
+        踩过的坑：以前 @touchmove.stop.prevent="noop" 挂在 .quick-add-mask，
+        而输入条是它的**子节点** —— 手指在输入框里左右拖时，touchmove
+        从 input 冒泡到遮罩就被 preventDefault 掉了，
+        原生输入框的长按选中、拖动 caret、文本横向滚动全部被吞，
+        表现为「文本太长时滑不动、看不到被遮住的部分」。
+
+        现在改成兄弟层结构：
+          背景层（拦截触摸） + 输入条（浮在上面，不拦截默认行为）
+        输入框里的事件冒泡到 .quick-add-mask 时已无任何处理器，原生行为得以保留。
+    -->
+    <view
+      class="quick-add-mask-bg"
+      @click="onMaskClick"
+      @touchmove.stop.prevent="noop"
+    />
+
+    <!--
+      输入条：只保留 click 拦截（点条内不关闭）。
+      @touchmove 只用 .stop 拦住「页面穿透滚动」，绝不能加 .prevent ——
+      那会把输入框自己的横向滚动/选区一起废掉。
+    -->
+    <view class="quick-add-bar" :style="barStyle" @click.stop @touchmove.stop>
       <!-- 左侧：输入框 -->
       <input
         ref="inputRef"
@@ -444,6 +464,22 @@ export default {
   background-color: transparent;
 }
 
+/**
+ * ★ 背景层：只负责「挡住页面」与「点空白关闭」★
+ *   独立成一个铺满全屏的层，触摸拦截绑在它身上（见模板注释）。
+ *
+ *   transparent 而不是半透明黑 —— 保持原有观感：
+ *   输入条浮起时页面内容不被压暗，只是单纯不能再点。
+ */
+.quick-add-mask-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background-color: transparent;
+}
+
 /*
  * ★ 柔光玻璃输入条（与底部 tabbar 同款）★
  *   底色走 --glass-* 变量（barStyle 里由 glassVars 注入）。
@@ -479,8 +515,28 @@ export default {
   }
 }
 
+/**
+ * ★ 输入框必须能在 flex 行里被压缩 ★
+ *
+ *   App 端 <input> 编译成 <uni-input>，它在 flex 容器里默认 min-width:auto
+ *   —— 「auto」意味着最小宽度等于内容宽度。
+ *   文本一长，这个最小宽度跟着涨，于是整条输入条被撑开、
+ *   把右侧发送按钮挤出去；输入框自身的可视宽度却没变，
+ *   用户看到的就是「文本被遮住、还滑不动」。
+ *
+ *   三步一起给才有效：
+ *     flex: 1      —— 占满剩余空间
+ *     width: 0     —— 把基准宽度归零，否则 flex-basis:auto 还是按内容算
+ *     min-width: 0 —— 允许缩到比内容更窄（关键的一条）
+ *   三者齐备后，输入框宽度只由容器决定，溢出的文字交给原生输入框
+ *   自己的横向滚动处理，左右拖动就能看到被遮住的部分。
+ *
+ *   视觉不变：height / line-height / font-size 原样保留。
+ */
 .bar-input {
   flex: 1;
+  width: 0;
+  min-width: 0;
   height: 64rpx;
   font-size: 28rpx;
   color: var(--app-text);

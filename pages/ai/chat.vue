@@ -996,8 +996,23 @@ export default {
   flex-shrink: 0;
 }
 
+/**
+ * ★ 输入框必须能在 flex 行里被压缩 ★
+ *
+ *   与 QuickAddBar 的 .bar-input 同一个坑、同一套修法：
+ *   App 端 <input> 编译成 <uni-input>，在 flex 容器里默认 min-width:auto
+ *   （最小宽度 = 内容宽度）。文本一长，最小宽度跟着涨，
+ *   输入框把「发送」按钮挤出可视区，自己却还是只显示开头一段，
+ *   左右拖动也看不到后面的字。
+ *
+ *   flex: 1 + width: 0 + min-width: 0 三者齐备，
+ *   宽度才完全由容器决定，溢出的文字交给原生输入框横向滚动。
+ *   高度 / 行高 / 背景 / 圆角一律不动，观感与原来一致。
+ */
 .chat-input {
   flex: 1;
+  width: 0;
+  min-width: 0;
   /* 单行输入：固定高度，不随内容增长 */
   height: 76rpx;
   padding: 0 24rpx;

@@ -14,9 +14,16 @@ import {
   DEFAULT_INCOME_CATEGORIES,
   DEFAULT_ALIAS,
   isReconcileCategory,
-  RECONCILE_NAMES
+  isLoanCategory,
+  isFixedCategory,
+  isPresetGroupCategory,
+  RECONCILE_NAMES,
+  LOAN_NAMES
 } from '../api/category.js'
-import { childIcon, childColor } from '../api/db/schema.js'
+import {
+  childIcon, childColor,
+  SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN
+} from '../api/db/schema.js'
 import { ICON_MAP, ICON_OPTIONS } from '../utils/icons.js'
 
 let pass = 0
@@ -191,19 +198,25 @@ for (const [name, words] of Object.entries(DEFAULT_ALIAS)) {
   }
 }
 
-console.log('=== 对账分类：固定的一级分类 ===')
+console.log('=== 对账分类：固定的子分类 ===')
 
 check('expense 的固定分类名', RECONCILE_NAMES.expense, '对账支出')
 check('income 的固定分类名', RECONCILE_NAMES.income, '对账收入')
 
-// 识别： expense 类型的一级「对账支出」-> 是固定分类
+/*
+ * ★ v14 起判定规则变了 ★
+ *   以前「对账支出 / 对账收入」是独立的一级分类，判定要求 parent_id 为空。
+ *   现在它们是「系统预置分类」下的二级分类，
+ *   判定只看「名字 + type」，不再看层级 ——
+ *   否则这两个分类又会变成可以改名/删除的普通分类。
+ */
 check(
-  'expense 一级「对账支出」是固定分类',
+  'expense 的「对账支出」是固定分类',
   isReconcileCategory({ name: '对账支出', type: 'expense', parent_id: null }),
   true
 )
 check(
-  'income 一级「对账收入」是固定分类',
+  'income 的「对账收入」是固定分类',
   isReconcileCategory({ name: '对账收入', type: 'income', parent_id: null }),
   true
 )
@@ -213,11 +226,11 @@ check(
   isReconcileCategory({ name: '对账支出', type: 'income', parent_id: null }),
   false
 )
-// 是二级 -> 不是
+// 二级也是固定分类（v14 起它们就挂在「系统预置分类」下面）
 check(
-  '二级的「对账支出」不是固定分类',
+  '二级的「对账支出」也是固定分类',
   isReconcileCategory({ name: '对账支出', type: 'expense', parent_id: 'cat_x' }),
-  false
+  true
 )
 // 普通分类 -> 不是
 check(
@@ -235,6 +248,88 @@ check(
 check('null -> false', isReconcileCategory(null), false)
 check('undefined -> false', isReconcileCategory(undefined), false)
 check('缺 type -> false', isReconcileCategory({ name: '对账支出' }), false)
+
+console.log('=== 借入 / 借出：固定的子分类 ===')
+
+check('expense 的借用分类名', LOAN_NAMES.expense, '借出')
+check('income 的借用分类名', LOAN_NAMES.income, '借入')
+
+check(
+  '「借出」(expense) 是固定分类',
+  isLoanCategory({ name: '借出', type: 'expense' }),
+  true
+)
+check(
+  '「借入」(income) 是固定分类',
+  isLoanCategory({ name: '借入', type: 'income' }),
+  true
+)
+check(
+  'income 类型下的「借出」不是固定分类',
+  isLoanCategory({ name: '借出', type: 'income' }),
+  false
+)
+check('「餐饮食品」不是借出/借入', isLoanCategory({ name: '餐饮食品', type: 'expense' }), false)
+
+console.log('=== 系统预置分类组 ===')
+
+check('支出侧的组名', SYSTEM_PRESET_GROUPS.expense.name, '系统预置分类')
+check('收入侧的组名', SYSTEM_PRESET_GROUPS.income.name, '系统预置分类')
+check('支出侧的 type', SYSTEM_PRESET_GROUPS.expense.type, 'expense')
+check('收入侧的 type', SYSTEM_PRESET_GROUPS.income.type, 'income')
+
+check(
+  '「系统预置分类」一级分类本身是固定分类',
+  isPresetGroupCategory({ name: '系统预置分类', type: 'expense', parent_id: null }),
+  true
+)
+check(
+  '二级的「系统预置分类」不是那个组',
+  isPresetGroupCategory({ name: '系统预置分类', type: 'expense', parent_id: 'cat_x' }),
+  false
+)
+
+console.log('=== 固定子类的名字与顺序（用户指定）===')
+
+/** 某个 type 下的固定子类（按 sort 排好） */
+function fixedChildrenOf(type) {
+  return SYSTEM_PRESET_CHILDREN
+    .filter((d) => d.type === type)
+    .sort((a, b) => a.sort - b.sort)
+    .map((d) => d.name)
+}
+
+check('支出的固定子类：借出、对账支出', fixedChildrenOf('expense'), ['借出', '对账支出'])
+check('收入的固定子类：借入、对账收入', fixedChildrenOf('income'), ['借入', '对账收入'])
+
+// 固定子类的图标必须是真实存在的 icon key
+for (const def of SYSTEM_PRESET_CHILDREN) {
+  check(`固定子类「${def.name}」的图标存在`, typeof ICON_MAP[def.icon] === 'string', true)
+}
+
+console.log('=== isFixedCategory（UI 判定，不查库）===')
+
+check(
+  '「系统预置分类」是固定分类',
+  isFixedCategory({ name: '系统预置分类', type: 'expense', parent_id: null }),
+  true
+)
+check(
+  '二级「借出」是固定分类',
+  isFixedCategory({ name: '借出', type: 'expense', parent_id: 'cat_g' }),
+  true
+)
+check(
+  '一级「对账支出」（迁移前的旧数据）也是固定分类',
+  isFixedCategory({ name: '对账支出', type: 'expense', parent_id: null }),
+  true
+)
+check(
+  '普通一级分类不是固定分类',
+  isFixedCategory({ name: '餐饮食品', type: 'expense', parent_id: null }),
+  false
+)
+check('null -> 不是固定分类', isFixedCategory(null), false)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

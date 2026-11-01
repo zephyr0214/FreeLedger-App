@@ -144,8 +144,20 @@ check(
 console.log('=== 最近流水显示标签 ===')
 /*
  * RecentTxnList 是各详情页共用的「最近流水」组件，
- * 之前只显示分类名和周期徽标，没有标签胶囊。
- * 现在要和首页 / 全部交易页一致：tag_ids 反查标签表，最多 2 个 + 「+N」。
+ * 之前只显示分类名，没有标签。
+ * 现在要和首页 / 全部交易页一致：tag_ids 反查标签表。
+ *
+ * ★ v13 起这里统一成了「徽标」txnBadges ★
+ *   以前的 txnTags 只渲染用户标签，
+ *   后来把「周期 / 组合账户 / 标签」三种标记统一成同一种描边胶囊，
+ *   函数也改名成 txnBadges（见 components/RecentTxnList.vue 的注释）。
+ *   所以这里断言的是 txnBadges —— 名字换了但行为更强了：
+ *   周期和组合账户的标记也一并渲染在同一个胶囊列表里。
+ *
+ * ★ 「最多 2 个 + N」的折叠被去掉了 ★
+ *   徽标数量本身很少（周期 + 组合 + 标签），
+ *   真实场景里叠到 3 个以上的情况极罕见，
+ *   折叠反而让「这笔有哪些标记」看不全。现在用 flex-wrap 换行显示。
  */
 const recent = read('components/RecentTxnList.vue')
 
@@ -153,11 +165,11 @@ check('引入 listTags', /import \{ listTags \} from '@\/api\/tag\.js'/.test(rec
 check('有标签缓存', /const tags = ref\(\[\]\)/.test(recent), true)
 check('挂载时加载标签', /onMounted\(loadTags\)/.test(recent), true)
 check('有 tagNameMap 反查', /const tagNameMap = computed/.test(recent), true)
-check('有 txnTags 函数', /function txnTags\(txn\)/.test(recent), true)
-check('模板渲染标签胶囊', /v-if="txnTags\(txn\)\.length"/.test(recent), true)
+check('有 txnBadges 函数（周期/组合/标签统一徽标）', /function txnBadges\(txn\)/.test(recent), true)
+check('模板渲染标签胶囊', /v-if="txnBadges\(txn\)\.length"/.test(recent), true)
 check('标签带自身颜色浅底', /backgroundColor: t\.bg/.test(recent), true)
-check('超过 2 个折叠为 +N', /name: `\+\$\{list\.length - 2\}`/.test(recent), true)
-check('txnTags 已暴露给模板', /txnTitle, txnSub, txnTags,/.test(recent), true)
+check('徽标列表可换行（不再折叠 +N）', /\.txn-tag-list \{[\s\S]*?flex-wrap: wrap/.test(recent), true)
+check('txnBadges 已暴露给模板', /txnTitle, txnSub, txnBadges,/.test(recent), true)
 check('有标签样式', /\.txn-tag\s*\{/.test(recent), true)
 check('有标签容器样式', /\.txn-tag-list\s*\{/.test(recent), true)
 

@@ -230,7 +230,14 @@ console.log('\n=== 默认值 ===')
   ok('v13 只改恰好等于 2000 的', /Number\(chat\.maxTokens\) !== 2000/.test(dbCode))
 
   const schemaCode = readFileSync(join(ROOT, 'api', 'db', 'schema.js'), 'utf-8')
-  ok('SCHEMA_VERSION = 13', /export const SCHEMA_VERSION = 13/.test(schemaCode))
+  /*
+   * ★ 只断言「≥ 13」，不写死具体数字 ★
+   *   SCHEMA_VERSION 会随每次结构变更往上加（v14 加了「系统预置分类」），
+   *   写死 13 会让这条测试在每次加迁移时误报 ——
+   *   它真正要守的是「v13 那条迁移已经含在已发布版本里」。
+   */
+  const schemaVersionNum = Number((schemaCode.match(/export const SCHEMA_VERSION = (\d+)/) || [])[1]) || 0
+  ok('SCHEMA_VERSION 至少是 13（包含 v13 迁移）', schemaVersionNum >= 13)
 
   // 界面提示
   const chatVue = readFileSync(join(ROOT, 'pages', 'ai', 'chat.vue'), 'utf-8')

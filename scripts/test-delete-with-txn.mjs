@@ -121,6 +121,18 @@ function makeFakePlus() {
     deleted_at INTEGER
   )`)
   db.exec(`CREATE TABLE txn_tag (txn_id TEXT NOT NULL, tag_id TEXT NOT NULL, PRIMARY KEY (txn_id, tag_id))`)
+  /*
+   * ★ 组合账户的成员表（v11 起）★
+   *   deleteAccount() 会清理 account_combo_member（删真实账户要把它从
+   *   所有组合里摘掉，否则组合会指向一个「幽灵账户」）。
+   *   这个测试库里的表必须齐全，否则删除会直接报
+   *   「no such table: account_combo_member」—— 那不是业务 bug，
+   *   是测试库少了表。
+   */
+  db.exec(`CREATE TABLE account_combo_member (
+    combo_id TEXT NOT NULL, member_id TEXT NOT NULL,
+    sort INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (combo_id, member_id)
+  )`)
 
   // 已经是最新版本，跳过所有迁移
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)

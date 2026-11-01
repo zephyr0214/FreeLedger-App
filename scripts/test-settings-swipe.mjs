@@ -161,8 +161,15 @@ console.log('=== C. 编辑弹层里能删除 ===')
   check('删除入口有 editingId 条件', /v-if="editingId/.test(tpl), true)
 
   // 固定分类不显示
-  check('删除入口排除了固定分类', /isEditingReconcile/.test(tpl), true)
-  check('有 isEditingReconcile 的计算', /isEditingReconcile\s*=\s*computed/.test(script), true)
+  /*
+   * ★ v14 起改名了：isEditingReconcile -> isEditingFixed ★
+   *   判定范围也从「只有对账支出/对账收入」扩大到整组
+   *   「系统预置分类」（含借出 / 借入 / 对账支出 / 对账收入）。
+   *   测试要守的是「固定分类在编辑弹层里不显示删除入口」这个行为，
+   *   改名时这里要跟着改，否则会假失败（页面其实是对的）。
+   */
+  check('删除入口排除了固定分类', /isEditingFixed/.test(tpl), true)
+  check('有 isEditingFixed 的计算', /isEditingFixed\s*=\s*computed/.test(script), true)
 
   // onDeleteFromEditor 必须在 return 里（否则模板绑定静默失效）
   check('onDeleteFromEditor 在 return 里', /onDeleteFromEditor/.test(script.split('return {')[1] || ''), true)

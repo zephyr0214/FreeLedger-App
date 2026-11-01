@@ -128,6 +128,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
+import { backAfterAccountDelete } from '@/utils/navBack.js'
 
 export default {
   components: { MoneyText, DetailShell, RecentTxnList, AccountIcon },
@@ -159,7 +160,21 @@ export default {
 
     async function load() {
       const acc = await accountStore.getById(accountId.value)
-      if (!acc) return
+      /*
+       * ★ 账户没了（被删掉）→ 回账户列表，而不是留在这个页面 ★
+       *   以前这里直接 return，页面就停在「加载中…」——
+       *   用户删完账户返回时看到一片空白，不知道发生了什么。
+       *
+       *   现在：账户不存在（getById 返回 null）就走安全回退。
+       *   ★ 为什么不能在 onShow 里也用 backAfterAccountDelete ★
+       *     详情页是用户主动进来的，只有「账户真的没了」才该退；
+       *     正常返回时 onShow 也会跑一遍 load()，那时账户还在，什么都不做。
+       */
+      if (!acc) {
+        uni.showToast({ title: '账户已被删除', icon: 'none' })
+        setTimeout(() => backAfterAccountDelete(), 300)
+        return
+      }
       // ★ 组合账户没有详情页（无流水、无余额）★
       //   万一被直接跳到（历史入口/分享链接），重定向到编辑页，
       //   避免本页用「无余额」渲染出奇怪的详情。

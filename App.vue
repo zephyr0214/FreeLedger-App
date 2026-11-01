@@ -298,6 +298,56 @@ view, text, scroll-view, image {
   text-overflow: ellipsis;
 }
 
+/**
+ * ============================================================
+   输入框（uni-input）兜底样式
+   ============================================================
+
+   ★ 为什么要全局补这一条 ★
+     App 端 <input> 编译成 <uni-input> 包装元素，内部结构是
+       uni-input > .uni-input-wrapper > .uni-input-input（真正的 <input>）
+     框架默认样式里内部各层都是 width:100%，但 uni-input 自身没有
+     min-width 约束 —— 放进 flex 行时默认 min-width:auto
+     （最小宽度 = 内容宽度），文本一长就把整行撑开，
+     可视宽度被内容撑满、按钮被挤出去，看起来就是
+     「文本被遮住、还滑不动」（AI 速记输入条踩的就是这个坑）。
+
+   ★ 为什么全局只写 flex / min-width，不写 width: 0 ★
+     width: 0 是让 flex 项按容器分配空间的关键，但它**只在父级是
+     flex 容器时才安全**。本项目有一批输入框的父容器是普通块级：
+       · components/AppDialog.vue 的 prompt 输入框
+         （.app-dialog__input-wrap 只有 padding，不是 flex）
+       · pages/txn/list.vue 的关键词搜索
+         （.filter-section 是普通块级）
+     这类输入框靠「块级撑满」工作，全局写 width: 0 会把它们压成 0 宽、
+     直接看不见。所以 width: 0 只写在**确认为 flex 行**的组件里
+     （QuickAddBar 的 .bar-input、聊天页的 .chat-input）。
+
+     而 flex / min-width 这两条是全局安全的：
+       · flex  只对 flex 项生效，父级不是 flex 时被浏览器忽略；
+       · min-width: 0 只是解除「最小宽度 = 内容宽度」，
+         块级元素本来就会撑满，写了一点副作用都没有。
+     所以这两条可以放心全局给，当作所有输入框的兜底。
+
+   ★ 只针对 uni-input / .uni-input-* ★
+     不写成 input / textarea 之类的宽泛选择器，
+     免得波及 picker、textarea 等其它控件。
+*/
+uni-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 内部输入区宽度跟随容器，溢出交给原生横向滚动 */
+uni-input .uni-input-wrapper {
+  width: 100%;
+  overflow: hidden;
+}
+
+uni-input .uni-input-input {
+  width: 100%;
+}
+
 /* 过渡动画 */
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;

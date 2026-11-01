@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import {
-  listAccounts, listAccountsGrouped, getTotalAssets, getTotalDebt,
+  listAccounts, listAccountsGrouped, getTotalAssets, getTotalDebt, getAssetOverview,
   createAccount, updateAccount, deleteAccount, getAccount, recalcAllBalances
 } from '@/api/account.js'
 
@@ -12,8 +12,20 @@ export const useAccountStore = defineStore('account', {
   state: () => ({
     list: [],
     grouped: [],
+    /**
+     * 总资产 = 计入总资产的账户里，**正余额之和**
+     *
+     * ★ 注意这里的口径 ★
+     *   以前 totalAssets 是「所有余额之和」（负余额直接抵扣），
+     *   所以它其实等于净资产。账户页新版把它拆成
+     *   「总资产（拥有的钱）」和「负债（欠的钱）」两块，
+     *   于是 totalAssets 改成只算正余额 —— 与 getAssetOverview 一致。
+     */
     totalAssets: 0,
+    /** 负债 = 负余额的绝对值之和（信用卡待还等） */
     totalDebt: 0,
+    /** 净资产 = 总资产 - 负债，账户页左边的大数字 */
+    netAssets: 0,
     loading: false,
     loaded: false
   }),
@@ -49,16 +61,16 @@ export const useAccountStore = defineStore('account', {
 
       this.loading = true
       try {
-        const [list, grouped, assets, debt] = await Promise.all([
+        const [list, grouped, overview] = await Promise.all([
           listAccounts(),
           listAccountsGrouped(),
-          getTotalAssets(),
-          getTotalDebt()
+          getAssetOverview()
         ])
         this.list = list
         this.grouped = grouped
-        this.totalAssets = assets
-        this.totalDebt = debt
+        this.totalAssets = overview.assets
+        this.totalDebt = overview.debt
+        this.netAssets = overview.net
         this.loaded = true
       } finally {
         this.loading = false

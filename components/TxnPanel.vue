@@ -258,7 +258,7 @@ import CategoryPickerSheet from '@/components/CategoryPickerSheet.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
-import { listCategories } from '@/api/category.js'
+import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combineDayTime } from '@/utils/date.js'
@@ -680,11 +680,26 @@ export default {
       form.category_id = defaultCategoryId.value || ''
     }
 
-    /** 当前类型下的默认分类（第一个一级分类） */
+    /**
+     * 当前类型下的默认分类（第一个可选的分类）
+     *
+     * ★ 为什么不能直接取「第一个二级分类」★
+     *   「系统预置分类」下面挂着「借出 / 对账支出」（支出）、
+     *   「借入 / 对账收入」（收入）——
+     *   如果取到的第一个是「借出」，用户新建一笔日常支出时
+     *   分类默认变成「借出」，就莫名其妙记成借钱了。
+     *
+     *   所以这里显式跳过系统预置分类（借出/借入/对账支出/对账收入），
+     *   只在用户自己的分类里挑第一个。
+     *   如果用户的分类全被删光了（只剩系统预置的），
+     *   再退回第一个可选分类 —— 至少不会「完成键点了没反应」。
+     */
     const defaultCategoryId = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
       const list = categories.value.filter((c) => c.type === type && !c.isParent)
-      return list.length > 0 ? list[0].id : ''
+      const userList = list.filter((c) => !isSystemPresetName(c.name, type))
+      const pick = userList.length > 0 ? userList[0] : list[0]
+      return pick ? pick.id : ''
     })
 
     /** 用已有交易填充 */

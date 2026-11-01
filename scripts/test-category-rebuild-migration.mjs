@@ -14,7 +14,9 @@
 import { DatabaseSync } from 'node:sqlite'
 import {
   DEFAULT_EXPENSE_CATEGORIES,
-  DEFAULT_INCOME_CATEGORIES
+  DEFAULT_INCOME_CATEGORIES,
+  SYSTEM_PRESET_GROUPS,
+  SYSTEM_PRESET_CHILDREN
 } from '../api/db/schema.js'
 
 let pass = 0
@@ -211,18 +213,18 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
   ])
   check('迁移没有死锁', result, 'OPENED')
 
-  // ---- 支出一级分类应该是新的 9 个（+ 对账支出这个固定分类） ----
+  // ---- 支出一级分类应该是新的 9 个（+ 「系统预置分类」这一条固定父级） ----
   check(
     '支出一级分类已换成新的',
     topNames(db, 'expense'),
-    [...DEFAULT_EXPENSE_CATEGORIES.map((c) => c.name), '对账支出']
+    [...DEFAULT_EXPENSE_CATEGORIES.map((c) => c.name), SYSTEM_PRESET_GROUPS.expense.name]
   )
 
-  // ---- 收入一级分类应该是新的 9 个（+ 对账收入这个固定分类） ----
+  // ---- 收入一级分类应该是新的 9 个（+ 「系统预置分类」这一条固定父级） ----
   check(
     '收入一级分类已换成新的',
     topNames(db, 'income'),
-    [...DEFAULT_INCOME_CATEGORIES.map((c) => c.name), '对账收入']
+    [...DEFAULT_INCOME_CATEGORIES.map((c) => c.name), SYSTEM_PRESET_GROUPS.income.name]
   )
 
   // ---- 二级分类也在 ----
@@ -264,24 +266,43 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
   const budgets = db.prepare('SELECT id FROM budget ORDER BY id').all().map((r) => r.id)
   check('失效的分类预算被删除，总预算保留', budgets, ['b2'])
 
-  // ---- 对账固定分类还在（且是一级） ----
-  const recExp = db.prepare(
-    "SELECT parent_id, sort FROM category WHERE deleted_at IS NULL AND name = '对账支出' AND type = 'expense'"
-  ).get()
-  check('对账支出重建了', !!recExp, true)
-  check('对账支出是一级分类', recExp ? recExp.parent_id === null : false, true)
+  /*
+   * ---- 「系统预置分类」这一组还在 ----
+   *
+   * ★ v14 起结构变了 ★
+   *   以前「对账支出 / 对账收入」是各自独立的一级分类。
+   *   现在统一收进一级分类「系统预置分类」下当固定子类：
+   *     支出 -> 借出、对账支出
+   *     收入 -> 借入、对账收入
+   *   所以这里断言的是「组存在 + 子类挂在组下面」，
+   *   而不是「对账支出是一级分类」。
+   */
+  for (const type of ['expense', 'income']) {
+    const group = db.prepare(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL'
+    ).get(SYSTEM_PRESET_GROUPS[type].name, type)
+    check(`${type} 的「系统预置分类」重建了`, !!group, true)
+    if (!group) continue
 
-  const recInc = db.prepare(
-    "SELECT parent_id FROM category WHERE deleted_at IS NULL AND name = '对账收入' AND type = 'income'"
-  ).get()
-  check('对账收入重建了', !!recInc, true)
-  check('对账收入是一级分类', recInc ? recInc.parent_id === null : false, true)
+    const childNames = db.prepare(
+      'SELECT name FROM category WHERE deleted_at IS NULL AND parent_id = ? ORDER BY sort'
+    ).all(group.id).map((r) => r.name)
+
+    check(
+      `${type} 的固定子类`,
+      childNames,
+      SYSTEM_PRESET_CHILDREN.filter((d) => d.type === type).sort((a, b) => a.sort - b.sort).map((d) => d.name)
+    )
+  }
 
   // ---- 分类数量对得上 ----
+  //   默认分类（一级 + 二级）
+  //   + 每个 type 一条「系统预置分类」父级 + 它下面的固定子类
   const expectedCount =
     DEFAULT_EXPENSE_CATEGORIES.reduce((n, c) => n + 1 + c.children.length, 0) +
     DEFAULT_INCOME_CATEGORIES.reduce((n, c) => n + 1 + c.children.length, 0) +
-    2 // 两个对账固定分类
+    2 + // 两个「系统预置分类」父级（expense / income 各一条）
+    SYSTEM_PRESET_CHILDREN.length
   check('活着的分类总数', activeCats(db).length, expectedCount)
 
   console.log(`  活着的分类 ${activeCats(db).length} 条，软删除 ${deletedCount(db)} 条`)
@@ -342,7 +363,7 @@ console.log('=== 场景 3：空库（全新安装）也能正常迁移 ===')
   check(
     '空库也有完整的新分类表',
     topNames(db, 'expense'),
-    [...DEFAULT_EXPENSE_CATEGORIES.map((c) => c.name), '对账支出']
+    [...DEFAULT_EXPENSE_CATEGORIES.map((c) => c.name), SYSTEM_PRESET_GROUPS.expense.name]
   )
 }
 

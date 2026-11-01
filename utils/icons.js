@@ -71,7 +71,10 @@ export const ICON_MAP = {
   party:      '🎊',   // 随份子
   redpacket:  '🧧',   // 红包
   // 兜底
-  more:     '📦'    // 其他
+  more:     '📦',   // 其他
+  // ---- 系统预置分类（借入 / 借出） ----
+  lend:     '📤',   // 借出（钱出去）
+  borrow:   '📥'    // 借入（钱进来）
 }
 
 /** 供设置页选择图标用的分组列表 */
@@ -119,6 +122,8 @@ export const ICON_OPTIONS = [
   { key: 'stationery', label: '文具' },
   { key: 'party', label: '随份子' },
   { key: 'redpacket', label: '红包' },
+  { key: 'lend', label: '借出' },
+  { key: 'borrow', label: '借入' },
   { key: 'more', label: '其他' }
 ]
 
@@ -167,6 +172,8 @@ export function guessIconByName(name) {
     [['退款', '报销'], 'refund'],
     [['保险'], 'insurance'],
     [['还款', '还款'], 'loan'],
+    [['借出', '借给', '外借'], 'lend'],
+    [['借入', '借来', '借了'], 'borrow'],
     [['税'], 'tax']
   ]
 

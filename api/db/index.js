@@ -11,6 +11,7 @@ import {
   SCHEMA_V1, INDEXES_V1, SCHEMA_VERSION,
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
+  SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
   childIcon, childColor
 } from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
@@ -305,6 +306,14 @@ const MIGRATIONS = [
     //   正文一个字都写不出来（content 空 + finish_reason=length）。
     version: 13,
     up: migrateChatMaxTokens
+  },
+  {
+    // ★ 「系统预置分类」固定分类组 ★
+    //   把「对账支出 / 对账收入」从独立的一级分类收进
+    //   一级分类「系统预置分类」下面，并补上「借出 / 借入」两个固定子类。
+    //   详见 migrateSystemPresetCategories()。
+    version: 14,
+    up: migrateSystemPresetCategories
   }
 ]
 
@@ -1126,21 +1135,63 @@ async function rebuildDefaultCategories() {
     []
   )
 
-  // ---- 5) 重建「对账支出」「对账收入」两个固定一级分类 ----
-  //   第 1 步把旧分类连这两个一起软删了，得重新建。
+  // ---- 5) 重建「系统预置分类」固定分类组 ----
+  //   第 1 步把旧分类连对账分类一起软删了，得重新建。
+  //
+  //   ★ v14 起结构变了 ★
+  //     以前是两条独立的一级分类「对账支出 / 对账收入」。
+  //     现在是「系统预置分类」下面的固定子类（借出 / 对账支出、借入 / 对账收入）。
+  //     v14 迁移也做同样的事，但 v5 重建分类表时如果不建，
+  //     用户在新装的库上会先看不到这组分类，直到 v14 跑完 ——
+  //     干脆这里就按新结构一次性建好，v14 再跑一遍是无害的幂等操作。
   //   sort = 999：排到最后，别抢用户自己分类的位置。
-  for (const def of RECONCILE_CATEGORIES) {
-    const existing = await select(
+  for (const type of ['expense', 'income']) {
+    const groupDef = SYSTEM_PRESET_GROUPS[type]
+    const groupRows = await select(
       'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
-      [def.name, def.type]
+      [groupDef.name, type]
     )
-    if (existing && existing.length > 0) continue
+    if (groupRows === null) continue
 
-    await run(
-      `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-       VALUES (?,NULL,?,?,?,?,999,0,?,?,NULL)`,
-      [prefixedId('cat'), def.name, def.type, def.icon, def.color, now, now]
-    )
+    let groupId = groupRows.length > 0 ? groupRows[0].id : null
+    if (!groupId) {
+      groupId = prefixedId('cat')
+      const ok = await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,NULL,?,?,?,?,999,0,?,?,NULL)`,
+        [groupId, groupDef.name, type, groupDef.icon, groupDef.color, now, now]
+      )
+      if (!ok) continue
+    }
+
+    for (const def of SYSTEM_PRESET_CHILDREN.filter((d) => d.type === type)) {
+      const childRows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+        [def.name, type, groupId]
+      )
+      if (childRows === null) continue
+      if (childRows.length > 0) continue
+
+      // 旧结构：同名的一级分类还活着 -> 收编到组里（保留 id，历史引用不动）
+      const legacyRows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [def.name, type]
+      )
+      if (legacyRows === null) continue
+      if (legacyRows.length > 0) {
+        await run(
+          'UPDATE category SET parent_id = ?, icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
+          [groupId, def.icon, def.color, def.sort, now, legacyRows[0].id]
+        )
+        continue
+      }
+
+      await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [prefixedId('cat'), groupId, def.name, type, def.icon, def.color, def.sort, now, now]
+      )
+    }
   }
 
   console.log(`[db] migration v5: 默认分类已重建（${created} 条）`)
@@ -1206,6 +1257,141 @@ async function fixNoonTimestamps() {
   if (fixed > 0) {
     console.log(`[db] 已回填 ${fixed} 条历史记录的时刻`)
   }
+}
+
+/**
+ * 迁移 v14 —— 「系统预置分类」固定分类组
+ *
+ * ★ 目标结构 ★
+ *   一级分类「系统预置分类」（expense / income 各一条，名字相同、type 不同）
+ *     支出：借出、对账支出
+ *     收入：借入、对账收入
+ *
+ * ★ 为什么不能靠「清空重建」★
+ *   「对账支出 / 对账收入」是余额对账的记账口径，
+ *   历史对账流水的 txn.category_id 全指着它们。
+ *   重建（软删旧行 + 新建）会让这些交易变成「未分类」——
+ *   账面上那几笔「余额对账调整」就说不清了。
+ *
+ * ★ 做法：收编（改 parent_id），不新建 ★
+ *   1. 取或建「系统预置分类」这条一级分类（sort = 999，排最后）
+ *   2. 逐个固定子类：
+ *      - 组下已经有同名子类 -> 顺手把图标/颜色/排序刷成定义里的（幂等）
+ *      - 没有，但库里有一条活的**一级**同名分类
+ *        -> 直接把它的 parent_id 改到组里（保留 id，历史引用不动）
+ *      - 都没有 -> 新建一条
+ *
+ * ★ 为什么必须用底层的 call()，不能用 query()/execute() ★
+ *   query()/execute() 内部会 await openDb()，
+ *   而本函数正是在 openDb() -> migrate() 里被调用的，会死锁。
+ *   （v2 / v4 / v5 / v6 都踩过这个坑，见那边的注释。）
+ *
+ * ★ 幂等 ★
+ *   第二遍跑：组存在、每个子类都在组下 -> 只做一次无害的 UPDATE，结果完全一样。
+ */
+async function migrateSystemPresetCategories() {
+  const now = Date.now()
+
+  /** 底层查询（迁移里不能走 query()，会死锁） */
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v14 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  /** 底层写入（迁移里不能走 execute()，会死锁） */
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v14 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  let reparented = 0
+  let created = 0
+
+  for (const type of ['expense', 'income']) {
+    // ---- 1) 取或建「系统预置分类」这一条一级分类 ----
+    const groupDef = SYSTEM_PRESET_GROUPS[type]
+    let groupRows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [groupDef.name, type]
+    )
+    if (groupRows === null) continue
+
+    let groupId = groupRows.length > 0 ? groupRows[0].id : null
+
+    if (!groupId) {
+      groupId = prefixedId('cat')
+      const ok = await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,NULL,?,?,?,?,999,0,?,?,NULL)`,
+        [groupId, groupDef.name, type, groupDef.icon, groupDef.color, now, now]
+      )
+      // 建不出来就跳过这个 type（不阻断整个迁移）
+      if (!ok) continue
+      created++
+    }
+
+    // ---- 2) 逐个固定子类 ----
+    const defs = SYSTEM_PRESET_CHILDREN.filter((d) => d.type === type)
+
+    for (const def of defs) {
+      // 2a) 组下已经有同名子类 -> 刷新图标/颜色/排序（幂等）
+      const existing = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+        [def.name, type, groupId]
+      )
+      if (existing === null) continue
+
+      if (existing.length > 0) {
+        await run(
+          'UPDATE category SET icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
+          [def.icon, def.color, def.sort, now, existing[0].id]
+        )
+        continue
+      }
+
+      // 2b) 库里有一条活的「一级同名分类」-> 收编到组里（保留 id）
+      const legacy = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [def.name, type]
+      )
+      if (legacy === null) continue
+
+      if (legacy.length > 0) {
+        const ok = await run(
+          'UPDATE category SET parent_id = ?, icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
+          [groupId, def.icon, def.color, def.sort, now, legacy[0].id]
+        )
+        if (ok) reparented++
+        // 重名的多余一级（异常数据）软删除，避免分类树里出现两条同名
+        for (const extra of legacy.slice(1)) {
+          await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, extra.id])
+        }
+        continue
+      }
+
+      // 2c) 都没有 -> 新建
+      const ok = await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [prefixedId('cat'), groupId, def.name, type, def.icon, def.color, def.sort, now, now]
+      )
+      if (ok) created++
+    }
+  }
+
+  console.log(
+    `[db] migration v14: 「系统预置分类」已就绪（新建 ${created} 条，收编 ${reparented} 条）`
+  )
 }
 
 async function migrate() {

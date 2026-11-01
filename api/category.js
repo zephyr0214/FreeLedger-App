@@ -7,6 +7,7 @@ import { prefixedId } from '../utils/id.js'
 import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
+  SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
   childIcon, childColor
 } from './db/schema.js'
 
@@ -109,10 +110,10 @@ export async function updateCategory(id, patch) {
   const existing = await getCategory(id)
   if (!existing) throw new Error('分类不存在')
 
-  // ★ 固定分类（对账支出 / 对账收入）不允许改 ★
+  // ★ 固定分类（「系统预置分类」及其下的借出/借入/对账支出/对账收入）不允许改 ★
   //   UI 层已经拦了一道，这里是 API 层的兜底 ——
   //   万一别处（导入、脚本）绕过了 UI，也不能把固定分类改了。
-  if (isReconcileCategory(existing)) {
+  if (await isFixedCategoryById(existing)) {
     throw new Error(`「${existing.name}」是固定分类，不能修改`)
   }
 
@@ -153,11 +154,11 @@ export async function updateCategory(id, patch) {
  *   这两条是余额对账的记账口径，删了账就对不上了。
  */
 export async function deleteCategory(id) {
-  // ★ 固定分类（对账支出 / 对账收入）不允许删 ★
+  // ★ 固定分类不允许删 ★
   //   UI 层已经拦了一道，这里是 API 层的兜底。
   const target = await getCategory(id)
   if (!target) throw new Error('分类不存在')
-  if (isReconcileCategory(target)) {
+  if (await isFixedCategoryById(target)) {
     throw new Error(`「${target.name}」是固定分类，不能删除`)
   }
 
@@ -215,24 +216,28 @@ async function nextSort(type, parentId) {
   return Number(row ? row.m : -1) + 1
 }
 
-/* ------------------------------------------------------ 首次启动初始化 */
+/* ---------------------------------------------- 固定分类（系统预置分类） */
 
 /**
- * 「对账」固定分类
+ * 「系统预置分类」—— 固定分类组（v14 起）
  *
- * 用户直接改账户余额时，差额不是凭空改的 ——
- * 要在交易记录里留下一笔「对账支出」或「对账收入」，
- * 这样余额公式（期初 + 收入 - 支出）仍然成立，账也对得上。
+ * ★ 结构 ★
+ *   一级分类「系统预置分类」在 expense / income 下各一条（名字相同、type 不同），
+ *   它下面挂的是系统自己用的固定子类：
+ *     支出：借出、对账支出
+ *     收入：借入、对账收入
  *
- * ★ v4 起：两个**独立的一级分类** ★
- *   旧结构是「对账调整」一级 → 下面挂「对账支出」「对账收入」两个二级。
- *   现在按用户要求改成：
- *     - expense 类型下的一级分类叫「对账支出」
- *     - income  类型下的一级分类叫「对账收入」
- *   两条都是固定分类：分类管理里不能改名、不能改图标/颜色、不能删除。
+ * ★ 为什么从「独立一级」改成「挂在同一个父级下」★
+ *   用户要求分类页里把这几个不能改的分类收进一个固定的一级分类，
+ *   别和用户自己的分类混排 —— 混在一起看着像可以随便删改的普通分类。
  *
- * 定义放在 api/db/schema.js（RECONCILE_CATEGORIES），
- * 让这里和迁移 v4 共用同一份数据，不会改了一处忘了另一处。
+ * ★ 固定分类不可改名 / 改图标 / 改颜色 / 删除 ★
+ *   · 「对账支出 / 对账收入」是余额对账的记账口径（改账户余额时自动记的账）
+ *   · 「借出 / 借入」是借入借出管理的记账口径
+ *   删了或改名了，账就对不上，所以整组锁死。
+ *
+ * 定义放在 api/db/schema.js，让这里（运行时兜底创建）
+ * 和 api/db/index.js（迁移 v14）共用同一份数据。
  */
 
 /** 「对账支出」「对账收入」两个固定分类的名字（按 type 区分） */
@@ -241,61 +246,254 @@ export const RECONCILE_NAMES = {
   income: '对账收入'
 }
 
+/** 「借出」「借入」两个固定分类的名字（按 type 区分） */
+export const LOAN_NAMES = {
+  expense: '借出',
+  income: '借入'
+}
+
+/** 每个 type 下「系统预置分类」里允许出现的固定子类名（顺序即展示顺序） */
+const FIXED_CHILD_NAMES = {
+  expense: [LOAN_NAMES.expense, RECONCILE_NAMES.expense],
+  income: [LOAN_NAMES.income, RECONCILE_NAMES.income]
+}
+
 /**
- * 判断一个分类是不是「对账」固定分类（不可删改）。
- *
- * ★ 判定依据是「名字 + 类型 + 一级」 ★
- *   不用 id —— id 会随备份导入/导出变化，用名字判定才稳。
+ * 是不是「系统预置分类」这个一级分类本身。
  *
  * @param {object|null} cat 分类对象（至少含 name / type / parent_id）
  * @returns {boolean}
  */
-export function isReconcileCategory(cat) {
+export function isPresetGroupCategory(cat) {
   if (!cat || !cat.name || !cat.type) return false
   if (cat.parent_id) return false
+  return cat.name === SYSTEM_PRESET_GROUP_NAME
+}
+
+/**
+ * 是不是「对账」固定分类（名字 + type 匹配，不看层级）。
+ *
+ * ★ 为什么不再要求「必须是一级」★
+ *   v14 起「对账支出 / 对账收入」是「系统预置分类」下的**二级**分类，
+ *   还按「一级」判定就会漏判 —— 这两个分类就又能被改名删除了。
+ *
+ * @param {object|null} cat 分类对象（至少含 name / type）
+ * @returns {boolean}
+ */
+export function isReconcileCategory(cat) {
+  if (!cat || !cat.name || !cat.type) return false
   const expected = RECONCILE_NAMES[cat.type]
   return !!expected && cat.name === expected
 }
 
 /**
- * 确保「对账支出」「对账收入」两个固定一级分类存在，
- * 返回 { expenseId, incomeId }（分别是这两个一级分类的 id）。
+ * 是不是「借出 / 借入」固定分类（名字 + type 匹配）。
+ *
+ * @param {object|null} cat
+ * @returns {boolean}
+ */
+export function isLoanCategory(cat) {
+  if (!cat || !cat.name || !cat.type) return false
+  const expected = LOAN_NAMES[cat.type]
+  return !!expected && cat.name === expected
+}
+
+/**
+ * 名字是不是「固定子类」的名字（只比名字和 type，不看层级）。
+ *
+ * @param {object|null} cat
+ * @returns {boolean}
+ */
+function isFixedChildName(cat) {
+  if (!cat || !cat.name || !cat.type) return false
+  return (FIXED_CHILD_NAMES[cat.type] || []).includes(cat.name)
+}
+
+/**
+ * 名字是不是「系统预置分类」里的固定分类名（同步、不查库）。
+ *
+ * 用于在**扁平分类列表**里把这些分类挑出来 / 跳过它们。
+ * 典型场景：记账面板选默认分类时不能让「借出」当默认，
+ * 否则用户新建一笔日常支出，分类默认变成「借出」。
+ *
+ * @param {string} name 分类名
+ * @param {string} type 'expense' | 'income'
+ * @returns {boolean}
+ */
+export function isSystemPresetName(name, type) {
+  if (!name || !type) return false
+  return (FIXED_CHILD_NAMES[type] || []).includes(name)
+}
+
+/**
+ * 是不是固定分类（不可改名 / 改图标 / 删除）—— 同步版，给 UI 用。
+ *
+ * ★ 判定规则 ★
+ *   · 「系统预置分类」这个一级分类本身
+ *   · 「对账支出 / 对账收入 / 借出 / 借入」这些固定名字
+ *   · 旧结构遗留的一级「对账支出 / 对账收入」（迁移前的数据）
+ *
+ * UI 层只需要「这个分类能不能改」的答案，不需要查库，
+ * 所以这里只看对象自带的字段。
+ * API 层（updateCategory / deleteCategory）另有 isFixedCategoryById，
+ * 会再确认一次父级是不是「系统预置分类」，防止用户自建的同名分类被误锁。
+ *
+ * @param {object|null} cat
+ * @returns {boolean}
+ */
+export function isFixedCategory(cat) {
+  if (!cat || !cat.name || !cat.type) return false
+  if (isPresetGroupCategory(cat)) return true
+  if (isFixedChildName(cat)) return true
+  return false
+}
+
+/**
+ * 是不是固定分类 —— 带库校验版，给 API 层兜底用。
+ *
+ * 和 isFixedCategory 的区别：对「二级」的固定名字会再查一次父级，
+ * 只有当父级确实是「系统预置分类」时才算固定 ——
+ * 用户自己在别的分类下建一个叫「借出」的子分类不会被误锁。
+ *
+ * @param {object|null} cat 分类对象（含 id / name / type / parent_id）
+ * @returns {Promise<boolean>}
+ */
+export async function isFixedCategoryById(cat) {
+  if (!cat) return false
+  if (isPresetGroupCategory(cat)) return true
+  if (!isFixedChildName(cat)) return false
+  // 旧结构：一级的「对账支出 / 对账收入」同样锁死
+  if (!cat.parent_id) return true
+  const parent = await getCategory(cat.parent_id)
+  return !!parent && isPresetGroupCategory(parent)
+}
+
+/* ------------------------------------------- 系统预置分类的创建（幂等） */
+
+/** 取或建「系统预置分类」这一条一级分类，返回 id */
+async function ensurePresetGroupRow(type) {
+  const def = SYSTEM_PRESET_GROUPS[type]
+  const row = await queryOne(
+    'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+    [def.name, type]
+  )
+  if (row) return row.id
+
+  const now = Date.now()
+  const id = prefixedId('cat')
+  // sort = 999：排到最后，别抢用户自己分类的位置
+  await execute(
+    `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+     VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+    [id, null, def.name, def.type, def.icon, def.color, 999, now, now]
+  )
+  return id
+}
+
+/** 取或建「系统预置分类」下某个固定子类，返回 id */
+async function ensurePresetChildRow(type, name) {
+  const def = SYSTEM_PRESET_CHILDREN.find((d) => d.type === type && d.name === name)
+  if (!def) return null
+
+  const groupId = await ensurePresetGroupRow(type)
+
+  const child = await queryOne(
+    'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+    [name, type, groupId]
+  )
+  if (child) return child.id
+
+  const now = Date.now()
+
+  /*
+   * ★ 先把「同名的一级分类」收编到组里，而不是另外新建一条 ★
+   *   v14 之前的「对账支出 / 对账收入」是一级分类，
+   *   历史交易的 category_id 全指着它们。
+   *   直接新建一条二级再删旧的，会让这些交易变成「未分类」（悬空引用）。
+   *   所以优先复用旧行的 id，只把 parent_id 改到组里。
+   */
+  const legacy = await queryOne(
+    'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+    [name, type]
+  )
+  if (legacy) {
+    await execute(
+      'UPDATE category SET parent_id = ?, icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
+      [groupId, def.icon, def.color, def.sort, now, legacy.id]
+    )
+    return legacy.id
+  }
+
+  const id = prefixedId('cat')
+  await execute(
+    `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+     VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+    [id, groupId, name, type, def.icon, def.color, def.sort, now, now]
+  )
+  return id
+}
+
+/**
+ * 确保「系统预置分类」整组存在（父级 + 四个固定子类）。
+ *
+ * 幂等：已经存在就直接复用，不重复插入。
+ *
+ * @returns {Promise<{expenseGroupId:string, incomeGroupId:string,
+ *   loanExpenseId:string, loanIncomeId:string,
+ *   reconcileExpenseId:string, reconcileIncomeId:string}>}
+ */
+export async function ensurePresetCategories() {
+  const expenseGroupId = await ensurePresetGroupRow('expense')
+  const incomeGroupId = await ensurePresetGroupRow('income')
+
+  const loanExpenseId = await ensurePresetChildRow('expense', LOAN_NAMES.expense)
+  const reconcileExpenseId = await ensurePresetChildRow('expense', RECONCILE_NAMES.expense)
+  const loanIncomeId = await ensurePresetChildRow('income', LOAN_NAMES.income)
+  const reconcileIncomeId = await ensurePresetChildRow('income', RECONCILE_NAMES.income)
+
+  return {
+    expenseGroupId,
+    incomeGroupId,
+    loanExpenseId,
+    loanIncomeId,
+    reconcileExpenseId,
+    reconcileIncomeId
+  }
+}
+
+/**
+ * 确保「对账支出」「对账收入」两个固定分类存在，
+ * 返回 { expenseId, incomeId }。
  *
  * ★ API 契约不变 ★
- *   以前返回的是「对账调整」下面两个**二级**分类的 id，
- *   现在返回的是两个**一级**分类的 id。
- *   调用方（api/account.js 的 adjustAccountBalance）只把它写进
- *   txn.category_id，而 txn.category_id 本来就允许指向一级分类
- *   （日常「其他」这种无二级的一级分类就是这么用的），所以是合法的。
+ *   api/account.js 的 adjustAccountBalance() 只把这两个 id 写进 txn.category_id。
+ *   v14 起它们是「系统预置分类」下的二级分类，
+ *   而 txn.category_id 本来就是二级分类的标准用法 —— 完全合法。
  *
  * 幂等：已经存在就直接返回，不重复插入。
  */
 export async function ensureReconcileCategory() {
-  const now = Date.now()
-
-  const result = {}
-
-  for (const def of RECONCILE_CATEGORIES) {
-    const row = await queryOne(
-      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
-      [def.name, def.type]
-    )
-
-    let id = row ? row.id : null
-    if (!id) {
-      id = prefixedId('cat')
-      // sort = 999：排到最后，别抢用户自己分类的位置
-      await execute(
-        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-        [id, null, def.name, def.type, def.icon, def.color, 999, now, now]
-      )
-    }
-
-    result[def.type === 'expense' ? 'expenseId' : 'incomeId'] = id
+  const all = await ensurePresetCategories()
+  return {
+    expenseId: all.reconcileExpenseId,
+    incomeId: all.reconcileIncomeId
   }
+}
 
-  return result
+/**
+ * 确保「借出」「借入」两个固定分类存在，
+ * 返回 { expenseId, incomeId }（借出是支出、借入是收入）。
+ *
+ * 借入借出管理页（pages/loan/manage.vue）用它拿到记这一笔要挂的分类 id。
+ *
+ * 幂等。
+ */
+export async function ensureLoanCategories() {
+  const all = await ensurePresetCategories()
+  return {
+    expenseId: all.loanExpenseId,
+    incomeId: all.loanIncomeId
+  }
 }
 
 /**
@@ -338,6 +536,33 @@ async function insertDefaultCategories(exec, makeId, now) {
         )
         n++
       }
+    }
+  }
+
+  /*
+   * ★ 「系统预置分类」固定分类组（v14 起）★
+   *   全新安装也要有这一组，否则用户第一次改账户余额时
+   *   得等到 ensureReconcileCategory() 被调用才会凭空冒出来 ——
+   *   分类页里会「突然多出一个一级分类」，很突兀。
+   *   结构定义在 api/db/schema.js，和迁移 v14 共用同一份。
+   */
+  for (const type of ['expense', 'income']) {
+    const groupDef = SYSTEM_PRESET_GROUPS[type]
+    const groupId = makeId()
+    await exec(
+      `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+       VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+      [groupId, null, groupDef.name, type, groupDef.icon, groupDef.color, 999, now, now]
+    )
+    n++
+
+    for (const def of SYSTEM_PRESET_CHILDREN.filter((d) => d.type === type)) {
+      await exec(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [makeId(), groupId, def.name, type, def.icon, def.color, def.sort, now, now]
+      )
+      n++
     }
   }
 

@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 13
+export const SCHEMA_VERSION = 14
 
 /**
  * 「对账」固定分类（v4 起）
@@ -35,6 +35,65 @@ export const RECONCILE_CATEGORIES = [
  * 迁移 v4 负责把它拆成两个独立的一级分类。
  */
 export const RECONCILE_LEGACY_NAME = '对账调整'
+
+/**
+ * 「系统预置分类」—— 固定分类组（v14 起）
+ *
+ * ★ 为什么要有这个父级 ★
+ *   用户要求分类页里把这几个「系统自己用的、用户不能改」的分类收进
+ *   一个固定的一级分类里，叫「系统预置分类」：
+ *     支出：借出、对账支出
+ *     收入：借入、对账收入
+ *   之前「对账支出 / 对账收入」是各自独立的一级分类，
+ *   和用户自己的分类混排在一起，看着像可以随便改的普通分类。
+ *
+ * ★ 两种 type 各有一组 ★
+ *   category 表用 type 区分收支，同一个父级不能同时挂两种 type 的子类，
+ *   所以「系统预置分类」在 expense 和 income 下各是一条独立的一级分类
+ *   （名字相同、type 不同），它们下面的固定子类各自归位。
+ *
+ * ★ 固定子类不可删改 ★
+ *   「对账支出 / 对账收入」是余额对账的记账口径，
+ *   「借出 / 借入」是借入借出管理的记账口径，
+ *   都被 api/category.js 的 isFixedCategory() 拦住，分类管理里不能改名/删除。
+ *
+ * 放在 schema.js 是为了让 api/category.js（运行时兜底创建）
+ * 和 api/db/index.js（迁移 v14）共用同一份定义，避免两处不同步。
+ */
+export const SYSTEM_PRESET_GROUP_NAME = '系统预置分类'
+
+/** 「系统预置分类」父级（按 type 各一条） */
+export const SYSTEM_PRESET_GROUPS = {
+  expense: { name: SYSTEM_PRESET_GROUP_NAME, type: 'expense', icon: 'more', color: '#969799' },
+  income: { name: SYSTEM_PRESET_GROUP_NAME, type: 'income', icon: 'more', color: '#969799' }
+}
+
+/**
+ * 「系统预置分类」下的固定子类
+ *
+ * icon 必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键。
+ *
+ * ★ sort 从 900 起 —— 为什么要这么大 ★
+ *   `listCategories()` 是**扁平的**一张表（一级 + 二级混在一起），
+ *   按 `sort ASC, created_at ASC` 排序。而记账面板的
+ *   `defaultCategoryId` 取「第一个没有二级的一级分类/二级分类」。
+ *
+ *   如果这里的 sort 写成 0 / 1，它们就会和用户自己的分类
+ *   （也是从 0 开始编号）混在一起排到最前面 ——
+ *   后果是「新建一笔支出，默认分类变成『借出』」，
+ *   用户莫名其妙地把日常开销记成借出。
+ *
+ *   所以固定子类统一用 900+ 的大 sort：
+ *   在各自父级下它们仍然按 900、901 的顺序显示（顺序不变），
+ *   但在整张扁平表里永远排在用户分类后面。
+ *   父级「系统预置分类」用 999，比子类更靠后（见 SYSTEM_PRESET_GROUPS 的用法）。
+ */
+export const SYSTEM_PRESET_CHILDREN = [
+  { type: 'expense', name: '借出', icon: 'lend', color: '#FF8F1F', sort: 900 },
+  { type: 'expense', name: '对账支出', icon: 'more', color: '#969799', sort: 901 },
+  { type: 'income', name: '借入', icon: 'borrow', color: '#07C160', sort: 900 },
+  { type: 'income', name: '对账收入', icon: 'more', color: '#969799', sort: 901 }
+]
 
 /**
  * 默认分类表（v5 起）

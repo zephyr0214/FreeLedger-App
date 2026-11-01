@@ -191,7 +191,14 @@ const ROOT = resolve(__dirname, '..')
 const dbCode = readFileSync(join(ROOT, 'api', 'db', 'index.js'), 'utf-8')
 const schemaCode = readFileSync(join(ROOT, 'api', 'db', 'schema.js'), 'utf-8')
 
-ok('SCHEMA_VERSION 提到 13', /export const SCHEMA_VERSION = 13/.test(schemaCode))
+/*
+ * ★ 这里只断言「≥ 13」，不写死具体数字 ★
+ *   SCHEMA_VERSION 会随每次结构变更往上加（v14 加了「系统预置分类」），
+ *   写死 13 会让这条测试在每次加迁移时误报 ——
+ *   它真正要守的是「v12 那条迁移被包含在已发布的版本里」。
+ */
+const schemaVersionNum = Number((schemaCode.match(/export const SCHEMA_VERSION = (\d+)/) || [])[1]) || 0
+ok('SCHEMA_VERSION 至少是 13（包含 v12 迁移）', schemaVersionNum >= 13)
 ok('有 version: 12 的迁移', /version:\s*12/.test(dbCode))
 ok('迁移里把 20000 改成 30000', /Number\(ai\.timeoutMs\) === 20000/.test(dbCode))
 ok('迁移里创建 aiChat', /'aiChat'/.test(dbCode))

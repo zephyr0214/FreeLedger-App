@@ -9,8 +9,53 @@
     <scroll-view class="page-scroll" scroll-y>
       <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
-        <!-- 总资产：只显示金额 -->
-        <MoneyText :cents="accountStore.totalAssets" :size="56" :weight="600" color="var(--app-text)" />
+        <!--
+          概览：左边大数字是「净资产」，右边两行是「总资产 / 负债」。
+
+          ★ 三个数的口径 ★
+            总资产 = 计入资产的正余额之和（我真正拥有的钱）
+            负  债 = 负余额的绝对值之和（信用卡待还、垫付等）
+            净资产 = 总资产 - 负债
+          全部来自 accountStore（内部一条 SQL 同时算出三个数，
+          见 api/account.js 的 getAssetOverview），
+          所以三块数字永远自洽，不会出现「负债 0、净资产却是负的」。
+
+          ★ 左边大数字左上角为什么有「净资产」三个字 ★
+            三个金额摆在一起，没有标题的话用户分不清哪个是「我到底有多少」。
+            大数字是主角，用一个小标签点明它的口径。
+        -->
+        <view class="asset-overview">
+          <view class="asset-main">
+            <text class="asset-main-label">净资产</text>
+            <MoneyText
+              :cents="accountStore.netAssets"
+              :size="56"
+              :weight="600"
+              color="var(--app-text)"
+            />
+          </view>
+
+          <view class="asset-side">
+            <view class="asset-side-item">
+              <text class="asset-side-label">总资产</text>
+              <MoneyText
+                :cents="accountStore.totalAssets"
+                :size="26"
+                :weight="500"
+                color="var(--app-text-2)"
+              />
+            </view>
+            <view class="asset-side-item">
+              <text class="asset-side-label">负债</text>
+              <MoneyText
+                :cents="accountStore.totalDebt"
+                :size="26"
+                :weight="500"
+                color="var(--app-text-2)"
+              />
+            </view>
+          </view>
+        </view>
 
         <!-- 资产趋势：每次资产变化打一个点 -->
         <view class="asset-trend">
@@ -390,6 +435,57 @@ export default {
   padding: 28rpx 32rpx 20rpx;
   margin-top: 8rpx;
   box-shadow: var(--app-shadow);
+}
+
+/* --------------------------------------------------------- 资产概览 */
+
+/**
+ * 概览区：左「净资产」大数字，右侧「总资产 / 负债」两行。
+ *
+ * ★ 左宽右窄、底部对齐 ★
+ *   净资产是主角（56rpx），右侧两个数是补充信息（26rpx）。
+ *   两者底部对齐，视觉上像「一个大数字 + 它的拆解」，
+ *   而不是三个平级的数字并排。
+ */
+.asset-overview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.asset-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 「净资产」这个说明文字：小、灰、在大数字左上角 */
+.asset-main-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  line-height: 1.2;
+}
+
+.asset-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+
+.asset-side-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+}
+
+.asset-side-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
 }
 
 /* 趋势区：与总资产同面板，用一条细分割线隔开 */
