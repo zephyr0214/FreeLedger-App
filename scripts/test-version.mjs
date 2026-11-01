@@ -58,28 +58,30 @@ check('APP_VERSION 是三段式（即使是 .0 也写全）', /^\d+\.\d+\.\d+$/.
  * ★ 关键规则：次版本号必须等于 SCHEMA_VERSION ★
  *   用户定的规则是「有数据库迁移就升次版本号」，而 SCHEMA_VERSION
  *   就是数据库结构的版本号 —— 两者必须同步：
- *     SCHEMA_VERSION = 15 -> 1.15.0
- *     SCHEMA_VERSION = 16 -> 1.16.0
- *   以前这里写死成 1.15.0，SCHEMA_VERSION 已经到 16 却没跟着改，
- *   正是这一条断言把这种不一致拦住的。
+ *     SCHEMA_VERSION = 15 -> 1.15.x
+ *     SCHEMA_VERSION = 16 -> 1.16.x（1.16.0 / 1.16.1 / 1.16.2 …）
+ *   以前这里把期望写死成 "1.16.0"，结果发 1.16.1 时断言就失败、
+ *   还得跟着改测试。现在只校验「次版本号 == SCHEMA_VERSION」，
+ *   修订号不写死 —— 这样发 1.16.1、1.16.2 时这条断言不用动。
  */
 check(
-  `当前版本是 1.${SCHEMA_VERSION}.0（次版本号必须等于 SCHEMA_VERSION）`,
-  APP_VERSION,
-  `1.${SCHEMA_VERSION}.0`
-)
-check(
-  'APP_VERSION 的次版本段确实等于 SCHEMA_VERSION',
+  `次版本号必须等于 SCHEMA_VERSION（当前 ${SCHEMA_VERSION}）`,
   Number(APP_VERSION.split('.')[1]),
   SCHEMA_VERSION
+)
+check(
+  'APP_VERSION 的修订单段是合法数字（>=0）',
+  Number(APP_VERSION.split('.')[2]) >= 0 && Number.isInteger(Number(APP_VERSION.split('.')[2])),
+  true
 )
 /*
  * ★ 即使修订号是 0 也要写全三段 ★
  *   用户明确要求「后面没有也要 1.16.0」。
  *   写成 1.16 会让 manifest 的 versionName（1.16.0）
  *   和界面显示的 v1.16 形状不一致，看着像两个版本。
+ *   这里用正则确认是三段，上面已覆盖。
  */
-check('当前版本写全三段而不是 1.16', APP_VERSION, '1.16.0')
+check('当前版本写全三段而不是 1.16', /^\d+\.\d+\.\d+$/.test(APP_VERSION), true)
 
 check('toSemver 兜底补零', toSemver('1.16'), '1.16.0')
 check('toSemver 三段原样', toSemver('1.16.1'), '1.16.1')
