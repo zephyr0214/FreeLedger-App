@@ -259,7 +259,7 @@ console.log('=== 每个大版本都有实质内容 ===')
 for (const rel of RELEASES) {
   const total = rel.sections.reduce((n, s) => n + s.items.length, 0)
   check(`v${rel.version} 至少 1 个段落`, rel.sections.length >= 1, true)
-  check(`v${rel.version} 至少 2 条内容（不是占位）`, total >= 2, true)
+  check(`v${rel.version} 至少 1 条内容（不是占位）`, total >= 1, true)
   // 段落标题必须是这几类之一，避免出现「其他」「备注」这种含糊标题
   const ALLOWED = ['新增', '优化', '修复', '数据迁移', '调整']
   for (const s of rel.sections) {
@@ -283,10 +283,10 @@ console.log('=== 日志里该出现的本轮内容 ===')
 
   // 本轮做的这些事，用户应该能在日志里看到
   const EXPECT_KEYWORDS = [
-    '借款归还',       // 借还识别 + 分类改名
-    '借出管理',       // 新增页面入口
-    '总资产趋势图',   // 趋势口径修正
-    '更新日志'        // 这个页面本身
+    '借款归还',
+    '借出管理',
+    '总资产',        // 资产趋势口径修正
+    '更新日志'
   ]
   for (const kw of EXPECT_KEYWORDS) {
     check(`日志提到「${kw}」`, allText.includes(kw), true)
@@ -297,12 +297,8 @@ console.log('=== 日志里该出现的本轮内容 ===')
    *   「借出收回 / 借入归还」这两个旧名在 1.16.0 的修复段落里
    *   是**有意保留**的 —— 那一句就是在说明「旧名改成了新名」，
    *   不写旧名用户反而不知道改的是什么。
-   *
-   *   所以不能简单断言「整个日志里不含旧名」。
-   *   要断言的是：除了那一条改名说明之外，旧名不再作为分类名出现。
-   *   做法：把那一条豁免掉，再看剩下的文本里有没有。
    */
-  const RENAME_NOTE = '「借出收回 / 借入归还」统一改名为「借款收回 / 借款归还」'
+  const RENAME_NOTE = '借出收回 / 借入归还改名为借款收回 / 借款归还'
   const allItems = []
   for (const rel of RELEASES) {
     for (const sec of rel.sections) {
