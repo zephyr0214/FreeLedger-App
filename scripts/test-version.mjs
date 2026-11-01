@@ -4,9 +4,9 @@
  *   node scripts/test-version.mjs
  *
  * ★ 用户要求 ★
- *   「版本迁移则更新 v1.13 到 v1.15，没有版本迁移则后续每一次 git 都 v1.15.1
+ *   「版本迁移则更新版本号，后确认为 1.16.0；没有版本迁移则后续每一次 git 都 v1.16.1
  *     这样，内容列出，参考关于页面的段落排版，
- *     关于页面和我的页面底部的版本号同步更新，写进断言。」
+ *     内容列出，参考关于页面的段落排版，
  *
  * ★ 这个测试守什么 ★
  *   1. 版本号只有一个来源：utils/version.js 的 APP_VERSION。
@@ -55,22 +55,41 @@ console.log('=== 版本号格式 ===')
 
 check('APP_VERSION 是三段式（即使是 .0 也写全）', /^\d+\.\d+\.\d+$/.test(APP_VERSION), true)
 /*
- * ★ 为什么必须是三段 ★
- *   用户明确要求：「后面没有也要 1.15.0」。
- *   写成 1.15 会让 manifest 的 versionName（1.15.0）
- *   和界面显示的 v1.15 形状不一致，看着像两个版本。
+ * ★ 关键规则：次版本号必须等于 SCHEMA_VERSION ★
+ *   用户定的规则是「有数据库迁移就升次版本号」，而 SCHEMA_VERSION
+ *   就是数据库结构的版本号 —— 两者必须同步：
+ *     SCHEMA_VERSION = 15 -> 1.15.0
+ *     SCHEMA_VERSION = 16 -> 1.16.0
+ *   以前这里写死成 1.15.0，SCHEMA_VERSION 已经到 16 却没跟着改，
+ *   正是这一条断言把这种不一致拦住的。
  */
-check('当前版本是 1.15.0（这一轮带数据库迁移，次版本号升到 15）', APP_VERSION, '1.15.0')
+check(
+  `当前版本是 1.${SCHEMA_VERSION}.0（次版本号必须等于 SCHEMA_VERSION）`,
+  APP_VERSION,
+  `1.${SCHEMA_VERSION}.0`
+)
+check(
+  'APP_VERSION 的次版本段确实等于 SCHEMA_VERSION',
+  Number(APP_VERSION.split('.')[1]),
+  SCHEMA_VERSION
+)
+/*
+ * ★ 即使修订号是 0 也要写全三段 ★
+ *   用户明确要求「后面没有也要 1.16.0」。
+ *   写成 1.16 会让 manifest 的 versionName（1.16.0）
+ *   和界面显示的 v1.16 形状不一致，看着像两个版本。
+ */
+check('当前版本写全三段而不是 1.16', APP_VERSION, '1.16.0')
 
-check('toSemver 兜底补零', toSemver('1.15'), '1.15.0')
-check('toSemver 三段原样', toSemver('1.15.1'), '1.15.1')
-check('toVersionCode(1.15.0) = 1150', toVersionCode('1.15.0'), 1150)
-check('toVersionCode(1.15.1) = 1151', toVersionCode('1.15.1'), 1151)
-check('toVersionCode(1.15.2) = 1152', toVersionCode('1.15.2'), 1152)
+check('toSemver 兜底补零', toSemver('1.16'), '1.16.0')
+check('toSemver 三段原样', toSemver('1.16.1'), '1.16.1')
+check('toVersionCode(1.16.0) = 1160', toVersionCode('1.16.0'), 1160)
+check('toVersionCode(1.16.1) = 1161', toVersionCode('1.16.1'), 1161)
+check('toVersionCode(1.16.2) = 1162', toVersionCode('1.16.2'), 1162)
 // 修订号递增时 versionCode 必须递增（安卓覆盖安装的硬要求）
 check(
   '修订号递增时 versionCode 也递增',
-  toVersionCode('1.15.2') > toVersionCode('1.15.1'),
+  toVersionCode('1.16.2') > toVersionCode('1.16.1'),
   true
 )
 
@@ -160,7 +179,7 @@ for (const rel of RELEASES) {
 console.log('=== 版本按倒序排列（最新在最前）===')
 
 {
-  /** 把 1.15.0 / 1.15.1 转成可比较的数字数组 */
+  /** 把 1.16.0 / 1.16.1 转成可比较的数字数组 */
   const keyOf = (v) => toSemver(v).split('.').map(Number)
 
   let descending = true
@@ -187,8 +206,8 @@ console.log('=== 版本历史完整覆盖所有数据库迁移 ===')
  *   再和 1..SCHEMA_VERSION 逐一比对，缺哪个就报哪个。
  *
  * ★ 允许「多条迁移合并到一个版本」★
- *   v14 / v15 / v16 三条迁移都在同一天落地、打包成 1.15.0 一起发，
- *   所以 1.15.0 的 schemaVersion 直接写 16。
+ *   v14 / v15 / v16 三条迁移都在同一天落地、打包成 1.16.0 一起发，
+ *   所以 1.16.0 的 schemaVersion 直接写 16。
  *   判定的是「每个迁移号都被某个版本的 schemaVersion 覆盖到」
  *   （即存在某版本的 schemaVersion >= 该号），而不是要求一一对应。
  */
@@ -218,8 +237,8 @@ console.log('=== 版本号连续，不能有意外缺口 ===')
 
 /*
  * ★ 只允许一个缺口：1.14 ★
- *   用户明确要求「版本迁移则更新 v1.13 到 v1.15」——
- *   1.13 之后直接跳 1.15，1.14 从未发布过。
+ *   用户原本要求「v1.13 到 v1.15」，后确认为 1.16.0 ——
+ *   1.13 之后直接跳 1.16，1.14 与 1.15 从未单独发版。
  *   除此之外任何缺口都说明我漏写了一个版本。
  */
 {
@@ -230,7 +249,7 @@ console.log('=== 版本号连续，不能有意外缺口 ===')
   for (let m = uniqueMinors[0]; m <= uniqueMinors[uniqueMinors.length - 1]; m++) {
     if (!uniqueMinors.includes(m)) missing.push(m)
   }
-  check('次版本号只有 14 这一个有意缺口', missing, [14])
+  check('次版本号只有 14 和 15 这两个有意缺口', missing, [14, 15])
 }
 
 console.log('=== 每个大版本都有实质内容 ===')
@@ -273,7 +292,7 @@ console.log('=== 日志里该出现的本轮内容 ===')
 
   /*
    * ★ 旧名字只能出现在「改名说明」里 ★
-   *   「借出收回 / 借入归还」这两个旧名在 1.15.0 的修复段落里
+   *   「借出收回 / 借入归还」这两个旧名在 1.16.0 的修复段落里
    *   是**有意保留**的 —— 那一句就是在说明「旧名改成了新名」，
    *   不写旧名用户反而不知道改的是什么。
    *

@@ -6,12 +6,13 @@
  *     manifest.json 的 versionName
  *     pages/settings/about.vue 的 <text class="app-version">v1.13.0</text>
  *     pages/mine/index.vue 的「自由记 v1.13.0」
- *   改一处忘一处，就会出现「关于页显示 v1.13、我的页显示 v1.15」。
+ *   改一处忘一处，就会出现「关于页显示 v1.13、我的页显示 v1.16」。
  *   现在三个地方都从 APP_VERSION 取，只改这一处。
  *
  * ★ 版本号规则（用户指定）★
- *   · 有数据库迁移（SCHEMA_VERSION 变化）→ 升次版本号：1.13 -> 1.15
- *   · 没有迁移 → 在次版本号后面递增修订号：1.15 -> 1.15.1 -> 1.15.2
+ *   · 有数据库迁移（SCHEMA_VERSION 变化）→ 升次版本号，且**次版本号 == SCHEMA_VERSION**
+ *     例：SCHEMA_VERSION 从 13 到 16 -> 版本号 1.13.0 -> 1.16.0
+ *   · 没有迁移 → 在次版本号后面递增修订号：1.16.0 -> 1.16.1 -> 1.16.2
  *   所以这里存的是「语义化版本」字符串，manifest 里用三段式。
  *
  * ★ 更新日志怎么维护 ★
@@ -32,22 +33,24 @@
  * 当前版本号（展示用，**始终三段式**）
  *
  * ★ 规则（用户指定）★
- *   · 有数据库迁移（SCHEMA_VERSION 变化）→ 升次版本号：1.13.0 -> 1.15.0
- *   · 没有迁移 → 递增修订号：1.15.0 -> 1.15.1 -> 1.15.2
- *   即使修订号是 0，也要写全三段（1.15.0 而不是 1.15），
+ *   · 有数据库迁移 → 次版本号跟着 SCHEMA_VERSION 走：
+ *     SCHEMA_VERSION = 15 时是 1.15.0，改成 16 就同步成 1.16.0
+ *   · 没有迁移 → 递增修订号：1.16.0 -> 1.16.1 -> 1.16.2
+ *   即使修订号是 0，也要写全三段（1.16.0 而不是 1.16），
  *   这样「我的」页、关于页、manifest 三处显示的永远同一个形状。
  *
  * ★ 改版本号只改这里 ★
  *   about.vue / mine/index.vue 都读它；
- *   scripts/test-version.mjs 会核对 manifest.json 是否同步。
+ *   scripts/test-version.mjs 会核对：
+ *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.15.0'
+export const APP_VERSION = '1.16.0'
 
 /**
  * 三段式版本号（兜底补零）
  *
  * 现在 APP_VERSION 本身就是三段，这个函数主要给
- * 「万一有人写成 1.15」的情况兜底，保证 manifest 那边不出错。
+ * 「万一有人写成 1.16」的情况兜底，保证 manifest 那边不出错。
  */
 export function toSemver(version = APP_VERSION) {
   const parts = String(version).split('.').filter(Boolean)
@@ -60,17 +63,17 @@ export function toSemver(version = APP_VERSION) {
  *
  * manifest.json 要求 versionCode 是整数且每次发版都必须变大，
  * 否则安卓不允许覆盖安装。规则：
- *   1.15   -> 1150
- *   1.15.1 -> 1151
- *   1.15.2 -> 1152
+ *   1.16   -> 1160
+ *   1.16.1 -> 1161
+ *   1.16.2 -> 1162
  */
 export function toVersionCode(version = APP_VERSION) {
-  const [major = '1', minor = '15', patch = '0'] = toSemver(version).split('.')
+  const [major = '1', minor = '16', patch = '0'] = toSemver(version).split('.')
   return Number(major) * 1000 + Number(minor) * 10 + Number(patch)
 }
 
 /**
- * 「自由记 v1.15」这种带前缀的展示文案
+ * 「自由记 v1.16」这种带前缀的展示文案
  */
 export const APP_VERSION_LABEL = `v${APP_VERSION}`
 
@@ -79,31 +82,30 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *
  * ★ 版本号怎么和 git 历史对应 ★
  *   v1.13.0 是开发者手工定的版本号，它恰好等于当时的 SCHEMA_VERSION = 13。
- *   所以这之后的版本沿用同一条规则：
- *     **版本号的主次段 == 当时的数据库结构版本**
- *   v1.13.0 -> schema 13、v1.15.0 -> schema 16
- *   （中间跳过 14，因为 1.14 没单独发过版：v14/v15/v16 三条迁移
- *     都在同一天落地、打包成 1.15.0 一起发出去）
+ *   所以规则就是：**次版本号 == 当时的数据库结构版本**。
  *
- *   更早的历史（schema 1~12）没有版本号标记，
- *   按迁移边界 + 日期还原成分段版本：
+ *   当前 SCHEMA_VERSION = 16（v14 系统预置分类、v15 借款收回/借款归还、
+ *   v16 分类改名），所以当前版本是 **1.16.0**。
+ *   ★ 这三条迁移没有拆成 1.14 / 1.15 / 1.16 三个版本 ★
+ *     它们是同一天、同一批需求做出来的、一次打包发出去的，
+ *     版本号直接对齐到最终的结构版本 16，中间不单独发版。
+ *
+ *   更早的历史（schema 1~13）按迁移边界 + 日期还原：
  *     v1.0.0  schema 1    项目骨架与可用闭环
- *     v1.1.0  schema 2    账户余额与统计
- *     v1.2.0  schema 3    筛选、周期、统一详情页
- *     v1.3.0  schema 4    默认分类表重建
- *     v1.4.0  schema 5    分类页重做
- *     v1.5.0  schema 6    图标体系与删除解耦
- *     v1.6.0  schema 7    周期管理
- *     v1.7.0  schema 8    周期自动补记
- *     v1.8.0  schema 9-10 悬浮 tabBar 与视觉统一
+ *     v1.1.0  schema 1    三个主页面 + 设置子页 + AI 输入
+ *     v1.2.0  schema 2    资产趋势图、统计页重构、账户类型五类
+ *     v1.3.0  schema 3    筛选联动、统一详情页、不计入预算
+ *     v1.4.0  schema 4    默认分类表重建、组件库弹窗
+ *     v1.5.0  schema 5    分类管理页重做
+ *     v1.6.0  schema 6    线性图标库、记账按钮设置、删除解耦
+ *     v1.7.0  schema 7    周期管理
+ *     v1.8.0  schema 8    周期自动补记
+ *     v1.9.0  schema 9    周期跳过日、停用速记原文字段
+ *     v1.10.0 schema 10   悬浮 tabBar、账户图标预设化
  *     v1.11.0 schema 11   组合账户
  *     v1.12.0 schema 12   AI 对话改造
  *     v1.13.0 schema 13   AI 稳定性
- *     v1.15.0 schema 16   借入借出 + 系统预置分类
- *
- *   ★ v1.8.0 为什么覆盖 schema 9 和 10 ★
- *     schema 9（cycle_skip 表）和 schema 10（停用 source/raw_text）
- *     是同一天、同一批「修复周期与 UI」里的改动，没有单独发版。
+ *     v1.16.0 schema 16   借入借出 + 系统预置分类
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -115,7 +117,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  */
 export const RELEASES = [
   {
-    version: '1.15.0',
+    version: '1.16.0',
     date: '2026-11-01',
     // 这一版带数据库迁移：v14 系统预置分类、v15 借款收回/借款归还、v16 分类改名
     schemaVersion: 16,
