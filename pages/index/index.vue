@@ -396,25 +396,42 @@ export default {
      * 最近收支：近 5 条，按日期分组。
      * 数据源统一走 txnStore.recentList（最近 5 笔），
      * 不再优先显示今天的 —— 「最近收支」顾名思义就是最近的 5 条。
+     *
+     * ★ 分组右边的「支出 / 收入」必须是当日全部流水的合计 ★
+     *   以前这个数是**把显示出来的这几条**累加出来的：
+     *     某天记了 10 笔，列表里只露出 2 笔，
+     *     那一组右边就只写这 2 笔的合计，和当天的真实收支对不上，
+     *     看着像少记了钱。
+     *   现在改成查「按天聚合的全部流水」（txnStore.allDailyTotals）：
+     *     列表仍然只显示最近 5 条（那是列表的职责），
+     *     但右侧的合计是该日真实发生的全部收支。
+     *
+     * ★ 为什么用 allDailyTotals 而不是 dailyTotals ★
+     *   dailyTotals 只含当月，而「最近 5 条」可能跨月
+     *   （上个月最后一笔 + 这个月几笔），
+     *   跨月的那天在 dailyTotals 里查不到，合计就会变成 0。
      */
     const recentGroups = computed(() => {
       const list = txnStore.recentList || []
+      const totals = txnStore.allDailyTotals || {}
       const groups = []
       for (const txn of list) {
         let g = groups.find((x) => x.day === txn.occurred_day)
         if (!g) {
+          // 当日全部流水的合计（不是这几条显示出来的记录）
+          const dayTotal = totals[txn.occurred_day] || { expense: 0, income: 0, count: 0 }
           g = {
             day: txn.occurred_day,
             title: formatDayHeader(txn.occurred_day),
             list: [],
-            expense: 0,
-            income: 0
+            expense: dayTotal.expense,
+            income: dayTotal.income,
+            // 当日总笔数 —— 和合计同源，避免「合计是当日的、笔数是显示出来的」这种混搭
+            count: dayTotal.count
           }
           groups.push(g)
         }
         g.list.push(txn)
-        if (txn.type === 'expense') g.expense += txn.amount_cents
-        if (txn.type === 'income') g.income += txn.amount_cents
       }
       return groups
     })

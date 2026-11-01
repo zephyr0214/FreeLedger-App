@@ -41,11 +41,27 @@
               账户详情页是用户主动打开来看的，正文色最清楚；
               浅灰只用在「账户列表里区分不计入资产」，不用在这里。
           -->
-          <MoneyText
-            :cents="account.balance_cents"
-            :size="80"
-            :weight="600"
-          />
+          <view class="bal-amount-row">
+            <MoneyText
+              :cents="account.balance_cents"
+              :size="80"
+              :weight="600"
+            />
+
+            <!--
+              「修改」入口：放在余额数字的右下角。
+
+              ★ 为什么放这里而不是放右上角的「编辑」★
+                「编辑」改的是账户资料（名字、类型、图标、额度）。
+                改余额是另一件事 —— 它动的是账（要么记一笔对账，
+                要么改期初余额），口径必须让用户当场选。
+                放在余额旁边，用户看到数字就能就地改，
+                不用先想「编辑里是不是也能改余额」。
+
+              ★ 组合账户没有余额，不显示这个入口 ★
+            -->
+            <text v-if="!account.isCombo" class="bal-edit-link" @click="openBalanceSheet">修改</text>
+          </view>
 
           <!-- 信用卡信息 -->
           <view v-if="account.isCredit && account.credit_limit_cents" class="credit-info">
@@ -103,6 +119,27 @@
         <text class="loading-text">加载中…</text>
       </view>
     </DetailShell>
+
+    <!--
+      余额修改弹层
+
+      ★ 入口在上面的「当前余额」右下角 ★
+        改余额是「动账」，和「编辑」（改资料）是两件事，
+        所以入口放在余额旁边，而不是塞进编辑页。
+
+      ★ 弹层本体是共享组件 ★
+        编辑页也用同一个 components/BalanceSheet.vue，
+        两处的口径规则、差额预览、落库逻辑完全一致。
+    -->
+    <BalanceSheet
+      v-model:visible="showBalanceSheet"
+      :account-id="accountId"
+      :current-balance-cents="account ? account.balance_cents : 0"
+      @saved="onBalanceSaved"
+    />
+
+    <!-- 全局弹窗宿主（组件库重绘的确认框） -->
+    <AppDialog />
   </view>
 </template>
 
@@ -119,19 +156,22 @@
  * 分类 / 标签 / 预算 / 周期这 4 个详情页都照这个结构写。
  */
 import { ref, computed } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
 import AccountIcon from '@/components/AccountIcon.vue'
+import BalanceSheet from '@/components/BalanceSheet.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
 import { backAfterAccountDelete } from '@/utils/navBack.js'
+import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, AccountIcon },
+  components: { MoneyText, DetailShell, RecentTxnList, AccountIcon, BalanceSheet, AppDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -202,6 +242,26 @@ export default {
       uni.navigateTo({ url: `/pages/account/edit?id=${accountId.value}` })
     }
 
+    /* ------------------------------------------------------ 余额弹层 */
+
+    /** 余额修改弹层是否显示 */
+    const showBalanceSheet = ref(false)
+
+    /** 打开余额弹层（入口在「当前余额」右下角） */
+    function openBalanceSheet() {
+      showBalanceSheet.value = true
+    }
+
+    /**
+     * 弹层改完余额
+     *
+     * ★ 要重新拉一次账户 ★
+     *   余额变了，头部的大数字、已用额度百分比都要跟着变。
+     */
+    async function onBalanceSaved() {
+      await load()
+    }
+
     /**
      * 「全部 ›」-> 交易列表，并带上账户筛选条件
      *
@@ -232,9 +292,13 @@ export default {
       }
     })
 
+    // 侧滑返回 / 返回键：有弹层先收起弹层，不退出页面
+    onBackPress(() => handleBackPress())
+
     return {
       settingStore, accountId, account, txnList, monthStats, loading,
       primaryColor, pageStyle, usedPercent, repayCountdown,
+      showBalanceSheet, openBalanceSheet, onBalanceSaved,
       goEdit, goAllTxn, goBack
     }
   }
@@ -313,6 +377,30 @@ export default {
   color: var(--app-text-3);
   display: block;
   margin-bottom: 8rpx;
+}
+
+/*
+ * 余额行：金额 + 右下角的「修改」
+ *
+ * ★ 为什么用 flex 而不是让 MoneyText 独占一行 ★
+ *   「修改」要贴在金额数字的**右下角**（用户明确要求的位置），
+ *   所以金额和按钮必须在同一行里，垂直方向底部对齐。
+ *   align-items: flex-end 让小字按钮和大数字的底边对齐，
+ *   视觉上就是「数字右下角挂一个小链接」。
+ */
+.bal-amount-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.bal-edit-link {
+  font-size: 26rpx;
+  color: var(--app-primary);
+  font-weight: 500;
+  padding: 8rpx 0 8rpx 16rpx;
+  flex-shrink: 0;
 }
 
 /* 信用卡 */

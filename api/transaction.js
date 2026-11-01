@@ -316,6 +316,50 @@ export async function getDailyTotals(monthKey) {
   return map
 }
 
+/**
+ * 按天聚合全部流水的收支合计（不限月份）
+ *
+ * ★ 为什么要有这个（首页「最近收支」的 bug）★
+ *   首页按日期分组显示最近几笔，每组右边写着「支出 X / 收入 Y」。
+ *   以前这两个数是**把这几条显示出来的记录**累加出来的 ——
+ *   而列表只显示最近 5 条，于是：
+ *     某天记了 10 笔，列表里只露出 2 笔，
+ *     那一组右边就只显示这 2 笔的合计，
+ *     和当天真实的收支对不上（看着像少记了钱）。
+ *
+ *   月历用的 getDailyTotals(monthKey) 只统计当月，
+ *   而「最近收支」可能跨月（最近 5 条里带着上个月的），
+ *   所以这里不按月过滤，直接按天聚合全部流水。
+ *
+ * ★ 返回结构 ★
+ *   { 'YYYY-MM-DD': { expense, income, count } }
+ *   转账不计入收支合计（transfer 既不是支出也不是收入），
+ *   但计入 count —— count 表示「这天记了几笔」。
+ *
+ * @returns {Promise<Object<string, {expense:number, income:number, count:number}>>}
+ */
+export async function getAllDailyTotals() {
+  const rows = await query(
+    `SELECT occurred_day,
+            COALESCE(SUM(CASE WHEN type='expense' THEN amount_cents ELSE 0 END),0) AS exp,
+            COALESCE(SUM(CASE WHEN type='income'  THEN amount_cents ELSE 0 END),0) AS inc,
+            COUNT(*) AS cnt
+     FROM txn
+     WHERE deleted_at IS NULL
+     GROUP BY occurred_day
+     ORDER BY occurred_day ASC`
+  )
+  const map = {}
+  for (const r of rows) {
+    map[r.occurred_day] = {
+      expense: Number(r.exp) || 0,
+      income: Number(r.inc) || 0,
+      count: Number(r.cnt) || 0
+    }
+  }
+  return map
+}
+
 /* ------------------------------------------------------------------ 写入 */
 
 /**

@@ -799,6 +799,27 @@ export async function parseMessageToTransactions(text, ctx) {
   const categoryOptions = buildCategoryOptions(ctx.categories)
   const categoryLabels = categoryOptions.map((c) => c.label)
 
+  /*
+   * ★ 提示词辅助：只用来看清楚「有哪些已有分类」★
+   *
+   *   这两个列表**只拼进提示词**，不参与任何匹配逻辑：
+   *     · parentNames —— 有二级的一级分类名（「餐饮食品」「购物消费」…）
+   *       给模型当「上位概念」，帮它把「买猫粮」这种说法
+   *       映射到已有的二级分类上，而不是自己造一个「宠物食品」。
+   *     · fallbackNames —— 兜底类（「其他/杂项」）
+   *       跟下面的兜底逻辑保持一致：找不到别的分类时，用它总比空着强。
+   */
+  const allCats = ctx.categories || []
+  const parentNames = allCats
+    .filter((c) => !c.parent_id && c.name !== SYSTEM_PRESET_GROUP_NAME)
+    .filter((c) => allCats.some((x) => x.parent_id === c.id))
+    .map((c) => c.name)
+  const fallbackNames = Array.from(new Set(
+    allCats
+      .filter((c) => !c.parent_id && /其他|杂项|未分类|不明/.test(c.name))
+      .map((c) => c.name)
+  ))
+
   const accountNames = ctx.accounts.map((a) => a.name)
 
   const systemPrompt = `你是一个记账助手，负责把用户的一句话解析成结构化的记账记录。
@@ -809,20 +830,35 @@ export async function parseMessageToTransactions(text, ctx) {
 3. 如果某条信息没提到，用 null 或者省略该字段，不要编造。
 4. amount 只填数字（单位：元），不要带货币符号。
 5. type 只能是 "expense"（支出）、"income"（收入）、"transfer"（转账）。
-6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮/午餐」）。
+6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮食品/正餐」）。
    - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段；
      少数几项是短名（如「借款归还」「借出」），也原样填。
-   - 不要只填一级（如「餐饮」）。若列表里只有一级分类没有二级，才填一级。
+   - 不要只填一级（如「餐饮食品」）。若列表里只有一级分类没有二级，才填一级。
    - 选不到就给 null，不要编造分类名。
-7. account 必须从给定的账户名列表里选，选不到就给 null。
-8. **转账（transfer）必须同时给出转出账户 account 和转入账户 toAccount**。
+7. **★★ 优先归到已有分类：只能用列表里的，绝不自己造 ★★**
+   - **只能从下面给的分类列表里选**。列表里没有的分类名一律不要输出。
+   - **优先归到已有的、语义最接近的那一项**，按这个顺序判断：
+     a) 先找语义**完全一致**的：例「买咖啡」→ 列表里表示咖啡/饮品的那一项；
+     b) 再找**上位概念里语义最近**的：例「买猫粮」，列表里没有「宠物食品」，
+        就归到列表里最接近的日用品那一项（如「购物消费/日用品」这种已经存在的）；
+     c) 实在找不到能沾边的，才用**兜底类**（如「其他/杂项」）。
+   - **不要新建列表里没有的分类名**。哪怕用户原句里出现了某个词
+     （「猫粮」「宠物」「健身卡」……），只要那个词不在列表里，
+     它就只是**备注**，不是分类名。
+   - **宁可归到兜底类，也不要归到一个不存在的分类** ——
+     编出来的名字程序匹配不到，分类会变成空，整条记录只能走兜底，
+     等于这句话白记了。优先级：**已有分类 > 兜底类 > 不存在的分类**。
+   - 实在对不上列表里任何一项，就给 null（程序会自动挂到兜底类），
+     但**绝对不要**输出列表以外的分类名。
+8. account 必须从给定的账户名列表里选，选不到就给 null。
+9. **转账（transfer）必须同时给出转出账户 account 和转入账户 toAccount**。
    - 例：「微信转给支付宝200元」→ account="微信"，toAccount="支付宝"
    - 例：「从支付宝转到招商卡」→ account="支付宝"，toAccount="招商卡"
    - 两个字段都必须从账户名列表里选，不要编造。
    - 只有在句子明确表达了「A 转给 B」「A 转到 B」「从 A 转 B」这类方向时才用 transfer；
      如果只有一个账户出现，那是收支不是转账。
    - 转账不需要 category，给 null 即可。
-9. **★★ 借入借出（最容易错的地方，务必按下面的判断）★★**
+10. **★★ 借入借出（最容易错的地方，务必按下面的判断）★★**
 
    借钱/还钱的对象是「人」（姐姐、同事、朋友、爸妈…），
    **不是账户** —— 所以这四种情况**一律不是 transfer**，
@@ -844,22 +880,40 @@ export async function parseMessageToTransactions(text, ctx) {
      - 只有两边都是**账户列表里的账户**（如「微信转支付宝」）才是 transfer。
        如果句子里出现的「对方」不在账户列表里，那就不是转账。
 
-10. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
-11. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
+11. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
+12. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
     没提时间就给 null（系统会自动记成当前时刻）。
-12. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
+13. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
-  const userPrompt = `可选分类（请原样使用列表里的完整路径）：
+  const userPrompt = `可选分类（请原样使用列表里的完整路径，**不要输出列表以外的分类**）：
 ${categoryLabels.map((l) => `- ${l}`).join('\n')}
-
+${parentNames.length ? `
+上面这些分类归属的一级分类（帮你在心里把说法映射到已有的二级上）：
+${parentNames.map((n) => `- ${n}`).join('\n')}
+` : ''}${fallbackNames.length ? `
+兜底分类（实在对不上上面任何一项时才用；宁可选它，也不要造一个不存在的分类）：
+${fallbackNames.map((n) => `- ${n}`).join('\n')}
+` : ''}
 可选账户：${JSON.stringify(accountNames)}
 
 用户消息：${message}
 
+★ 分类怎么选（务必照做）★
+1. category 只能填上面列表里的某一项，**原样照抄，不要改字、不要加词、不要造新名字**。
+2. 优先归到**已有的、语义最接近**的那一项：
+   - 先找语义完全一致的（例：「买咖啡」→ 列表里的「餐饮食品/饮品」）；
+   - 再找上位概念里语义最近的（例：「买猫粮」列表里没有「宠物食品」，
+     就归到最接近的日用品类，如「购物消费/日用品」）；
+   - 实在沾不上边的，才用上面的兜底分类。
+3. 用户原句里出现的词（如「猫粮」「宠物」「车险」）如果不在列表里，
+   它只是**备注**（填进 note），**不是分类名**。
+4. 绝不要输出列表以外的分类名 —— 编出来的名字程序匹配不到，
+   这一条记录就白记了。宁可给 null 或兜底分类。
+
 请输出 JSON 数组，每个元素格式：
-{"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
+{"amount": 45.5, "type": "expense", "category": "餐饮食品/正餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
 
 转账的格式（两个账户都在上面的账户列表里）：
 {"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "time": null, "note": "转给支付宝"}

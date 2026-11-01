@@ -133,25 +133,18 @@
       <!-- 余额与额度（组合账户没有余额，整块不显示） -->
       <view v-if="!isCombo" class="form-card">
         <!--
-          ★ 编辑时：余额只读展示 + 「修改」按钮 ★
-            用户要求「不要直接改余额，改成一个弹层，
-            改金额的同时下方可选『计入对账收支』或『修改当前余额』」。
-            所以这里不再放可编辑的输入框 ——
-            直接输入框改余额有两个说不清的地方：
-              · 差额去哪了？（记成什么账）
-              · 是不是把期初余额一起改了？
-            这两件事的答案不一样，必须让用户自己选，见下面的余额弹层。
-        -->
-        <view v-if="isEdit" class="form-row">
-          <text class="form-label">当前余额</text>
-          <view class="bal-row-right">
-            <MoneyText :cents="currentBalanceCents" :size="28" :weight="500" />
-            <text class="bal-edit-link" @click="openBalanceSheet">修改</text>
-          </view>
-        </view>
+          ★ 编辑页不再管余额 ★
+            用户要求「把修改余额的弹层放到账户详情页的当前余额右下角，
+            同时编辑页面不动」。
+            改余额是「动账」，和「编辑」（改资料）是两件事，
+            放在详情页的余额旁边更顺手；
+            这一页只负责账户资料，不碰余额。
 
-        <!-- 新建时：填的就是期初余额，直接输入框最省事 -->
-        <view v-else class="form-row">
+          ★ 新建时还是要填初始余额 ★
+            新建账户没有「当前余额」可言，
+            这里填的就是期初余额（还没有任何交易），直接输入框最省事。
+        -->
+        <view v-if="!isEdit" class="form-row">
           <text class="form-label">初始余额</text>
           <input
             v-model="form.balanceYuan"
@@ -311,74 +304,6 @@
       </view>
     </view>
 
-    <!--
-      余额修改弹层
-
-      ★ 为什么必须弹层，而不是直接在表单里输入 ★
-        用户要求：「更改账户余额的时候不要直接修改，改成一个弹窗/弹层，
-        修改金额的同时下方提供单选『计入对账收支』（默认）、『修改当前余额』」。
-        两种口径的账务结果完全不同，必须让用户明确选一个：
-          · 计入对账收支 —— 差额记一笔「对账支出/对账收入」流水，
-            余额公式仍成立，流水里看得见这笔调整（推荐，默认）
-          · 修改当前余额 —— 直接改期初余额，不产生任何流水
-
-      ★ 侧滑返回 / 返回键会先收起它 ★
-        和「选择成员」弹层一样登记进弹层栈，
-        免得全面屏侧滑直接退出编辑页、改了一半的余额丢了。
-    -->
-    <view v-if="showBalanceSheet" class="bs-mask" @click="closeBalanceSheet">
-      <view class="bs-sheet" @click.stop>
-        <view class="bs-head">
-          <text class="bs-title">修改余额</text>
-          <text class="bs-close" @click="closeBalanceSheet">✕</text>
-        </view>
-
-        <view class="bs-body">
-          <view class="bs-amount-row">
-            <text class="bs-currency">{{ settingStore.currencySymbol }}</text>
-            <input
-              v-model="balanceDraft"
-              class="bs-input"
-              type="digit"
-              placeholder="0.00"
-              placeholder-class="bs-placeholder"
-              :focus="balanceAutoFocus"
-            />
-          </view>
-
-          <!-- 差额预览：让用户改之前就知道会发生什么 -->
-          <view class="bs-diff">
-            <text class="bs-diff-label">相对当前余额</text>
-            <text class="bs-diff-value" :style="{ color: balanceDiffCents === 0 ? 'var(--app-text-3)' : (balanceDiffCents > 0 ? 'var(--app-income, #07C160)' : 'var(--app-danger)') }">
-              {{ balanceDiffText }}
-            </text>
-          </view>
-
-          <view class="bs-options">
-            <view
-              v-for="opt in balanceModes"
-              :key="opt.key"
-              class="bs-option"
-              @click="balanceMode = opt.key"
-            >
-              <!-- 单选圆圈：不引第三方单选组件，避免和弹层层级打架 -->
-              <view class="bs-radio" :class="{ checked: balanceMode === opt.key }">
-                <view v-if="balanceMode === opt.key" class="bs-radio-dot" />
-              </view>
-              <view class="bs-option-text">
-                <text class="bs-option-label">{{ opt.label }}</text>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <view class="bs-foot">
-          <view class="bs-btn-cancel" @click="closeBalanceSheet">取消</view>
-          <view class="bs-btn-ok" :style="{ backgroundColor: primaryColor }" @click="confirmBalance">确定</view>
-        </view>
-      </view>
-    </view>
-
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
   </view>
@@ -392,11 +317,10 @@ import AccountIcon from '@/components/AccountIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import {
-  ACCOUNT_TYPES, isCreditType, isComboType, adjustAccountBalance,
-  setAccountBalanceDirect, listComboMemberIds
+  ACCOUNT_TYPES, isCreditType, isComboType, listComboMemberIds
 } from '@/api/account.js'
 import { ACCOUNT_ICONS } from '@/utils/accountIcons.js'
-import { yuanToCents, formatCents } from '@/utils/money.js'
+import { yuanToCents } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 import { backAfterAccountDelete } from '@/utils/navBack.js'
@@ -446,120 +370,6 @@ export default {
        */
       icon: ''
     })
-
-    /* -------------------------------------------------------- 余额弹层 */
-
-    /**
-     * 余额弹层
-     *
-     * ★ 为什么不是「直接改输入框」★
-     *   改余额有两种完全不同的账务口径，必须让用户选：
-     *     · 计入对账收支（默认）—— 差额记一笔对账流水，余额公式仍成立
-     *     · 修改当前余额        —— 直接改期初余额，不产生流水
-     *   所以金额和口径一起放在弹层里改。
-     */
-    const showBalanceSheet = ref(false)
-    /** 弹层里正在输入的金额（元，字符串） */
-    const balanceDraft = ref('')
-    /** 弹层里的口径：'reconcile' | 'direct' */
-    const balanceMode = ref('reconcile')
-    /** 弹层打开时自动聚焦金额输入框 */
-    const balanceAutoFocus = ref(false)
-
-    /** 当前账户余额（分）—— 保存前它是库里的值，保存后跟着刷新 */
-    const currentBalanceCents = computed(() => {
-      const acc = initialSnapshot.value
-      if (!acc) return 0
-      return Number(acc.balance_cents) || 0
-    })
-
-    /** 弹层里输入的金额（分） */
-    const balanceTargetCents = computed(() => yuanToCents(balanceDraft.value || 0))
-
-    /** 相对当前余额的差额（分） */
-    const balanceDiffCents = computed(() =>
-      balanceTargetCents.value - currentBalanceCents.value
-    )
-
-    /** 差额文案（带正负号，0 显示「无变化」） */
-    const balanceDiffText = computed(() => {
-      const d = balanceDiffCents.value
-      if (d === 0) return '无变化'
-      return `${d > 0 ? '+' : '-'}${formatCents(Math.abs(d), { symbol: settingStore.currencySymbol })}`
-    })
-
-    /**
-     * 两种口径的说明
-     *
-     * ★ 只留选项名，不再带副标题 ★
-     *   用户要求删掉「差额记一笔…」「直接改期初余额…」这两段说明。
-     *   选项名本身已经够明确（计入对账收支 / 修改当前余额），
-     *   再解释一遍反而让弹层变高、重点变模糊。
-     */
-    const balanceModes = [
-      { key: 'reconcile', label: '计入对账收支' },
-      { key: 'direct', label: '修改当前余额' }
-    ]
-
-    function openBalanceSheet() {
-      balanceDraft.value = (currentBalanceCents.value / 100).toFixed(2)
-      balanceMode.value = 'reconcile'
-      balanceAutoFocus.value = false
-      showBalanceSheet.value = true
-      // 下一帧再聚焦：弹层刚渲染时 input 还不存在，直接 true 不生效
-      setTimeout(() => { balanceAutoFocus.value = true }, 60)
-    }
-
-    function closeBalanceSheet() {
-      showBalanceSheet.value = false
-      balanceAutoFocus.value = false
-    }
-
-    /**
-     * 弹层确定：按选中的口径改余额。
-     *
-     * ★ 改完要刷新余额 + 列表 ★
-     *   本页的「当前余额」读的是 initialSnapshot，
-     *   改完必须重新拉一次账户，否则弹层里会一直显示旧值。
-     */
-    async function confirmBalance() {
-      if (!editId.value) return
-
-      const target = balanceTargetCents.value
-      if (target === currentBalanceCents.value) {
-        closeBalanceSheet()
-        uni.showToast({ title: '余额没有变化', icon: 'none' })
-        return
-      }
-
-      try {
-        let res
-        if (balanceMode.value === 'reconcile') {
-          res = await adjustAccountBalance(editId.value, target)
-        } else {
-          res = await setAccountBalanceDirect(editId.value, target)
-        }
-
-        await accountStore.refresh()
-        // 余额变了，「当前余额」要跟着变
-        const acc = await accountStore.getById(editId.value)
-        if (acc) initialSnapshot.value = acc
-
-        closeBalanceSheet()
-
-        if (res && res.changed) {
-          const diff = res.delta
-          uni.showToast({
-            title: `${balanceMode.value === 'reconcile' ? '已记对账' : '已改余额'} ${diff > 0 ? '+' : ''}${(diff / 100).toFixed(2)}`,
-            icon: 'none'
-          })
-        } else {
-          uni.showToast({ title: '已保存', icon: 'none' })
-        }
-      } catch (e) {
-        await alertDialog({ title: '修改失败', content: e.message })
-      }
-    }
 
     /* ------------------------------------------------------ 组合账户 */    /**
      * 组合账户的成员（按扣款顺序）。
@@ -715,30 +525,6 @@ export default {
       }
     })
 
-    /**
-     * 余额弹层同样登记进弹层栈。
-     *
-     * ★ 为什么必须登记 ★
-     *   它也是全屏遮罩 —— 不登记的话，
-     *   全面屏左缘右滑会直接退出整个编辑页，
-     *   用户刚输好的金额和口径选择全丢。
-     */
-    let unregisterBalanceSheet = null
-    watch(showBalanceSheet, (open) => {
-      if (open) {
-        if (!unregisterBalanceSheet) {
-          unregisterBalanceSheet = pushLayer(() => {
-            showBalanceSheet.value = false
-            balanceAutoFocus.value = false
-          }, 'balanceSheet')
-        }
-        return
-      }
-      if (unregisterBalanceSheet) {
-        unregisterBalanceSheet()
-        unregisterBalanceSheet = null
-      }
-    })
 
     // 侧滑返回 / 返回键：有弹层先收起弹层，不退出页面
     onBackPress(() => handleBackPress())
@@ -784,15 +570,14 @@ export default {
       }
 
       /*
-       * ★ 余额不再跟着「保存」一起改 ★
-       *   用户要求改余额走独立的弹层（可以选口径），
-       *   所以/onSave 只管账户资料：
-       *     新建 -> 期初余额 = 表单里填的初始余额
-       *     编辑 -> 余额已经被弹层改过了，这里一个字段都不碰
-       *
+       * ★ 余额只在「新建」时写 ★
+       *   用户要求「把修改余额的弹层放到账户详情页，编辑页面不动」——
+       *   所以：
+       *     新建 -> 期初余额 = 表单里填的初始余额（还没有任何交易）
+       *     编辑 -> 余额一个字段都不碰
        *   编辑时 form.balanceYuan 还留着旧值（loadExisting 回填的），
        *   这里绝不能拿它当 initial_balance_cents 写回去 ——
-       *   那会把用户在弹层里改好的余额又覆盖掉。
+       *   那会把用户在详情页弹层里改好的余额又覆盖掉。
        */
       const targetCents = yuanToCents(form.balanceYuan || 0)
 
@@ -929,9 +714,7 @@ export default {
       isCredit, dayRange, selectableTypes, onPickType,
       onToggleInclude, onSave, onDelete, goBack, settingStore,
       /* 余额弹层 */
-      showBalanceSheet, balanceDraft, balanceMode, balanceAutoFocus,
-      balanceModes, currentBalanceCents, balanceDiffCents, balanceDiffText,
-      openBalanceSheet, closeBalanceSheet, confirmBalance,
+      /* 组合账户 */
       /* 组合账户 */
       isCombo, typeName, memberList, showMemberPicker, pickDraft,
       availableMembers, openMemberPicker, closeMemberPicker,
@@ -1148,213 +931,6 @@ export default {
   font-size: 28rpx;
   color: var(--app-text-2);
   flex-shrink: 0;
-}
-
-/* 编辑时的余额行：金额 + 「修改」链接 */
-.bal-row-right {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  flex-shrink: 0;
-}
-
-.bal-edit-link {
-  font-size: 26rpx;
-  color: var(--app-primary);
-  font-weight: 500;
-  padding: 6rpx 0 6rpx 8rpx;
-}
-
-/* ------------------------------------------------------- 余额弹层 */
-
-.bs-mask {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.45);
-  /*
-   * ★ z-index 用 9 ★
-   *   项目的层级约定（见 scripts/check-layout.mjs）：
-   *     页面内自绘浮层 1~9，
-   *     wot 组件库的弹层默认 15，
-   *     AppDialog 的确认框是 1000。
-   *   本页的余额弹层 / 成员弹层都要低于库弹层，
-   *   这样「改余额失败」时弹出的 AppDialog 能盖在它上面。
-   */
-  z-index: 9;
-  display: flex;
-  align-items: flex-end;
-}
-
-.bs-sheet {
-  width: 100%;
-  background-color: var(--app-bg);
-  border-radius: 28rpx 28rpx 0 0;
-  display: flex;
-  flex-direction: column;
-  max-height: 86vh;
-}
-
-.bs-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx 32rpx 16rpx;
-}
-
-.bs-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.bs-close {
-  font-size: 32rpx;
-  color: var(--app-text-3);
-  padding: 8rpx;
-}
-
-.bs-body {
-  padding: 8rpx 32rpx 24rpx;
-}
-
-/* 金额输入：大字号 + 货币符号 */
-.bs-amount-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12rpx;
-  padding: 20rpx 0 16rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.bs-currency {
-  font-size: 34rpx;
-  color: var(--app-text-2);
-  flex-shrink: 0;
-}
-
-.bs-input {
-  flex: 1;
-  min-width: 0;
-  width: 0;
-  font-size: 56rpx;
-  font-weight: 600;
-  color: var(--app-text);
-  text-align: left;
-  line-height: 1.2;
-}
-
-.bs-placeholder {
-  color: var(--app-text-3);
-  font-size: 56rpx;
-  font-weight: 600;
-}
-
-/* 差额预览 */
-.bs-diff {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20rpx 0;
-}
-
-.bs-diff-label {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.bs-diff-value {
-  font-size: 26rpx;
-  font-weight: 500;
-}
-
-/* 口径单选 */
-.bs-options {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  overflow: hidden;
-}
-
-.bs-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 18rpx;
-  padding: 26rpx 24rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.bs-option:last-child {
-  border-bottom: none;
-}
-
-.bs-radio {
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 50%;
-  border: 2rpx solid var(--app-text-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 2rpx;
-}
-
-.bs-radio.checked {
-  border-color: var(--app-primary);
-}
-
-.bs-radio-dot {
-  width: 22rpx;
-  height: 22rpx;
-  border-radius: 50%;
-  background-color: var(--app-primary);
-}
-
-.bs-option-text {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-  min-width: 0;
-}
-
-.bs-option-label {
-  font-size: 28rpx;
-  color: var(--app-text);
-}
-
-/* 底部按钮 */
-.bs-foot {
-  display: flex;
-  gap: 20rpx;
-  padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
-}
-
-.bs-btn-cancel,
-.bs-btn-ok {
-  flex: 1;
-  height: 88rpx;
-  border-radius: 22rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.bs-btn-cancel {
-  /*
-   * ★ 必须给描边，不能只靠底色 ★
-   *   弹层背景是 --app-bg，取消按钮原来是 --app-card-2 ——
-   *   浅色主题下两者非常接近，按钮看着像「没有边框、和背景融成一片」。
-   *   现在加一条实色描边，无论浅色/深色都有一圈清晰的边界。
-   */
-  background-color: var(--app-card);
-  color: var(--app-text-2);
-  border: 2rpx solid var(--app-line);
-}
-
-.bs-btn-ok {
-  color: #ffffff;
 }
 
 /* 组合成员列表 */
