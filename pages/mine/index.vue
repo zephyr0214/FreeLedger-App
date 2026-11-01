@@ -2,12 +2,18 @@
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader @avatar-click="goProfile">
       <!--
-        右上角：关于与说明
-        样式和首页 / 统计页的「AI 助手」胶囊完全一致，
-        三个页面的头部按钮风格统一。
+        右上角：更新日志
+        样式和首页 / 统计页 / 账户页的胶囊按钮完全一致。
+
+        ★ 为什么这里不再是「关于与说明」★
+          「关于与说明」是「App 本身是什么」的说明性内容，
+          和「记账按钮设置 / AI 配置 / 主题 / 数据与备份」一样属于系统设置，
+          所以它被移进了下面的「系统设置」列表。
+          右上角这个位置留给「更新日志」—— 用户想看「这次更新了什么」
+          时不用先点进设置列表，一步直达。
       -->
       <template #right>
-        <HeaderAction @action-click="goAbout">关于与说明</HeaderAction>
+        <HeaderAction @action-click="goChangelog">更新日志</HeaderAction>
       </template>
     </AppHeader>
 
@@ -115,7 +121,7 @@
       </view>
 
       <view class="version-tip">
-        <text class="version-text">自由记 v1.13.0</text>
+        <text class="version-text">自由记 v{{ APP_VERSION }}</text>
       </view>
 
       <view class="tabbar-space" />
@@ -144,6 +150,7 @@ import { useUiStore } from '@/stores/ui.js'
 import { queryOne } from '@/api/db/index.js'
 import { daysSinceLastBackup } from '@/api/backup.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
+import { APP_VERSION } from '@/utils/version.js'
 
 export default {
   components: { AppHeader, HeaderAction, LineIcon, AppTabBar },
@@ -224,7 +231,16 @@ export default {
         title: '系统设置',
         items: [
           { key: 'theme', icon: 'theme', name: '主题外观', value: themeLabel.value, route: '/pages/settings/theme' },
-          { key: 'data', icon: 'data', name: '数据与备份', value: backupHint.value, route: '/pages/settings/data' }
+          { key: 'data', icon: 'data', name: '数据与备份', value: backupHint.value, route: '/pages/settings/data' },
+          /*
+           * 「关于与说明」从右上角移到这里。
+           *
+           * ★ 为什么放系统设置而不是别处 ★
+           *   它讲的是「App 本身」（隐私说明、数据安全、技术栈），
+           *   和记账内容无关 —— 和「主题外观 / 数据与备份」同一类。
+           *   放这一组里，用户想找它时会自然往下翻到这里。
+           */
+          { key: 'about', icon: 'about', name: '关于与说明', route: '/pages/settings/about' }
         ]
       }
     ])
@@ -291,9 +307,9 @@ export default {
       uni.navigateTo({ url: '/pages/settings/profile' })
     }
 
-    /** 右上角：关于与说明 */
-    function goAbout() {
-      uni.navigateTo({ url: '/pages/settings/about' })
+    /** 右上角：更新日志 */
+    function goChangelog() {
+      uni.navigateTo({ url: '/pages/settings/changelog' })
     }
 
     onMounted(async () => {
@@ -330,10 +346,12 @@ export default {
 
     return {
       settingStore, accountStore, stats, backupHint,
+      // 版本号从 utils/version.js 取，和「关于」页共用同一个来源
+      APP_VERSION,
       primaryColor, pageStyle, menuGroups, featureTiles,
       themeLabel, aiLabel, quickAddLabel,
       onAddTap, onAddHoldEnd,
-      onMenuClick, goProfile, goAbout
+      onMenuClick, goProfile, goChangelog
     }
   }
 }

@@ -147,6 +147,13 @@
 			}
 		},
 		{
+			"path": "pages/settings/changelog",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "更新日志"
+			}
+		},
+		{
 			"path": "pages/settings/budget",
 			"style": {
 				"navigationStyle": "custom",

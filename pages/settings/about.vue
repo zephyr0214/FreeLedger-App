@@ -6,7 +6,13 @@
       <view class="logo-area">
         <image class="logo-img" src="/static/app/logo.png" mode="aspectFit" />
         <text class="app-name">自由记</text>
-        <text class="app-version">v1.13.0</text>
+        <!--
+          版本号从 utils/version.js 取。
+          ★ 不要再在这里手写 v1.x.x ★
+            以前这里和「我的」页底部各写一份，
+            改一处忘一处就会出现两个页面版本号不一致。
+        -->
+        <text class="app-version">{{ APP_VERSION_LABEL }}</text>
       </view>
 
       <view class="card">
@@ -119,6 +125,17 @@
             <text class="info-label">数据库自检</text>
             <text class="info-value" style="color: var(--app-primary)">点击运行</text>
           </view>
+          <!--
+            更新日志入口
+            ★ 为什么关于页也放一个 ★
+              「我的」页右上角虽然也有入口，但用户翻到「关于」页时
+              往往就是想确认版本、看改了什么 —— 从当前版本号往下点最顺手。
+              两个入口指向同一个页面，不冲突。
+          -->
+          <view class="info-row" @click="goChangelog">
+            <text class="info-label">更新日志</text>
+            <text class="info-value" style="color: var(--app-primary)">v{{ APP_VERSION }} ›</text>
+          </view>
         </view>
       </view>
 
@@ -141,6 +158,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { alertDialog } from '@/utils/dialog.js'
+import { APP_VERSION, APP_VERSION_LABEL } from '@/utils/version.js'
 
 export default {
   components: { PageNav, AppDialog },
@@ -214,10 +232,16 @@ export default {
       uni.navigateBack()
     }
 
+    /** 进更新日志 */
+    function goChangelog() {
+      uni.navigateTo({ url: '/pages/settings/changelog' })
+    }
+
     return {
       settingStore, primaryColor, pageStyle,
+      APP_VERSION, APP_VERSION_LABEL,
       privacyParas, safetyParas, featureParas,
-      onDiagnose, goBack
+      onDiagnose, goChangelog, goBack
     }
   }
 }
