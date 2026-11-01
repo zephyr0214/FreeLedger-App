@@ -18,7 +18,7 @@ import {
   isFixedCategory,
   isPresetGroupCategory,
   RECONCILE_NAMES,
-  LOAN_NAMES
+  LOAN_CATEGORY_NAMES
 } from '../api/category.js'
 import {
   childIcon, childColor,
@@ -249,14 +249,32 @@ check('null -> false', isReconcileCategory(null), false)
 check('undefined -> false', isReconcileCategory(undefined), false)
 check('缺 type -> false', isReconcileCategory({ name: '对账支出' }), false)
 
-console.log('=== 借入 / 借出：固定的子分类 ===')
+console.log('=== 借入 / 借出：四个固定的子分类 ===')
 
-check('expense 的借用分类名', LOAN_NAMES.expense, '借出')
-check('income 的借用分类名', LOAN_NAMES.income, '借入')
+/*
+ * ★ v15 起是四个而不是两个 ★
+ *   一笔借出要还回来，一笔借入也要还回去。
+ *   只有「借出 / 借入」两个分类时，收回来/还回去的钱
+ *   只能记成普通收支，页面就算不出「当前还欠多少」。
+ *
+ *   借出     expense  钱出去
+ *   借出收回 income   钱回来
+ *   借入     income   钱进来
+ *   借入归还 expense  钱出去
+ */
+check('借出的分类名与方向', LOAN_CATEGORY_NAMES.lendOut, { name: '借出', type: 'expense' })
+check('借出收回的分类名与方向', LOAN_CATEGORY_NAMES.lendBack, { name: '借出收回', type: 'income' })
+check('借入的分类名与方向', LOAN_CATEGORY_NAMES.borrowIn, { name: '借入', type: 'income' })
+check('借入归还的分类名与方向', LOAN_CATEGORY_NAMES.borrowBack, { name: '借入归还', type: 'expense' })
 
 check(
   '「借出」(expense) 是固定分类',
   isLoanCategory({ name: '借出', type: 'expense' }),
+  true
+)
+check(
+  '「借出收回」(income) 是固定分类',
+  isLoanCategory({ name: '借出收回', type: 'income' }),
   true
 )
 check(
@@ -265,11 +283,23 @@ check(
   true
 )
 check(
+  '「借入归还」(expense) 是固定分类',
+  isLoanCategory({ name: '借入归还', type: 'expense' }),
+  true
+)
+// 方向写反 -> 不是（名字和 type 必须成对）
+check(
   'income 类型下的「借出」不是固定分类',
   isLoanCategory({ name: '借出', type: 'income' }),
   false
 )
-check('「餐饮食品」不是借出/借入', isLoanCategory({ name: '餐饮食品', type: 'expense' }), false)
+check(
+  'expense 类型下的「借入」不是固定分类',
+  isLoanCategory({ name: '借入', type: 'expense' }),
+  false
+)
+check('「餐饮食品」不是借出类', isLoanCategory({ name: '餐饮食品', type: 'expense' }), false)
+check('null -> false', isLoanCategory(null), false)
 
 console.log('=== 系统预置分类组 ===')
 
@@ -299,8 +329,25 @@ function fixedChildrenOf(type) {
     .map((d) => d.name)
 }
 
-check('支出的固定子类：借出、对账支出', fixedChildrenOf('expense'), ['借出', '对账支出'])
-check('收入的固定子类：借入、对账收入', fixedChildrenOf('income'), ['借入', '对账收入'])
+/*
+ * ★ v15 起每个 type 下各三个固定子类 ★
+ *   支出：借出（钱出去）、借入归还（还钱出去）、对账支出
+ *   收入：借入（钱进来）、借出收回（收钱回来）、对账收入
+ *
+ *   顺序由 sort 决定：借贷两类在前（900/901），对账固定分类排最后（902）。
+ *   对账分类排最后的理由：它是系统自己写进去的调整流水，
+ *   用户在分类页里扫一眼时应该先看到「借出 / 借入」这些他能主动记的。
+ */
+check(
+  '支出的固定子类：借出、借入归还、对账支出',
+  fixedChildrenOf('expense'),
+  ['借出', '借入归还', '对账支出']
+)
+check(
+  '收入的固定子类：借入、借出收回、对账收入',
+  fixedChildrenOf('income'),
+  ['借入', '借出收回', '对账收入']
+)
 
 // 固定子类的图标必须是真实存在的 icon key
 for (const def of SYSTEM_PRESET_CHILDREN) {

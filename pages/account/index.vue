@@ -10,34 +10,37 @@
       <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
         <!--
-          概览：左边大数字是「净资产」，右边两行是「总资产 / 负债」。
+          概览：上面是净资产大数字，下面一行「总资产 / 负债」。
+
+          ★ 为什么不给大数字加「净资产」这三个字 ★
+            用户明确要求删掉 —— 三个金额一起看，中间那个大字
+            天然就是「主数」，再加标题反而显得啰嗦。
+            左右两个小字已经让用户对出大数是什么。
 
           ★ 三个数的口径 ★
-            总资产 = 计入资产的正余额之和（我真正拥有的钱）
-            负  债 = 负余额的绝对值之和（信用卡待还、垫付等）
+            总资产 = 计入资产的账户正余额之和
+            负  债 = 账户负余额绝对值之和 + **未归还的借入**
             净资产 = 总资产 - 负债
-          全部来自 accountStore（内部一条 SQL 同时算出三个数，
+          全部来自 accountStore（一条 SQL 同时算出，
           见 api/account.js 的 getAssetOverview），
           所以三块数字永远自洽，不会出现「负债 0、净资产却是负的」。
 
-          ★ 左边大数字左上角为什么有「净资产」三个字 ★
-            三个金额摆在一起，没有标题的话用户分不清哪个是「我到底有多少」。
-            大数字是主角，用一个小标签点明它的口径。
+          ★ 借入为什么要算进负债 ★
+            借来的钱进了真实账户（已计入总资产），
+            但它同时是一笔要还的债；不算进负债，净资产会凭空多出这一笔。
+            算的是净额（借入 - 借入归还），还清后负债自动回落。
         -->
         <view class="asset-overview">
-          <view class="asset-main">
-            <text class="asset-main-label">净资产</text>
-            <MoneyText
-              :cents="accountStore.netAssets"
-              :size="56"
-              :weight="600"
-              color="var(--app-text)"
-            />
-          </view>
+          <MoneyText
+            :cents="accountStore.netAssets"
+            :size="56"
+            :weight="600"
+            color="var(--app-text)"
+          />
 
-          <view class="asset-side">
-            <view class="asset-side-item">
-              <text class="asset-side-label">总资产</text>
+          <view class="asset-sub-row">
+            <view class="asset-sub-item">
+              <text class="asset-sub-label">总资产</text>
               <MoneyText
                 :cents="accountStore.totalAssets"
                 :size="26"
@@ -45,8 +48,9 @@
                 color="var(--app-text-2)"
               />
             </view>
-            <view class="asset-side-item">
-              <text class="asset-side-label">负债</text>
+            <view class="asset-sub-divider" />
+            <view class="asset-sub-item">
+              <text class="asset-sub-label">负债</text>
               <MoneyText
                 :cents="accountStore.totalDebt"
                 :size="26"
@@ -440,52 +444,45 @@ export default {
 /* --------------------------------------------------------- 资产概览 */
 
 /**
- * 概览区：左「净资产」大数字，右侧「总资产 / 负债」两行。
+ * 概览区：上面净资产大数字，下面一行「总资产 / 负债」。
  *
- * ★ 左宽右窄、底部对齐 ★
- *   净资产是主角（56rpx），右侧两个数是补充信息（26rpx）。
- *   两者底部对齐，视觉上像「一个大数字 + 它的拆解」，
- *   而不是三个平级的数字并排。
+ * ★ 上下排而不是左右排 ★
+ *   用户要求「总资产和负债排列在净资产下方」。
+ *   左右排时净资产被挤在左边一条，金额一长（比如百万级）
+ *   右侧两个数字就得换行；上下排之后大数字占满整行宽度，
+ *   再长的金额也不会被挤。
+ *
+ * ★ 大数字不再带「净资产」标签 ★
+ *   用户要求删掉。下面的「总资产 / 负债」两行已经把事情说清楚了。
  */
 .asset-overview {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24rpx;
-}
-
-.asset-main {
-  display: flex;
   flex-direction: column;
-  gap: 4rpx;
-  min-width: 0;
-  flex: 1;
-}
-
-/* 「净资产」这个说明文字：小、灰、在大数字左上角 */
-.asset-main-label {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.2;
-}
-
-.asset-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8rpx;
-  flex-shrink: 0;
-}
-
-.asset-side-item {
-  display: flex;
-  align-items: baseline;
   gap: 12rpx;
 }
 
-.asset-side-label {
+/* 下方一行：总资产 | 负债（中间一条竖线分隔） */
+.asset-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.asset-sub-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+}
+
+.asset-sub-label {
   font-size: 22rpx;
   color: var(--app-text-3);
+}
+
+.asset-sub-divider {
+  width: 1rpx;
+  height: 24rpx;
+  background-color: var(--app-line);
 }
 
 /* 趋势区：与总资产同面板，用一条细分割线隔开 */

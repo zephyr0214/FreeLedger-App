@@ -22,9 +22,11 @@ export const useAccountStore = defineStore('account', {
      *   于是 totalAssets 改成只算正余额 —— 与 getAssetOverview 一致。
      */
     totalAssets: 0,
-    /** 负债 = 负余额的绝对值之和（信用卡待还等） */
+    /** 负债 = 账户负余额绝对值之和 + 未归还的借入 */
     totalDebt: 0,
-    /** 净资产 = 总资产 - 负债，账户页左边的大数字 */
+    /** 负债里属于「未归还借入」的那部分（页面用来解释构成） */
+    loanDebt: 0,
+    /** 净资产 = 总资产 - 负债，账户页那个大数字 */
     netAssets: 0,
     loading: false,
     loaded: false
@@ -70,6 +72,7 @@ export const useAccountStore = defineStore('account', {
         this.grouped = grouped
         this.totalAssets = overview.assets
         this.totalDebt = overview.debt
+        this.loanDebt = overview.loanDebt || 0
         this.netAssets = overview.net
         this.loaded = true
       } finally {

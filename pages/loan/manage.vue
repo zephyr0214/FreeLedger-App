@@ -3,18 +3,28 @@
     <!-- 标题随类型变化：借出管理 / 借入管理 -->
     <PageNav :title="pageTitle" @back="goBack">
       <template #right>
-        <text class="nav-add" @click="openPanel">+ 记一笔</text>
+        <text class="nav-add" @click="onNavAdd">{{ navAddText }}</text>
       </template>
     </PageNav>
 
     <scroll-view class="page-scroll" scroll-y>
       <!--
         汇总卡
-        ★ 两张口径一起看 ★
-          本月合计（本月笔数）  —— 本月借出/借入了多少
-          全部时间累计（累计笔数）—— 一共借出/借入了多少
-        借出用支出方向（红/无色 + 负号），借入用收入方向（绿 + 正号），
-        符号和配色全部交给 MoneyText 的统一规则，这里只传 type。
+
+        ★ 大数字是「当前」而不是「本月」★
+          用户要看的是「现在还有多少钱在外面没收回来」
+          （借出）/「现在还欠别人多少」（借入），不是本月发生额。
+          本月发生额没有业务含义 —— 借出去 5 笔、收回 3 笔，
+          「本月 5 笔合计」既不能说明还剩多少，也不是收支。
+
+        ★ 大数字怎么算 ★
+          借出：借出（支出）- 借出收回（收入）
+          借入：借入（收入）- 借入归还（支出）
+          不会出现负数（收多了/还多了按 0 处理）。
+
+        ★ 下方三项 ★
+          借出：累计借出、借出收回、累计笔数
+          借入：累计借入、借入归还、累计笔数
       -->
       <view class="summary-card">
         <view class="summary-head">
@@ -22,14 +32,13 @@
             <text class="summary-icon-text">{{ headEmoji }}</text>
           </view>
           <view class="summary-info">
-            <text class="summary-name">{{ pageLabel }}</text>
+            <text class="summary-name">{{ currentLabel }}</text>
             <text class="summary-type">{{ directionText }}</text>
           </view>
         </view>
 
-        <text class="summary-label">本月{{ pageLabel }}</text>
         <MoneyText
-          :cents="monthAmount"
+          :cents="currentAmount"
           :type="loanType"
           :size="72"
           :weight="600"
@@ -37,46 +46,79 @@
 
         <view class="summary-rows">
           <view class="summary-row">
-            <text class="summary-row-label">本月笔数</text>
-            <text class="summary-row-value">{{ monthStats.count }} 笔</text>
-          </view>
-          <view class="summary-row">
-            <text class="summary-row-label">累计{{ pageLabel }}</text>
+            <text class="summary-row-label">{{ totalLabel }}</text>
             <MoneyText :cents="totalAmount" :type="loanType" :size="26" />
           </view>
           <view class="summary-row">
+            <text class="summary-row-label">{{ backLabel }}</text>
+            <MoneyText :cents="backAmount" :type="backType" :size="26" />
+          </view>
+          <view class="summary-row">
             <text class="summary-row-label">累计笔数</text>
-            <text class="summary-row-value">{{ totalStats.count }} 笔</text>
+            <text class="summary-row-value">{{ totalCount }} 笔</text>
           </view>
         </view>
       </view>
 
-      <!-- 空态：还没有任何借出/借入记录（加载中先让下面的列表显示「加载中…」） -->
+      <!--
+        Tab 切换流水范围
+
+        ★ 三个 tab 的口径 ★
+          借出：全部流水 / 借出 / 借出收回
+          借入：全部流水 / 借入 / 借入归还
+
+        ★ 「全部流水」不显示「全部 ›」★
+          用户明确要求。理由也成立：
+          「全部流水」这个 tab 本身已经是全部了，
+          再给一个「全部 ›」跳到交易列表是语义重复，
+          而另外两个 tab 的「全部 ›」才有意义（进交易列表时带上分类筛选）。
+      -->
+      <view class="loan-tabs">
+        <view
+          v-for="t in tabs"
+          :key="t.key"
+          class="loan-tab"
+          :class="{ active: activeTab === t.key }"
+          @click="switchTab(t.key)"
+        >
+          <text
+            class="loan-tab-text"
+            :style="{ color: activeTab === t.key ? primaryColor : 'var(--app-text-2)' }"
+          >{{ t.name }}</text>
+          <view
+            v-if="activeTab === t.key"
+            class="loan-tab-indicator"
+            :style="{ backgroundColor: primaryColor }"
+          />
+        </view>
+      </view>
+
+      <!-- 空态：这个 tab 下没有任何记录 -->
       <view v-if="isEmpty && !loading" class="empty-wrap">
         <EmptyState
           :emoji="headEmoji"
           :title="emptyText"
           :desc="emptyDesc"
-          action-text="记一笔"
-          @action="openPanel"
+          :action-text="emptyActionText"
+          @action="onEmptyAction"
         />
       </view>
 
-      <!-- 最近记录（按日期分组 + 「全部 ›」进交易列表） -->
+      <!-- 流水列表：按日期分组 -->
       <RecentTxnList
         v-else
         :txns="txnList"
         :loading="loading"
         :empty-text="emptyText"
-        title="最近记录"
-        show-more
+        title="流水"
+        :show-more="showListMore"
         @more="goAllTxn"
       />
 
       <view class="bottom-space" />
     </scroll-view>
 
-    <!-- 记账面板：预填类型 + 「借出」/「借入」二级分类，省得用户再选一遍 -->
+    <!-- 记账面板：预填类型 + 对应分类，省得用户再选一遍 -->
     <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
 
     <!-- 全局弹窗宿主 -->
@@ -91,14 +133,20 @@
  *   onLoad 读 ?type=expense（借出）| income（借入），默认 expense。
  *   两个方向共用这一个页面，只是分类、文案、金额方向不同。
  *
- * ★ 数据口径 ★
- *   「借出」是 type=expense 下的二级分类，「借入」是 type=income 下的二级分类，
- *   都由 api/category.js 的 ensureLoanCategories() 保证存在（幂等），
- *   这里拿到 id 之后按 categoryId 精确统计 —— 二级分类本身没有子分类，
- *   所以不需要 includeSubcategories。
+ * ★ 一笔借出涉及两个分类（v15 起）★
+ *   借出      expense  钱从我账户出去
+ *   借出收回  income   钱回到我账户
+ *   借入      income   钱进我账户
+ *   借入归还  expense  钱从我账户出去
+ *   这四个分类都挂在「系统预置分类」下，由 ensureLoanCategories() 保证存在。
+ *
+ * ★ 当前借出 / 当前借入 = 正 - 反 ★
+ *   借出：借出合计 - 借出收回合计
+ *   借入：借入合计 - 借入归还合计
+ *   不会出现负数。
  *
  * ★ 结构与其它详情页一致 ★
- *   .app-page → PageNav → scroll-view.page-scroll → 汇总卡 + 列表 + .bottom-space，
+ *   .app-page → PageNav → scroll-view.page-scroll → 汇总卡 + tab + 列表，
  *   AppDialog 挂在页面根节点。
  */
 import { ref, computed } from 'vue'
@@ -112,11 +160,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { ensureLoanCategories, listCategories } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
-import { toMonthKey } from '@/utils/date.js'
 import { handleBackPress } from '@/utils/layerStack.js'
-
-/** 借出 = 支出方向，借入 = 收入方向 */
-const LOAN_NAMES = { expense: '借出', income: '借入' }
 
 /** 收入方向的图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const INCOME_COLOR = '#07C160'
@@ -133,13 +177,32 @@ export default {
 
     /** 'expense' = 借出管理，'income' = 借入管理 */
     const loanType = ref('expense')
-    /** 「借出」/「借入」二级分类的 id（找到后缓存，重新加载列表不用再查） */
-    const categoryId = ref('')
+
+    /**
+     * 四个分类的 id（找到后缓存，重新加载不用再查）
+     *   lendOutId    借出（expense）
+     *   lendBackId   借出收回（income）
+     *   borrowInId   借入（income）
+     *   borrowBackId 借入归还（expense）
+     */
+    const catIds = ref({
+      lendOutId: '', lendBackId: '', borrowInId: '', borrowBackId: ''
+    })
 
     const txnList = ref([])
-    const monthStats = ref(emptyStats())
-    const totalStats = ref(emptyStats())
+    /** 主方向合计（借出 / 借入）—— 全部时间 */
+    const mainStats = ref(emptyStats())
+    /** 反向合计（借出收回 / 借入归还）—— 全部时间 */
+    const backStats = ref(emptyStats())
     const loading = ref(true)
+
+    /**
+     * 当前 tab
+     *   'all'   全部流水（主 + 反向，按时间倒序）
+     *   'main'  只看主方向（借出 / 借入）
+     *   'back'  只看反向（借出收回 / 借入归还）
+     */
+    const activeTab = ref('all')
 
     const showPanel = ref(false)
     /** 首屏加载完成后，onShow 才需要再刷一次（避免和 onLoad 重复加载） */
@@ -151,17 +214,19 @@ export default {
     const isIncome = computed(() => loanType.value === 'income')
 
     const pageTitle = computed(() => (isIncome.value ? '借入管理' : '借出管理'))
-    const pageLabel = computed(() => LOAN_NAMES[loanType.value])
     const headEmoji = computed(() => (isIncome.value ? '📥' : '📤'))
+
+    /** 大数字的标题：当前借出 / 当前借入 */
+    const currentLabel = computed(() => (isIncome.value ? '当前借入' : '当前借出'))
+    /** 副标题说明这个数字是什么 */
     const directionText = computed(() =>
-      isIncome.value ? '收入方向 · 向别人借入的钱' : '支出方向 · 借给别人的钱'
+      isIncome.value ? '还欠别人多少' : '还有多少没收回来'
     )
-    const emptyText = computed(() =>
-      isIncome.value ? '还没有借入记录' : '还没有借出记录'
-    )
-    const emptyDesc = computed(() =>
-      isIncome.value ? '向别人借来的钱记在这里' : '借给别人的钱记在这里'
-    )
+    /** 主方向累计的文案：累计借出 / 累计借入 */
+    const totalLabel = computed(() => (isIncome.value ? '累计借入' : '累计借出'))
+    /** 反向累计的文案：借出收回 / 借入归还 */
+    const backLabel = computed(() => (isIncome.value ? '借入归还' : '借出收回'))
+
     /**
      * 汇总卡图标底色。
      *
@@ -172,84 +237,242 @@ export default {
      */
     const accentColor = computed(() => (isIncome.value ? INCOME_COLOR : primaryColor.value))
 
-    /** 本月合计：借出看 expense，借入看 income */
-    const monthAmount = computed(() =>
-      isIncome.value ? monthStats.value.income : monthStats.value.expense
+    /** 主方向 id / 反向 id（当前页面视角） */
+    const mainCatId = computed(() =>
+      isIncome.value ? catIds.value.borrowInId : catIds.value.lendOutId
     )
-    /** 全部时间累计，口径同本月 */
+    const backCatId = computed(() =>
+      isIncome.value ? catIds.value.borrowBackId : catIds.value.lendBackId
+    )
+    /** 反向交易的 type：借出收回是 income，借入归还是 expense */
+    const backType = computed(() => (isIncome.value ? 'expense' : 'income'))
+
+    /** 累计借出 / 累计借入（主方向合计） */
     const totalAmount = computed(() =>
-      isIncome.value ? totalStats.value.income : totalStats.value.expense
+      isIncome.value ? mainStats.value.income : mainStats.value.expense
     )
-
-    /** 一条记录都没有（用来在列表上方换成整块空态） */
-    const isEmpty = computed(() => txnList.value.length === 0 && totalStats.value.count === 0)
-
-    /** 记账面板的预填：类型 + 借贷分类 */
-    const panelPreset = computed(() => ({
-      type: loanType.value,
-      category_id: categoryId.value
-    }))
+    /** 借出收回 / 借入归还（反向合计） */
+    const backAmount = computed(() =>
+      isIncome.value ? backStats.value.expense : backStats.value.income
+    )
+    /** 累计笔数：主 + 反向 */
+    const totalCount = computed(() => mainStats.value.count + backStats.value.count)
 
     /**
-     * 拿到「借出」/「借入」的二级分类 id。
+     * 当前借出 / 当前借入
      *
-     * 首选 api/category.js 的 ensureLoanCategories()（幂等，不存在会自动建）；
-     * 万一它不可用（旧版本），退化成按名字在分类表里找，页面不至于整块空掉。
+     * ★ 为什么用 Math.max(0, …) ★
+     *   如果用户多记了一笔收回（收回 > 借出），
+     *   差额会变成负数 —— 界面显示「-200」没有意义
+     *   （不是「他欠我 -200」，而是数据可能记重了）。
+     *   按 0 显示更诚实。
      */
-    async function resolveCategoryId() {
-      if (categoryId.value) return categoryId.value
+    const currentAmount = computed(() => {
+      const diff = totalAmount.value - backAmount.value
+      return diff > 0 ? diff : 0
+    })
+
+    /** 三个 tab */
+    const tabs = computed(() => [
+      { key: 'all', name: '全部流水' },
+      { key: 'main', name: isIncome.value ? '借入' : '借出' },
+      { key: 'back', name: isIncome.value ? '借入归还' : '借出收回' }
+    ])
+
+    /** 一条记录都没有 */
+    const isEmpty = computed(() =>
+      txnList.value.length === 0 && totalCount.value === 0
+    )
+
+    /** 空态文案随 tab 变化 */
+    const emptyText = computed(() => {
+      if (activeTab.value === 'back') return `还没有${backLabel.value}记录`
+      if (activeTab.value === 'main') {
+        return isIncome.value ? '还没有借入记录' : '还没有借出记录'
+      }
+      return isIncome.value ? '还没有借入记录' : '还没有借出记录'
+    })
+    const emptyDesc = computed(() => {
+      if (activeTab.value === 'back') {
+        return isIncome.value ? '还钱给别人记在这里' : '借出去的钱收回来记在这里'
+      }
+      return isIncome.value ? '向别人借来的钱记在这里' : '借给别人的钱记在这里'
+    })
+
+    /** 空态按钮文案：在反向 tab 上要引导记反向的那一笔 */
+    const emptyActionText = computed(() =>
+      activeTab.value === 'back' ? `记一笔${backLabel.value}` : '记一笔'
+    )
+
+    /** 顶部「+ …」的文案 */
+    const navAddText = computed(() =>
+      activeTab.value === 'back' ? `+ ${backLabel.value}` : '+ 记一笔'
+    )
+
+    /**
+     * 列表右上角「全部 ›」是否显示
+     *
+     * ★ 「全部流水」tab 不显示 ★
+     *   用户明确要求：这个 tab 本身就是全部了，
+     *   再给一个「全部 ›」跳去交易列表是语义重复。
+     *   另外两个 tab 显示它 —— 那里点「全部」= 看该分类的全部流水，有意义。
+     */
+    const showListMore = computed(() => activeTab.value !== 'all')
+
+    /**
+     * 记账面板的预填
+     *
+     * tab 决定预填哪个分类：
+     *   全部流水 / 主方向 -> 主方向分类（借出 / 借入）
+     *   反向 tab          -> 反向分类（借出收回 / 借入归还）
+     */
+    const panelPreset = computed(() => {
+      if (activeTab.value === 'back') {
+        return { type: backType.value, category_id: backCatId.value }
+      }
+      return { type: loanType.value, category_id: mainCatId.value }
+    })
+
+    /**
+     * 拿到四个分类的 id。
+     *
+     * 首选 ensureLoanCategories()（幂等，不存在会自动建），
+     * 失败时退回按名字在分类表里找，页面不至于整块空掉。
+     */
+    async function resolveCategoryIds() {
+      if (catIds.value.lendOutId && catIds.value.lendBackId &&
+          catIds.value.borrowInId && catIds.value.borrowBackId) {
+        return catIds.value
+      }
 
       try {
         const ids = await ensureLoanCategories()
-        const id = isIncome.value ? ids.incomeId : ids.expenseId
-        if (id) {
-          categoryId.value = id
-          return id
+        catIds.value = {
+          lendOutId: ids.lendOutId || ids.expenseId || '',
+          lendBackId: ids.lendBackId || '',
+          borrowInId: ids.borrowInId || ids.incomeId || '',
+          borrowBackId: ids.borrowBackId || ''
         }
+        if (catIds.value.lendOutId && catIds.value.borrowInId) return catIds.value
       } catch (e) {
         console.warn('[loan] ensureLoanCategories 失败，改为按名称查找:', e && e.message)
       }
 
-      const all = await listCategories(loanType.value, true)
-      const hit = all.find((c) => c.name === LOAN_NAMES[loanType.value])
-      categoryId.value = hit ? hit.id : ''
-      return categoryId.value
+      // 兜底：按名字在分类表里找（不区分层级，直接按 type 查）
+      const [expenseList, incomeList] = await Promise.all([
+        listCategories('expense'),
+        listCategories('income')
+      ])
+      const find = (list, name) => {
+        const hit = list.find((c) => c.name === name)
+        return hit ? hit.id : ''
+      }
+      catIds.value = {
+        lendOutId: find(expenseList, '借出'),
+        lendBackId: find(incomeList, '借出收回'),
+        borrowInId: find(incomeList, '借入'),
+        borrowBackId: find(expenseList, '借入归还')
+      }
+      return catIds.value
+    }
+
+    /**
+     * 按当前 tab 拉流水
+     *
+     * ★ 三个 tab 各自查一次，而不是查全部再前端过滤 ★
+     *   过滤放在 SQL 里，列表的 limit 才有意义
+     *   （前端过滤会让「只要 10 条」变成「查 10 条再筛掉一半」，
+     *    列表可能只剩 3 条，看起来像丢数据）。
+     */
+    async function loadList() {
+      const ids = catIds.value
+      const main = ids[isIncome.value ? 'borrowInId' : 'lendOutId']
+      const back = ids[isIncome.value ? 'borrowBackId' : 'lendBackId']
+
+      if (activeTab.value === 'main') {
+        if (!main) return []
+        return listTransactions({ categoryId: main, limit: 10 })
+      }
+      if (activeTab.value === 'back') {
+        if (!back) return []
+        return listTransactions({ categoryId: back, limit: 10 })
+      }
+
+      // 全部流水：主 + 反向各取一批，按时间倒序合并，再截前 10
+      const tasks = []
+      if (main) tasks.push(listTransactions({ categoryId: main, limit: 10 }))
+      if (back) tasks.push(listTransactions({ categoryId: back, limit: 10 }))
+      if (tasks.length === 0) return []
+
+      const results = await Promise.all(tasks)
+      const merged = []
+      for (const list of results) {
+        for (const t of list) merged.push(t)
+      }
+      merged.sort((a, b) => {
+        // 与 listTransactions 的 ORDER BY 一致：occurred_at DESC, created_at DESC
+        if (b.occurred_at !== a.occurred_at) return b.occurred_at - a.occurred_at
+        return (b.created_at || 0) - (a.created_at || 0)
+      })
+      return merged.slice(0, 10)
     }
 
     async function load() {
       loading.value = true
       try {
-        const id = await resolveCategoryId()
+        await resolveCategoryIds()
+        const ids = catIds.value
+        const main = ids[isIncome.value ? 'borrowInId' : 'lendOutId']
+        const back = ids[isIncome.value ? 'borrowBackId' : 'lendBackId']
 
-        // 分类没找到（极端情况）：清空，交给空态兜住，不要留上一批数据
-        if (!id) {
+        // 分类都没找到（极端情况）：清空，交给空态兜住
+        if (!main && !back) {
           txnList.value = []
-          monthStats.value = emptyStats()
-          totalStats.value = emptyStats()
+          mainStats.value = emptyStats()
+          backStats.value = emptyStats()
           return
         }
 
-        const [list, month, total] = await Promise.all([
-          listTransactions({ categoryId: id, limit: 10 }),
-          sumTransactions({ categoryId: id, monthKey: toMonthKey() }),
-          sumTransactions({ categoryId: id })
+        const [list, mainSum, backSum] = await Promise.all([
+          loadList(),
+          main ? sumTransactions({ categoryId: main }) : Promise.resolve(emptyStats()),
+          back ? sumTransactions({ categoryId: back }) : Promise.resolve(emptyStats())
         ])
 
         txnList.value = list
-        monthStats.value = month
-        totalStats.value = total
+        mainStats.value = mainSum
+        backStats.value = backSum
       } catch (e) {
         console.warn('[loan] 加载借入借出失败:', e && e.message)
         txnList.value = []
-        monthStats.value = emptyStats()
-        totalStats.value = emptyStats()
+        mainStats.value = emptyStats()
+        backStats.value = emptyStats()
       } finally {
         loading.value = false
       }
     }
 
-    /** 「+ 记一笔」：打开记账面板（预填借贷分类） */
-    function openPanel() {
+    /** 切 tab：只重拉列表，汇总不变（汇总是全部时间口径） */
+    async function switchTab(key) {
+      if (activeTab.value === key) return
+      activeTab.value = key
+      loading.value = true
+      try {
+        txnList.value = await loadList()
+      } catch (e) {
+        txnList.value = []
+      } finally {
+        loading.value = false
+      }
+    }
+
+    /** 右上角「+ 记一笔」/「+ 借出收回」：打开记账面板 */
+    function onNavAdd() {
+      showPanel.value = true
+    }
+
+    /** 空态里的「记一笔」：同上 */
+    function onEmptyAction() {
       showPanel.value = true
     }
 
@@ -260,11 +483,15 @@ export default {
 
     /**
      * 「全部 ›」→ 交易列表
-     * categoryId 是二级分类，精确匹配自己，不用带 includeSubcategories。
+     *
+     * ★ 「全部流水」tab 不走这里 ★
+     *   那个 tab 不显示「全部 ›」（见 showListMore 的注释）。
+     *   另外两个 tab 按当前 tab 的分类带筛选条件过去。
      */
     function goAllTxn() {
-      if (!categoryId.value) return
-      uni.navigateTo({ url: `/pages/txn/list?categoryId=${categoryId.value}` })
+      const catId = activeTab.value === 'back' ? backCatId.value : mainCatId.value
+      if (!catId) return
+      uni.navigateTo({ url: `/pages/txn/list?categoryId=${catId}` })
     }
 
     function goBack() {
@@ -289,11 +516,13 @@ export default {
     onBackPress(() => handleBackPress())
 
     return {
-      settingStore, loanType, categoryId, txnList, monthStats, totalStats, loading,
-      showPanel, pageStyle, primaryColor, isIncome, pageTitle, pageLabel, headEmoji,
-      directionText, emptyText, emptyDesc, accentColor, monthAmount, totalAmount,
-      isEmpty, panelPreset,
-      openPanel, onSaved, goAllTxn, goBack
+      settingStore, loanType, catIds, txnList, mainStats, backStats, loading,
+      activeTab, showPanel, pageStyle, primaryColor, isIncome,
+      pageTitle, headEmoji, currentLabel, directionText, totalLabel, backLabel,
+      accentColor, backType, totalAmount, backAmount, totalCount, currentAmount,
+      tabs, isEmpty, emptyText, emptyDesc, emptyActionText, navAddText,
+      showListMore, panelPreset,
+      switchTab, onNavAdd, onEmptyAction, onSaved, goAllTxn, goBack
     }
   }
 }
@@ -361,13 +590,6 @@ export default {
   color: var(--app-text-3);
 }
 
-.summary-label {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  display: block;
-  margin-bottom: 8rpx;
-}
-
 .summary-rows {
   margin-top: 28rpx;
   padding-top: 20rpx;
@@ -393,10 +615,46 @@ export default {
   color: var(--app-text-2);
 }
 
+/* ------------------------------------------------------- Tab 切换 */
+
+/*
+ * 三个 tab：全部流水 / 借出（借入） / 借出收回（借入归还）
+ *
+ * ★ 视觉对齐「分类管理」页的 type-bar ★
+ *   同一个 App 里两处 tab 长得不一样会显得零散，
+ *   这里沿用文字 + 底部短横线的写法。
+ */
+.loan-tabs {
+  display: flex;
+  gap: 40rpx;
+  padding: 28rpx 8rpx 12rpx;
+}
+
+.loan-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding-bottom: 10rpx;
+}
+
+.loan-tab-text {
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.loan-tab-indicator {
+  position: absolute;
+  bottom: 0;
+  width: 32rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+}
+
 /* 空态 */
 .empty-wrap {
   background-color: var(--app-card);
   border-radius: 20rpx;
-  margin-top: 24rpx;
+  margin-top: 16rpx;
 }
 </style>

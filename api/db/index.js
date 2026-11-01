@@ -314,6 +314,15 @@ const MIGRATIONS = [
     //   详见 migrateSystemPresetCategories()。
     version: 14,
     up: migrateSystemPresetCategories
+  },
+  {
+    // ★ 补上「借出收回 / 借入归还」★
+    //   v14 只建了「借出」「借入」两个固定子类，
+    //   账面上看不出「借出去的钱收回来多少」「借来的钱还了多少」。
+    //   v15 把这两个反向分类补进「系统预置分类」。
+    //   详见 migrateLoanReturnCategories()。
+    version: 15,
+    up: migrateLoanReturnCategories
   }
 ]
 
@@ -1391,6 +1400,132 @@ async function migrateSystemPresetCategories() {
 
   console.log(
     `[db] migration v14: 「系统预置分类」已就绪（新建 ${created} 条，收编 ${reparented} 条）`
+  )
+}
+
+/**
+ * 迁移 v15 —— 补上「借出收回 / 借入归还」
+ *
+ * ★ 为什么需要 ★
+ *   v14 只在「系统预置分类」下建了「借出」「借入」两个固定子类。
+ *   可一笔借出是要还回来的：
+ *     借出去 500，收回 200，当前还有 300 在外面。
+ *   没有「借出收回」这个分类，收回的钱只能记成普通收入，
+ *   页面就没法算出「当前借出」。借入同理（借入归还）。
+ *
+ * ★ 结构 ★
+ *   借出收回 -> income 下（钱回到账户）
+ *   借入归还 -> expense 下（钱从账户出去）
+ *
+ * ★ 幂等 + 收编 ★
+ *   和 v14 一样的策略：先找组下有没有同名子类，没有再找有没有
+ *   活的同名一级分类（收编，保留 id），都没有才新建。
+ *   这样用户如果自己建过一个「借出收回」，历史流水的引用不会断。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute() ★
+ *   迁移在 openDb() 内跑，走 query()/execute() 会 await openDb() 死锁。
+ */
+async function migrateLoanReturnCategories() {
+  const now = Date.now()
+
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v15 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v15 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  /** 这一轮要补的两个分类（定义与 schema.js 的 SYSTEM_PRESET_CHILDREN 一致） */
+  const TARGETS = [
+    { type: 'expense', name: '借入归还' },
+    { type: 'income', name: '借出收回' }
+  ]
+
+  let created = 0
+  let reparented = 0
+
+  for (const target of TARGETS) {
+    const def = SYSTEM_PRESET_CHILDREN.find(
+      (d) => d.type === target.type && d.name === target.name
+    )
+    if (!def) continue
+
+    // ---- 1) 取或建「系统预置分类」父级 ----
+    const groupDef = SYSTEM_PRESET_GROUPS[target.type]
+    const groupRows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [groupDef.name, target.type]
+    )
+    if (groupRows === null) continue
+
+    let groupId = groupRows.length > 0 ? groupRows[0].id : null
+    if (!groupId) {
+      groupId = prefixedId('cat')
+      const ok = await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,NULL,?,?,?,?,999,0,?,?,NULL)`,
+        [groupId, groupDef.name, target.type, groupDef.icon, groupDef.color, now, now]
+      )
+      if (!ok) continue
+      created++
+    }
+
+    // ---- 2) 组下已有同名子类 -> 刷新图标/颜色/排序即可 ----
+    const existing = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+      [target.name, target.type, groupId]
+    )
+    if (existing === null) continue
+    if (existing.length > 0) {
+      await run(
+        'UPDATE category SET icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
+        [def.icon, def.color, def.sort, now, existing[0].id]
+      )
+      continue
+    }
+
+    // ---- 3) 有活的同名一级分类 -> 收编到组里（保留 id）----
+    const legacy = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [target.name, target.type]
+    )
+    if (legacy === null) continue
+    if (legacy.length > 0) {
+      const ok = await run(
+        'UPDATE category SET parent_id = ?, icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
+        [groupId, def.icon, def.color, def.sort, now, legacy[0].id]
+      )
+      if (ok) reparented++
+      for (const extra of legacy.slice(1)) {
+        await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, extra.id])
+      }
+      continue
+    }
+
+    // ---- 4) 都没有 -> 新建 ----
+    const ok = await run(
+      `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+       VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+      [prefixedId('cat'), groupId, target.name, target.type, def.icon, def.color, def.sort, now, now]
+    )
+    if (ok) created++
+  }
+
+  console.log(
+    `[db] migration v15: 借入借出反向分类已就绪（新建 ${created} 条，收编 ${reparented} 条）`
   )
 }
 

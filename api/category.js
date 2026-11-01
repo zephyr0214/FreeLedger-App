@@ -246,17 +246,32 @@ export const RECONCILE_NAMES = {
   income: '对账收入'
 }
 
-/** 「借出」「借入」两个固定分类的名字（按 type 区分） */
-export const LOAN_NAMES = {
-  expense: '借出',
-  income: '借入'
+/**
+ * 借入借出相关的四个固定分类名，按「语义」而不是按 type 命名。
+ *
+ * ★ 一笔借出涉及两个方向 ★
+ *   借出（expense，钱出去）+ 借出收回（income，钱回来）
+ *   借入（income，钱进来）+ 借入归还（expense，钱出去）
+ *   所以不能再用「expense 叫借出、income 叫借入」这种一对一的映射，
+ *   否则「借出收回」和「借入归还」无处安放。
+ *
+ * 定义同步在 api/db/schema.js 的 LOAN_CATEGORY_NAMES，供迁移使用。
+ */
+export const LOAN_CATEGORY_NAMES = {
+  lendOut: { name: '借出', type: 'expense' },
+  lendBack: { name: '借出收回', type: 'income' },
+  borrowIn: { name: '借入', type: 'income' },
+  borrowBack: { name: '借入归还', type: 'expense' }
 }
 
-/** 每个 type 下「系统预置分类」里允许出现的固定子类名（顺序即展示顺序） */
+/** 每个 type 下「系统预置分类」里的固定子类名（顺序即展示顺序） */
 const FIXED_CHILD_NAMES = {
-  expense: [LOAN_NAMES.expense, RECONCILE_NAMES.expense],
-  income: [LOAN_NAMES.income, RECONCILE_NAMES.income]
+  expense: ['借出', '借入归还', RECONCILE_NAMES.expense],
+  income: ['借入', '借出收回', RECONCILE_NAMES.income]
 }
+
+/** 所有借入借出相关的固定分类名（跨两个 type） */
+const ALL_LOAN_NAMES = ['借出', '借出收回', '借入', '借入归还']
 
 /**
  * 是不是「系统预置分类」这个一级分类本身。
@@ -287,15 +302,25 @@ export function isReconcileCategory(cat) {
 }
 
 /**
- * 是不是「借出 / 借入」固定分类（名字 + type 匹配）。
+ * 是不是「借出 / 借出收回 / 借入 / 借入归还」固定分类。
+ *
+ * ★ 判定按名字，不按 type ★
+ *   「借出」一定是 expense、「借出收回」一定是 income……
+ *   名字本身已经唯一确定了它的方向（见 LOAN_CATEGORY_NAMES），
+ *   再要求 type 匹配反而会漏判（比如把「借出收回」写成 income 才对的场景）。
+ *   为了兼容旧调用点（只传 {name, type}），type 存在时会校验一遍。
  *
  * @param {object|null} cat
  * @returns {boolean}
  */
 export function isLoanCategory(cat) {
-  if (!cat || !cat.name || !cat.type) return false
-  const expected = LOAN_NAMES[cat.type]
-  return !!expected && cat.name === expected
+  if (!cat || !cat.name) return false
+  if (!ALL_LOAN_NAMES.includes(cat.name)) return false
+  // type 给了就校验（防同名误解），没给就只按名字认
+  if (!cat.type) return true
+  return Object.values(LOAN_CATEGORY_NAMES).some(
+    (d) => d.name === cat.name && d.type === cat.type
+  )
 }
 
 /**
@@ -434,30 +459,48 @@ async function ensurePresetChildRow(type, name) {
 }
 
 /**
- * 确保「系统预置分类」整组存在（父级 + 四个固定子类）。
+ * 确保「系统预置分类」整组存在（两个父级 + 六个固定子类）。
+ *
+ * ★ 六个固定子类 ★
+ *   支出：借出、借入归还、对账支出
+ *   收入：借入、借出收回、对账收入
+ *   「借出收回 / 借入归还」是这一轮补的 ——
+ *   一笔借出只有「借出」而没有「收回」，账面上就永远看不出还了多少。
  *
  * 幂等：已经存在就直接复用，不重复插入。
  *
  * @returns {Promise<{expenseGroupId:string, incomeGroupId:string,
- *   loanExpenseId:string, loanIncomeId:string,
- *   reconcileExpenseId:string, reconcileIncomeId:string}>}
+ *   lendOutId:string, lendBackId:string,
+ *   borrowInId:string, borrowBackId:string,
+ *   reconcileExpenseId:string, reconcileIncomeId:string,
+ *   loanExpenseId:string, loanIncomeId:string}>}
+ *   loanExpenseId / loanIncomeId 是旧字段名（= 借出 / 借入），
+ *   保留是为了不破坏已有调用点。
  */
 export async function ensurePresetCategories() {
   const expenseGroupId = await ensurePresetGroupRow('expense')
   const incomeGroupId = await ensurePresetGroupRow('income')
 
-  const loanExpenseId = await ensurePresetChildRow('expense', LOAN_NAMES.expense)
+  const lendOutId = await ensurePresetChildRow('expense', LOAN_CATEGORY_NAMES.lendOut.name)
+  const borrowBackId = await ensurePresetChildRow('expense', LOAN_CATEGORY_NAMES.borrowBack.name)
   const reconcileExpenseId = await ensurePresetChildRow('expense', RECONCILE_NAMES.expense)
-  const loanIncomeId = await ensurePresetChildRow('income', LOAN_NAMES.income)
+
+  const borrowInId = await ensurePresetChildRow('income', LOAN_CATEGORY_NAMES.borrowIn.name)
+  const lendBackId = await ensurePresetChildRow('income', LOAN_CATEGORY_NAMES.lendBack.name)
   const reconcileIncomeId = await ensurePresetChildRow('income', RECONCILE_NAMES.income)
 
   return {
     expenseGroupId,
     incomeGroupId,
-    loanExpenseId,
-    loanIncomeId,
+    lendOutId,
+    lendBackId,
+    borrowInId,
+    borrowBackId,
     reconcileExpenseId,
-    reconcileIncomeId
+    reconcileIncomeId,
+    // 旧字段名，等价的别名
+    loanExpenseId: lendOutId,
+    loanIncomeId: borrowInId
   }
 }
 
@@ -481,18 +524,27 @@ export async function ensureReconcileCategory() {
 }
 
 /**
- * 确保「借出」「借入」两个固定分类存在，
- * 返回 { expenseId, incomeId }（借出是支出、借入是收入）。
+ * 确保借入借出四个固定分类存在。
  *
- * 借入借出管理页（pages/loan/manage.vue）用它拿到记这一笔要挂的分类 id。
+ * 借入借出管理页（pages/loan/manage.vue）用它拿到：
+ *   · 记一笔时要挂的分类 id
+ *   · 算「当前借出 / 当前借入」时用来按分类求和的两组 id
+ *
+ * @returns {Promise<{expenseId:string, incomeId:string,
+ *   lendOutId:string, lendBackId:string, borrowInId:string, borrowBackId:string}>}
+ *   expenseId / incomeId 是旧字段名（借出 / 借入），保留以兼容。
  *
  * 幂等。
  */
 export async function ensureLoanCategories() {
   const all = await ensurePresetCategories()
   return {
-    expenseId: all.loanExpenseId,
-    incomeId: all.loanIncomeId
+    expenseId: all.lendOutId,
+    incomeId: all.borrowInId,
+    lendOutId: all.lendOutId,
+    lendBackId: all.lendBackId,
+    borrowInId: all.borrowInId,
+    borrowBackId: all.borrowBackId
   }
 }
 

@@ -261,14 +261,6 @@
         </view>
       </view>
 
-      <!-- 仅编辑真实账户时保留「对账调整」说明；组合/新建不加提示 -->
-      <view v-if="isEdit && !isCombo" class="tip-card">
-        <text class="tip-text">
-          点「修改」可以改实际余额：选「计入对账收支」时差额会记成一笔对账交易，
-          选「修改当前余额」则直接改期初余额、不产生流水。
-        </text>
-      </view>
-
       <view v-if="isEdit" class="danger-area">
         <!-- block + width:100%：横向撑满整个内容区 -->
         <wd-button size="large" plain block custom-class="del-btn" @click="onDelete">
@@ -375,7 +367,6 @@
               </view>
               <view class="bs-option-text">
                 <text class="bs-option-label">{{ opt.label }}</text>
-                <text class="bs-option-desc">{{ opt.desc }}</text>
               </view>
             </view>
           </view>
@@ -497,18 +488,17 @@ export default {
       return `${d > 0 ? '+' : '-'}${formatCents(Math.abs(d), { symbol: settingStore.currencySymbol })}`
     })
 
-    /** 两种口径的说明 */
+    /**
+     * 两种口径的说明
+     *
+     * ★ 只留选项名，不再带副标题 ★
+     *   用户要求删掉「差额记一笔…」「直接改期初余额…」这两段说明。
+     *   选项名本身已经够明确（计入对账收支 / 修改当前余额），
+     *   再解释一遍反而让弹层变高、重点变模糊。
+     */
     const balanceModes = [
-      {
-        key: 'reconcile',
-        label: '计入对账收支',
-        desc: '差额记一笔「对账支出 / 对账收入」，流水里看得见（默认）'
-      },
-      {
-        key: 'direct',
-        label: '修改当前余额',
-        desc: '直接改期初余额，不产生任何流水'
-      }
+      { key: 'reconcile', label: '计入对账收支' },
+      { key: 'direct', label: '修改当前余额' }
     ]
 
     function openBalanceSheet() {
@@ -1142,17 +1132,6 @@ export default {
   font-size: 26rpx;
 }
 
-.tip-card {
-  margin-top: 20rpx;
-  padding: 0 12rpx;
-}
-
-.tip-text {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.6;
-}
-
 .danger-area {
   margin-top: 40rpx;
 }
@@ -1343,12 +1322,6 @@ export default {
   color: var(--app-text);
 }
 
-.bs-option-desc {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.5;
-}
-
 /* 底部按钮 */
 .bs-foot {
   display: flex;
@@ -1369,8 +1342,15 @@ export default {
 }
 
 .bs-btn-cancel {
-  background-color: var(--app-card-2);
+  /*
+   * ★ 必须给描边，不能只靠底色 ★
+   *   弹层背景是 --app-bg，取消按钮原来是 --app-card-2 ——
+   *   浅色主题下两者非常接近，按钮看着像「没有边框、和背景融成一片」。
+   *   现在加一条实色描边，无论浅色/深色都有一圈清晰的边界。
+   */
+  background-color: var(--app-card);
   color: var(--app-text-2);
+  border: 2rpx solid var(--app-line);
 }
 
 .bs-btn-ok {

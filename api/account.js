@@ -153,36 +153,99 @@ export async function getTotalAssets() {
 /**
  * 账户资产概览 —— 资产 / 负债 / 净资产
  *
- * ★ 为什么一次查三个数 ★
+ * ★ 为什么一次查出来 ★
  *   账户页要同时显示「总资产」「负债」「净资产」，
- *   三次独立查询会有时间差（用户在两个查询之间刚好记了一笔），
- *   三块数字就对不上了。一条 SQL 同时算出来最稳。
+ *   分三次查询会有时间差（用户在两个查询之间刚好记了一笔），
+ *   三块数字就对不上了。所以这里把账户余额和借入余额一起算。
  *
  * ★ 口径 ★
  *   只算 include_in_total = 1 且未归档、未删除的账户。
- *     资产合计 = 正余额之和
- *     负债合计 = 负余额绝对值之和（信用卡欠款等）
- *     净资产   = 资产合计 - 负债合计
+ *     总资产 = 账户正余额之和
+ *     负  债 = 账户负余额绝对值之和（信用卡欠款等）
+ *            + **尚未归还的借入**（借入 - 借入归还）
+ *     净资产 = 总资产 - 负债
  *
- * ★ 为什么按余额正负拆、而不是按账户类型拆 ★
+ * ★ 为什么要单独加「未归还的借入」★
+ *   借入的钱记在「借入」（收入分类）下，钱进的是真实账户，
+ *   所以它已经计入了总资产；但它同时是**一笔要还的债**。
+ *   如果负债里不包含它，用户借了 1 万，净资产会凭空多出 1 万 ——
+ *   这正是用户反馈的「借入没有添加在负债中，所以净资产显示有误」。
+ *
+ *   算的是「净额」而不是「累计借入」：
+ *     借了 1 万、已还 3 千 -> 负债 +7 千（不是 +1 万）。
+ *     还清之后负债回落到 0，净资产恢复 —— 这才对。
+ *
+ * ★ 为什么按余额正负拆账户，而不是按账户类型拆 ★
  *   「信用卡」类型也可能有正余额（刚还多了），
  *   而储蓄卡也可能因为记错而变成负的。
- *   按余额正负拆才能保证「净资产 == 资产 - 负债」这条恒等式永远成立 ——
+ *   按余额正负拆才能保证「净资产 == 总资产 - 负债」这条恒等式永远成立 ——
  *   否则用户会看到「负债 0、净资产却是负数」这种自相矛盾的页面。
  *
- * @returns {Promise<{assets:number, debt:number, net:number}>}
+ * @returns {Promise<{assets:number, debt:number, net:number, loanDebt:number}>}
+ *   loanDebt 是负债里属于「未归还借入」的那部分（页面可用于说明构成）
  */
 export async function getAssetOverview() {
-  const row = await queryOne(
+  const accRow = await queryOne(
     `SELECT
        COALESCE(SUM(CASE WHEN balance_cents > 0 THEN balance_cents ELSE 0 END), 0) AS assets,
        COALESCE(SUM(CASE WHEN balance_cents < 0 THEN -balance_cents ELSE 0 END), 0) AS debt
      FROM account
      WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1`
   )
-  const assets = Number(row ? row.assets : 0) || 0
-  const debt = Number(row ? row.debt : 0) || 0
-  return { assets, debt, net: assets - debt }
+  const assets = Number(accRow ? accRow.assets : 0) || 0
+  const accountDebt = Number(accRow ? accRow.debt : 0) || 0
+
+  /*
+   * ★ 未归还的借入 ★
+   *   按分类名聚合，不硬编码 id（id 会随备份导入变化）。
+   *   「借入」是 income（钱进来 -> 增加了要还的债），
+   *   「借入归还」是 expense（钱还出去 -> 减少要还的债）。
+   *
+   *   JOIN 分类表而不是用 IN (子查询)，是因为同时要读分类名判断方向；
+   *   分类已被删除的交易（category_id 为空或指向已删行）自然被 JOIN 排除，
+   *   它们本来也不算在借入里。
+   */
+  const loanRow = await queryOne(
+    `SELECT COALESCE(SUM(
+              CASE WHEN t.type = 'income'  AND c.name = '借入'     THEN t.amount_cents
+                   WHEN t.type = 'expense' AND c.name = '借入归还' THEN -t.amount_cents
+                   ELSE 0 END), 0) AS loan_debt
+     FROM txn t
+     JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
+     WHERE t.deleted_at IS NULL`
+  )
+  // 归还多于借入（数据异常）时不让负债变负
+  const loanDebt = Math.max(0, Number(loanRow ? loanRow.loan_debt : 0) || 0)
+
+  const debt = accountDebt + loanDebt
+  return { assets, debt, net: assets - debt, loanDebt }
+}
+
+/**
+ * 尚未收回的借出（应收）
+ *
+ * ★ 目前只用于展示，不参与净资产 ★
+ *   和「未归还的借入」不一样：借出的钱直接从账户余额里少了，
+ *   如果把它加回总资产，就等于「借出去的钱还当自己的钱」——
+ *   这是个产品口径选择，不是算术问题。
+ *   当前口径是「净资产只认账户里的钱 + 明确要还的债」，
+ *   所以这里单独提供函数，页面要显示时自己取，不混进 getAssetOverview。
+ *
+ * 算法：借出（expense）合计 - 借出收回（income）合计。
+ *
+ * @returns {Promise<number>} 分
+ */
+export async function getOutstandingLending() {
+  const row = await queryOne(
+    `SELECT COALESCE(SUM(
+              CASE WHEN t.type = 'expense' AND c.name = '借出'     THEN t.amount_cents
+                   WHEN t.type = 'income'  AND c.name = '借出收回' THEN -t.amount_cents
+                   ELSE 0 END), 0) AS lending
+     FROM txn t
+     JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
+     WHERE t.deleted_at IS NULL`
+  )
+  return Math.max(0, Number(row ? row.lending : 0) || 0)
 }
 
 /** 总负债（信用卡/借入的绝对值） */

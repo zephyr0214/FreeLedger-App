@@ -72,7 +72,30 @@ function makeFakePlus() {
   )`)
   db.exec(`CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT)`)
   db.exec(`CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)`)
-  db.exec('PRAGMA user_version = 14')
+
+  /*
+   * ★ getAssetOverview 还要读 txn + category ★
+   *   因为「负债」里包含「未归还的借入」——
+   *   那部分不在 account.balance_cents 里（借来的钱已经加进某张卡的余额了），
+   *   只能按「借入 - 借入归还」的流水净额算。
+   *   测试库必须带上这两张表，否则查询直接报 no such table。
+   */
+  db.exec(`CREATE TABLE category (
+    id TEXT PRIMARY KEY, parent_id TEXT, name TEXT NOT NULL, type TEXT NOT NULL,
+    icon TEXT, color TEXT, sort INTEGER NOT NULL DEFAULT 0,
+    hidden INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL, deleted_at INTEGER
+  )`)
+  db.exec(`CREATE TABLE txn (
+    id TEXT PRIMARY KEY, type TEXT NOT NULL, amount_cents INTEGER NOT NULL,
+    account_id TEXT NOT NULL, to_account_id TEXT, category_id TEXT, note TEXT,
+    occurred_at INTEGER NOT NULL, occurred_day TEXT NOT NULL,
+    month_key TEXT NOT NULL, year_key TEXT NOT NULL,
+    tz_offset INTEGER NOT NULL DEFAULT 480,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+  )`)
+
+  db.exec('PRAGMA user_version = 15')
 
   const fake = {
     sqlite: {
@@ -122,6 +145,26 @@ function insertAccount(db, {
       include_in_total, sort, archived, created_at, updated_at, deleted_at)
      VALUES (?,?,?,?,?,?,0,?,?,?,?)`
   ).run(id, name, type, balance, balance, include_in_total, archived, now, now, deleted_at)
+}
+
+/** 插一条分类（只需要 name / type 就够借入借出统计用） */
+function insertCat(db, { id, name, type, parent_id = null, deleted_at = null }) {
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden,
+      created_at, updated_at, deleted_at)
+     VALUES (?,?,?,?,'more','#969799',0,0,?,?,?)`
+  ).run(id, parent_id, name, type, now, now, deleted_at)
+}
+
+/** 插一条流水（借入借出统计只关心 type / amount / category） */
+function insertTxn(db, { id, type, amount, category_id }) {
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO txn (id, type, amount_cents, account_id, to_account_id, category_id, note,
+      occurred_at, occurred_day, month_key, year_key, tz_offset, created_at, updated_at, deleted_at)
+     VALUES (?,?,?,'acc1',NULL,?,'',?,'2026-11-01','2026-11','2026',480,?,?,NULL)`
+  ).run(id, type, amount, category_id, now, now, now)
 }
 
 /* --------------------------------------------------------- 纯逻辑复刻 */
@@ -281,6 +324,106 @@ console.log('=== 真实 SQL：与 getTotalAssets / getTotalDebt 口径对齐 ===
   check('新旧口径的差别被记录下来（旧 getTotalAssets 抵扣了负余额）', assets, 150000)
   check('新口径总资产只算正余额', overview.assets, 300000)
   check('两种口径的净资产相同', overview.net, 150000)
+}
+
+console.log('=== 真实 SQL：借入计入负债（用户反馈的 bug）===')
+
+/*
+ * ★ 用户反馈 ★
+ *   「借入，没有添加在负债中，所以净资产显示也有误」。
+ *
+ *   借来的钱进了真实账户 -> 已计入总资产；
+ *   但它同时是一笔要还的债 —— 负债里不算它，净资产就凭空多出来这一笔。
+ *
+ *   算的是净额（借入 - 借入归还），不是累计借入：
+ *   借 1 万已还 3 千 -> 负债 +7 千，还清后回落到 0。
+ */
+{
+  const { fake, db } = makeFakePlus()
+
+  // 账户里只有 1000 元现金（借来的钱已经存进来了）
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 100000 })
+
+  // 分类（系统预置分类下的四个固定子类）
+  insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
+  insertCat(db, { id: 'c_borrow_back', name: '借入归还', type: 'expense' })
+  insertCat(db, { id: 'c_lend_out', name: '借出', type: 'expense' })
+  insertCat(db, { id: 'c_lend_back', name: '借出收回', type: 'income' })
+
+  // 借入 1000 元（钱进账户），已归还 300 元
+  insertTxn(db, { id: 't1', type: 'income', amount: 100000, category_id: 'c_borrow_in' })
+  insertTxn(db, { id: 't2', type: 'expense', amount: 30000, category_id: 'c_borrow_back' })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js')
+  const r = await mod.getAssetOverview()
+
+  check('总资产 = 账户余额 1000', r.assets, 100000)
+  check('未归还的借入 = 1000 - 300 = 700', r.loanDebt, 70000)
+  check('负债包含借入净额', r.debt, 70000)
+  check('净资产 = 1000 - 700 = 300', r.net, 30000)
+  check('恒等式仍成立', r.net, r.assets - r.debt)
+}
+
+console.log('=== 借入还清后负债回落到 0 ===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 0 })
+  insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
+  insertCat(db, { id: 'c_borrow_back', name: '借入归还', type: 'expense' })
+
+  // 借 500 还 500
+  insertTxn(db, { id: 't1', type: 'income', amount: 50000, category_id: 'c_borrow_in' })
+  insertTxn(db, { id: 't2', type: 'expense', amount: 50000, category_id: 'c_borrow_back' })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js')
+  const r = await mod.getAssetOverview()
+
+  check('还清后借入负债 = 0', r.loanDebt, 0)
+  check('还清后负债 = 0', r.debt, 0)
+}
+
+console.log('=== 归还多于借入（数据异常）不让负债变负 ===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 0 })
+  insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
+  insertCat(db, { id: 'c_borrow_back', name: '借入归还', type: 'expense' })
+
+  insertTxn(db, { id: 't1', type: 'income', amount: 10000, category_id: 'c_borrow_in' })
+  insertTxn(db, { id: 't2', type: 'expense', amount: 30000, category_id: 'c_borrow_back' })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js')
+  const r = await mod.getAssetOverview()
+
+  check('归还多于借入时借入负债按 0 处理', r.loanDebt, 0)
+}
+
+console.log('=== 借出不计入负债（借出收回也不该抵债）===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 100000 })
+  insertCat(db, { id: 'c_lend_out', name: '借出', type: 'expense' })
+  insertCat(db, { id: 'c_lend_back', name: '借出收回', type: 'income' })
+
+  insertTxn(db, { id: 't1', type: 'expense', amount: 50000, category_id: 'c_lend_out' })
+  insertTxn(db, { id: 't2', type: 'income', amount: 20000, category_id: 'c_lend_back' })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js')
+  const r = await mod.getAssetOverview()
+
+  check('借出不影响负债', r.debt, 0)
+  check('借出负债字段为 0', r.loanDebt, 0)
+
+  // 未收回的借出单独提供（不进净资产）
+  const lending = await mod.getOutstandingLending()
+  check('未收回的借出 = 500 - 200 = 300', lending, 30000)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
