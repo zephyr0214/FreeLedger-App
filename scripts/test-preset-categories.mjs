@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 迁移 v14（「系统预置分类」固定分类组）的测试
  *
  *   node scripts/test-preset-categories.mjs

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 设置读写 —— 全部存 setting 表（KV），值序列化为 JSON
  *
  * 为什么不用 uni.setStorageSync：

@@ -10,6 +10,7 @@
  */
 
 import { chat } from './ai.js'
+import { SYSTEM_PRESET_GROUP_NAME } from './db/schema.js'
 
 /* ------------------------------------------------------------------ 常量 */
 
@@ -201,6 +202,111 @@ export function toTimeText(v) {
 }
 
 /**
+ * 从原句里识别「借入借出」意图
+ *
+ * ★ 为什么需要它（用户反馈的真 bug）★
+ *   用户说「还给姐姐200元」，模型把它当成了**转账**：
+ *   「还给 X」这种句式看着确实像「A 转给 B」，
+ *   但「姐姐」是**人**，不是账户 ——
+ *   于是 toAccount 匹配不到任何账户，
+ *   整条记录被丢成「转账缺少目标账户」，用户什么也没记上。
+ *
+ *   借还这件事的本质是**收支**，不是账户间转账：
+ *     还给别人钱     -> 支出，分类「借款归还」
+ *     别人还我钱     -> 收入，分类「借款收回」
+ *     向别人借钱     -> 收入，分类「借入」
+ *     借钱给别人     -> 支出，分类「借出」
+ *
+ *   提示词已经教模型这么做，但模型不保证听话 ——
+ *   所以这里再加一道**确定性兜底**：从原句文本自己判断，
+ *   命中就纠正模型给的 transfer / 补上正确分类。
+ *
+ * ★ 顺序很重要 ★
+ *   「还给我」同时含「还给」和「给我」，
+ *   必须先判「收回」再判「归还」，否则会判反方向。
+ *
+ * @param {string} text 用户原句（或备注 + 原句）
+ * @returns {{type:string, categoryName:string, key:string}|null}
+ *   type: 'expense' | 'income'
+ *   categoryName: 要挂的分类名（与「系统预置分类」下的固定子类一致）
+ */
+export function detectLoanIntent(text) {
+  const t = String(text || '')
+  if (!t) return null
+
+  /*
+   * 依次尝试，先命中先返回。
+   * 每条都是「关键词 + 归类」——故意写得窄，
+   * 避免「还款」「还价」这种普通说法被误判。
+   */
+  const RULES = [
+    // ---- 别人还我钱：收入，借款收回 ----
+    //   「姐姐还我200」「还给我200」「把钱收回来」
+    {
+      key: 'lendBack',
+      type: 'income',
+      categoryName: '借款收回',
+      re: /还给我|还我|(?:收回|收回来|要回来|还回来)/
+    },
+    // ---- 我借钱给别人：支出，借出 ----
+    //   「借给姐姐200」「借钱给朋友」
+    {
+      key: 'lendOut',
+      type: 'expense',
+      categoryName: '借出',
+      re: /借给|借出|借钱给|借了.{0,4}给/
+    },
+    // ---- 我向别人借钱：收入，借入 ----
+    //   「向姐姐借了200」「跟同事借500」「找朋友借」
+    {
+      key: 'borrowIn',
+      type: 'income',
+      categoryName: '借入',
+      re: /向.{0,8}借|跟.{0,8}借|找.{0,8}借|借来|借到/
+    },
+    // ---- 我把钱还给别人：支出，借款归还 ----
+    //   「还给姐姐200」「还同事500」「还回500」「归还」「偿还」
+    //
+    //   ★ 强关键词 / 弱关键词 ★
+    //     强关键词（还给 / 还回 / 归还 / 偿还 / 还钱）本身足够明确。
+    //     弱关键词就是一个「还」字 —— 用户很少说全「还给」，
+    //     更多是「还同事500」「还了300」。
+    //
+    //   ★ 但「还」太常见，必须前后都设防 ★
+    //     后接这些字不是借还：
+    //       还价 / 还是 / 还有 / 还要 / 还款 / 还能 / 还在 / 还得 /
+    //       还好 / 还行 / 还没（「还款」尤其重要：信用卡还款是转账）
+    //     前置这些字不是借还：
+    //       不还 / 没还 / 未还 / 别还 / 先还 / 再还 / 是否还
+    //       —— 都是「还没还钱」的意思，不能记成「借款归还」
+    //
+    //   ★ 前置断言要包住整个分支组 ★
+    //     写成 `A|(?<!C)还` 时断言只作用于最后一个分支，
+    //     「是否还给」这种会被强关键词分支命中。
+    //     所以把 lookbehind 提到分组外面：`(?<!C)(?:A|B)`。
+    {
+      key: 'borrowBack',
+      type: 'expense',
+      categoryName: '借款归还',
+      re: new RegExp(
+        '(?<![不没未别先再否想真太很需也才刚又])' +
+        '(?:还给|还回|归还|偿还|还钱|把钱还|' +
+        // 弱关键词：光秃秃一个「还」，后面再设一道防
+        '还(?![价钱是有要能在得好的行不会可款剩差算用需想真太很没]))'
+      )
+    }
+  ]
+
+  for (const rule of RULES) {
+    if (rule.re.test(t)) {
+      return { key: rule.key, type: rule.type, categoryName: rule.categoryName }
+    }
+  }
+
+  return null
+}
+
+/**
  * 校验并归一化单条记录
  * 导出供单测
  * @returns {{ok: boolean, item?: object, reason?: string}}
@@ -220,6 +326,20 @@ export function validateItem(raw, ctx) {
   let type = String(raw.type || '').toLowerCase().trim()
   if (!VALID_TYPES.includes(type)) {
     type = 'expense'
+  }
+
+  /*
+   * ★ 借入借出兜底（必须在分类解析之前）★
+   *   「还给姐姐200元」这类句子会被模型误判成 transfer，
+   *   而「姐姐」不是账户 -> toAccount 解析不出来 -> 整条被丢弃。
+   *   这里从原句自己判断借还意图，命中就：
+   *     1. 把 type=transfer 纠正成真正的收支方向
+   *     2. 记下应该挂的分类名，给下面的分类解析兜底
+   */
+  const intentText = [ctx.hintText, raw.note].filter(Boolean).join(' ')
+  const loanIntent = detectLoanIntent(intentText)
+  if (loanIntent && type === 'transfer') {
+    type = loanIntent.type
   }
 
   // 日期
@@ -255,6 +375,34 @@ export function validateItem(raw, ctx) {
     if (hit) {
       categoryId = hit.id
       categoryName = hit.name
+    }
+  }
+
+  /*
+   * ★ 借入借出兜底：按意图强制挂到正确的分类 ★
+   *
+   * 模型可能给了个别的分类（把「还给姐姐」记成「人情往来/送礼」），
+   * 也可能因为原本判成 transfer 而根本没给分类。
+   * 既然我们已经从句子里认出了借还意图，这里就把它钉到
+   * 「系统预置分类」下对应的固定子类上 ——
+   * 否则借入借出页面按分类统计时抓不到这一笔。
+   */
+  if (loanIntent) {
+    const target = ctx.categories.find(
+      (c) => c.name === loanIntent.categoryName && c.type === loanIntent.type
+    )
+    if (target) {
+      categoryId = target.id
+      categoryName = target.name
+    } else {
+      /*
+       * 分类还不存在（老库没跑迁移 / 用户删过）。
+       * 这时不能硬塞一个不存在的 id —— 留空，交给
+       * parseMessageToTransactions 的分类兜底流程，
+       * 至少把这笔记成正确的收支方向，别整条丢掉。
+       */
+      categoryId = null
+      categoryName = ''
     }
   }
 
@@ -451,9 +599,19 @@ function findAccountInText(text, accounts = []) {
 
 /**
  * 构造给模型看的分类候选
+ *
+ * ★ 「系统预置分类」下的固定子类用短名，不加路径前缀 ★
+ *   那一组是「借出 / 借款归还 / 借入 / 借款收回 / 对账支出 / 对账收入」，
+ *   用户说的是「还给姐姐200」而不是「系统预置分类/借款归还」。
+ *   如果给模型的标签是「系统预置分类/借款归还」，
+ *   它很容易觉得不贴切而去选「人情往来/送礼」——
+ *   这正是「还给姐姐」记错分类的原因之一。
+ *   所以这几个直接给短名（「借款归还」），模型一眼就能对上。
+ *
+ * 其它分类仍然给「一级/二级」完整路径。
+ *
  * @param {Array} categories 全部分类（含二级）
  * @returns {Array<{id:string,label:string,type:string,isLeaf:boolean}>}
- *   label 形如「餐饮/午餐」，让模型知道归属关系
  */
 export function buildCategoryOptions(categories = []) {
   const list = categories || []
@@ -462,6 +620,9 @@ export function buildCategoryOptions(categories = []) {
 
   for (const p of parents) {
     const children = list.filter((c) => c.parent_id === p.id)
+    // 系统预置分类：子类直接给短名
+    const isPreset = p.name === SYSTEM_PRESET_GROUP_NAME
+
     if (children.length === 0) {
       // 没有二级，一级本身就是最细的粒度
       out.push({ id: p.id, label: p.name, type: p.type, isLeaf: true })
@@ -469,7 +630,7 @@ export function buildCategoryOptions(categories = []) {
       for (const c of children) {
         out.push({
           id: c.id,
-          label: `${p.name}/${c.name}`,
+          label: isPreset ? c.name : `${p.name}/${c.name}`,
           type: c.type || p.type,
           isLeaf: true
         })
@@ -649,7 +810,8 @@ export async function parseMessageToTransactions(text, ctx) {
 4. amount 只填数字（单位：元），不要带货币符号。
 5. type 只能是 "expense"（支出）、"income"（收入）、"transfer"（转账）。
 6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮/午餐」）。
-   - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段。
+   - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段；
+     少数几项是短名（如「借款归还」「借出」），也原样填。
    - 不要只填一级（如「餐饮」）。若列表里只有一级分类没有二级，才填一级。
    - 选不到就给 null，不要编造分类名。
 7. account 必须从给定的账户名列表里选，选不到就给 null。
@@ -660,10 +822,32 @@ export async function parseMessageToTransactions(text, ctx) {
    - 只有在句子明确表达了「A 转给 B」「A 转到 B」「从 A 转 B」这类方向时才用 transfer；
      如果只有一个账户出现，那是收支不是转账。
    - 转账不需要 category，给 null 即可。
-9. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
-10. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
+9. **★★ 借入借出（最容易错的地方，务必按下面的判断）★★**
+
+   借钱/还钱的对象是「人」（姐姐、同事、朋友、爸妈…），
+   **不是账户** —— 所以这四种情况**一律不是 transfer**，
+   而是普通收支，分类从「系统预置分类」下选：
+
+   | 用户怎么说 | type | category |
+   |---|---|---|
+   | 借给姐姐200、借钱给朋友500 | expense | 借出 |
+   | 还给姐姐200、还同事500、归还、偿还 | expense | 借款归还 |
+   | 向姐姐借了200、跟同事借500、找朋友借钱 | income | 借入 |
+   | 姐姐还我200、收回借出的钱、还给我300 | income | 借款收回 |
+
+   ★ 判断口诀 ★
+     - 钱**离开**我 → expense：「借给」= 借出；「还给 / 归还 / 偿还」= 借款归还
+     - 钱**回到**我 → income ：「向…借 / 跟…借」= 借入；「…还我 / 收回」= 借款收回
+   ★ 特别注意 ★
+     - 「还给姐姐200元」是**支出 + 借款归还**，绝不因为含「给」字就判成转账。
+     - 「姐姐还我200」是**收入 + 借款收回**，方向与上一条相反，别弄反。
+     - 只有两边都是**账户列表里的账户**（如「微信转支付宝」）才是 transfer。
+       如果句子里出现的「对方」不在账户列表里，那就不是转账。
+
+10. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
+11. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
     没提时间就给 null（系统会自动记成当前时刻）。
-11. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
+12. note 填这句话里剩下的描述性内容（去掉金额、分类、时间后剩下的部分）。
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
@@ -677,8 +861,11 @@ ${categoryLabels.map((l) => `- ${l}`).join('\n')}
 请输出 JSON 数组，每个元素格式：
 {"amount": 45.5, "type": "expense", "category": "餐饮/午餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
 
-转账的格式：
-{"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "time": null, "note": "转给支付宝"}`
+转账的格式（两个账户都在上面的账户列表里）：
+{"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "time": null, "note": "转给支付宝"}
+
+借还的格式（对方是人，不是账户，所以是收支不是转账）：
+{"amount": 200, "type": "expense", "category": "借款归还", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "还给姐姐"}`
 
   const reply = await chat(
     [
