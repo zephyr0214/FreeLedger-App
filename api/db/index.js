@@ -316,13 +316,22 @@ const MIGRATIONS = [
     up: migrateSystemPresetCategories
   },
   {
-    // ★ 补上「借出收回 / 借入归还」★
+    // ★ 补上「借款收回 / 借款归还」★
     //   v14 只建了「借出」「借入」两个固定子类，
     //   账面上看不出「借出去的钱收回来多少」「借来的钱还了多少」。
     //   v15 把这两个反向分类补进「系统预置分类」。
     //   详见 migrateLoanReturnCategories()。
     version: 15,
     up: migrateLoanReturnCategories
+  },
+  {
+    // ★ 分类改名：借出收回 -> 借款收回、借入归还 -> 借款归还 ★
+    //   用户要求全局统一叫「借款收回 / 借款归还」。
+    //   改代码只能影响新装的库，老库里那两个分类名还是旧的，
+    //   所以必须走迁移把已有行改名（保留 id，历史流水的引用不断）。
+    //   详见 migrateRenameLoanCategories()。
+    version: 16,
+    up: migrateRenameLoanCategories
   }
 ]
 
@@ -1404,23 +1413,23 @@ async function migrateSystemPresetCategories() {
 }
 
 /**
- * 迁移 v15 —— 补上「借出收回 / 借入归还」
+ * 迁移 v15 —— 补上「借款收回 / 借款归还」
  *
  * ★ 为什么需要 ★
  *   v14 只在「系统预置分类」下建了「借出」「借入」两个固定子类。
  *   可一笔借出是要还回来的：
  *     借出去 500，收回 200，当前还有 300 在外面。
- *   没有「借出收回」这个分类，收回的钱只能记成普通收入，
- *   页面就没法算出「当前借出」。借入同理（借入归还）。
+ *   没有「借款收回」这个分类，收回的钱只能记成普通收入，
+ *   页面就没法算出「当前借出」。借入同理（借款归还）。
  *
  * ★ 结构 ★
- *   借出收回 -> income 下（钱回到账户）
- *   借入归还 -> expense 下（钱从账户出去）
+ *   借款收回 -> income 下（钱回到账户）
+ *   借款归还 -> expense 下（钱从账户出去）
  *
  * ★ 幂等 + 收编 ★
  *   和 v14 一样的策略：先找组下有没有同名子类，没有再找有没有
  *   活的同名一级分类（收编，保留 id），都没有才新建。
- *   这样用户如果自己建过一个「借出收回」，历史流水的引用不会断。
+ *   这样用户如果自己建过一个「借款收回」，历史流水的引用不会断。
  *
  * ★ 必须用底层 call()，不能 query()/execute() ★
  *   迁移在 openDb() 内跑，走 query()/execute() 会 await openDb() 死锁。
@@ -1450,8 +1459,8 @@ async function migrateLoanReturnCategories() {
 
   /** 这一轮要补的两个分类（定义与 schema.js 的 SYSTEM_PRESET_CHILDREN 一致） */
   const TARGETS = [
-    { type: 'expense', name: '借入归还' },
-    { type: 'income', name: '借出收回' }
+    { type: 'expense', name: '借款归还' },
+    { type: 'income', name: '借款收回' }
   ]
 
   let created = 0
@@ -1526,6 +1535,141 @@ async function migrateLoanReturnCategories() {
 
   console.log(
     `[db] migration v15: 借入借出反向分类已就绪（新建 ${created} 条，收编 ${reparented} 条）`
+  )
+}
+
+/**
+ * 迁移 v16 —— 分类改名（借出收回 -> 借款收回、借入归还 -> 借款归还）
+ *
+ * ★ 为什么要迁移 ★
+ *   改代码里的字符串只能影响**新装**的库（走 seedDefaultCategories），
+ *   老库里那两行已经存成旧名字了，不迁移就永远显示旧的。
+ *
+ * ★ 为什么是 UPDATE name 而不是删了重建 ★
+ *   历史流水挂在它们的 id 上（txn.category_id）。
+ *   重建会换 id，那些流水就变成悬空引用 ——
+ *   页面按分类名统计「当前借出 / 当前借入」时直接算不出。
+ *   改名保留 id，引用完全不断。
+ *
+ * ★ 只改「系统预置分类」下面的那两条 ★
+ *   用户可能在别处自己建过叫「借出收回」的分类 ——
+ *   那不是系统分类，不该被我们改名。
+ *   所以先定位父级「系统预置分类」，再改它下面的子类。
+ *
+ * ★ 目标名已存在时怎么办 ★
+ *   极少见（用户手工建过同名分类）。这时不能直接改名 ——
+ *   会出现两条同名同父级的子类，统计会翻倍。
+ *   处理方式：把旧的那条软删除，并把它的交易改指向目标分类。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute() ★
+ *   迁移在 openDb() 内跑，走 query()/execute() 会 await openDb() 死锁。
+ */
+async function migrateRenameLoanCategories() {
+  const now = Date.now()
+
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v16 select failed:', e && e.message)
+      return null
+    }
+  }
+
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v16 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  /** 旧名 -> 新名（按 type 各一条，同名不同 type 不算冲突） */
+  const RENAMES = [
+    { type: 'income', from: '借出收回', to: '借款收回' },
+    { type: 'expense', from: '借入归还', to: '借款归还' }
+  ]
+
+  const GROUP_NAME = '系统预置分类'
+  let renamed = 0
+  let merged = 0
+
+  for (const item of RENAMES) {
+    // ---- 1) 找「系统预置分类」父级 ----
+    const groups = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [GROUP_NAME, item.type]
+    )
+    if (groups === null) continue
+    // 父级不存在（v14 没跑成之类）：直接按名字全库兜底改，别把旧名留在库里
+    const groupId = groups.length > 0 ? groups[0].id : null
+
+    // ---- 2) 找旧名字的那条（优先在组下）----
+    let oldRows = []
+    if (groupId) {
+      const rows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+        [item.from, item.type, groupId]
+      )
+      if (rows === null) continue
+      oldRows = rows
+    }
+    if (oldRows.length === 0) {
+      // 组下没有 -> 全库按名字找（兼容 v14/v15 未成功的库）
+      const rows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ?',
+        [item.from, item.type]
+      )
+      if (rows === null) continue
+      oldRows = rows
+    }
+    if (oldRows.length === 0) continue // 本来就没有这个分类，跳过
+
+    // ---- 3) 目标名是否已存在（同 type、同父级）----
+    const targetRows = groupId
+      ? await select(
+          'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+          [item.to, item.type, groupId]
+        )
+      : await select(
+          'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ?',
+          [item.to, item.type]
+        )
+    if (targetRows === null) continue
+
+    const targetId = targetRows.length > 0 ? targetRows[0].id : null
+
+    for (let i = 0; i < oldRows.length; i++) {
+      const oldId = oldRows[i].id
+
+      if (!targetId) {
+        // 3a) 目标不存在 -> 第一条直接改名（保留 id，历史引用不断）
+        if (i === 0) {
+          const ok = await run(
+            'UPDATE category SET name = ?, updated_at = ? WHERE id = ?',
+            [item.to, now, oldId]
+          )
+          if (ok) renamed++
+        } else {
+          // 3b) 旧名有多条（脏数据）-> 只留一条，其余软删 + 交易改指向
+          await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, oldId])
+          await run('UPDATE txn SET category_id = ? WHERE category_id = ?', [oldRows[0].id, oldId])
+        }
+        continue
+      }
+
+      // 3c) 目标已存在 -> 旧行软删，交易改指向目标（避免同名重复统计）
+      await run('UPDATE category SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, oldId])
+      await run('UPDATE txn SET category_id = ? WHERE category_id = ?', [targetId, oldId])
+      merged++
+    }
+  }
+
+  console.log(
+    `[db] migration v16: 借入借出分类已改名（改名 ${renamed} 条，合并 ${merged} 条）`
   )
 }
 

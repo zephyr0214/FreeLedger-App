@@ -265,7 +265,7 @@ import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combi
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
-import { categoryIconStyle } from '@/utils/categoryIcon.js'
+import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
@@ -536,11 +536,16 @@ export default {
      *   以前这里是「深色实底 + 白图标」，选中时整块分类色，
      *   同一个分类在流水里和记账弹层里完全是两种观感。
      *
+     * ★ 选中态还要多一圈主题色描边 ★
+     *   只靠底色区分在浅色主题下太弱（选中「分类色 + 22」≈ 13% 透明，
+     *   未选中是 --app-card-2 浅灰），扫一眼看不出选的是哪个。
+     *   加一圈 3rpx 主题色描边后一眼可辨，见 utils/categoryIcon.js。
+     *
      * @param {object} cat 分类对象
-     * @param {boolean} active 是否选中（选中时加一圈同色描边）
+     * @param {boolean} active 是否选中
      */
     function catIconStyle(cat, active) {
-      return categoryIconStyle(cat, primaryColor.value, active)
+      return categoryIconFullStyle(cat, primaryColor.value, active)
     }
 
     function isSameDay(a, b) {
@@ -1068,6 +1073,14 @@ export default {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
+  /*
+   * ★ 必须 border-box ★
+   *   选中时这一圈描边是 3rpx 的 border（见 utils/categoryIcon.js）。
+   *   默认的 content-box 会把 border 加在 80rpx 之外 ——
+   *   选中项变成 86rpx，一排分类跟着抖动。
+   *   加上 border-box 之后描边画在 80rpx 内部，尺寸恒定。
+   */
+  box-sizing: border-box;
 }
 
 /*

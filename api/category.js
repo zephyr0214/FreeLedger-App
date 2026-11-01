@@ -250,28 +250,28 @@ export const RECONCILE_NAMES = {
  * 借入借出相关的四个固定分类名，按「语义」而不是按 type 命名。
  *
  * ★ 一笔借出涉及两个方向 ★
- *   借出（expense，钱出去）+ 借出收回（income，钱回来）
- *   借入（income，钱进来）+ 借入归还（expense，钱出去）
+ *   借出（expense，钱出去）+ 借款收回（income，钱回来）
+ *   借入（income，钱进来）+ 借款归还（expense，钱出去）
  *   所以不能再用「expense 叫借出、income 叫借入」这种一对一的映射，
- *   否则「借出收回」和「借入归还」无处安放。
+ *   否则「借款收回」和「借款归还」无处安放。
  *
  * 定义同步在 api/db/schema.js 的 LOAN_CATEGORY_NAMES，供迁移使用。
  */
 export const LOAN_CATEGORY_NAMES = {
   lendOut: { name: '借出', type: 'expense' },
-  lendBack: { name: '借出收回', type: 'income' },
+  lendBack: { name: '借款收回', type: 'income' },
   borrowIn: { name: '借入', type: 'income' },
-  borrowBack: { name: '借入归还', type: 'expense' }
+  borrowBack: { name: '借款归还', type: 'expense' }
 }
 
 /** 每个 type 下「系统预置分类」里的固定子类名（顺序即展示顺序） */
 const FIXED_CHILD_NAMES = {
-  expense: ['借出', '借入归还', RECONCILE_NAMES.expense],
-  income: ['借入', '借出收回', RECONCILE_NAMES.income]
+  expense: ['借出', '借款归还', RECONCILE_NAMES.expense],
+  income: ['借入', '借款收回', RECONCILE_NAMES.income]
 }
 
 /** 所有借入借出相关的固定分类名（跨两个 type） */
-const ALL_LOAN_NAMES = ['借出', '借出收回', '借入', '借入归还']
+const ALL_LOAN_NAMES = ['借出', '借款收回', '借入', '借款归还']
 
 /**
  * 是不是「系统预置分类」这个一级分类本身。
@@ -302,12 +302,12 @@ export function isReconcileCategory(cat) {
 }
 
 /**
- * 是不是「借出 / 借出收回 / 借入 / 借入归还」固定分类。
+ * 是不是「借出 / 借款收回 / 借入 / 借款归还」固定分类。
  *
  * ★ 判定按名字，不按 type ★
- *   「借出」一定是 expense、「借出收回」一定是 income……
+ *   「借出」一定是 expense、「借款收回」一定是 income……
  *   名字本身已经唯一确定了它的方向（见 LOAN_CATEGORY_NAMES），
- *   再要求 type 匹配反而会漏判（比如把「借出收回」写成 income 才对的场景）。
+ *   再要求 type 匹配反而会漏判（比如把「借款收回」写成 income 才对的场景）。
  *   为了兼容旧调用点（只传 {name, type}），type 存在时会校验一遍。
  *
  * @param {object|null} cat
@@ -462,9 +462,9 @@ async function ensurePresetChildRow(type, name) {
  * 确保「系统预置分类」整组存在（两个父级 + 六个固定子类）。
  *
  * ★ 六个固定子类 ★
- *   支出：借出、借入归还、对账支出
- *   收入：借入、借出收回、对账收入
- *   「借出收回 / 借入归还」是这一轮补的 ——
+ *   支出：借出、借款归还、对账支出
+ *   收入：借入、借款收回、对账收入
+ *   「借款收回 / 借款归还」是这一轮补的 ——
  *   一笔借出只有「借出」而没有「收回」，账面上就永远看不出还了多少。
  *
  * 幂等：已经存在就直接复用，不重复插入。

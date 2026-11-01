@@ -23,6 +23,8 @@ import {
   categoryIconFg,
   categoryColor,
   categoryGroupIconStyle,
+  categoryRingStyle,
+  categoryIconFullStyle,
   UNSELECTED_ICON_BG,
   FALLBACK_CATEGORY_COLOR
 } from '../utils/categoryIcon.js'
@@ -118,6 +120,95 @@ check(
   categoryGroupIconStyle({ color: '#07C160' }, PRIMARY),
   { backgroundColor: '#07C16022', color: '#07C160' }
 )
+
+/* ====================================== 1b. 选中态的主题色「圈圈」 */
+
+console.log('\n=== 选中圈（用户反馈：灰底选中态区分度不明显） ===')
+
+/*
+ * ★ 为什么要有这一圈 ★
+ *   选中态原来只是「分类色 + 22」的浅底（约 13% 不透明），
+ *   未选中是 --app-card-2 浅灰底 —— 浅色主题下两者明度非常接近，
+ *   扫一眼看不出选中了哪个。加一圈 3rpx 主题色描边后一眼可辨。
+ *
+ * ★ 未选中必须是 transparent 而不是空串 ★
+ *   空串等于没写 border，选中项会因为多出 6rpx 边框而变大，
+ *   一排分类跟着抖动。transparent 占位，尺寸恒定。
+ */
+
+check(
+  '未选中：边框是 transparent（占位不显示）',
+  categoryRingStyle(false, PRIMARY),
+  { border: '3rpx solid transparent' }
+)
+
+check(
+  '选中：边框是主题色',
+  categoryRingStyle(true, PRIMARY),
+  { border: `3rpx solid ${PRIMARY}` }
+)
+
+// 主题色缺失时兜底成中性灰，不出现 'undefined' 这种非法值
+check(
+  '选中但没传主题色：兜底成中性灰',
+  categoryRingStyle(true, ''),
+  { border: '3rpx solid #969799' }
+)
+
+check(
+  '完整样式：未选中含浅灰底 + transparent 边框',
+  categoryIconFullStyle({ color: '#1989FA' }, PRIMARY, false),
+  {
+    backgroundColor: 'var(--app-card-2)',
+    color: '#1989FA',
+    border: '3rpx solid transparent'
+  }
+)
+
+check(
+  '完整样式：选中含分类浅底 + 主题色边框',
+  categoryIconFullStyle({ color: '#1989FA' }, PRIMARY, true),
+  {
+    backgroundColor: '#1989FA22',
+    color: '#1989FA',
+    border: `3rpx solid ${PRIMARY}`
+  }
+)
+
+/*
+ * ★ 灰色分类也要能看出选中 ★
+ *   「其他/杂项」这类分类色是 #969799（中性灰），
+ *   如果圈用分类色，在浅底上几乎看不见。
+ *   用主题色就解决了 —— 下面这条把结论钉住。
+ */
+check(
+  '灰色分类的选中圈仍是主题色（不是分类灰）',
+  categoryIconFullStyle({ color: '#969799' }, PRIMARY, true).border,
+  `3rpx solid ${PRIMARY}`
+)
+
+console.log('\n=== 三个弹层都用同一个样式函数 ===')
+
+{
+  const { readFileSync } = await import('fs')
+  const { join, dirname, resolve } = await import('path')
+  const { fileURLToPath } = await import('url')
+  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+  /** 三个用到分类选择图标的弹层 */
+  const PANELS = [
+    'components/TxnPanel.vue',
+    'components/CyclePanel.vue',
+    'components/CategoryPickerSheet.vue'
+  ]
+
+  for (const rel of PANELS) {
+    const code = readFileSync(join(ROOT, rel), 'utf-8')
+    check(`${rel} 用 categoryIconFullStyle`, /categoryIconFullStyle/.test(code), true)
+    // 图标外框必须 border-box，否则选中时会被 6rpx 边框撑大
+    check(`${rel} 图标外框是 border-box`, /box-sizing:\s*border-box/.test(code), true)
+  }
+}
 
 /* ============================================== 2. 按一级分类分组 */
 

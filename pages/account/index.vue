@@ -28,7 +28,7 @@
           ★ 借入为什么要算进负债 ★
             借来的钱进了真实账户（已计入总资产），
             但它同时是一笔要还的债；不算进负债，净资产会凭空多出这一笔。
-            算的是净额（借入 - 借入归还），还清后负债自动回落。
+            算的是净额（借入 - 借款归还），还清后负债自动回落。
         -->
         <view class="asset-overview">
           <MoneyText
@@ -61,10 +61,10 @@
           </view>
         </view>
 
-        <!-- 资产趋势：每次资产变化打一个点 -->
+        <!-- 总资产趋势：每次总资产变化打一个点 -->
         <view class="asset-trend">
           <view class="trend-head">
-            <text class="trend-title">资产趋势</text>
+            <text class="trend-title">总资产趋势图</text>
             <view class="trend-tabs">
               <text
                 v-for="r in ranges"
@@ -285,23 +285,6 @@ export default {
       }
     }
 
-    /** 归一化为百分比柱高 */
-    const trendBars = computed(() => {
-      const pts = trendData.value
-      if (pts.length === 0) return []
-
-      const values = pts.map((p) => p.total)
-      const max = Math.max(...values)
-      const min = Math.min(...values)
-      const range = max - min || 1
-
-      return pts.map((p) => ({
-        day: p.day,
-        total: p.total,
-        heightPct: Math.round(((p.total - min) / range) * 70 + 25)
-      }))
-    })
-
     function switchRange(months) {
       trendRange.value = months
       loadTrend()
@@ -518,7 +501,7 @@ export default {
  *
  * ★ 所以这里只做一件事：不出血，跟上方共用卡片的内边距 ★
  *   宽度就是卡片的 622rpx，左边缘和「总资产」金额、
- *   「资产趋势」标题完全对齐。
+ *   「总资产趋势图」标题完全对齐。
  *
  * ★ 为什么包一层 view 而不是给组件加 class ★
  *   SmoothLineChart 的根节点在子组件内部，

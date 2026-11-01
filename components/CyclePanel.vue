@@ -236,7 +236,7 @@ import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay, 
 import { evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
-import { categoryIconStyle } from '@/utils/categoryIcon.js'
+import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
@@ -433,11 +433,16 @@ export default {
      *   以前这里是「深色实底 + 白图标」，选中时整块分类色，
      *   同一个分类在流水里和记账弹层里完全是两种观感。
      *
+     * ★ 选中态还要多一圈主题色描边 ★
+     *   只靠底色区分在浅色主题下太弱（选中「分类色 + 22」≈ 13% 透明，
+     *   未选中是 --app-card-2 浅灰），扫一眼看不出选的是哪个。
+     *   加一圈 3rpx 主题色描边后一眼可辨，见 utils/categoryIcon.js。
+     *
      * @param {object} cat 分类对象
-     * @param {boolean} active 是否选中（选中时加一圈同色描边）
+     * @param {boolean} active 是否选中
      */
     function catIconStyle(cat, active) {
-      return categoryIconStyle(cat, primaryColor.value, active)
+      return categoryIconFullStyle(cat, primaryColor.value, active)
     }
 
     /** 周期简称（弹窗文案用）：分类名 / 转账两端名 */
@@ -991,6 +996,13 @@ export default {
   width: 80rpx;
   height: 80rpx;
   border-radius: 50%;
+  /*
+   * ★ 必须 border-box ★
+   *   选中态是一圈 3rpx 主题色 border。
+   *   默认 content-box 会把它加在 80rpx 之外（选中项变 86rpx），
+   *   一排分类会跟着抖。border-box 让描边画在内部，尺寸恒定。
+   */
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;

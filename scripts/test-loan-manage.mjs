@@ -5,15 +5,15 @@
  *
  * ★ 用户要求（本轮）★
  *   借出页：上方大数字 = 当前借出；
- *     下方 = 累计借出、借出收回、累计笔数
+ *     下方 = 累计借出、借款收回、累计笔数
  *   借入页：上方大数字 = 当前借入；
- *     下方 = 累计借入、借入归还、累计笔数
- *   两个页面上方卡片下方先是 tab：全部流水 / 借出 / 借出收回
- *                                     全部流水 / 借入 / 借入归还
+ *     下方 = 累计借入、借款归还、累计笔数
+ *   两个页面上方卡片下方先是 tab：全部流水 / 借出 / 借款收回
+ *                                     全部流水 / 借入 / 借款归还
  *   全部流水页不显示「全部 ›」
  *
  * ★ 为什么口径要单测 ★
- *   「当前借出」= 借出 - 借出收回，这个减法一旦写反，
+ *   「当前借出」= 借出 - 借款收回，这个减法一旦写反，
  *   用户会看到「借出去 500 收回来 200，当前显示 700」。
  *   纯算术，最适合用测试钉死。
  */
@@ -36,7 +36,7 @@ function check(name, actual, expected) {
  * 页面里 currentAmount 的计算（与 pages/loan/manage.vue 一致）
  *
  * @param {number} total  累计借出 / 累计借入（分）
- * @param {number} back   借出收回 / 借入归还（分）
+ * @param {number} back   借款收回 / 借款归还（分）
  * @returns {number} 当前借出 / 当前借入（分），不小于 0
  */
 function currentAmountOf(total, back) {
@@ -44,7 +44,7 @@ function currentAmountOf(total, back) {
   return diff > 0 ? diff : 0
 }
 
-console.log('=== 当前借出 = 借出 - 借出收回 ===')
+console.log('=== 当前借出 = 借出 - 借款收回 ===')
 
 check('借 500，收回 200 -> 当前 300', currentAmountOf(50000, 20000), 30000)
 check('借 500，没收回 -> 当前 500', currentAmountOf(50000, 0), 50000)
@@ -53,7 +53,7 @@ check('借 500，全收回 -> 当前 0', currentAmountOf(50000, 50000), 0)
 check('收回多于借出 -> 按 0 显示', currentAmountOf(20000, 50000), 0)
 check('一笔都没有 -> 0', currentAmountOf(0, 0), 0)
 
-console.log('=== 当前借入 = 借入 - 借入归还 ===')
+console.log('=== 当前借入 = 借入 - 借款归还 ===')
 
 check('借入 1000，还 300 -> 当前 700', currentAmountOf(100000, 30000), 70000)
 check('借入 1000，没还 -> 当前 1000', currentAmountOf(100000, 0), 100000)
@@ -65,7 +65,7 @@ console.log('=== 累计笔数 = 主方向 + 反向 ===')
 /**
  * 页面里 totalCount 的计算
  * @param {number} mainCount 借出/借入 笔数
- * @param {number} backCount 借出收回/借入归还 笔数
+ * @param {number} backCount 借款收回/借款归还 笔数
  */
 function totalCountOf(mainCount, backCount) {
   return mainCount + backCount
@@ -83,15 +83,15 @@ console.log('=== 两个方向的分类与 type 必须成对 ===')
  */
 const LOAN = {
   lendOut:    { name: '借出',     type: 'expense' },
-  lendBack:   { name: '借出收回', type: 'income' },
+  lendBack:   { name: '借款收回', type: 'income' },
   borrowIn:   { name: '借入',     type: 'income' },
-  borrowBack: { name: '借入归还', type: 'expense' }
+  borrowBack: { name: '借款归还', type: 'expense' }
 }
 
 check('借出是支出（钱从账户出去）', LOAN.lendOut.type, 'expense')
-check('借出收回是收入（钱回账户）', LOAN.lendBack.type, 'income')
+check('借款收回是收入（钱回账户）', LOAN.lendBack.type, 'income')
 check('借入是收入（钱进账户）', LOAN.borrowIn.type, 'income')
-check('借入归还是支出（钱从账户出去）', LOAN.borrowBack.type, 'expense')
+check('借款归还是支出（钱从账户出去）', LOAN.borrowBack.type, 'expense')
 
 /** 借出页要看的两个分类 */
 function lendCats() {
@@ -103,14 +103,14 @@ function borrowCats() {
 }
 
 check(
-  '借出页涉及「借出」+「借出收回」',
+  '借出页涉及「借出」+「借款收回」',
   lendCats().map((d) => d.name),
-  ['借出', '借出收回']
+  ['借出', '借款收回']
 )
 check(
-  '借入页涉及「借入」+「借入归还」',
+  '借入页涉及「借入」+「借款归还」',
   borrowCats().map((d) => d.name),
-  ['借入', '借入归还']
+  ['借入', '借款归还']
 )
 
 console.log('=== tab 定义 ===')
@@ -124,19 +124,19 @@ function tabsOf(loanType) {
   return [
     { key: 'all', name: '全部流水' },
     { key: 'main', name: isIncome ? '借入' : '借出' },
-    { key: 'back', name: isIncome ? '借入归还' : '借出收回' }
+    { key: 'back', name: isIncome ? '借款归还' : '借款收回' }
   ]
 }
 
 check(
   '借出页三个 tab',
   tabsOf('expense').map((t) => t.name),
-  ['全部流水', '借出', '借出收回']
+  ['全部流水', '借出', '借款收回']
 )
 check(
   '借入页三个 tab',
   tabsOf('income').map((t) => t.name),
-  ['全部流水', '借入', '借入归还']
+  ['全部流水', '借入', '借款归还']
 )
 check('tab 的 key 顺序固定', tabsOf('expense').map((t) => t.key), ['all', 'main', 'back'])
 
@@ -153,14 +153,14 @@ function showMoreOf(tabKey) {
 
 check('全部流水 tab：不显示「全部 ›」', showMoreOf('all'), false)
 check('借出/借入 tab：显示「全部 ›」', showMoreOf('main'), true)
-check('借出收回/借入归还 tab：显示「全部 ›」', showMoreOf('back'), true)
+check('借款收回/借款归还 tab：显示「全部 ›」', showMoreOf('back'), true)
 
 console.log('=== 记账面板预填的分类随 tab 变化 ===')
 
 /**
  * 页面里 panelPreset 的计算
  *
- * ★ 在「借出收回」tab 点「+」应该预填「借出收回」★
+ * ★ 在「借款收回」tab 点「+」应该预填「借款收回」★
  *   预填成「借出」的话，用户想记一笔收回，
  *   打开面板却是「借出」，很容易记反。
  */
@@ -189,9 +189,9 @@ check(
   { type: 'expense', categoryName: '借出' }
 )
 check(
-  '借出页 + 借出收回 tab -> 预填「借出收回」',
+  '借出页 + 借款收回 tab -> 预填「借款收回」',
   presetOf('expense', 'back'),
-  { type: 'income', categoryName: '借出收回' }
+  { type: 'income', categoryName: '借款收回' }
 )
 check(
   '借入页 + 全部流水 -> 预填「借入」',
@@ -199,16 +199,16 @@ check(
   { type: 'income', categoryName: '借入' }
 )
 check(
-  '借入页 + 借入归还 tab -> 预填「借入归还」',
+  '借入页 + 借款归还 tab -> 预填「借款归还」',
   presetOf('income', 'back'),
-  { type: 'expense', categoryName: '借入归还' }
+  { type: 'expense', categoryName: '借款归还' }
 )
 
 console.log('=== 借出借入的净额与账户负债口径一致 ===')
 
 /*
  * ★ 页面上的「当前借入」和账户页的「未归还借入」必须是同一个口径 ★
- *   两处算法完全一样：借入 - 借入归还。
+ *   两处算法完全一样：借入 - 借款归还。
  *   如果一处按累计、一处按净额，用户会在两个页面看到两个数。
  */
 check(

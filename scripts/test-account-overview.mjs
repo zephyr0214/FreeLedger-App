@@ -77,7 +77,7 @@ function makeFakePlus() {
    * ★ getAssetOverview 还要读 txn + category ★
    *   因为「负债」里包含「未归还的借入」——
    *   那部分不在 account.balance_cents 里（借来的钱已经加进某张卡的余额了），
-   *   只能按「借入 - 借入归还」的流水净额算。
+   *   只能按「借入 - 借款归还」的流水净额算。
    *   测试库必须带上这两张表，否则查询直接报 no such table。
    */
   db.exec(`CREATE TABLE category (
@@ -335,7 +335,7 @@ console.log('=== 真实 SQL：借入计入负债（用户反馈的 bug）===')
  *   借来的钱进了真实账户 -> 已计入总资产；
  *   但它同时是一笔要还的债 —— 负债里不算它，净资产就凭空多出来这一笔。
  *
- *   算的是净额（借入 - 借入归还），不是累计借入：
+ *   算的是净额（借入 - 借款归还），不是累计借入：
  *   借 1 万已还 3 千 -> 负债 +7 千，还清后回落到 0。
  */
 {
@@ -346,9 +346,9 @@ console.log('=== 真实 SQL：借入计入负债（用户反馈的 bug）===')
 
   // 分类（系统预置分类下的四个固定子类）
   insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
-  insertCat(db, { id: 'c_borrow_back', name: '借入归还', type: 'expense' })
+  insertCat(db, { id: 'c_borrow_back', name: '借款归还', type: 'expense' })
   insertCat(db, { id: 'c_lend_out', name: '借出', type: 'expense' })
-  insertCat(db, { id: 'c_lend_back', name: '借出收回', type: 'income' })
+  insertCat(db, { id: 'c_lend_back', name: '借款收回', type: 'income' })
 
   // 借入 1000 元（钱进账户），已归还 300 元
   insertTxn(db, { id: 't1', type: 'income', amount: 100000, category_id: 'c_borrow_in' })
@@ -371,7 +371,7 @@ console.log('=== 借入还清后负债回落到 0 ===')
   const { fake, db } = makeFakePlus()
   insertAccount(db, { id: 'a1', type: 'cash', balance: 0 })
   insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
-  insertCat(db, { id: 'c_borrow_back', name: '借入归还', type: 'expense' })
+  insertCat(db, { id: 'c_borrow_back', name: '借款归还', type: 'expense' })
 
   // 借 500 还 500
   insertTxn(db, { id: 't1', type: 'income', amount: 50000, category_id: 'c_borrow_in' })
@@ -391,7 +391,7 @@ console.log('=== 归还多于借入（数据异常）不让负债变负 ===')
   const { fake, db } = makeFakePlus()
   insertAccount(db, { id: 'a1', type: 'cash', balance: 0 })
   insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
-  insertCat(db, { id: 'c_borrow_back', name: '借入归还', type: 'expense' })
+  insertCat(db, { id: 'c_borrow_back', name: '借款归还', type: 'expense' })
 
   insertTxn(db, { id: 't1', type: 'income', amount: 10000, category_id: 'c_borrow_in' })
   insertTxn(db, { id: 't2', type: 'expense', amount: 30000, category_id: 'c_borrow_back' })
@@ -403,13 +403,13 @@ console.log('=== 归还多于借入（数据异常）不让负债变负 ===')
   check('归还多于借入时借入负债按 0 处理', r.loanDebt, 0)
 }
 
-console.log('=== 借出不计入负债（借出收回也不该抵债）===')
+console.log('=== 借出不计入负债（借款收回也不该抵债）===')
 
 {
   const { fake, db } = makeFakePlus()
   insertAccount(db, { id: 'a1', type: 'cash', balance: 100000 })
   insertCat(db, { id: 'c_lend_out', name: '借出', type: 'expense' })
-  insertCat(db, { id: 'c_lend_back', name: '借出收回', type: 'income' })
+  insertCat(db, { id: 'c_lend_back', name: '借款收回', type: 'income' })
 
   insertTxn(db, { id: 't1', type: 'expense', amount: 50000, category_id: 'c_lend_out' })
   insertTxn(db, { id: 't2', type: 'income', amount: 20000, category_id: 'c_lend_back' })

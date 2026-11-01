@@ -76,7 +76,7 @@ import { computed, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { groupCategoriesByParent } from '@/utils/categorySort.js'
-import { categoryIconStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
+import { categoryIconFullStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
@@ -125,9 +125,15 @@ export default {
       return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
     }
 
-    /** 分类图标的配色（未选中浅灰底、选中浅色底，图标是分类本色） */
+    /**
+     * 分类图标的配色（未选中浅灰底；选中浅色底 + 主题色圈；图标始终是分类本色）
+     *
+     * ★ 选中态多一圈主题色描边 ★
+     *   和记账面板 / 周期面板走同一个函数（categoryIconFullStyle），
+     *   三处的选中观感完全一致。
+     */
     function iconStyle(cat, active) {
-      return categoryIconStyle(cat, primaryColor.value, active)
+      return categoryIconFullStyle(cat, primaryColor.value, active)
     }
 
     /** 分组标题（一级分类）的图标配色：始终是分类色的浅色底 */
@@ -278,6 +284,12 @@ export default {
   width: 80rpx;
   height: 80rpx;
   border-radius: 50%;
+  /*
+   * ★ 必须 border-box ★
+   *   选中态是一圈 3rpx 主题色 border（见 utils/categoryIcon.js）。
+   *   默认 content-box 会把它加在 80rpx 之外，选中项比别的大一圈。
+   */
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;

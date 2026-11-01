@@ -162,7 +162,7 @@ export async function getTotalAssets() {
  *   只算 include_in_total = 1 且未归档、未删除的账户。
  *     总资产 = 账户正余额之和
  *     负  债 = 账户负余额绝对值之和（信用卡欠款等）
- *            + **尚未归还的借入**（借入 - 借入归还）
+ *            + **尚未归还的借入**（借入 - 借款归还）
  *     净资产 = 总资产 - 负债
  *
  * ★ 为什么要单独加「未归还的借入」★
@@ -199,7 +199,7 @@ export async function getAssetOverview() {
    * ★ 未归还的借入 ★
    *   按分类名聚合，不硬编码 id（id 会随备份导入变化）。
    *   「借入」是 income（钱进来 -> 增加了要还的债），
-   *   「借入归还」是 expense（钱还出去 -> 减少要还的债）。
+   *   「借款归还」是 expense（钱还出去 -> 减少要还的债）。
    *
    *   JOIN 分类表而不是用 IN (子查询)，是因为同时要读分类名判断方向；
    *   分类已被删除的交易（category_id 为空或指向已删行）自然被 JOIN 排除，
@@ -208,7 +208,7 @@ export async function getAssetOverview() {
   const loanRow = await queryOne(
     `SELECT COALESCE(SUM(
               CASE WHEN t.type = 'income'  AND c.name = '借入'     THEN t.amount_cents
-                   WHEN t.type = 'expense' AND c.name = '借入归还' THEN -t.amount_cents
+                   WHEN t.type = 'expense' AND c.name = '借款归还' THEN -t.amount_cents
                    ELSE 0 END), 0) AS loan_debt
      FROM txn t
      JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
@@ -231,7 +231,7 @@ export async function getAssetOverview() {
  *   当前口径是「净资产只认账户里的钱 + 明确要还的债」，
  *   所以这里单独提供函数，页面要显示时自己取，不混进 getAssetOverview。
  *
- * 算法：借出（expense）合计 - 借出收回（income）合计。
+ * 算法：借出（expense）合计 - 借款收回（income）合计。
  *
  * @returns {Promise<number>} 分
  */
@@ -239,7 +239,7 @@ export async function getOutstandingLending() {
   const row = await queryOne(
     `SELECT COALESCE(SUM(
               CASE WHEN t.type = 'expense' AND c.name = '借出'     THEN t.amount_cents
-                   WHEN t.type = 'income'  AND c.name = '借出收回' THEN -t.amount_cents
+                   WHEN t.type = 'income'  AND c.name = '借款收回' THEN -t.amount_cents
                    ELSE 0 END), 0) AS lending
      FROM txn t
      JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
@@ -943,13 +943,31 @@ export async function writeAllTodaySnapshots() {
 
 
 /**
- * 资产变化点趋势。
+ * 总资产变化点趋势。
  *
  * 这里要的是「**每次资产变化打一个点**」：
  *   只有当天的总资产和前一天不一样时，才记一个点。
  *
- * 口径与 getTotalAssets 对齐：
- *   只算 include_in_total=1 的账户、排除已归档的。
+ * ★ 口径必须与 getAssetOverview 的「总资产」完全一致 ★
+ *   总资产 = 账户**正余额**之和（负余额是负债，不算进总资产）。
+ *
+ *   以前这里直接 SUM(balance_cents)，把负余额也加进去了 ——
+ *   那是**净资产**（正余额 - 负债），不是总资产。
+ *   结果就是：账户页大数字写着「净资产 5000」，下面「总资产 8000」，
+ *   而趋势图画的却是 5000 那条线（净资产），
+ *   三处数字对不上。用户这次明确要求趋势图看总资产。
+ *
+ *   所以改成只累加正余额：
+ *     SUM(CASE WHEN balance_cents > 0 THEN balance_cents ELSE 0 END)
+ *
+ * ★ 为什么不在 SQL 里再减掉「未归还的借入」★
+ *   负债里的借入部分不是账户余额，快照表里没有它；
+ *   要算的话得按天回溯 txn，代价大且和「账户快照」这个数据源不一致。
+ *   趋势图看的是「账户里有多少钱」的走势，用账户快照最直接。
+ *   （负债/净资产的即时值在账户页概览里，那里是实时算的。）
+ *
+ * ★ 过滤条件 ★
+ *   只算 include_in_total=1 的账户、排除已归档/已删除的。
  *   account_snapshot 表里可能还留着已归档账户的历史快照，
  *   所以聚合时要按账户过滤，不能直接 SUM 全部。
  *
@@ -969,9 +987,10 @@ export async function getAssetChangePoints(months = 6) {
   from.setDate(from.getDate() - months * 31)
   const fromDay = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
 
-  // 每天的总资产（只算计入总资产的账户）
+  // 每天的总资产（只算计入总资产的账户，且只累加正余额）
   const rows = await query(
-    `SELECT s.day AS day, SUM(s.balance_cents) AS total
+    `SELECT s.day AS day,
+            SUM(CASE WHEN s.balance_cents > 0 THEN s.balance_cents ELSE 0 END) AS total
      FROM account_snapshot s
      JOIN account a ON a.id = s.account_id
      WHERE s.day >= ?

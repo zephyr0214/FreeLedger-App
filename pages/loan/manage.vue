@@ -18,13 +18,13 @@
           「本月 5 笔合计」既不能说明还剩多少，也不是收支。
 
         ★ 大数字怎么算 ★
-          借出：借出（支出）- 借出收回（收入）
-          借入：借入（收入）- 借入归还（支出）
+          借出：借出（支出）- 借款收回（收入）
+          借入：借入（收入）- 借款归还（支出）
           不会出现负数（收多了/还多了按 0 处理）。
 
         ★ 下方三项 ★
-          借出：累计借出、借出收回、累计笔数
-          借入：累计借入、借入归还、累计笔数
+          借出：累计借出、借款收回、累计笔数
+          借入：累计借入、借款归还、累计笔数
       -->
       <view class="summary-card">
         <view class="summary-head">
@@ -64,8 +64,8 @@
         Tab 切换流水范围
 
         ★ 三个 tab 的口径 ★
-          借出：全部流水 / 借出 / 借出收回
-          借入：全部流水 / 借入 / 借入归还
+          借出：全部流水 / 借出 / 借款收回
+          借入：全部流水 / 借入 / 借款归还
 
         ★ 「全部流水」不显示「全部 ›」★
           用户明确要求。理由也成立：
@@ -135,14 +135,14 @@
  *
  * ★ 一笔借出涉及两个分类（v15 起）★
  *   借出      expense  钱从我账户出去
- *   借出收回  income   钱回到我账户
+ *   借款收回  income   钱回到我账户
  *   借入      income   钱进我账户
- *   借入归还  expense  钱从我账户出去
+ *   借款归还  expense  钱从我账户出去
  *   这四个分类都挂在「系统预置分类」下，由 ensureLoanCategories() 保证存在。
  *
  * ★ 当前借出 / 当前借入 = 正 - 反 ★
- *   借出：借出合计 - 借出收回合计
- *   借入：借入合计 - 借入归还合计
+ *   借出：借出合计 - 借款收回合计
+ *   借入：借入合计 - 借款归还合计
  *   不会出现负数。
  *
  * ★ 结构与其它详情页一致 ★
@@ -181,9 +181,9 @@ export default {
     /**
      * 四个分类的 id（找到后缓存，重新加载不用再查）
      *   lendOutId    借出（expense）
-     *   lendBackId   借出收回（income）
+     *   lendBackId   借款收回（income）
      *   borrowInId   借入（income）
-     *   borrowBackId 借入归还（expense）
+     *   borrowBackId 借款归还（expense）
      */
     const catIds = ref({
       lendOutId: '', lendBackId: '', borrowInId: '', borrowBackId: ''
@@ -192,7 +192,7 @@ export default {
     const txnList = ref([])
     /** 主方向合计（借出 / 借入）—— 全部时间 */
     const mainStats = ref(emptyStats())
-    /** 反向合计（借出收回 / 借入归还）—— 全部时间 */
+    /** 反向合计（借款收回 / 借款归还）—— 全部时间 */
     const backStats = ref(emptyStats())
     const loading = ref(true)
 
@@ -200,7 +200,7 @@ export default {
      * 当前 tab
      *   'all'   全部流水（主 + 反向，按时间倒序）
      *   'main'  只看主方向（借出 / 借入）
-     *   'back'  只看反向（借出收回 / 借入归还）
+     *   'back'  只看反向（借款收回 / 借款归还）
      */
     const activeTab = ref('all')
 
@@ -224,8 +224,8 @@ export default {
     )
     /** 主方向累计的文案：累计借出 / 累计借入 */
     const totalLabel = computed(() => (isIncome.value ? '累计借入' : '累计借出'))
-    /** 反向累计的文案：借出收回 / 借入归还 */
-    const backLabel = computed(() => (isIncome.value ? '借入归还' : '借出收回'))
+    /** 反向累计的文案：借款收回 / 借款归还 */
+    const backLabel = computed(() => (isIncome.value ? '借款归还' : '借款收回'))
 
     /**
      * 汇总卡图标底色。
@@ -244,14 +244,14 @@ export default {
     const backCatId = computed(() =>
       isIncome.value ? catIds.value.borrowBackId : catIds.value.lendBackId
     )
-    /** 反向交易的 type：借出收回是 income，借入归还是 expense */
+    /** 反向交易的 type：借款收回是 income，借款归还是 expense */
     const backType = computed(() => (isIncome.value ? 'expense' : 'income'))
 
     /** 累计借出 / 累计借入（主方向合计） */
     const totalAmount = computed(() =>
       isIncome.value ? mainStats.value.income : mainStats.value.expense
     )
-    /** 借出收回 / 借入归还（反向合计） */
+    /** 借款收回 / 借款归还（反向合计） */
     const backAmount = computed(() =>
       isIncome.value ? backStats.value.expense : backStats.value.income
     )
@@ -276,7 +276,7 @@ export default {
     const tabs = computed(() => [
       { key: 'all', name: '全部流水' },
       { key: 'main', name: isIncome.value ? '借入' : '借出' },
-      { key: 'back', name: isIncome.value ? '借入归还' : '借出收回' }
+      { key: 'back', name: isIncome.value ? '借款归还' : '借款收回' }
     ])
 
     /** 一条记录都没有 */
@@ -324,7 +324,7 @@ export default {
      *
      * tab 决定预填哪个分类：
      *   全部流水 / 主方向 -> 主方向分类（借出 / 借入）
-     *   反向 tab          -> 反向分类（借出收回 / 借入归还）
+     *   反向 tab          -> 反向分类（借款收回 / 借款归还）
      */
     const panelPreset = computed(() => {
       if (activeTab.value === 'back') {
@@ -369,9 +369,9 @@ export default {
       }
       catIds.value = {
         lendOutId: find(expenseList, '借出'),
-        lendBackId: find(incomeList, '借出收回'),
+        lendBackId: find(incomeList, '借款收回'),
         borrowInId: find(incomeList, '借入'),
-        borrowBackId: find(expenseList, '借入归还')
+        borrowBackId: find(expenseList, '借款归还')
       }
       return catIds.value
     }
@@ -466,7 +466,7 @@ export default {
       }
     }
 
-    /** 右上角「+ 记一笔」/「+ 借出收回」：打开记账面板 */
+    /** 右上角「+ 记一笔」/「+ 借款收回」：打开记账面板 */
     function onNavAdd() {
       showPanel.value = true
     }
@@ -618,7 +618,7 @@ export default {
 /* ------------------------------------------------------- Tab 切换 */
 
 /*
- * 三个 tab：全部流水 / 借出（借入） / 借出收回（借入归还）
+ * 三个 tab：全部流水 / 借出（借入） / 借款收回（借款归还）
  *
  * ★ 视觉对齐「分类管理」页的 type-bar ★
  *   同一个 App 里两处 tab 长得不一样会显得零散，

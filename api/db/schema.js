@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 15
+export const SCHEMA_VERSION = 16
 
 /**
  * 「对账」固定分类（v4 起）
@@ -89,13 +89,13 @@ export const SYSTEM_PRESET_GROUPS = {
  *   父级「系统预置分类」用 999，比子类更靠后（见 SYSTEM_PRESET_GROUPS 的用法）。
  */
 export const SYSTEM_PRESET_CHILDREN = [
-  // 支出方向：借出（钱借出去）、借入归还（把借来的还回去）
+  // 支出方向：借出（钱借出去）、借款归还（把借来的还回去）
   { type: 'expense', name: '借出', icon: 'lend', color: '#FF8F1F', sort: 900 },
-  { type: 'expense', name: '借入归还', icon: 'borrow', color: '#07C160', sort: 901 },
+  { type: 'expense', name: '借款归还', icon: 'borrow', color: '#07C160', sort: 901 },
   { type: 'expense', name: '对账支出', icon: 'more', color: '#969799', sort: 902 },
-  // 收入方向：借入（钱借进来）、借出收回（借出去的收回来）
+  // 收入方向：借入（钱借进来）、借款收回（借出去的收回来）
   { type: 'income', name: '借入', icon: 'borrow', color: '#07C160', sort: 900 },
-  { type: 'income', name: '借出收回', icon: 'lend', color: '#FF8F1F', sort: 901 },
+  { type: 'income', name: '借款收回', icon: 'lend', color: '#FF8F1F', sort: 901 },
   { type: 'income', name: '对账收入', icon: 'more', color: '#969799', sort: 902 }
 ]
 
@@ -104,23 +104,23 @@ export const SYSTEM_PRESET_CHILDREN = [
  *
  * ★ 为什么按「方向」而不是按「借贷」命名 type ★
  *   一笔借出：钱从我账户出去 -> type = expense（挂在支出下）
- *   借出收回：钱回到我账户   -> type = income （挂在收入下）
+ *   借款收回：钱回到我账户   -> type = income （挂在收入下）
  *   一笔借入：钱进我账户     -> type = income （挂在收入下）
- *   借入归还：钱从我账户出去 -> type = expense（挂在支出下）
+ *   借款归还：钱从我账户出去 -> type = expense（挂在支出下）
  *
- *   所以「借出管理」页要同时看 expense 的「借出」和 income 的「借出收回」，
- *   「借入管理」页要同时看 income 的「借入」和 expense 的「借入归还」。
+ *   所以「借出管理」页要同时看 expense 的「借出」和 income 的「借款收回」，
+ *   「借入管理」页要同时看 income 的「借入」和 expense 的「借款归还」。
  *   下面这份定义就是给页面算「当前借出 / 当前借入」用的。
  */
 export const LOAN_CATEGORY_NAMES = {
   /** 借出：钱借出去（支出） */
   lendOut: { name: '借出', type: 'expense' },
-  /** 借出收回：借出去的钱收回来（收入） */
-  lendBack: { name: '借出收回', type: 'income' },
+  /** 借款收回：借出去的钱收回来（收入） */
+  lendBack: { name: '借款收回', type: 'income' },
   /** 借入：钱借进来（收入） */
   borrowIn: { name: '借入', type: 'income' },
-  /** 借入归还：把借来的还回去（支出） */
-  borrowBack: { name: '借入归还', type: 'expense' }
+  /** 借款归还：把借来的还回去（支出） */
+  borrowBack: { name: '借款归还', type: 'expense' }
 }
 
 /**

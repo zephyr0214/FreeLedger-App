@@ -99,6 +99,52 @@ export function categoryIconStyle(cat, primaryColor, active = false) {
 }
 
 /**
+ * 选中态的「圈圈」—— 图标外面那一圈主题色描边。
+ *
+ * ★ 为什么只靠底色不够 ★
+ *   选中态原来是「分类色 + 22」的浅底（约 13% 不透明度），
+ *   未选中是 --app-card-2 的浅灰底 ——
+ *   两者在浅色主题下明度非常接近，扫一眼分不出哪个被选中了。
+ *   加一圈 3rpx 的主题色描边之后，选中项在任何底色上都能一眼认出来。
+ *
+ * ★ 为什么用主题色而不是分类色 ★
+ *   分类色五花八门（有橙有蓝有灰），灰色分类（「其他/杂项」#969799）
+ *   的描边在浅底上几乎看不见。主题色是用户自己选的主色，
+ *   对比度有保证，而且「选中 = 主题色」本身就是全 App 的语义。
+ *
+ * ★ 未选中时必须是 transparent 而不是 '' ★
+ *   写成空串等于没有 border 声明，图标尺寸会变化（选中项被撑大 6rpx），
+ *   一排分类会跟着抖动。transparent 占住位置，尺寸恒定。
+ *
+ * @param {boolean} active 是否选中
+ * @param {string} primaryColor 主题色
+ * @returns {{ border: string }}
+ */
+export function categoryRingStyle(active, primaryColor) {
+  return {
+    border: `3rpx solid ${active ? (primaryColor || FALLBACK_CATEGORY_COLOR) : 'transparent'}`
+  }
+}
+
+/**
+ * 分类图标的完整样式（底色 + 前景色 + 选中圈）。
+ *
+ * 三个弹层（记账面板 / 周期面板 / 更多分类面板）都用它，
+ * 保证三处的选中观感完全一致。
+ *
+ * @param {object} cat 分类对象
+ * @param {string} primaryColor 主题色
+ * @param {boolean} active 是否选中
+ * @returns {{ backgroundColor: string, color: string, border: string }}
+ */
+export function categoryIconFullStyle(cat, primaryColor, active = false) {
+  return {
+    ...categoryIconStyle(cat, primaryColor, active),
+    ...categoryRingStyle(active, primaryColor)
+  }
+}
+
+/**
  * 「分组标题」上那个一级分类图标的样式。
  *
  * ★ 与可选项不同：这里始终带浅色底 ★
