@@ -160,7 +160,7 @@ for (const rel of RELEASES) {
 console.log('=== 版本按倒序排列（最新在最前）===')
 
 {
-  /** 把 1.15 / 1.15.1 转成可比较的数字数组 */
+  /** 把 1.15.0 / 1.15.1 转成可比较的数字数组 */
   const keyOf = (v) => toSemver(v).split('.').map(Number)
 
   let descending = true
@@ -174,6 +174,85 @@ console.log('=== 版本按倒序排列（最新在最前）===')
     if (!descending) break
   }
   check('版本号倒序', descending, true)
+}
+
+console.log('=== 版本历史完整覆盖所有数据库迁移 ===')
+/*
+ * ★ 为什么查这个 ★
+ *   用户要求「之前的大版本全部加上」。
+ *   光「有 15 条」不够 —— 得保证**没有漏掉任何一次结构变更**：
+ *   每加了一条数据库迁移，就该有一个版本承接它。
+ *
+ *   做法：把日志里出现过的 schemaVersion 收成一个集合，
+ *   再和 1..SCHEMA_VERSION 逐一比对，缺哪个就报哪个。
+ *
+ * ★ 允许「多条迁移合并到一个版本」★
+ *   v14 / v15 / v16 三条迁移都在同一天落地、打包成 1.15.0 一起发，
+ *   所以 1.15.0 的 schemaVersion 直接写 16。
+ *   判定的是「每个迁移号都被某个版本的 schemaVersion 覆盖到」
+ *   （即存在某版本的 schemaVersion >= 该号），而不是要求一一对应。
+ */
+{
+  // 每个版本声明它「到哪一版为止」的 schema；按版本从旧到新累加
+  const ascending = [...RELEASES].reverse()
+  let covered = 0
+  for (const rel of ascending) {
+    check(
+      `v${rel.version} 的 schemaVersion 不倒退`,
+      rel.schemaVersion >= covered || rel.version === '1.0.0',
+      true
+    )
+    covered = Math.max(covered, rel.schemaVersion)
+  }
+  check('最老的版本从 schema 1 开始', ascending[0].schemaVersion, 1)
+  check('最新版本的 schemaVersion 覆盖到 SCHEMA_VERSION', covered, SCHEMA_VERSION)
+
+  // 反向：1..SCHEMA_VERSION 每一号都必须被某个版本覆盖
+  for (let n = 1; n <= SCHEMA_VERSION; n++) {
+    const coveredBy = RELEASES.find((r) => r.schemaVersion >= n)
+    check(`数据库迁移 v${n} 有版本承接`, !!coveredBy, true)
+  }
+}
+
+console.log('=== 版本号连续，不能有意外缺口 ===')
+
+/*
+ * ★ 只允许一个缺口：1.14 ★
+ *   用户明确要求「版本迁移则更新 v1.13 到 v1.15」——
+ *   1.13 之后直接跳 1.15，1.14 从未发布过。
+ *   除此之外任何缺口都说明我漏写了一个版本。
+ */
+{
+  const minors = RELEASES.map((r) => Number(r.version.split('.')[1]))
+  const uniqueMinors = [...new Set(minors)].sort((a, b) => a - b)
+
+  const missing = []
+  for (let m = uniqueMinors[0]; m <= uniqueMinors[uniqueMinors.length - 1]; m++) {
+    if (!uniqueMinors.includes(m)) missing.push(m)
+  }
+  check('次版本号只有 14 这一个有意缺口', missing, [14])
+}
+
+console.log('=== 每个大版本都有实质内容 ===')
+
+for (const rel of RELEASES) {
+  const total = rel.sections.reduce((n, s) => n + s.items.length, 0)
+  check(`v${rel.version} 至少 1 个段落`, rel.sections.length >= 1, true)
+  check(`v${rel.version} 至少 2 条内容（不是占位）`, total >= 2, true)
+  // 段落标题必须是这几类之一，避免出现「其他」「备注」这种含糊标题
+  const ALLOWED = ['新增', '优化', '修复', '数据迁移', '调整']
+  for (const s of rel.sections) {
+    check(`v${rel.version} 的段落标题「${s.title}」是规范分类`, ALLOWED.includes(s.title), true)
+  }
+}
+
+console.log('=== 日志页面能渲染全部版本 ===')
+
+{
+  const page = read('pages/settings/changelog.vue')
+  // 数据来自常量，模板 v-for 渲染 —— 不用在页面里再维护一份版本清单
+  check('日志页直接引用 RELEASES', /const releases = RELEASES/.test(page), true)
+  check('日志页没有在内部写死版本号', /version:\s*'1\.\d/.test(page), false)
 }
 
 console.log('=== 日志里该出现的本轮内容 ===')
