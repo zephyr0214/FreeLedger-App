@@ -109,10 +109,23 @@ console.log('=== 类型可编辑性（本轮新需求）===')
  *     编辑组合账户 -> 0 个可选（模板里走只读分支）
  */
 
-/** 编辑时可选类型（与 pages/account/edit.vue 的 selectableTypes 同逻辑） */
+/**
+ * 界面上可选类型（与 pages/account/edit.vue 的 selectableTypes 同逻辑）
+ *
+ * ★ 新建和编辑的规则不一样 ★
+ *   新建：六种全给，**包括组合账户**
+ *        —— 组合账户只有这一个新建入口。
+ *        以前这里把它过滤掉了、注释说「入口在账户页的分组说明」，
+ *        但那个入口根本不存在，结果组合账户完全建不出来（用户反馈的 bug）。
+ *   编辑真实账户：只给 5 个真实类型（不能把储蓄卡改成组合）
+ *   编辑组合账户：0 个可选（模板走只读分支）
+ */
 function selectableTypesFor(acc) {
-  if (acc && acc.isCombo) return []
-  return ACCOUNT_TYPES.filter((t) => !t.isCombo)
+  const isEdit = !!acc
+  if (isEdit && acc.isCombo) return []
+  if (isEdit) return ACCOUNT_TYPES.filter((t) => !t.isCombo)
+  // 新建：六种全给
+  return ACCOUNT_TYPES
 }
 
 check(
@@ -125,12 +138,79 @@ check(
   selectableTypesFor({ isCombo: true }),
   []
 )
-// 组合账户不能出现在可选项里 —— 否则用户能把储蓄卡改成组合
+// 编辑时组合不能出现在可选项里 —— 否则用户能把储蓄卡改成组合
 check(
-  '可选项里不含组合账户',
+  '编辑真实账户时，可选项里不含组合账户',
   selectableTypesFor({ isCombo: false }).some((t) => t.isCombo),
   false
 )
+
+console.log('=== 新建账户：六种类型都要能选（含组合账户）===')
+
+/*
+ * ★ 用户反馈的 bug ★
+ *   「为什么新建账户无法新建组合账户了」
+ *   根因：新建时 selectableTypes 滤掉了组合，
+ *        而新建入口只有 pages/account/edit.vue 这一个，
+ *        注释里说的「账户页分组说明入口」不存在 —— 组合账户无处可建。
+ */
+check(
+  '新建时六种类型全给',
+  selectableTypesFor(null).length,
+  ACCOUNT_TYPES.length
+)
+check(
+  '新建时可选项**包含**组合账户',
+  selectableTypesFor(null).some((t) => t.isCombo),
+  true
+)
+check(
+  '新建时可选项顺序与 ACCOUNT_TYPES 一致',
+  selectableTypesFor(null).map((t) => t.key),
+  ACCOUNT_TYPES.map((t) => t.key)
+)
+
+/*
+ * ★ 上面的 helper 是「照抄」逻辑的副本，容易和真实代码漂移 ★
+ *   所以再直接查一次源码：新建分支不能无条件过滤掉 isCombo。
+ *   当初那个 bug 的写法正是裸用 ACCOUNT_TYPES.filter((t) => !t.isCombo)。
+ */
+{
+  const { readFileSync } = await import('fs')
+  const { join, dirname, resolve } = await import('path')
+  const { fileURLToPath } = await import('url')
+  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const edit = readFileSync(join(ROOT, 'pages', 'account', 'edit.vue'), 'utf-8')
+
+  // 取出 selectableTypes 的定义体
+  const m = /const selectableTypes = computed\(\(\) => \{([\s\S]*?)\n    \}\)/.exec(edit)
+  check('找得到 selectableTypes 定义', !!m, true)
+
+  if (m) {
+    const body = m[1]
+    // 新建分支必须直接返回 ACCOUNT_TYPES（不过滤组合）
+    check(
+      '新建分支返回全量 ACCOUNT_TYPES（不过滤组合）',
+      /return ACCOUNT_TYPES$/.test(body.trim()) || /return ACCOUNT_TYPES\n/.test(body),
+      true
+    )
+    // 编辑分支才过滤
+    check(
+      '编辑分支过滤掉组合',
+      /filter\(\(t\) => !t\.isCombo\)/.test(body),
+      true
+    )
+  }
+
+  // 新建入口必须存在（组合账户只能从这里建）
+  check(
+    '账户页有新建入口 goAddAccount',
+    /function goAddAccount\(\)/.test(
+      readFileSync(join(ROOT, 'pages', 'account', 'index.vue'), 'utf-8')
+    ),
+    true
+  )
+}
 
 console.log('=== 兜底 ===')
 
