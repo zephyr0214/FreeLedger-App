@@ -133,10 +133,19 @@
           size="large"
           plain
           custom-class="act-btn"
-          :loading="testing"
           @click="onTest"
         >
-          测试连通性
+          <!--
+            ★ 加载效果自己画，不用 wd-button 的 :loading ★
+              组件内置的加载圈又小又挤在文字前面、还不跟主题色。
+              换成自绘 CSS 旋转圈：主题色、尺寸可控、和文字垂直对齐；
+              文案同步变成「测试中…」。测试期间重复点击由 onTest 里的
+              testing 防重入挡掉。
+          -->
+          <view class="test-inner">
+            <view v-if="testing" class="test-spinner" />
+            <text>{{ testing ? '测试中…' : '测试连通性' }}</text>
+          </view>
         </wd-button>
         <wd-button
           size="large"
@@ -214,6 +223,8 @@ export default {
         uni.showToast({ title: '请先填写 API Key', icon: 'none' })
         return
       }
+      // ★ 防重入：测试进行中再点无效（加载态换成了自绘圈，没有内置禁用）
+      if (testing.value) return
 
       testing.value = true
       try {
@@ -402,6 +413,27 @@ export default {
   padding: 0 20rpx;
 }
 
+/*
+ * 接口地址输入框：高度被压扁
+ *
+ * ★ 根因 ★
+ *   App.vue 的全局 uni-input { flex: 1 } 本意是给横向 flex 行用的
+ *   （让输入框吃掉剩余宽度）。
+ *   但「接口地址」的输入框是 .form-row-column（纵向列）的直接子元素 ——
+ *   纵向列的主轴是**高度**，flex: 1 变成 flex-basis: 0%（作用在高度上），
+ *   把 .form-input-full 的 height: 80rpx 顶掉，输入框被压成一条。
+ *   API Key 那行没事：它的输入框在 .key-row（横向行）里，
+ *   flex: 1 作用在宽度上，height 正常生效。
+ *
+ * ★ 修法 ★
+ *   只对「列布局的直接子输入框」关掉全局 flex（用 > 限定直接子级，
+ *   不影响 .key-row 里的 API Key 输入框），让 height: 80rpx 正常生效；
+ *   宽度仍由 width: 100% 撑满整行。
+ */
+.form-row-column > .form-input-full {
+  flex: none;
+}
+
 .form-placeholder {
   color: var(--app-text-3);
   font-size: 26rpx;
@@ -463,6 +495,34 @@ export default {
 
 .act-btn {
   flex: 1;
+}
+
+/* 「测试连通性」按钮的自绘加载态 */
+.test-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+}
+
+/*
+ * 旋转圈：主题色 + 透明顶边，转起来才有「圈在动」的观感。
+ * 尺寸 26rpx 与按钮文字（wot large 按钮字号）相近，
+ * 和文字垂直居中排 —— 不会像组件内置 loading 那样挤成一坨。
+ */
+.test-spinner {
+  width: 26rpx;
+  height: 26rpx;
+  border-radius: 50%;
+  border: 3rpx solid var(--app-primary);
+  border-top-color: transparent;
+  animation: test-spin 0.7s linear infinite;
+}
+
+@keyframes test-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 </style>
