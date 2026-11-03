@@ -49,7 +49,6 @@ export const useSettingStore = defineStore('setting', {
       quickAddTapAction: 'ai',
       ai: { baseUrl: '', apiKey: '', model: 'deepseek-chat', timeoutMs: 30000 },
       aiChat: { temperature: 0.6, deepThinking: true, maxTokens: 8000, showCharts: true, timeoutMs: 120000 },
-      aiParse: { enabled: true },
       autoBackup: true,
       lastBackupAt: 0
     },
@@ -350,13 +349,6 @@ export const useSettingStore = defineStore('setting', {
       const aiChat = { ...this.settings.aiChat, ...patch }
       this.settings.aiChat = aiChat
       await setSettings({ aiChat })
-    },
-
-    /** 改 AI 记账（速记解析）专属配置 */
-    async setAiParse(patch) {
-      const aiParse = { ...this.settings.aiParse, ...patch }
-      this.settings.aiParse = aiParse
-      await setSettings({ aiParse })
     },
 
     async setPrivacyMode(on) {

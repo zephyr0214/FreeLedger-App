@@ -8,7 +8,6 @@
  *   现在拆成：
  *     settings.ai      公共（baseUrl / apiKey / model / timeoutMs）
  *     settings.aiChat  对话专属（temperature / deepThinking / maxTokens / showCharts）
- *     settings.aiParse 记账专属
  *
  *   要保证的是：**老用户升级后设置不丢、也不被默认值悄悄覆盖**。
  */
@@ -155,16 +154,22 @@ console.log('\n=== 记账与对话的配置互不影响 ===')
 
 stubSettings([
   { key: 'ai', value: { baseUrl: 'https://x/v1', apiKey: 'sk', model: 'm', timeoutMs: 20000 } },
-  { key: 'aiChat', value: { temperature: 0.9, deepThinking: true } },
-  { key: 'aiParse', value: { enabled: false } }
+  { key: 'aiChat', value: { temperature: 0.9, deepThinking: true } }
 ])
 clearSettingsCache()
 
 {
   const s = await getAllSettings()
   check('对话温度是 0.9', s.aiChat.temperature, 0.9)
-  check('记账开关独立', s.aiParse.enabled, false)
   ok('ai 里不含 temperature（记账写死 0）', s.ai.temperature === undefined)
+
+  /*
+   * ★ aiParse 已不是设置项 ★
+   *   它是「速记 AI 兜底」开关的遗体（零消费点、零 UI），已随大扫除移除。
+   *   老用户库里可能还残留 aiParse 行 —— 无代码读它，纯死数据，
+   *   不为它发迁移；这里锁住「新装库不再出现这个键」。
+   */
+  check('aiParse 不再是设置项（新装库）', s.aiParse, undefined)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

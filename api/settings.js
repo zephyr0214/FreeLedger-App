@@ -51,24 +51,19 @@ export const DEFAULT_SETTINGS = {
     timeoutMs: 30000
   },
 
-  /**
-   * AI 记账（速记解析）专属设置
+  /*
+   * ★ 「AI 记账（速记解析）专属设置」settings.aiParse 已删除 ★
+   *   它只有一个 enabled 开关，服务的是早已下线的「速记 AI 兜底」
+   *   两段式方案（规则解析失败后再走 AI）—— 后来速记直接走 aiParse.js
+   *   （它本来就调模型），这个开关变得零消费点、零 UI，
+   *   2026-11 随大扫除移除。
    *
-   * ★ 为什么和对话分开 ★
-   *   两者诉求完全相反：
-   *     · AI 记账：抽 JSON，要**稳定** —— temperature 固定 0、不思考
-   *     · AI 对话：要**发散和透彻** —— 有自己的温度、开着深度思考
-   *   以前共用一个 ai.temperature，调对话的滑块会顺手影响记账解析，
-   *   调记账又会毁掉对话的发挥空间。
+   *   「记账要稳定 / 对话要发散所以分开配置」的取舍说明
+   *   移到了上面 ai 与下面 aiChat 的注释里。
    *
-   * ★ 迁移说明 ★
-   *   旧版本只有 settings.ai.temperature（默认 0.3）。
-   *   升级后老用户的这个值会被搬到 aiChat.temperature（见 migrateAiSettings），
-   *   不会白白丢掉。
+   *   老用户库里可能还残留一个 aiParse 行（历史遗留的死数据），
+   *   无任何代码读它，不值得为它发一条迁移。
    */
-  aiParse: {
-    enabled: true
-  },
 
   /**
    * AI 对话专属设置
@@ -149,7 +144,6 @@ const CACHE = {}
  * 现在拆成了：
  *   settings.ai      公共（baseUrl / apiKey / model / timeoutMs）
  *   settings.aiChat  对话专属（temperature / deepThinking / maxTokens / showCharts）
- *   settings.aiParse 记账专属
  *
  * 迁移规则：
  *   1. ai.temperature → aiChat.temperature（老用户调过的值不丢）
@@ -223,7 +217,6 @@ export async function getAllSettings() {
   // 对象型字段做浅合并，防止旧版本缺少新字段
   out.ai = { ...DEFAULT_SETTINGS.ai, ...(out.ai || {}) }
   out.aiChat = { ...DEFAULT_SETTINGS.aiChat, ...(out.aiChat || {}) }
-  out.aiParse = { ...DEFAULT_SETTINGS.aiParse, ...(out.aiParse || {}) }
   // 旧版 ai.temperature 迁移到 aiChat.temperature
   migrateAiSettings(out, raw.aiChat)
   return out

@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.16.1'
+export const APP_VERSION = '1.16.2'
 
 /**
  * 三段式版本号（兜底补零）
@@ -116,6 +116,33 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.16.2',
+    date: '2026-11-04',
+    schemaVersion: 16,
+    sections: [
+      {
+        title: '新增',
+        items: [
+          'AI 记账失败自动重试：限流、服务端错误、断网这类临时故障最多重试 2 次，不用再手动重发'
+        ]
+      },
+      {
+        title: '修复',
+        items: [
+          'AI 设置页「记账解析超时」现在真实生效（以前填了也不起作用）',
+          'AI 设置页接口地址输入框显示压扁'
+        ]
+      },
+      {
+        title: '调整',
+        items: [
+          '测试连通性的加载效果重做',
+          '移除早已无用的速记兜底开关配置'
+        ]
+      }
+    ]
+  },
   {
     version: '1.16.1',
     date: '2026-11-01',
