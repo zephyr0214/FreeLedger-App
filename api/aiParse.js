@@ -22,6 +22,36 @@ const MAX_AMOUNT_CENTS = 10000000000
 /** 一次最多解析多少条，防止模型刷屏 */
 const MAX_ITEMS = 20
 
+/** 一次解析最多自动重试几次（用户要求：最多 2 次） */
+const MAX_PARSE_RETRIES = 2
+
+/**
+ * 判断一个 AI 请求错误是否值得自动重试（导出供单测）
+ *
+ * ★ 可重试 = 临时性故障，重试有可能成功 ★
+ *   · status === 429   限流 / 额度用尽 —— 过一会儿就好
+ *   · status >= 500    服务端临时错误
+ *   · networkFail      连接根本没建立（DNS / 断网 / 连接被拒）
+ *     （这三个标记由 api/ai.js 的 chat() 在 reject 时挂上）
+ *
+ * ★ 不可重试 = 重试注定得到同样的结果 ★
+ *   · 超时        每次重试都要重新烧满整个超时预算，
+ *                 3 次 × 30 秒 = 干等 90 秒，界面根本等不起
+ *   · 4xx         Key 错(401) / 地址错(404) / 参数错(400) —— 重试一万次结果一样
+ *   · 内容不可用  模型返回 200 但内容为空 / 截断 / JSON 抽不出来 ——
+ *                 解析的 temperature 是 0，同样的输入会得到同样的输出
+ *
+ * @param {Error} e chat() 抛出的错误（可能带 status / isTimeout / networkFail 标记）
+ * @returns {boolean}
+ */
+export function isRetryableAiError(e) {
+  if (!e) return false
+  if (e.status === 429) return true
+  if (typeof e.status === 'number' && e.status >= 500) return true
+  if (e.networkFail) return true
+  return false
+}
+
 /* ------------------------------------------------------------ JSON 提取 */
 
 /**
@@ -909,22 +939,41 @@ ${fallbackNames.map((n) => `- ${n}`).join('\n')}
 借还的格式（对方是人，不是账户，所以是收支不是转账）：
 {"amount": 200, "type": "expense", "category": "借款归还", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "还给姐姐"}`
 
-  const reply = await chat(
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    /*
-     * ★ 记账解析有自己的超时预算 ★
-     *   解析只要抽一段 JSON，1~3 秒就够了，
-     *   用 30 秒（通用值）的话，网络卡住时界面会干等很久。
-     *   显式给 20 秒 —— 超时了用户重试就行，不用一直等。
-     *
-     *   这里是唯一显式传 timeoutMs 的地方，
-     *   其它调用（AI 对话）走 settings.aiChat.timeoutMs（120 秒）。
-     */
-    { maxTokens: 1200, temperature: 0, thinking: false, timeoutMs: 20000 }
-  )
+  /*
+   * ★ 超时用设置页的「记账解析超时（秒）」（settings.ai.timeoutMs）★
+   *   以前这里硬编码 20 秒，把设置顶掉了 —— 设置字段成了摆设（用户反馈）。
+   *   现在不传 timeoutMs，让 chat() 落到通用档：ai.timeoutMs（默认 30 秒）。
+   *
+   * ★ 失败重试（用户要求）★
+   *   5xx / 429 / 网络故障这类临时性错误自动重试，最多 2 次，退避 1 秒、2 秒。
+   *   超时 / 4xx / 内容不可用不重试 —— 理由见 isRetryableAiError 的注释。
+   */
+  let reply
+  let attempt = 0
+  while (true) {
+    try {
+      attempt++
+      reply = await chat(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        { maxTokens: 1200, temperature: 0, thinking: false }
+      )
+      break
+    } catch (e) {
+      if (attempt <= MAX_PARSE_RETRIES && isRetryableAiError(e)) {
+        console.warn(`[ai-parse] 请求失败（${e.message}），${attempt} 秒后自动重试`)
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt))
+        continue
+      }
+      // 重试都失败了，把「重试过」这个事实带给用户，方便区分「一次就挂」和「救过了没救回来」
+      if (attempt > 1) {
+        e.message = `${e.message}（已自动重试 ${attempt - 1} 次）`
+      }
+      throw e
+    }
+  }
 
   // ---- 提取 JSON
   let rawItems

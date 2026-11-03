@@ -219,9 +219,13 @@ const settingsCode = readFileSync(join(ROOT, 'api', 'settings.js'), 'utf-8')
 ok('ai.timeoutMs 默认 30000', /timeoutMs:\s*30000/.test(settingsCode))
 ok('aiChat.timeoutMs 默认 120000', /timeoutMs:\s*120000/.test(settingsCode))
 
-// 记账解析必须显式用自己的超时，不能被对话的 120 秒带偏
+// 记账解析不传 timeoutMs —— 让设置页的「记账解析超时（秒）」真实生效
+// ★ 曾经这里硬编码 20 秒把设置顶掉，设置字段成了摆设（用户反馈「30 秒真的生效了吗」）
+// 防回归点：解析调用里不允许再出现数字字面量的超时
+// （askAI 里的 timeoutMs: opt.timeoutMs 是透传变量，不是数字字面量，不受影响）
 const parseCode = readFileSync(join(ROOT, 'api', 'aiParse.js'), 'utf-8')
-ok('记账解析显式用 20 秒超时', /thinking:\s*false,\s*timeoutMs:\s*20000/.test(parseCode))
+ok('记账解析不再硬编码数字超时（设置页的秒数真实生效）', !/timeoutMs:\s*\d/.test(parseCode))
+ok('解析调用选项里没有 timeoutMs（落到通用档）', /maxTokens:\s*1200,\s*temperature:\s*0,\s*thinking:\s*false\s*\}/.test(parseCode))
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

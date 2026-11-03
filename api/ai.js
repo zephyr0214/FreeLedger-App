@@ -141,9 +141,12 @@ export async function chat(messages, opt = {}) {
   /**
    * ★ 超时怎么算 ★
    *   优先级：
-   *     1. opt.timeoutMs       —— 调用方显式指定（记账解析走这条）
+   *     1. opt.timeoutMs       —— 调用方显式指定（连通性测试 15 秒走这条）
    *     2. opt.kind === 'chat' —— 对话：用 settings.aiChat.timeoutMs（120 秒）
    *     3. settings.ai.timeoutMs —— 通用（30 秒）
+   *        ★ 记账解析走这条 ★：解析不传 timeoutMs，
+   *        设置页的「记账解析超时（秒）」真实生效（以前这里被
+   *        硬编码 20 秒顶掉，设置字段是个摆设 —— 用户反馈后已修）。
    *     4. 兜底 30 秒
    *
    *   ★ 为什么不能让「对话超时」无条件生效 ★
@@ -256,7 +259,9 @@ export async function chat(messages, opt = {}) {
         try {
           if (task && typeof task.abort === 'function') task.abort()
         } catch (e) {}
-        reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
+        const timeoutErr = new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`)
+        timeoutErr.isTimeout = true   // 上层重试判断用：超时不重试（每次都要烧满整个预算）
+        reject(timeoutErr)
       }, timeoutMs)
 
       task = uni.request({
@@ -290,7 +295,15 @@ export async function chat(messages, opt = {}) {
 
           if (res.statusCode < 200 || res.statusCode >= 300) {
             const msg = extractError(res)
-            reject(new Error(msg))
+            const err = new Error(msg)
+            /*
+             * ★ 把状态码结构化地带出去 ★
+             *   上层的重试判断要靠它区分「临时故障」和「重试也没用」：
+             *   429 / 5xx 值得再试；401 / 404 / 400 重试一万次结果一样。
+             *   错误文案不变（extractError 里的中文照旧给用户看）。
+             */
+            err.status = res.statusCode
+            reject(err)
             return
           }
 
@@ -315,10 +328,15 @@ export async function chat(messages, opt = {}) {
           const msg = e && e.errMsg ? e.errMsg : '网络请求失败'
           // uni.request 自己超时了 —— 也报成我们能看懂的超时提示
           if (/timeout/i.test(msg)) {
-            reject(new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`))
+            const timeoutErr = new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒）`)
+            timeoutErr.isTimeout = true
+            reject(timeoutErr)
             return
           }
-          reject(new Error(msg))
+          // 其余网络层失败（DNS / 断网 / 连接被拒）—— 临时性故障，标记出去供重试判断
+          const failErr = new Error(msg)
+          failErr.networkFail = true
+          reject(failErr)
         }
       })
     })
