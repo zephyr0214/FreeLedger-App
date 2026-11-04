@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.16.2'
+export const APP_VERSION = '1.16.3'
 
 /**
  * 三段式版本号（兜底补零）
@@ -66,6 +66,7 @@ export function toSemver(version = APP_VERSION) {
  *   1.16   -> 1160
  *   1.16.1 -> 1161
  *   1.16.2 -> 1162
+ *   1.16.3 -> 1163
  */
 export function toVersionCode(version = APP_VERSION) {
   const [major = '1', minor = '16', patch = '0'] = toSemver(version).split('.')
@@ -135,6 +136,26 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.16.3',
+    date: '2026-11-04',
+    schemaVersion: 16,
+    sections: [
+      {
+        title: '新增',
+        items: [
+          '检查更新：设置页与更新日志页都能手动检查，开屏也会自动查一次；发现新版本可直接下载安装'
+        ]
+      },
+      {
+        title: '修复',
+        items: [
+          '周期自动补记后首页不立刻显示，要切页面才看得到',
+          '补记后统计页本月收支、账户页余额同样滞后'
+        ]
+      }
+    ]
+  },
   {
     version: '1.16.2',
     date: '2026-11-04',
