@@ -36,16 +36,11 @@ export function abortDownload() {
 
 /**
  * 请求 Gitee 最新发行版并和本地版本比较
- *
- * @param {object} [opt]
- * @param {boolean} [opt.force] 跳过版本比较（测试用）——
- *   只要远端有 APK 就当「有新版」，即使版本号不比本地新。
- *   用来反复验证弹窗 / 下载 / 安装链路，不用每次发新版本。
  * @returns {Promise<{hasUpdate:boolean, version?:string, notes?:string,
  *   downloadUrl?:string, sizeBytes?:number}>}
  * @throws {Error} 网络失败 / 接口异常（由调用方决定静默还是提示）
  */
-export async function checkUpdate(opt = {}) {
+export async function checkUpdate() {
   const data = await new Promise((resolve, reject) => {
     uni.request({
       url: LATEST_API,
@@ -61,7 +56,7 @@ export async function checkUpdate(opt = {}) {
       fail: (e) => reject(new Error((e && e.errMsg) || '网络请求失败'))
     })
   })
-  return resolveUpdate(data, APP_VERSION, opt)
+  return resolveUpdate(data, APP_VERSION)
 }
 
 /**
@@ -71,37 +66,23 @@ export async function checkUpdate(opt = {}) {
  *   Gitee 会自动附带源码 zip / tar.gz，不能把它们当安装包。
  * @param {object} data /releases/latest 的响应
  * @param {string} current 本地版本号
- * @param {object} [opt]
- * @param {boolean} [opt.force] 跳过版本比较（测试用）
  */
-export function resolveUpdate(data, current, opt = {}) {
+export function resolveUpdate(data, current) {
   if (!data || !data.tag_name) return { hasUpdate: false }
   const version = String(data.tag_name).replace(/^v/i, '').trim()
   const apk = (data.assets || []).find((a) => /\.apk$/i.test(a.name || ''))
   if (!version || !apk) return { hasUpdate: false }
 
-  /*
-   * ★ force 模式（测试按钮用）★
-   *   照常从 Gitee 拉真实数据（版本号、说明、APK 直链都是真的），
-   *   只是跳过「是否比本地新」这一步判断 ——
-   *   这样在已经是最新版的情况下，也能反复把弹窗和下载链路走一遍。
-   *   注意 force 不改变下载内容：下到的仍是远端那个真实版本，
-   *   所以如果需要「装完比当前版本新」用来验证升级流程，
-   *   还是得发一个更高的版本号。
-   */
-  if (!opt.force) {
-    const cmp = compareVersions(version, current)
-    if (cmp <= 0) return { hasUpdate: false }
-  }
+  // 远端不比本地新 -> 不算更新（永不提示降级）
+  const cmp = compareVersions(version, current)
+  if (cmp <= 0) return { hasUpdate: false }
 
   return {
     hasUpdate: true,
     version,
     notes: String(data.body || ''),
     downloadUrl: apk.browser_download_url,
-    sizeBytes: apk.size || 0,
-    // 标记这是测试模式拉到的，UI 可据此加一行提示（避免误以为真有新版）
-    forced: !!opt.force
+    sizeBytes: apk.size || 0
   }
 }
 

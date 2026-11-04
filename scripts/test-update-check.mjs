@@ -354,7 +354,7 @@ console.log('=== 下载进度显示在系统通知栏 ===')
 }
 
 
-console.log('=== 测试按钮：跳过版本比较，仍拉真实数据 ===')
+console.log('=== 测试入口已移除（只保留正式检查更新）===')
 
 {
   const mineSrc = read('pages/mine/index.vue')
@@ -362,30 +362,25 @@ console.log('=== 测试按钮：跳过版本比较，仍拉真实数据 ===')
   const apiSrc = read('api/update.js')
   const dlgSrc = read('components/UpdateDialog.vue')
 
-  // 设置页入口（用户要求：系统设置里加一个测试更新按钮）
-  check('我的页有【测试】强制更新弹窗条目', /【测试】强制更新弹窗/.test(mineSrc), true)
-  check('点击走 forceCheckForUpdate', /forceCheckForUpdate\(\)/.test(mineSrc), true)
-  check('store 有 forceCheckForUpdate action', /async forceCheckForUpdate\(\)/.test(storeSrc), true)
-
   /*
-   * ★ 关键：force 只是跳过版本比较，不是造一个假版本 ★
-   *   版本号/说明/下载直链仍然来自 Gitee 的真实响应。
+   * 测试模式（跳过版本比较）已随调试入口一起删除：
+   * 它的逻辑/样式就是正式功能本身的逻辑/样式，
+   * 删除时只去掉「跳过比较」这个行为，正式路径不受影响。
    */
-  check('force 传给 fetchCheck', /fetchCheck\(\{ force: true \}\)/.test(storeSrc), true)
-  check('resolveUpdate 支持 force 选项', /opt\.force/.test(apiSrc), true)
-  check(
-    'force 时才跳过版本比较',
-    /if \(!opt\.force\) \{[\s\S]{0,200}compareVersions\(version, current\)/.test(apiSrc),
-    true
-  )
-  // force 仍要求远端真有 APK —— 否则测不了下载
-  check('force 下仍要求有 apk 附件', /find\(\(a\) => \/\\\.apk\$\/i\.test/.test(apiSrc), true)
+  check('我的页无【测试】条目', /【测试】强制更新弹窗/.test(mineSrc), false)
+  check('store 不再有 forceCheckForUpdate', /forceCheckForUpdate/.test(storeSrc), false)
+  check('update.js 不再有 force 选项', /opt\.force/.test(apiSrc), false)
+  check('resolveUpdate 恢复无条件版本比较', /const cmp = compareVersions\(version, current\)/.test(apiSrc), true)
+  // resolveUpdate 签名回到两参数（force 已移除）
+  check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(apiSrc), true)
+  check('弹窗不再有测试提示条', /ud-tip/.test(dlgSrc), false)
+  check('弹窗徽标固定为「新版本」', /新版本</.test(dlgSrc), true)
 
-  // 弹窗要标明是测试模式，避免误以为真有新版
-  check('返回结果带 forced 标记', /forced: !!opt\.force/.test(apiSrc), true)
-  check('弹窗显示「测试」徽标', /info\.forced \? '测试' : '新版本'/.test(dlgSrc), true)
-  check('弹窗有测试模式提示条', /ud-tip/.test(dlgSrc) && /测试模式/.test(dlgSrc), true)
+  // 正式入口必须保留
+  check('我的页保留「检查更新」', /name: '检查更新'/.test(mineSrc), true)
+  check('点击走正式 checkForUpdate', /checkForUpdate\(false\)/.test(mineSrc), true)
 }
+
 
 
 console.log('=== API 级别换算（真机日志：android=17 → api 曾算出 0）===')

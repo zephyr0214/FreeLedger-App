@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.16.4'
+export const APP_VERSION = '1.16.5'
 
 /**
  * 三段式版本号（兜底补零）
@@ -68,6 +68,7 @@ export function toSemver(version = APP_VERSION) {
  *   1.16.2 -> 1162
  *   1.16.3 -> 1163
  *   1.16.4 -> 1164
+ *   1.16.5 -> 1165
  */
 export function toVersionCode(version = APP_VERSION) {
   const [major = '1', minor = '16', patch = '0'] = toSemver(version).split('.')
@@ -137,6 +138,26 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.16.5',
+    date: '2026-11-04',
+    schemaVersion: 16,
+    sections: [
+      {
+        title: '修复',
+        items: [
+          '通知栏下载进度不显示',
+          '更新弹窗底部按钮被裁切'
+        ]
+      },
+      {
+        title: '调整',
+        items: [
+          '更新弹窗改为居中弹出'
+        ]
+      }
+    ]
+  },
   {
     version: '1.16.4',
     date: '2026-11-04',
