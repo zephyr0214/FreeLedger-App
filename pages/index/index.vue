@@ -685,6 +685,21 @@ export default {
     })
 
     /*
+     * ★ 周期补记完成后立刻刷新（用户反馈的 bug）★
+     *
+     *   竞态：App.vue 的 onShow 里 runCycleCatchUp() 是异步写库，
+     *   而本页 onShow 的 loadAll(true) 不等它 —— 先读出旧数据渲染，
+     *   补记才落库，于是「补记了却看不见」，要等下次刷新。
+     *
+     *   App.vue 在补记成功且确有新增时 emit 'cycle:caughtup'，
+     *   这里收到就再拉一次。只在真补了账时才触发，
+     *   没补账的日子不会有任何多余查询。
+     */
+    uni.$on('cycle:caughtup', () => {
+      if (settingStore.loaded) loadAll(true)
+    })
+
+    /*
      * ★ 侧滑返回 / 返回键：有弹层时先收起弹层，不退出页面 ★
      *   TxnPanel / QuickAddBar 打开时会登记进弹层栈（utils/layerStack.js），
      *   这里返回 true 表示「本次返回已消费」，页面不动。

@@ -329,6 +329,20 @@ function extractUsedIdentifiers(body) {
     // 前面是 . 的（obj.method()）说明是属性，不算变量
     const before = code.slice(0, m.index).trimEnd()
     if (before.endsWith('.')) continue
+    /*
+     * ★ 前面是 $ 的也要跳过 ★
+     *   正则里 `$` 算标识符字符（[\w$]），但 JS 的 \b 不把 `$` 当词字符 ——
+     *   于是 `uni.$on(...)` 会拆出「on」并命中（$ 与 o 之间存在 \b，
+     *   而 before 检查只排除了 `.`）。
+     *   uni.$emit / $off / $nextTick 同理会误报。
+     *   修法：before 以 $ 结尾时，这个「调用名」其实是 $xxx 的一部分。
+     *
+     *   ★ 这条修复曾经加过又被弄丢 ★
+     *     它和「桌面小组件」那次提交绑在一起，
+     *     后来整体回退时一并消失，于是 uni.$on 又开始误报。
+     *     写在这里并说明来历，避免下次再被顺手删掉。
+     */
+    if (before.endsWith('$')) continue
     names.add(name)
   }
 

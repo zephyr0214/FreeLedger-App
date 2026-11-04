@@ -390,6 +390,21 @@ export default {
       settingStore.refreshTabBar()
     })
 
+    /*
+     * 周期补记完成后立刻刷新
+     *
+     * 周期流水会改变账户余额（补记的收支落在实际账户上），
+     * 而 App.vue onShow 里的补记是异步写库、本页 refresh 不等它，
+     * 余额和资产趋势就会停在补记前的数字。
+     * App.vue 补记成功且有新增时 emit 这个事件，这里重新拉一次。
+     */
+    uni.$on('cycle:caughtup', async () => {
+      if (settingStore.loaded) {
+        await accountStore.refresh()
+        await loadTrend()
+      }
+    })
+
     return {
       settingStore, accountStore,
       trendRange, ranges, trendData, trendPoints, swipeStates,

@@ -638,6 +638,17 @@ export default {
       settingStore.refreshTabBar()
     })
 
+    /*
+     * 周期补记完成后立刻刷新
+     *
+     * 竞态：App.vue onShow 里的补记是异步写库，本页 onShow 的 loadAll()
+     * 不等它 —— 先按旧数据渲染，补记才落库，本月收支就少算了那几笔。
+     * App.vue 补记成功且有新增时 emit 这个事件，这里重查一次。
+     */
+    uni.$on('cycle:caughtup', () => {
+      if (settingStore.loaded) loadAll()
+    })
+
     /* ------------------------------------------------ 各卡片独立切换 */
 
     /** 分类统计：切换支出/收入（按当前层级查询） */

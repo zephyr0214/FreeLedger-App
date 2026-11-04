@@ -146,6 +146,21 @@ export default {
           console.log(`[app] 周期自动补记：${total} 笔（${added.length} 个周期）`)
           // 轻提示，不打断（用户在记账页/详情页会看到新流水）
           try { uni.showToast({ title: `已自动补记 ${total} 笔周期账`, icon: 'none' }) } catch (e) {}
+
+          /*
+           * ★ 补记完必须通知页面重新拉数据（用户反馈的 bug）★
+           *   竞态：App.vue 的 onShow 和页面自己的 onShow 是两条独立的异步流。
+           *   页面 onShow 里的 loadAll(true) 不会等补记写完库 ——
+           *   它先查出旧数据、渲染完，补记才落库，
+           *   于是「首页补齐周期记账之后不能立刻显示出来」，
+           *   得等下一次刷新（切 tab / 再次回前台）才看得到。
+           *
+           *   这里补记成功、且确实新增了流水时发一个全局事件，
+           *   各页面监听后主动 reload，把新流水立刻刷出来。
+           *   ★ 只在 total > 0 时发 ★
+           *     没有新增流水就不发，避免每次进前台都让所有页面白白重查一遍。
+           */
+          try { uni.$emit('cycle:caughtup', total) } catch (e) {}
         }
       } catch (e) {
         console.warn('[app] 周期补记失败:', e && e.message)
