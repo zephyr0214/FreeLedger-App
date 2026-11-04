@@ -23,6 +23,7 @@ import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { compareVersions, APP_VERSION } from '../utils/version.js'
 import { resolveUpdate } from '../api/update.js'
+import { apiLevelFromOsVersion } from '../api/notifier.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -241,16 +242,81 @@ console.log('=== 弹窗行为 ===')
 
   /*
    * ★ 通知栏进度：Android 13+ 必须申请运行时权限 ★
-   *   只在 manifest 声明不够 —— 不请求的话通知被静默丢弃，
-   *   这正是用户反馈「点了立即更新，通知栏什么都没显示」的主因。
+   *   只在 manifest 声明不够 —— 不请求的话通知被静默丢弃。
    */
-  const apiSrc = read('api/update.js')
-  check('Android 13+ 请求通知权限', /POST_NOTIFICATIONS[\s\S]{0,200}requestPermissions/.test(apiSrc), true)
-  check('检查权限是否已授予', /checkSelfPermission\('android\.permission\.POST_NOTIFICATIONS'\)/.test(apiSrc), true)
-  // 通知失败必须留日志，不能空 catch（否则无从排查）
-  check('通知失败有 console.warn 日志', /\[update\] 推送通知失败/.test(apiSrc), true)
-  // 小图标要单色图标，不能用应用彩色大图标
-  check('小图标按名字查 drawable（不用彩色应用图标兜底为主）', /getIdentifier\(name, 'drawable', pkg\)/.test(apiSrc), true)
+  const notifierSrc = read('api/notifier.js')
+  const updateSrc = read('api/update.js')
+
+  /*
+   * ★ 源码断言必须剥掉注释 ★
+   *   notifier.js 顶部详细记录了「旧的错误写法」做说明
+   *   （getAttribute / Context.NOTIFICATION_SERVICE / Build.VERSION.SDK_INT 等），
+   *   直接对全文正则会把注释也算成代码，误报「还有旧写法」。
+   *   这里先剥掉 /* *\/ 与 // 注释，只断言真实代码。
+   */
+  const stripComments = (s) => s
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    // 行尾注释也要剥：`const X = 1 // 说明 Context.NOTIFICATION_SERVICE`
+    // 只剥整行 // 会漏掉这种，把注释里的旧写法误判成代码
+    .replace(/[ \t]\/\/[^\n]*/g, '')
+    .replace(/^\s*\/\/[^\n]*$/gm, '')
+  const notifierCode = stripComments(notifierSrc)
+  const updateCode = stripComments(updateSrc)
+
+  check('Android 13+ 请求通知权限', /POST_NOTIFICATIONS[\s\S]{0,400}requestPermissions/.test(notifierSrc), true)
+  check('检查权限是否已授予', /checkSelfPermission\('android\.permission\.POST_NOTIFICATIONS'\)/.test(notifierSrc), true)
+  check('通知失败有 console.warn 日志', /\[update\] 推送通知失败/.test(notifierSrc), true)
+  check('小图标按名字查 drawable', /getIdentifier\(name, 'drawable', pkg\)/.test(notifierSrc), true)
+
+  /*
+   * ★★★ 不用 Java 静态字段（真机日志实测全取不到）★★★
+   *   日志：sdk=0 importance=null service=null
+   *     · plus.android.getAttribute(类, 字段) 对类无效，返回 null
+   *     · Build.VERSION 是嵌套类，importClass('android.os.Build')
+   *       不会导入它，所以 SDK_INT 永远 undefined
+   *   致命后果：if (sdkInt >= 26) 恒 false -> 通知渠道从未创建
+   *   -> Android 8+ 没渠道的通知被系统静默丢弃。
+   *
+   *   现在改用一个静态字段都不用：
+   *     NOTIFICATION_SERVICE = 字符串 "notification"
+   *     IMPORTANCE_LOW       = 整数 2
+   *     API 级别             = plus.os.version 换算
+   */
+  check('有 API 级别换算函数', /export function apiLevelFromOsVersion/.test(notifierSrc), true)
+  check('用 plus.os.version 取系统版本', /plus\.os\.version/.test(notifierSrc), true)
+  check('NOTIFICATION_SERVICE 用字面量 "notification"', /NOTIFICATION_SERVICE = 'notification'/.test(notifierSrc), true)
+  check('IMPORTANCE_LOW 用字面量 2', /IMPORTANCE_LOW = 2/.test(notifierSrc), true)
+  // 不允许再出现任何静态字段反射 / 嵌套类访问
+  check('没有 getAttribute 读静态字段', /plus\.android\.getAttribute\(/.test(notifierCode), false)
+  check('没有 staticField 辅助', /function staticField\(/.test(notifierCode), false)
+  check('没有 Build.VERSION.SDK_INT', /Build\.VERSION\.SDK_INT/.test(notifierCode), false)
+  check('没有 Context.NOTIFICATION_SERVICE', /Context\.NOTIFICATION_SERVICE/.test(notifierCode), false)
+  /*
+   * ★ 渠道创建不能包在 sdkInt 判断里 ★
+   *   旧写法 if (sdkInt >= 26) —— sdkInt 取不到就永远不建渠道。
+   *   现在无条件尝试建（低版本系统会忽略该调用）。
+   */
+  check(
+    '建渠道不依赖 sdkInt 判断',
+    /try \{\s*const NotificationChannel[\s\S]{0,400}nm\.createNotificationChannel\(ch\)/.test(notifierSrc),
+    true
+  )
+
+  check('有权限请求', /requestPermissions\(\['android\.permission\.POST_NOTIFICATIONS'\]/.test(notifierSrc), true)
+  check('通知失败有 console.warn 日志', /\[update\] 推送通知失败/.test(notifierSrc), true)
+  check('小图标按名字查 drawable', /getIdentifier\(name, 'drawable', pkg\)/.test(notifierSrc), true)
+  check('用 setProgress 画进度条', /setProgress\(100, pct, false\)/.test(notifierCode), true)
+  check('setOnlyAlertOnce 避免反复响', /setOnlyAlertOnce\(true\)/.test(notifierCode), true)
+  check('完成通知提示点按安装', /点按通知栏即可安装/.test(notifierCode), true)
+  check('失败/取消撤掉通知', /nm\.cancel\(NOTIFY_ID\)/.test(notifierCode), true)
+  check('通知不可用时降级为空实现', /return \{ update\(\) \{\}, done\(\) \{\}, fail\(\) \{\} \}/.test(notifierCode), true)
+
+  // 安装授权页的 action 也是静态常量，同样不能直接点
+  check(
+    'ACTION_MANAGE_UNKNOWN_APP_SOURCES 不直接点访问',
+    /Settings\.ACTION_MANAGE_UNKNOWN_APP_SOURCES/.test(updateCode),
+    false
+  )
 
   const manifest = read('manifest.json')
   check('manifest 声明 POST_NOTIFICATIONS', /android\.permission\.POST_NOTIFICATIONS/.test(manifest), true)
@@ -272,27 +338,21 @@ console.log('=== 下载进度显示在系统通知栏 ===')
 
 {
   const api = read('api/update.js')
-
-  check('有通知栏进度器', /createProgressNotifier/.test(api), true)
-  check('用 Android NotificationChannel（8+ 必需）', /NotificationChannel/.test(api), true)
-  /*
-   * ★ IMPORTANCE_LOW ★
-   *   更新下载不该响铃/弹横幅，只在通知栏安静地画进度条。
-   */
-  check('渠道重要性是 LOW（不响不弹）', /IMPORTANCE_LOW/.test(api), true)
-  check('用 setProgress 画标准进度条', /setProgress\(100, pct, false\)/.test(api), true)
-  check('setOnlyAlertOnce 避免反复响', /setOnlyAlertOnce\(true\)/.test(api), true)
-  check('下载完成通知变「点按安装」', /点按完成安装/.test(api), true)
-  check('失败/取消撤掉通知', /nm\.cancel\(NOTIFY_ID\)/.test(api), true)
+  const notifier = read('api/notifier.js')
 
   /*
-   * ★ 通知不可用必须静默降级 ★
-   *   个别定制 ROM 拿不到 NotificationManager。
-   *   进度显示是锦上添花，绝不能让下载本身失败。
+   * 通知栏实现已迁到 api/notifier.js（那里用字面量常量避免静态字段反射）。
+   * 本文件（update.js）只负责下载与安装编排。
    */
-  check('通知不可用时降级为空实现', /return \{ update\(\) \{\}, done\(\) \{\}, fail\(\) \{\} \}/.test(api), true)
+  check('update.js 引用 notifier 模块', /from '\.\/notifier\.js'/.test(api), true)
+  check('notifier.js 有进度器', /export function createProgressNotifier/.test(notifier), true)
+  check('用 Android NotificationChannel（8+ 必需）', /NotificationChannel/.test(notifier), true)
+  check('渠道重要性是 LOW（不响不弹）', /IMPORTANCE_LOW = 2/.test(notifier), true)
+  check('导出 clearProgressNotification', /export function clearProgressNotification/.test(notifier), true)
   check('导出 cancelDownload', /export function cancelDownload/.test(api), true)
+  check('downloadApk 用 plus.downloader', /plus\.downloader\.createDownload/.test(api), true)
 }
+
 
 console.log('=== 测试按钮：跳过版本比较，仍拉真实数据 ===')
 
@@ -325,6 +385,54 @@ console.log('=== 测试按钮：跳过版本比较，仍拉真实数据 ===')
   check('返回结果带 forced 标记', /forced: !!opt\.force/.test(apiSrc), true)
   check('弹窗显示「测试」徽标', /info\.forced \? '测试' : '新版本'/.test(dlgSrc), true)
   check('弹窗有测试模式提示条', /ud-tip/.test(dlgSrc) && /测试模式/.test(dlgSrc), true)
+}
+
+
+console.log('=== API 级别换算（真机日志：android=17 → api 曾算出 0）===')
+
+{
+  /*
+   * ★ 真机实测出来的 bug ★
+   *   日志：android=17 api=0
+   *   旧实现查表只写到 Android 16，遇到 17 返回 0，
+   *   于是 sdkInt >= 33 恒 false -> 权限永远不请求
+   *   -> Android 13+ 通知被系统静默丢弃。
+   *   查表法对「比表更新的系统」必然失效，改成公式推导。
+   */
+  check('Android 17 -> API 37（超出旧表的真实机型）', apiLevelFromOsVersion('17'), 37)
+  check('Android 13 -> 33', apiLevelFromOsVersion('13'), 33)
+  check('Android 14 -> 34', apiLevelFromOsVersion('14'), 34)
+  check('Android 12 -> 31', apiLevelFromOsVersion('12'), 31)
+  check('Android 11 -> 30', apiLevelFromOsVersion('11'), 30)
+  check('Android 10 -> 29', apiLevelFromOsVersion('10'), 29)
+  check('Android 9 -> 28', apiLevelFromOsVersion('9'), 28)
+  check('Android 8 -> 26（8.1 是 27，两档判断都够）', apiLevelFromOsVersion('8'), 26)
+  check('带小版本号 8.1.0', apiLevelFromOsVersion('8.1.0'), 26)
+  check('Android 20 也能推（向后兼容未来系统）', apiLevelFromOsVersion('20'), 40)
+  check('空串返回 0', apiLevelFromOsVersion(''), 0)
+  check('非法值返回 0', apiLevelFromOsVersion('abc'), 0)
+
+  // 公式必须保证「13 及以上都 >= 33」，否则权限请求会被跳过
+  let allOk = true
+  for (let v = 13; v <= 25; v++) {
+    if (apiLevelFromOsVersion(String(v)) < 33) { allOk = false; break }
+  }
+  check('Android 13~25 全部 >= 33（保证请求通知权限）', allOk, true)
+}
+
+console.log('=== Resources 等返回对象必须 importClass（真机：getIdentifier is not a function）===')
+
+{
+  const nCode = read('api/notifier.js')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/[^\n]*$/gm, '')
+  /*
+   * plus.android 只给 importClass 过的对象挂方法代理。
+   * main.getResources() 返回的 Resources 不 importClass 就没法调 getIdentifier，
+   * 导致小图标取不到、setSmallIcon(0) 让通知被丢弃。
+   */
+  check('拿到 Resources 后 importClass', /const res = main\.getResources\(\)[\s\S]{0,120}importClass\(res\)/.test(nCode), true)
+  check('没有有效小图标时跳过通知', /if \(!smallIcon\)[\s\S]{0,150}跳过通知栏进度/.test(nCode), true)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

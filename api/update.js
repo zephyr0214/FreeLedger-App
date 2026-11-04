@@ -21,6 +21,7 @@
 const LATEST_API = 'https://gitee.com/api/v5/repos/all0zy/FreeLedger-App/releases/latest'
 
 import { APP_VERSION, compareVersions } from '../utils/version.js'
+import { createProgressNotifier, clearProgressNotification } from './notifier.js'
 
 /** 正在进行的下载任务（取消下载用） */
 let currentTask = null
@@ -128,143 +129,17 @@ export function resolveUpdate(data, current, opt = {}) {
  *   拿不到通知就退化成「无进度显示」，绝不能让下载本身失败。
  *   但对开发要留日志，否则「通知没出现」根本无从查起。
  */
-function createProgressNotifier() {
-  // #ifdef APP-PLUS
-  try {
-    const main = plus.android.runtimeMainActivity()
-    const Context = plus.android.importClass('android.content.Context')
-    const NotificationManager = plus.android.importClass('android.app.NotificationManager')
-    const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
-    const Build = plus.android.importClass('android.os.Build')
-
-    const CHANNEL_ID = 'freecount_update'
-    const NOTIFY_ID = 10010
-    const sdkInt = Build.VERSION.SDK_INT
-
-    const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
-    if (!nm) {
-      console.warn('[update] 拿不到 NotificationManager，通知栏进度不可用')
-      return { update() {}, done() {}, fail() {} }
-    }
-
-    /*
-     * ★ Android 13+ 主动请求通知权限 ★
-     *   不请求的话通知会被系统静默丢弃 ——
-     *   这正是「点了立即更新，通知栏什么都没显示」的主因之一
-     *   （另一个是 manifest 没声明 POST_NOTIFICATIONS）。
-     *   请求是异步的，用户点允许后后续的 notify 才会生效；
-     *   这里不等结果，直接往下走（进度会持续刷新，授权后自然出现）。
-     */
-    if (sdkInt >= 33) {
-      try {
-        const has = main.checkSelfPermission('android.permission.POST_NOTIFICATIONS')
-        // PackageManager.PERMISSION_GRANTED === 0
-        if (has !== 0) {
-          main.requestPermissions(['android.permission.POST_NOTIFICATIONS'], 1001)
-          console.warn('[update] 已请求通知权限（Android 13+ 首次需授权）')
-        }
-      } catch (e) {
-        console.warn('[update] 请求通知权限失败:', e && e.message)
-      }
-    }
-
-    // Android 8+ 必须建渠道（重复建同 id 是幂等的）
-    try {
-      if (sdkInt >= 26) {
-        const ch = new NotificationChannel(
-          CHANNEL_ID, '应用更新', NotificationManager.IMPORTANCE_LOW
-        )
-        ch.setShowBadge(false)
-        nm.createNotificationChannel(ch)
-      }
-    } catch (e) {
-      console.warn('[update] 创建通知渠道失败:', e && e.message)
-    }
-
-    /**
-     * 单色小图标资源 id
-     *
-     * ★ 为什么不用 main.getApplicationInfo().icon ★
-     *   那是应用的多色启动图标，系统状态栏只取它的 alpha 通道，
-     *   渲染出来常是一坨白块；部分 ROM 甚至因此整条通知不显示。
-     *   DCloud 运行时自带 ic_launcher / notification 图标，
-     *   这里按名字找，找不到再退回应用图标（至少不会崩）。
-     */
-    let smallIcon = 0
-    try {
-      const res = main.getResources()
-      const pkg = main.getPackageName()
-      // 优先找通知专用图标，其次启动图标
-      const candidates = ['notification', 'ic_notification', 'ic_launcher', 'icon']
-      for (const name of candidates) {
-        const id = res.getIdentifier(name, 'drawable', pkg)
-        if (id) { smallIcon = id; break }
-      }
-      if (!smallIcon) smallIcon = main.getApplicationInfo().icon
-    } catch (e) {
-      console.warn('[update] 取通知小图标失败:', e && e.message)
-    }
-
-    /** 建一个带标题/内容的 builder（每次都重建，避免复用旧状态） */
-    function makeBuilder(title, text) {
-      try {
-        const B = plus.android.importClass('android.app.Notification$Builder')
-        const b = new B(main, CHANNEL_ID)
-        b.setSmallIcon(smallIcon)
-        b.setContentTitle(title)
-        b.setContentText(text)
-        b.setOngoing(true)
-        b.setOnlyAlertOnce(true)
-        b.setAutoCancel(false)
-        return b
-      } catch (e) {
-        console.warn('[update] 构造通知失败:', e && e.message)
-        return null
-      }
-    }
-
-    return {
-      /** 更新进度（pct: 0~100） */
-      update(pct) {
-        try {
-          const b = makeBuilder('正在下载更新', pct + '%')
-          if (!b) return
-          b.setProgress(100, pct, false)
-          nm.notify(NOTIFY_ID, b.build())
-        } catch (e) {
-          console.warn('[update] 推送通知失败:', e && e.message)
-        }
-      },
-      /** 下载完成：进度条换成「点按安装」的提示 */
-      done() {
-        try {
-          const b = makeBuilder('更新已下载', '点按完成安装')
-          if (!b) return
-          b.setProgress(0, 0, false)
-          b.setOngoing(false)
-          b.setAutoCancel(true)
-          nm.notify(NOTIFY_ID, b.build())
-        } catch (e) {
-          console.warn('[update] 完成通知失败:', e && e.message)
-        }
-      },
-      /** 失败/取消：撤掉通知，不留残影 */
-      fail() {
-        try { nm.cancel(NOTIFY_ID) } catch (e) {}
-      }
-    }
-  } catch (e) {
-    console.warn('[update] 通知栏初始化失败:', e && e.message)
-  }
-  // #endif
-  return { update() {}, done() {}, fail() {} }
-}
+/* 通知栏进度的实现移到 api/notifier.js ——
+   那里用 plus.android.getAttribute 正确读取 Java 静态字段。
+   旧实现在本文件里直接写 Context.NOTIFICATION_SERVICE /
+   IMPORTANCE_LOW / Build.VERSION.SDK_INT，这些在 plus.android
+   里全是 undefined，导致通知被系统静默丢弃（见 notifier.js 顶部说明）。 */
 
 /**
  * 下载 APK 到本机（进度显示在系统通知栏）
  * @param {string} url APK 直链
  * @param {string} filename 保存文件名（FreeLedger-v1.16.3.apk）
- * @param {Function} onProgress 可选，进度回调（0~100）；不传则只更新通知栏
+ * @param {Function} onProgress 可选，进度回调（0~100）
  * @returns {Promise<string>} 本地文件路径（供 installApk）
  */
 export function downloadApk(url, filename, onProgress) {
@@ -272,6 +147,7 @@ export function downloadApk(url, filename, onProgress) {
   return new Promise((resolve, reject) => {
     abortDownload()
     const notifier = createProgressNotifier()
+    // 0% 时先立一条不确定进度条（总大小还没拿到），让用户立刻看到「在下载」
     notifier.update(0)
 
     const dtask = plus.downloader.createDownload(url, {
@@ -294,7 +170,6 @@ export function downloadApk(url, filename, onProgress) {
     dtask.addEventListener('statechanged', (task) => {
       if (task && task.totalSize > 0 && task.downloadedSize > 0) {
         const pct = Math.min(100, Math.round((task.downloadedSize / task.totalSize) * 100))
-        // 通知栏可以每帧都刷；App 内如果有回调也照常给
         notifier.update(pct)
         onProgress && onProgress(pct)
       }
@@ -313,14 +188,7 @@ export function downloadApk(url, filename, onProgress) {
  */
 export function cancelDownload() {
   abortDownload()
-  // #ifdef APP-PLUS
-  try {
-    const main = plus.android.runtimeMainActivity()
-    const Context = plus.android.importClass('android.content.Context')
-    const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
-    if (nm) nm.cancel(10010)
-  } catch (e) {}
-  // #endif
+  clearProgressNotification()
 }
 
 /**
@@ -349,14 +217,33 @@ export function openUnknownSourceSettings() {
   // #ifdef APP-PLUS
   try {
     const main = plus.android.runtimeMainActivity()
+    plus.android.importClass(main)
     const Intent = plus.android.importClass('android.content.Intent')
-    const Settings = plus.android.importClass('android.provider.Settings')
     const Uri = plus.android.importClass('android.net.Uri')
-    const intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
-    intent.setData(Uri.parse('package:' + main.getPackageName()))
-    main.startActivity(intent)
+
+    /*
+     * ★ Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES 是静态字符串常量 ★
+     *   plus.android 的 importClass **不映射静态字段**，
+     *   直接写 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES 会得到 undefined，
+     *   new Intent(undefined) 抛异常 -> 用户点「去设置」毫无反应。
+     *   必须用 plus.android.getAttribute 取。
+     */
+    const Settings = plus.android.importClass('android.provider.Settings')
+    const ACTION = plus.android.getAttribute(Settings, 'ACTION_MANAGE_UNKNOWN_APP_SOURCES')
+
+    if (ACTION) {
+      const intent = new Intent(ACTION)
+      intent.setData(Uri.parse('package:' + main.getPackageName()))
+      main.startActivity(intent)
+      return
+    }
+    // 老系统（Android 8 以下）没有这个页：退回应用详情页
+    const detail = new Intent('android.settings.APPLICATION_DETAILS_SETTINGS')
+    detail.setData(Uri.parse('package:' + main.getPackageName()))
+    main.startActivity(detail)
   } catch (e) {
-    // 个别 ROM 不支持该 action，退回应用详情页
+    console.warn('[update] 打开未知来源设置失败:', e && e.message)
+    // 最后兜底：直接从 App 内发起安装，让系统弹自己的授权流程
     try { plus.runtime.openURL('package:' + plus.runtime.pkg) } catch (e2) {}
   }
   // #endif
