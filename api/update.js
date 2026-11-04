@@ -90,15 +90,21 @@ export function resolveUpdate(data, current) {
  *   进度留在 App 内等于看不见。通知栏是系统级的，切走也能看到，
  *   下载完成后还能顺手点通知直接进安装界面。
  *
- * ★ 实现 ★
- *   Android 8+ 必须走 NotificationChannel（低版本直接 build 即可）。
- *   用 IMPORTANCE_LOW：不响铃、不弹横幅，只在通知栏安静地更新进度条。
- *   进度用 setProgress(100, pct, false) —— 系统渲染成标准进度条。
+ * ★ 实现要点（每一条都踩过坑） ★
+ *   1. Android 13+ 发通知需要 POST_NOTIFICATIONS **运行时权限**，
+ *      光在 manifest 声明不够 —— 必须在发之前主动请求。
+ *      用户拒绝过的话，发通知会被系统静默丢弃（一点报错都没有）。
+ *   2. setSmallIcon 必须用**单色小图标**（系统状态栏是白的）。
+ *      用应用彩色大图标在某些 ROM 上会让整条通知被丢弃。
+ *      这里优先用渠道里的小图标资源，拿不到再退回应用图标。
+ *   3. Android 8+ 必须建 NotificationChannel，用 IMPORTANCE_LOW
+ *      保持安静（不响铃、不弹横幅），setProgress 画标准进度条。
+ *   4. 任何异常都要 console.warn 出来 —— 之前全是空 catch，
+ *      出了问题在日志里一点痕迹都没有，只能靠猜。
  *
- * ★ 失败静默 ★
- *   通知 API 在个别定制 ROM 上可能不可用（权限/渠道限制）。
- *   拿不到通知就退化成「无进度显示」，绝不能让下载本身失败 ——
- *   进度显示是锦上添花，不是关键路径。
+ * ★ 失败静默（对用户）★
+ *   拿不到通知就退化成「无进度显示」，绝不能让下载本身失败。
+ *   但对开发要留日志，否则「通知没出现」根本无从查起。
  */
 function createProgressNotifier() {
   // #ifdef APP-PLUS
@@ -107,40 +113,90 @@ function createProgressNotifier() {
     const Context = plus.android.importClass('android.content.Context')
     const NotificationManager = plus.android.importClass('android.app.NotificationManager')
     const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
-    const Notification = plus.android.importClass('android.app.Notification')
+    const Build = plus.android.importClass('android.os.Build')
 
     const CHANNEL_ID = 'freecount_update'
     const NOTIFY_ID = 10010
+    const sdkInt = Build.VERSION.SDK_INT
 
     const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
-    if (!nm) return { update() {}, done() {}, fail() {} }
+    if (!nm) {
+      console.warn('[update] 拿不到 NotificationManager，通知栏进度不可用')
+      return { update() {}, done() {}, fail() {} }
+    }
+
+    /*
+     * ★ Android 13+ 主动请求通知权限 ★
+     *   不请求的话通知会被系统静默丢弃 ——
+     *   这正是「点了立即更新，通知栏什么都没显示」的主因之一
+     *   （另一个是 manifest 没声明 POST_NOTIFICATIONS）。
+     *   请求是异步的，用户点允许后后续的 notify 才会生效；
+     *   这里不等结果，直接往下走（进度会持续刷新，授权后自然出现）。
+     */
+    if (sdkInt >= 33) {
+      try {
+        const has = main.checkSelfPermission('android.permission.POST_NOTIFICATIONS')
+        // PackageManager.PERMISSION_GRANTED === 0
+        if (has !== 0) {
+          main.requestPermissions(['android.permission.POST_NOTIFICATIONS'], 1001)
+          console.warn('[update] 已请求通知权限（Android 13+ 首次需授权）')
+        }
+      } catch (e) {
+        console.warn('[update] 请求通知权限失败:', e && e.message)
+      }
+    }
 
     // Android 8+ 必须建渠道（重复建同 id 是幂等的）
     try {
-      if (plus.android.importClass('android.os.Build').VERSION.SDK_INT >= 26) {
+      if (sdkInt >= 26) {
         const ch = new NotificationChannel(
           CHANNEL_ID, '应用更新', NotificationManager.IMPORTANCE_LOW
         )
         ch.setShowBadge(false)
         nm.createNotificationChannel(ch)
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[update] 创建通知渠道失败:', e && e.message)
+    }
 
-    const pkg = main.getPackageName()
-    let builder = null
+    /**
+     * 单色小图标资源 id
+     *
+     * ★ 为什么不用 main.getApplicationInfo().icon ★
+     *   那是应用的多色启动图标，系统状态栏只取它的 alpha 通道，
+     *   渲染出来常是一坨白块；部分 ROM 甚至因此整条通知不显示。
+     *   DCloud 运行时自带 ic_launcher / notification 图标，
+     *   这里按名字找，找不到再退回应用图标（至少不会崩）。
+     */
+    let smallIcon = 0
+    try {
+      const res = main.getResources()
+      const pkg = main.getPackageName()
+      // 优先找通知专用图标，其次启动图标
+      const candidates = ['notification', 'ic_notification', 'ic_launcher', 'icon']
+      for (const name of candidates) {
+        const id = res.getIdentifier(name, 'drawable', pkg)
+        if (id) { smallIcon = id; break }
+      }
+      if (!smallIcon) smallIcon = main.getApplicationInfo().icon
+    } catch (e) {
+      console.warn('[update] 取通知小图标失败:', e && e.message)
+    }
 
     /** 建一个带标题/内容的 builder（每次都重建，避免复用旧状态） */
     function makeBuilder(title, text) {
       try {
         const B = plus.android.importClass('android.app.Notification$Builder')
-        return new B(main, CHANNEL_ID)
-          .setSmallIcon(main.getApplicationInfo().icon)
-          .setContentTitle(title)
-          .setContentText(text)
-          .setOngoing(true)
-          .setOnlyAlertOnce(true)
-          .setAutoCancel(false)
+        const b = new B(main, CHANNEL_ID)
+        b.setSmallIcon(smallIcon)
+        b.setContentTitle(title)
+        b.setContentText(text)
+        b.setOngoing(true)
+        b.setOnlyAlertOnce(true)
+        b.setAutoCancel(false)
+        return b
       } catch (e) {
+        console.warn('[update] 构造通知失败:', e && e.message)
         return null
       }
     }
@@ -153,7 +209,9 @@ function createProgressNotifier() {
           if (!b) return
           b.setProgress(100, pct, false)
           nm.notify(NOTIFY_ID, b.build())
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[update] 推送通知失败:', e && e.message)
+        }
       },
       /** 下载完成：进度条换成「点按安装」的提示 */
       done() {
@@ -164,7 +222,9 @@ function createProgressNotifier() {
           b.setOngoing(false)
           b.setAutoCancel(true)
           nm.notify(NOTIFY_ID, b.build())
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[update] 完成通知失败:', e && e.message)
+        }
       },
       /** 失败/取消：撤掉通知，不留残影 */
       fail() {
@@ -172,7 +232,7 @@ function createProgressNotifier() {
       }
     }
   } catch (e) {
-    // 通知不可用：退化成无进度显示
+    console.warn('[update] 通知栏初始化失败:', e && e.message)
   }
   // #endif
   return { update() {}, done() {}, fail() {} }

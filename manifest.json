@@ -41,7 +41,12 @@
                     "<uses-permission android:name=\"android.permission.INTERNET\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
-                    "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"
+                    "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
+                    /* ★ Android 13+ 发通知必需 ★
+                       不声明这条，通知会被系统静默丢弃（用户看到「通知栏什么都没显示」）。
+                       这是运行时权限，首次发通知时还要弹系统授权框，
+                       用户拒绝后要到系统设置里手动打开 —— 见 api/update.js 的处理。 */
+                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>"
                 ]
             },
             /* ios打包配置 */

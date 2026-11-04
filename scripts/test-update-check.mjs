@@ -200,6 +200,32 @@ console.log('=== 弹窗行为 ===')
   check('弹窗内没有进度条', /ud-progress/.test(dlg), false)
   check('提示去看通知栏', /通知栏/.test(dlg), true)
 
+  /*
+   * ★ 用户要求「更新内容过长时要能够滑动，固定滑动区域大小」★
+   *   必须是固定 height，不能是 max-height（只封顶不兜底，
+   *   内容短时区域会缩水、卡片高度跳动）。
+   */
+  check('滚动区域高度固定（height，不是 max-height）', /\.ud-notes\s*\{[^}]*height:\s*46vh/.test(dlg), true)
+  check('滚动区域不被 flex 压缩（flex-shrink: 0）', /\.ud-notes\s*\{[^}]*flex-shrink:\s*0/.test(dlg), true)
+  check('滚动区域没有残留 flex: 1（会和固定高度打架）', /\.ud-notes\s*\{[^}]*flex:\s*1;/.test(dlg), false)
+  check('内容溢出可滚动（scroll-y）', /<scroll-view class="ud-notes" scroll-y>/.test(dlg), true)
+
+  /*
+   * ★ 通知栏进度：Android 13+ 必须申请运行时权限 ★
+   *   只在 manifest 声明不够 —— 不请求的话通知被静默丢弃，
+   *   这正是用户反馈「点了立即更新，通知栏什么都没显示」的主因。
+   */
+  const apiSrc = read('api/update.js')
+  check('Android 13+ 请求通知权限', /POST_NOTIFICATIONS[\s\S]{0,200}requestPermissions/.test(apiSrc), true)
+  check('检查权限是否已授予', /checkSelfPermission\('android\.permission\.POST_NOTIFICATIONS'\)/.test(apiSrc), true)
+  // 通知失败必须留日志，不能空 catch（否则无从排查）
+  check('通知失败有 console.warn 日志', /\[update\] 推送通知失败/.test(apiSrc), true)
+  // 小图标要单色图标，不能用应用彩色大图标
+  check('小图标按名字查 drawable（不用彩色应用图标兜底为主）', /getIdentifier\(name, 'drawable', pkg\)/.test(apiSrc), true)
+
+  const manifest = read('manifest.json')
+  check('manifest 声明 POST_NOTIFICATIONS', /android\.permission\.POST_NOTIFICATIONS/.test(manifest), true)
+
   const store = read('stores/update.js')
   check('状态机有 downloading 阶段', /phase = 'downloading'/.test(store), true)
   check('状态机有 installing 阶段', /phase = 'installing'/.test(store), true)

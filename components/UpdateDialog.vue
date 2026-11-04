@@ -235,8 +235,15 @@ export default {
   border-radius: 24rpx;
   display: flex;
   flex-direction: column;
-  max-height: 76vh;
-  /* 内容多时底部按钮跟着卡片走，卡片自己撑高到上限再让正文滚动 */
+  /*
+   * ★ 不设 max-height ★
+   *   正文区已经定死 46vh，头部和底部按钮是固定高度，
+   *   卡片总高天然稳定（约 46vh + 200rpx 左右）。
+   *   再加一条 max-height 反而会在小屏上把正文区压矮，
+   *   破坏「固定滑动区域」这个约定。
+   *   只在极端小屏（总高超屏）时由下面的 min() 兜一层。
+   */
+  max-height: min(88vh, 46vh + 260rpx);
   overflow: hidden;
 }
 
@@ -277,19 +284,33 @@ export default {
 }
 
 /*
- * 发行说明区
+ * 发行说明区 —— **固定高度**
  *
- * ★ max-height 而不是固定高度 ★
- *   内容少时卡片自然收缩（短说明不会有空白洞），
- *   内容多时到上限后本区滚动、头部与底部按钮固定。
- *   flex: 1 + min-height: 0 是让 scroll-view 在 flex 列里
- *   正确收缩的必要条件（否则它会撑破卡片）。
+ * ★ 用户要求：「更新内容过长时要能够滑动，固定滑动区域大小」★
+ *   之前是 max-height: 50vh + flex: 1 混合，这是错的：
+ *     · max-height 只封顶、不兜底 —— 内容短时区域会缩成两行高，
+ *       卡片跟着忽大忽小，弹窗每次打开尺寸都不一样
+ *     · flex: 1 又让它去抢剩余空间，和 max-height 语义打架，
+ *       在 uni-app 各端表现还不一致
+ *   现在直接用 height 定死：不管内容是 3 条还是 30 条，
+ *   这块区域永远是同一个高度，超出的部分在内部滚动。
+ *   卡片外观因此完全稳定，用户不会看到弹窗「跳」一下。
+ *
+ * ★ 为什么用 vh 而不是 rpx ★
+ *   大屏手机上固定的 rpx 可能不够看，小屏可能超出。
+ *   46vh 在主流手机上都落在一个「能看到 5~6 行正文」的合理区间，
+ *   同时给头部和底部按钮留足空间（卡片总高上限 76vh）。
  */
 .ud-notes {
   padding: 24rpx 32rpx 8rpx;
-  max-height: 50vh;
-  flex: 1;
-  min-height: 0;
+  height: 46vh;
+  /*
+   * ★ flex-shrink: 0 必须加 ★
+   *   父级是 flex 列，默认允许收缩 ——
+   *   不加的话当 header+footer 占位多时，这块会被压缩到比 46vh 矮，
+   *   固定高度就失效了。
+   */
+  flex-shrink: 0;
 }
 
 .ud-section {
