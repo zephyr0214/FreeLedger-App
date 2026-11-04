@@ -302,6 +302,16 @@
 
       <!-- 记账面板（长按或展开时打开） -->
       <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
+
+      <!--
+        更新弹窗
+        ★ 首页也挂一个的原因 ★
+          开屏静默检查在 App.vue 的 onLaunch 里跑，
+          那时用户正看着首页 —— 弹窗必须能在这里出现。
+          组件读的是 stores/update.js 的同一份状态，
+          三个页面各挂一个实例不会重复弹（dialogVisible 是单布尔）。
+      -->
+      <UpdateDialog />
     </block>
   </view>
 </template>
@@ -317,6 +327,7 @@ import TxnPanel from '@/components/TxnPanel.vue'
 import QuickAddBar from '@/components/QuickAddBar.vue'
 import CalendarGrid from '@/components/CalendarGrid.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -328,7 +339,7 @@ import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

@@ -10,6 +10,7 @@ import { enableNativeFollowSystem } from '@/utils/theme.js'
 import { confirmDialog } from '@/utils/dialog.js'
 import { catchUpCycles } from '@/api/cycle.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
+import { useUpdateStore } from '@/stores/update.js'
 
 export default {
   data() {
@@ -99,6 +100,17 @@ export default {
     // 6) 监听系统主题变化
     //    setUIStyle('auto') 已在前面调过（它同时是收到事件的前提）
     this.bindThemeListener()
+
+    // 7) 检查更新（静默）：每次开屏查一次 Gitee 最新发行版。
+    //    有新版本时，更新弹窗会在首页出现（UpdateDialog 挂在首页/我的/更新日志）；
+    //    无新版、网络失败一律静默，绝不在开屏时打扰用户。
+    //    延迟几秒再查：启动阶段数据库迁移、周期补记在排队，
+    //    别让一个更新检查挤占首屏资源。
+    // #ifdef APP-PLUS
+    setTimeout(() => {
+      useUpdateStore().checkForUpdate(true)
+    }, 3000)
+    // #endif
   },
 
   onShow() {

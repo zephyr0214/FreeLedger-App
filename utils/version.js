@@ -73,6 +73,25 @@ export function toVersionCode(version = APP_VERSION) {
 }
 
 /**
+ * 比较两个版本号（容忍 v 前缀、两段式，内部走 toSemver 补零）
+ *
+ * ★ 为什么不用字符串比较 ★
+ *   '1.9' > '1.10' 在字典序里成立但在语义上是倒退 ——
+ *   必须按数字逐段比。检查更新要用它判断「远端是否比本地新」。
+ *
+ * @returns {number} 1 = a 更新，-1 = b 更新，0 = 相同
+ */
+export function compareVersions(a, b) {
+  const pa = toSemver(String(a).replace(/^v/i, '')).split('.').map(Number)
+  const pb = toSemver(String(b).replace(/^v/i, '')).split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return 1
+    if (pa[i] < pb[i]) return -1
+  }
+  return 0
+}
+
+/**
  * 「自由记 v1.16」这种带前缀的展示文案
  */
 export const APP_VERSION_LABEL = `v${APP_VERSION}`

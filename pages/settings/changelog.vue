@@ -1,6 +1,27 @@
 <template>
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
-    <PageNav title="更新日志" @back="goBack" />
+    <PageNav title="更新日志" @back="goBack">
+      <template #right>
+        <!--
+          右上角「检查更新」
+
+          ★ 用 HeaderAction 而不是普通文字链接 ★
+            首页 / 账户页 / 统计页 / 我的页的右上角按钮都是这个组件
+            （胶囊底 + 主题色文字 + 同一套圆角 padding）。
+            这里必须复用同一份，视觉才和那四个页面完全一致 ——
+            自己写 .nav-action 会变成另一种样式（用户明确要求统一）。
+
+          ★ 为什么放在这一页 ★
+            用户翻到更新日志，本来就是在关心「有没有新版本」——
+            这一页是最自然的检查入口。
+          检查逻辑与「我的 → 检查更新」完全一致（共用 stores/update.js），
+          有新版本时弹出更新弹窗，没有就提示「已是最新」。
+        -->
+        <HeaderAction @action-click="onCheckUpdate">
+          {{ updateStore.checking ? '检查中' : '检查更新' }}
+        </HeaderAction>
+      </template>
+    </PageNav>
 
     <scroll-view class="page-scroll" scroll-y>
       <!--
@@ -62,6 +83,9 @@
 
     <!-- 全局弹窗宿主 -->
     <AppDialog />
+
+    <!-- 更新弹窗（右上角「检查更新」触发） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -69,13 +93,17 @@
 import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { useUpdateStore } from '@/stores/update.js'
 import { RELEASES } from '@/utils/version.js'
 
 export default {
-  components: { PageNav, AppDialog },
+  components: { PageNav, AppDialog, UpdateDialog, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
+    const updateStore = useUpdateStore()
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -83,13 +111,18 @@ export default {
     /** 更新日志（来自 utils/version.js，已按时间倒序） */
     const releases = RELEASES
 
+    /** 右上角：检查更新（手动，无新版/失败都有提示） */
+    function onCheckUpdate() {
+      updateStore.checkForUpdate(false)
+    }
+
     function goBack() {
       uni.navigateBack()
     }
 
     return {
-      settingStore, primaryColor, pageStyle,
-      releases, goBack
+      settingStore, updateStore, primaryColor, pageStyle,
+      releases, onCheckUpdate, goBack
     }
   }
 }

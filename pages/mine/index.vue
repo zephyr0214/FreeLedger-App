@@ -134,6 +134,9 @@
       @single-press="onAddTap"
       @hold-end="onAddHoldEnd"
     />
+
+    <!-- 更新弹窗（检查更新入口 / 开屏静默检查共用同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -151,9 +154,11 @@ import { queryOne } from '@/api/db/index.js'
 import { daysSinceLastBackup } from '@/api/backup.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { APP_VERSION } from '@/utils/version.js'
+import { useUpdateStore } from '@/stores/update.js'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 
 export default {
-  components: { AppHeader, HeaderAction, LineIcon, AppTabBar },
+  components: { AppHeader, HeaderAction, LineIcon, AppTabBar, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -240,7 +245,13 @@ export default {
            *   和记账内容无关 —— 和「主题外观 / 数据与备份」同一类。
            *   放这一组里，用户想找它时会自然往下翻到这里。
            */
-          { key: 'about', icon: 'about', name: '关于与说明', route: '/pages/settings/about' }
+          { key: 'about', icon: 'about', name: '关于与说明', route: '/pages/settings/about' },
+          /*
+           * 「检查更新」没有 route —— onMenuClick 对它走 store 动作
+           * （手动检查，无新版/失败都有提示），
+           * 有新版本时更新弹窗直接出现在本页（UpdateDialog 读 store）。
+           */
+          { key: 'update', icon: 'auto', name: '检查更新' }
         ]
       }
     ])
@@ -286,6 +297,11 @@ export default {
     }
 
     function onMenuClick(item) {
+      if (item.key === 'update') {
+        // 检查更新：手动检查，无新版/失败都有提示
+        useUpdateStore().checkForUpdate(false)
+        return
+      }
       if (item.route) {
         uni.navigateTo({ url: item.route })
       }
