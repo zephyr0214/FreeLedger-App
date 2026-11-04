@@ -202,13 +202,42 @@ console.log('=== 弹窗行为 ===')
 
   /*
    * ★ 用户要求「更新内容过长时要能够滑动，固定滑动区域大小」★
-   *   必须是固定 height，不能是 max-height（只封顶不兜底，
-   *   内容短时区域会缩水、卡片高度跳动）。
+   *
+   * 但这里有个更优先的约束：**按钮不能被裁掉**
+   * （用户反馈过「按钮显示不全」）。
+   * 上一版把正文写成固定 height: 46vh，卡片总高 = 46vh + 头 + 尾，
+   * 超出 max-height 后被 overflow:hidden 裁掉底部按钮。
+   *
+   * 现在的正确做法：
+   *   正文 max-height（有上限、可滚动、空间紧张时优先收缩）
+   *   头部 max-height 安全上限内 flex-shrink: 0（永不被压）
    */
-  check('滚动区域高度固定（height，不是 max-height）', /\.ud-notes\s*\{[^}]*height:\s*46vh/.test(dlg), true)
-  check('滚动区域不被 flex 压缩（flex-shrink: 0）', /\.ud-notes\s*\{[^}]*flex-shrink:\s*0/.test(dlg), true)
-  check('滚动区域没有残留 flex: 1（会和固定高度打架）', /\.ud-notes\s*\{[^}]*flex:\s*1;/.test(dlg), false)
+  /*
+   * ★ 断言要跳过注释 ★
+   *   代码注释里会提到「旧的错误写法」做说明
+   *   （例如注明 max-height 曾经是 min(88vh, 46vh + 260rpx)），
+   *   直接对全文正则会把注释也算进去，误判成代码里还有旧写法。
+   *   所以先剥掉 /* ... *\/ 和 // 注释再断言。
+   */
+  const dlgCss = dlg
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+
+  check('滚动区域有高度上限（max-height）', /\.ud-notes\s*\{[^}]*max-height:\s*46vh/.test(dlgCss), true)
+  check('滚动区域允许收缩（不写死 flex-shrink: 0）', /\.ud-notes\s*\{[^}]*flex-shrink:\s*0/.test(dlgCss), false)
+  check('滚动区域有 min-height: 0（flex 里能真正收缩）', /\.ud-notes\s*\{[^}]*min-height:\s*0/.test(dlgCss), true)
   check('内容溢出可滚动（scroll-y）', /<scroll-view class="ud-notes" scroll-y>/.test(dlg), true)
+
+  // 头尾固定：空间紧张时只让正文缩，按钮必须完整
+  check('底部按钮不收缩（flex-shrink: 0）', /\.ud-foot\s*\{[^}]*flex-shrink:\s*0/.test(dlgCss), true)
+  check('头部不收缩', /\.ud-head\s*\{[^}]*flex-shrink:\s*0/.test(dlgCss), true)
+  /*
+   * 卡片上限必须够放「正文 + 头 + 尾」。
+   * 上一版是 min(88vh, 46vh + 260rpx)，余量不够（头+尾就要 274rpx），
+   * 导致按钮被裁。现在改成单一 86vh。
+   */
+  check('卡片上限不再用不够用的 46vh + 260rpx 组合', /max-height:\s*min\(88vh, 46vh \+ 260rpx\)/.test(dlgCss), false)
+  check('卡片有 86vh 硬上限', /\.ud-sheet\s*\{[^}]*max-height:\s*86vh/.test(dlgCss), true)
 
   /*
    * ★ 通知栏进度：Android 13+ 必须申请运行时权限 ★
