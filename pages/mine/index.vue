@@ -251,7 +251,18 @@ export default {
            * （手动检查，无新版/失败都有提示），
            * 有新版本时更新弹窗直接出现在本页（UpdateDialog 读 store）。
            */
-          { key: 'update', icon: 'auto', name: '检查更新' }
+          { key: 'update', icon: 'auto', name: '检查更新' },
+          /*
+           * 【测试】强制更新弹窗
+           *
+           * ★ 为什么保留在正式界面上 ★
+           *   用户明确要求「新增一个测试更新的按钮…用来做测试」。
+           *   它跳过版本比较、直接弹窗，方便反复验证
+           *   「弹窗渲染 → 下载 → 通知栏进度 → 安装」这条链路，
+           *   不用为了测试专门发一个新版本。
+           *   名字带方括号【测试】前缀，避免普通用户误点后困惑。
+           */
+          { key: 'update-test', icon: 'auto', name: '【测试】强制更新弹窗' }
         ]
       }
     ])
@@ -300,6 +311,11 @@ export default {
       if (item.key === 'update') {
         // 检查更新：手动检查，无新版/失败都有提示
         useUpdateStore().checkForUpdate(false)
+        return
+      }
+      if (item.key === 'update-test') {
+        // 【测试】跳过版本比较，直接拉远端最新版并弹窗
+        useUpdateStore().forceCheckForUpdate()
         return
       }
       if (item.route) {

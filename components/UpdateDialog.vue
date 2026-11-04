@@ -38,10 +38,23 @@
           <text
             class="ud-badge"
             :style="{ color: primaryColor, backgroundColor: primaryColor + '1A' }"
-          >新版本</text>
+          >{{ info.forced ? '测试' : '新版本' }}</text>
         </view>
         <text v-if="sizeText" class="ud-size">{{ sizeText }}</text>
       </view>
+
+      <!--
+        测试模式的提示条
+        ★ 为什么要有 ★
+          测试入口跳过版本比较，弹窗里的版本可能**不比当前版本新**。
+          不加提示的话，测完容易误以为「有新版但装不上」
+          （其实是同一个版本，安卓会拒绝同版本覆盖安装）。
+      -->
+      <view
+        v-if="info.forced"
+        class="ud-tip"
+        :style="{ backgroundColor: primaryColor + '14', color: primaryColor }"
+      >测试模式：跳过了版本比较，下面是远端最新版</view>
 
       <!--
         发行说明
@@ -281,6 +294,16 @@ export default {
 .ud-size {
   font-size: 22rpx;
   color: var(--app-text-3);
+}
+
+/* 测试模式提示条 */
+.ud-tip {
+  margin: 20rpx 32rpx 0;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 
 /*

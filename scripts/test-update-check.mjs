@@ -265,5 +265,38 @@ console.log('=== 下载进度显示在系统通知栏 ===')
   check('导出 cancelDownload', /export function cancelDownload/.test(api), true)
 }
 
+console.log('=== 测试按钮：跳过版本比较，仍拉真实数据 ===')
+
+{
+  const mineSrc = read('pages/mine/index.vue')
+  const storeSrc = read('stores/update.js')
+  const apiSrc = read('api/update.js')
+  const dlgSrc = read('components/UpdateDialog.vue')
+
+  // 设置页入口（用户要求：系统设置里加一个测试更新按钮）
+  check('我的页有【测试】强制更新弹窗条目', /【测试】强制更新弹窗/.test(mineSrc), true)
+  check('点击走 forceCheckForUpdate', /forceCheckForUpdate\(\)/.test(mineSrc), true)
+  check('store 有 forceCheckForUpdate action', /async forceCheckForUpdate\(\)/.test(storeSrc), true)
+
+  /*
+   * ★ 关键：force 只是跳过版本比较，不是造一个假版本 ★
+   *   版本号/说明/下载直链仍然来自 Gitee 的真实响应。
+   */
+  check('force 传给 fetchCheck', /fetchCheck\(\{ force: true \}\)/.test(storeSrc), true)
+  check('resolveUpdate 支持 force 选项', /opt\.force/.test(apiSrc), true)
+  check(
+    'force 时才跳过版本比较',
+    /if \(!opt\.force\) \{[\s\S]{0,200}compareVersions\(version, current\)/.test(apiSrc),
+    true
+  )
+  // force 仍要求远端真有 APK —— 否则测不了下载
+  check('force 下仍要求有 apk 附件', /find\(\(a\) => \/\\\.apk\$\/i\.test/.test(apiSrc), true)
+
+  // 弹窗要标明是测试模式，避免误以为真有新版
+  check('返回结果带 forced 标记', /forced: !!opt\.force/.test(apiSrc), true)
+  check('弹窗显示「测试」徽标', /info\.forced \? '测试' : '新版本'/.test(dlgSrc), true)
+  check('弹窗有测试模式提示条', /ud-tip/.test(dlgSrc) && /测试模式/.test(dlgSrc), true)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)
