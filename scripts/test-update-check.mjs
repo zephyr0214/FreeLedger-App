@@ -174,17 +174,66 @@ console.log('=== 弹窗行为 ===')
   const dlg = read('components/UpdateDialog.vue')
   check('「下次再说」按钮', /下次再说/.test(dlg), true)
   check('「立即下载更新」按钮', /立即下载更新/.test(dlg), true)
-  check('下载进度条', /ud-progress-fill/.test(dlg), true)
-  check('段落按行渲染（uni-app 会吃掉换行）', /noteLines/.test(dlg), true)
   // z-index 约定：页面内浮层 ≤ 9，低于库弹层 15，保证失败确认框能盖上来
   check('z-index 符合项目约定（9）', /z-index:\s*9/.test(dlg), true)
+
+  /*
+   * ★ 用户反馈「弹窗太丑」，要求内部文本格式参考更新日志页 ★
+   *   所以必须：解析 markdown 段落（## 标题 / - 条目），
+   *   按 section + 圆点列表渲染，而不是把每行平铺成灰字。
+   */
+  check('解析 markdown 段落（sections）', /const sections = computed/.test(dlg), true)
+  check('按段落渲染（v-for sec）', /v-for="\(sec, si\) in sections"/.test(dlg), true)
+  check('段落标题样式（同更新日志 .rel-section-title）', /ud-section-title/.test(dlg), true)
+  check('条目用圆点 + 正文（同更新日志 .rel-item）', /ud-dot/.test(dlg) && /ud-text/.test(dlg), true)
+  check('版本号 + 主题色小标记（同更新日志 .rel-head）', /ud-version/.test(dlg) && /ud-badge/.test(dlg), true)
+  // 底部弹出 sheet，与「修改余额」等弹层同一形态
+  check('底部 sheet 形态（不是居中卡片）', /align-items:\s*flex-end/.test(dlg), true)
+
+  /*
+   * ★ 用户要求「更新时不要在应用里显示更新进度，显示在通知栏」★
+   *   所以弹窗内不能再有进度条，点下载后弹窗立刻关。
+   */
+  check('弹窗内没有进度条', /ud-progress/.test(dlg), false)
+  check('提示去看通知栏', /通知栏/.test(dlg), true)
 
   const store = read('stores/update.js')
   check('状态机有 downloading 阶段', /phase = 'downloading'/.test(store), true)
   check('状态机有 installing 阶段', /phase = 'installing'/.test(store), true)
   check('静默模式无新版不打扰', /if \(!silent\) uni\.showToast\(\{ title: '当前已是最新版本'/.test(store), true)
   check('避免重复检查', /if \(this\.checking\) return false/.test(store), true)
-  check('下载中取消会 abort', /abortDownload\(\)/.test(store), true)
+  // 下载中取消要连通知栏一起撤
+  check('取消走 cancelDownload（连通知栏一起撤）', /cancelDownload\(\)/.test(store), true)
+  // 点下载立刻收弹窗，不等下载完
+  check('点下载后立刻关闭弹窗', /this\.dialogVisible = false/.test(store), true)
+}
+
+/* --------------------------------------------- 4. 通知栏进度 */
+
+console.log('=== 下载进度显示在系统通知栏 ===')
+
+{
+  const api = read('api/update.js')
+
+  check('有通知栏进度器', /createProgressNotifier/.test(api), true)
+  check('用 Android NotificationChannel（8+ 必需）', /NotificationChannel/.test(api), true)
+  /*
+   * ★ IMPORTANCE_LOW ★
+   *   更新下载不该响铃/弹横幅，只在通知栏安静地画进度条。
+   */
+  check('渠道重要性是 LOW（不响不弹）', /IMPORTANCE_LOW/.test(api), true)
+  check('用 setProgress 画标准进度条', /setProgress\(100, pct, false\)/.test(api), true)
+  check('setOnlyAlertOnce 避免反复响', /setOnlyAlertOnce\(true\)/.test(api), true)
+  check('下载完成通知变「点按安装」', /点按完成安装/.test(api), true)
+  check('失败/取消撤掉通知', /nm\.cancel\(NOTIFY_ID\)/.test(api), true)
+
+  /*
+   * ★ 通知不可用必须静默降级 ★
+   *   个别定制 ROM 拿不到 NotificationManager。
+   *   进度显示是锦上添花，绝不能让下载本身失败。
+   */
+  check('通知不可用时降级为空实现', /return \{ update\(\) \{\}, done\(\) \{\}, fail\(\) \{\} \}/.test(api), true)
+  check('导出 cancelDownload', /export function cancelDownload/.test(api), true)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
