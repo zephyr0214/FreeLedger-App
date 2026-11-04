@@ -187,8 +187,11 @@ console.log('=== 弹窗行为 ===')
   check('段落标题样式（同更新日志 .rel-section-title）', /ud-section-title/.test(dlg), true)
   check('条目用圆点 + 正文（同更新日志 .rel-item）', /ud-dot/.test(dlg) && /ud-text/.test(dlg), true)
   check('版本号 + 主题色小标记（同更新日志 .rel-head）', /ud-version/.test(dlg) && /ud-badge/.test(dlg), true)
-  // 底部弹出 sheet，与「修改余额」等弹层同一形态
-  check('底部 sheet 形态（不是居中卡片）', /align-items:\s*flex-end/.test(dlg), true)
+  // 居中卡片形态（用户要求：不是从下面弹出，要中间弹出）
+  check('居中弹出（align-items: center）', /align-items:\s*center/.test(dlg), true)
+  check('不再贴底（没有 flex-end）', /align-items:\s*flex-end/.test(dlg), false)
+  check('左右留白的卡片宽度（不是 100%）', /\.ud-sheet\s*\{[^}]*width:\s*640rpx/.test(dlg), true)
+  check('四角全圆（不是只有上方两角）', /border-radius:\s*24rpx;/.test(dlg), true)
 
   /*
    * ★ 用户要求「更新时不要在应用里显示更新进度，显示在通知栏」★

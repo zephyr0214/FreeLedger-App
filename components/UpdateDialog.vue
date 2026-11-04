@@ -3,10 +3,13 @@
     更新弹窗
 
     ★ 视觉与应用其他页面一致 ★
-      弹层本身是底部弹出的 sheet（和「修改余额」「组合成员选择」同一套
-      圆角上盖 + 遮罩的做法），内部发行说明按**更新日志页的卡片样式**渲染：
-        段落小标题（新增 / 修复…）+ 圆点列表项。
+      弹层是**居中卡片**（四角全圆、左右留白），内部发行说明按
+      **更新日志页的卡片样式**渲染：段落小标题（新增 / 修复…）+ 圆点列表项。
       而不是之前那样把所有行平铺成一堆灰字。
+
+      （曾试过底部弹出的 sheet 形态，用户明确要求改回中间弹出 ——
+        更新提示是「读一下再决定」，居中卡片比贴底的 sheet 更像
+        一个需要用户注意的提示，也与 AppDialog 的确认框同族。）
 
     ★ 文本格式解析 ★
       Gitee 发行版的 body 是 markdown：
@@ -210,23 +213,31 @@ export default {
    */
   z-index: 9;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
 }
 
 /*
- * 底部弹出的 sheet —— 与「修改余额」「组合成员选择」同一套形态：
- * 圆角上盖、贴着屏幕底部、留安全区内边距。
- * 用底部弹而不是居中弹：这类「确认型」操作在本 App 里一律走底部，
- * 居中卡片只用于 AppDialog 的短确认。
+ * 居中卡片（用户明确要求：不是从下面弹出，要在中间）
+ *
+ * ★ 和底部 sheet 的区别 ★
+ *   底部 sheet 贴着屏幕下缘、只有上方两个圆角、宽 100%；
+ *   这里是居中浮起的卡片：四角全圆、左右留边、高度受内容约束。
+ *
+ * ★ 为什么宽度用 640rpx 而不是 100% ★
+ *   居中卡片必须有左右留白，否则在宽屏上会变成一条横幅。
+ *   640rpx ≈ 320px，在常见手机上左右各留约 40rpx，
+ *   和 AppDialog 的确认框宽度接近，视觉上是同一族群。
  */
 .ud-sheet {
-  width: 100%;
-  background-color: var(--app-bg);
-  border-radius: 28rpx 28rpx 0 0;
+  width: 640rpx;
+  background-color: var(--app-card);
+  border-radius: 24rpx;
   display: flex;
   flex-direction: column;
-  max-height: 82vh;
-  padding-bottom: env(safe-area-inset-bottom);
+  max-height: 76vh;
+  /* 内容多时底部按钮跟着卡片走，卡片自己撑高到上限再让正文滚动 */
+  overflow: hidden;
 }
 
 /* 头部：版本号 + 新版本标记 + 大小 —— 结构对齐更新日志页 .rel-head */
@@ -234,8 +245,10 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 32rpx 32rpx 20rpx;
+  padding: 32rpx 32rpx 24rpx;
   border-bottom: 1rpx solid var(--app-line);
+  /* 卡片顶部圆角内不能溢出内容 */
+  flex-shrink: 0;
 }
 
 .ud-head-left {
@@ -263,10 +276,20 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 发行说明区 */
+/*
+ * 发行说明区
+ *
+ * ★ max-height 而不是固定高度 ★
+ *   内容少时卡片自然收缩（短说明不会有空白洞），
+ *   内容多时到上限后本区滚动、头部与底部按钮固定。
+ *   flex: 1 + min-height: 0 是让 scroll-view 在 flex 列里
+ *   正确收缩的必要条件（否则它会撑破卡片）。
+ */
 .ud-notes {
   padding: 24rpx 32rpx 8rpx;
-  max-height: 52vh;
+  max-height: 50vh;
+  flex: 1;
+  min-height: 0;
 }
 
 .ud-section {
@@ -312,11 +335,13 @@ export default {
   line-height: 1.7;
 }
 
-/* 底部按钮：与「修改余额」弹层同款 */
+/* 底部按钮：左右并排，卡片内收边距 */
 .ud-foot {
   display: flex;
   gap: 20rpx;
-  padding: 20rpx 32rpx 32rpx;
+  padding: 24rpx 32rpx 32rpx;
+  /* 卡片底部圆角内不能溢出，且不随正文滚动 */
+  flex-shrink: 0;
 }
 
 .ud-btn-cancel,
