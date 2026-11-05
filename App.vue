@@ -3,6 +3,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { openDb } from '@/api/db/index.js'
 import { seedDefaultCategories } from '@/api/category.js'
 import { writeAllTodaySnapshots } from '@/api/account.js'
+import { pruneOldRates } from '@/api/rateStore.js'
 import { getAllSettings, setSettings } from '@/api/settings.js'
 import { autoBackup } from '@/api/backup.js'
 import { toDayKey } from '@/utils/date.js'
@@ -95,6 +96,39 @@ export default {
       }
     } catch (e) {
       console.warn('[app] 自动备份失败:', e.message)
+    }
+
+    /*
+     * 5b) 清理过期汇率（每天首次启动）
+     *
+     * ★ 为什么放这里而不是 openDb 里 ★
+     *   清理是纯维护任务，不能拖慢启动关键路径
+     *   （openDb 里有迁移要跑）。挂在「一天一次」这批任务里最合适，
+     *   和自动备份同一时机。
+     *
+     * ★ 只保留最近 30 天 ★
+     *   汇率表是按天 × 币种存的（每天 16 行），
+     *   而打开记账面板就会落一份当日快照 ——
+     *   不清的话一年 5,840 行、十年 5.8 万行。
+     *   数据量本身不致命，但它是纯缓存，留着没价值。
+     *
+     * ★ 清理不影响已有账目 ★
+     *   每笔交易的汇率快照存在 txn.exchange_rate 里，永久保存。
+     *   这里删的只是「历史查询缓存」。
+     *
+     * ★ 用 lastRatePruneDay 做每日闸门 ★
+     *   不加的话每次冷启动都会跑一次 DELETE 查询，
+     *   虽然很快但没必要。
+     */
+    try {
+      const settings = await getAllSettings()
+      const today = toDayKey()
+      if (settings.lastRatePruneDay !== today) {
+        await pruneOldRates(today)
+        await setSettings({ lastRatePruneDay: today })
+      }
+    } catch (e) {
+      console.warn('[app] 清理汇率失败:', e.message)
     }
 
     // 6) 监听系统主题变化

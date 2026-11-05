@@ -374,5 +374,41 @@ console.log('=== 备注噪声清理（用户反馈「花了」这种滑稽残词
   check('提示词禁止把动词当备注', /不能是 "花了"|不要.*填「花了」/.test(ai), true)
 }
 
+
+console.log('=== 汇率历史清理（只保留最近 30 天）===')
+
+{
+  /*
+   * ★ 为什么需要清理 ★
+   *   汇率表按「天 × 币种」存，每天 16 行；
+   *   而打开记账面板就会落一份当日快照 ——
+   *   不清的话一年 5,840 行、十年 5.8 万行。
+   *   数据量本身不致命（有主键索引、查询仍是毫秒级），
+   *   但它是纯缓存，留着没价值：99% 的日期没有外币交易。
+   *
+   * ★ 清理不会丢账 ★
+   *   每笔交易的汇率快照存在 txn.exchange_rate 里、永久保存。
+   *   这里删的只是「历史查询缓存」。
+   */
+  const store = read('api/rateStore.js')
+  const app = read('App.vue')
+  const dbSrc = read('api/db/index.js')
+
+  check('保留天数是 30', /RATE_RETAIN_DAYS = 30/.test(store), true)
+  check('导出清理函数', /export async function pruneOldRates/.test(store), true)
+  check('用 SQLite 的 date() 算边界（比 JS 算日期稳）', /date\(\?, \?\)/.test(store), true)
+  check('先统计再删除（便于日志）', /SELECT COUNT\(\*\) AS c FROM exchange_rate WHERE day </.test(store), true)
+  /*
+   * ★ 清理失败不能影响功能 ★
+   *   它是纯维护任务，任何异常都只能 warn，不能让 App 起不来。
+   */
+  check('清理失败只 warn 不抛错', /清理过期汇率失败/.test(store), true)
+
+  // 挂在 App.vue 的每日任务里，不进 openDb 关键路径
+  check('App.vue 启动时调用清理', /pruneOldRates\(today\)/.test(app), true)
+  check('每天只清一次（lastRatePruneDay 闸门）', /lastRatePruneDay/.test(app), true)
+  check('清理逻辑不在数据库迁移里（不拖慢启动）', /function migrateMultiCurrency[\s\S]{0,900}pruneOldRates/.test(dbSrc), false)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

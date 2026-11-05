@@ -64,3 +64,59 @@ export async function getDayRates(day) {
     return {}
   }
 }
+
+/** 汇率表保留天数（用户指定 30 天） */
+export const RATE_RETAIN_DAYS = 30
+
+/**
+ * 清理过期的汇率历史
+ *
+ * ★ 为什么必须清 ★
+ *   汇率表是**按天 × 币种**存的：每天 16 个币种。
+ *   而 fetchLatestRates() 每次打开记账面板都会落一份当日快照，
+ *   周期补记还会按天写入历史汇率 ——
+ *   不清的话一年就是 16 × 365 ≈ 5,840 行，十年 5.8 万行。
+ *   虽然这点数据量不致命（有主键索引、查询仍是毫秒级），
+ *   但它是纯缓存性质的数据，留着没有价值：
+ *   99% 的日期用户根本没有外币交易。
+ *
+ * ★ 清理会不会丢账？不会 ★
+ *   真正的汇率快照存在 txn.exchange_rate 里，跟着交易永久保存。
+ *   这张表只是「历史查询缓存」，删了只影响
+ *   「30 天以前的老周期补记时能否按当天汇率折算」——
+ *   那种情况会退回按人民币记录并写日志，不影响已有账目。
+ *
+ * ★ 为什么是 30 天 ★
+ *   用户指定。记账场景里需要回溯的历史汇率基本都在这个窗口内
+ *   （周期补记最多补最近几个月的漏记，30 天覆盖绝大多数情况）。
+ *
+ * @param {string} today 今天的 YYYY-MM-DD（用于日志与边界计算）
+ * @returns {Promise<number>} 删掉的行数
+ */
+export async function pruneOldRates(today) {
+  try {
+    /*
+     * 用 SQLite 的 date() 算边界：
+     *   date(?, '-30 days') 比在 JS 里算日期更稳（不受时区/夏令时影响），
+     *   而且这是「按天字符串比较」——库里的 day 是 'YYYY-MM-DD'，
+     *   字典序与时间序一致，直接 < 比较即可。
+     */
+    const rows = await query(
+      'SELECT COUNT(*) AS c FROM exchange_rate WHERE day < date(?, ?)',
+      [today, `-${RATE_RETAIN_DAYS} days`]
+    )
+    const n = Number((rows && rows[0] && rows[0].c) || 0)
+    if (n === 0) return 0
+
+    await execute(
+      'DELETE FROM exchange_rate WHERE day < date(?, ?)',
+      [today, `-${RATE_RETAIN_DAYS} days`]
+    )
+    console.log(`[rate] 清理过期汇率 ${n} 行（保留最近 ${RATE_RETAIN_DAYS} 天）`)
+    return n
+  } catch (e) {
+    // 清理失败不能影响任何功能 —— 它是纯维护任务
+    console.warn('[rate] 清理过期汇率失败:', e && e.message)
+    return 0
+  }
+}

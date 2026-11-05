@@ -958,6 +958,7 @@ export async function parseMessageToTransactions(text, ctx) {
      例：「在东京吃饭花了 2000 日元」→ note 应为 "东京"，"吃饭" 归分类，不要重复。
    - 如果去掉后什么都不剩，就给 null —— **不要**填「花了」「用了」这种没有信息量的残词。
    - 不要自己添加币种或金额（系统会自动加原币标记）。
+   - 不要完全使用用户消息原文。
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
