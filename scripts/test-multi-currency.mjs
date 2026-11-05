@@ -287,5 +287,43 @@ console.log('=== 币种下拉箭头：线性图标 + 真实色值 ===')
   check('不再有独立的折算行样式', /fx-converted-line/.test(panel), false)
 }
 
+console.log('=== AI 速记链路：币种必须被消费，不能只识别不用 ===')
+
+{
+  /*
+   * ★ 用户反馈的真 bug ★
+   *   说「打车花了 210 港币 / 210 美元」都识别不出来。
+   *   排查发现解析层是对的（currency=HKD、amount=210 原币），
+   *   但 QuickAddBar 落库时直接用了 item.amount_cents ——
+   *   **完全忽略了 item.currency**，把 210 港币当成 210 元人民币存了。
+   *
+   *   这是「上游产出了字段、下游没消费」的典型漏接。
+   *   光测解析层根本发现不了，必须测落库那一环。
+   */
+  const quick = read('components/QuickAddBar.vue')
+
+  check('落库前读取 item.currency', /item\.currency/.test(quick), true)
+  check('外币时拉取汇率', /fetchLatestRates\(\)/.test(quick), true)
+  check('按汇率折算金额', /Math\.round\(item\.amount_cents \* rate\)/.test(quick), true)
+  check('落库写入原币快照', /original_currency: originalCurrency/.test(quick), true)
+  check('备注追加原币标记', /buildOriginalNoteTag\(originalAmountCents, originalCurrency\)/.test(quick), true)
+
+  /*
+   * ★ 汇率失败要跳过该笔并告知，绝不能按 1:1 记成人民币 ★
+   *   按 1:1 记会让账目直接错掉，比不记更糟。
+   */
+  check('汇率失败时跳过该笔', /rateErrors\.push\(/.test(quick), true)
+  check('汇率失败有明确提示', /汇率获取失败|汇率/.test(quick), true)
+
+  // 同币种多笔只拉一次汇率（避免一句话多笔时重复请求）
+  check('同币种汇率只拉一次', /rateCache/.test(quick), true)
+
+  // 解析层必须产出 currency 字段
+  const ai = read('api/aiParse.js')
+  check('解析层返回 currency', /currency,/.test(ai) && /const currency = SUPPORTED_CURRENCIES/.test(ai), true)
+  check('提示词含币种白名单', /CURRENCY_CODES/.test(ai), true)
+  check('提示词明令禁止输出汇率', /绝对不要输出汇率/.test(ai), true)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

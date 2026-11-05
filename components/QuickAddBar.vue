@@ -69,6 +69,8 @@ import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
 import { combineDayTime } from '@/utils/date.js'
+import { buildOriginalNoteTag, applyNoteTag } from '@/utils/currency.js'
+import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { glassVars } from '@/utils/theme.js'
 import { pushLayer } from '@/utils/layerStack.js'
@@ -254,15 +256,62 @@ export default {
           baseDate: new Date()
         })
 
+        /*
+         * ★ 外币折算（AI 只识别币种，汇率和计算全在这里做）★
+         *
+         *   解析层返回的 amount_cents 是**原币金额**，
+         *   currency 是币种代码（'CNY' 表示人民币）。
+         *   这一步负责：
+         *     1. 外币 -> 取当日汇率（缓存优先，走 exchangeRate 那套多源降级）
+         *     2. amount_cents 改成折算后的人民币分再入库
+         *     3. 原币金额/币种/汇率作为快照字段一起带上
+         *     4. 备注自动追加「HKD 210」这类原币标记
+         *   ★ 汇率拿不到就跳过这一笔并说明原因 ★
+         *     按 1:1 记成人民币会让账目直接错，比不记更糟。
+         */
+        const rateCache = {}
+        const rateErrors = []
+
         // 逐条落库
         let saved = 0
         const failures = []
 
         for (const item of result.items) {
           try {
+            let amountCents = item.amount_cents
+            let originalCurrency = null
+            let originalAmountCents = null
+            let exchangeRate = null
+
+            const code = String(item.currency || 'CNY').toUpperCase()
+            if (code !== 'CNY') {
+              // 同一次解析里多条同币种，只拉一次
+              if (!(code in rateCache)) {
+                try {
+                  const res = await fetchLatestRates()
+                  rateCache[code] = Number(res.rates[code]) || 0
+                } catch (e) {
+                  rateCache[code] = 0
+                }
+              }
+              const rate = rateCache[code]
+              if (!rate || rate <= 0) {
+                rateErrors.push(`${code} 汇率获取失败`)
+                continue
+              }
+              originalAmountCents = item.amount_cents
+              originalCurrency = code
+              exchangeRate = rate
+              amountCents = Math.round(item.amount_cents * rate)
+              if (amountCents <= 0) {
+                rateErrors.push(`${code} 折算后金额无效`)
+                continue
+              }
+            }
+
             await txnStore.create({
               type: item.type,
-              amount_cents: item.amount_cents,
+              amount_cents: amountCents,
               account_id: item.account_id,
               to_account_id: item.to_account_id,
               category_id: item.category_id,
@@ -275,9 +324,19 @@ export default {
                * 备注：优先用模型给的备注，没有就退回用户原话。
                * 用户原话仍作为「备注」保存 —— 这是他自己输入的说明，
                * 和已停用的「速记原文」不是同一件事。
+               * 外币再追加原币标记（applyNoteTag 幂等，不会重复叠）。
                */
-              note: item.note || pendingText,
-              tag_ids: item.tag_ids
+              note: applyNoteTag(
+                item.note || pendingText,
+                originalCurrency
+                  ? buildOriginalNoteTag(originalAmountCents, originalCurrency)
+                  : null
+              ),
+              tag_ids: item.tag_ids,
+              // 外币快照（人民币为 null）
+              original_currency: originalCurrency,
+              original_amount_cents: originalAmountCents,
+              exchange_rate: exchangeRate
             })
             saved++
           } catch (e) {
@@ -302,14 +361,27 @@ export default {
         }
 
         // 部分失败或校验警告要告知用户
-        const notes = [...result.warnings, ...failures]
-        if (notes.length > 0 && saved > 0) {
-          setTimeout(() => {
-            alertDialog({
-              title: '部分记录未保存',
-              content: notes.slice(0, 5).join('\n')
+        /*
+         * ★ 汇率失败必须单独说明 ★
+         *   它和普通校验失败不同：用户以为记上了，其实那笔被跳过了。
+         *   合并进 failures 一起弹，标题也要能覆盖这种情况。
+         */
+        const notes = [...result.warnings, ...rateErrors, ...failures]
+        if (notes.length > 0) {
+          if (saved > 0) {
+            setTimeout(() => {
+              alertDialog({
+                title: rateErrors.length > 0 ? '部分记录未保存（汇率获取失败）' : '部分记录未保存',
+                content: notes.slice(0, 5).join('\n')
+              })
+            }, 800)
+          } else if (rateErrors.length > 0) {
+            // 一笔都没存上，且原因是汇率 —— 直接说清楚
+            await alertDialog({
+              title: '未能记账',
+              content: `${rateErrors.slice(0, 3).join('\n')}\n\n外币记账需要联网获取汇率，请检查网络后重试。`
             })
-          }, 800)
+          }
         }
       } catch (e) {
         await alertDialog({
