@@ -287,6 +287,27 @@ export async function listTodayTransactions(limit = 20) {
   return listTransactions({ startDay: toDayKey(), endDay: toDayKey(), limit })
 }
 
+/**
+ * 取某一天的全部流水（不限条数）
+ *
+ * ★ 与 listTodayTransactions 的区别 ★
+ *   那个有 limit 上限（默认 20），只适合「今日概览」这类场景。
+ *   首页「最近收支」的新规则是「当日 >= 5 条时显示**全部**当日记录」——
+ *   这时 20 条的上限会让记了 25 笔的那天少显示 5 笔，
+ *   所以需要一个不设上限的查询。
+ *
+ * ★ 为什么给一个很大的上限而不是完全去掉 LIMIT ★
+ *   listTransactions 的 SQL 里 LIMIT 是必填参数。
+ *   一天记几百笔是小概率事件，给 500 作为实际上限即可，
+ *   既避免无界查询，也远超任何人一天的记账量。
+ *
+ * @param {string} [day] YYYY-MM-DD，默认今天
+ * @returns {Promise<Array>}
+ */
+export async function listAllTransactionsOfDay(day = toDayKey()) {
+  return listTransactions({ startDay: day, endDay: day, limit: 500 })
+}
+
 /** 最近 N 笔（今日为空时的回退） */
 export async function listRecentTransactions(limit = 5) {
   return listTransactions({ limit })

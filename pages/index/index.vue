@@ -199,7 +199,10 @@
               </view>
             </view>
 
-            <!-- 按日期分组的最近 5 条 -->
+            <!--
+              按日期分组的最近收支
+              显示范围见 recentDisplayList：当日 >= 5 条显示全部当日，否则最近 5 条
+            -->
             <block v-for="group in recentGroups" :key="group.day">
               <view class="recent-day-head">
                 <text class="recent-day-title">{{ group.title }}</text>
@@ -337,6 +340,7 @@ import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { handleBackPress } from '@/utils/layerStack.js'
+import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
 export default {
   components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, UpdateDialog },
@@ -404,9 +408,34 @@ export default {
     })
 
     /**
-     * 最近收支：近 5 条，按日期分组。
-     * 数据源统一走 txnStore.recentList（最近 5 笔），
-     * 不再优先显示今天的 —— 「最近收支」顾名思义就是最近的 5 条。
+     * 最近收支的显示列表（用户定规则，见 utils/recentDisplay.js）
+     *
+     * ★ 规则 ★
+     *   当日记录 < 5 条  -> 显示最近 5 条（可能跨好几天）
+     *   当日记录 >= 5 条 -> 显示**全部**当日记录
+     *
+     * ★ 为什么数据源是 todayAll 而不是 todayList ★
+     *   todayAll 是 listAllTransactionsOfDay()（不限条数）；
+     *   todayList 是 listTodayTransactions(20)，有 20 条上限 ——
+     *   用它做数据源，记了 25 笔的那天会少显示 5 笔，
+     *   和「显示全部当日记录」直接矛盾。
+     *
+     * 规则本身抽在纯函数里，边界条件（4/5 两条）有单测钉着。
+     */
+    const recentDisplayList = computed(() =>
+      pickRecentDisplayList({
+        todayAll: txnStore.todayAll || [],
+        recentList: txnStore.recentList || []
+      })
+    )
+
+    /** 当前是否处于「显示全部当日」模式（标题可据此标注范围） */
+    const showingAllToday = computed(() =>
+      isShowingAllToday(txnStore.todayAll || [])
+    )
+
+    /**
+     * 按日期分组的最近收支
      *
      * ★ 分组右边的「支出 / 收入」必须是当日全部流水的合计 ★
      *   以前这个数是**把显示出来的这几条**累加出来的：
@@ -414,8 +443,8 @@ export default {
      *     那一组右边就只写这 2 笔的合计，和当天的真实收支对不上，
      *     看着像少记了钱。
      *   现在改成查「按天聚合的全部流水」（txnStore.allDailyTotals）：
-     *     列表仍然只显示最近 5 条（那是列表的职责），
-     *     但右侧的合计是该日真实发生的全部收支。
+     *     右侧的合计永远是该日真实发生的全部收支，
+     *     与列表里露出几条无关。
      *
      * ★ 为什么用 allDailyTotals 而不是 dailyTotals ★
      *   dailyTotals 只含当月，而「最近 5 条」可能跨月
@@ -423,7 +452,7 @@ export default {
      *   跨月的那天在 dailyTotals 里查不到，合计就会变成 0。
      */
     const recentGroups = computed(() => {
-      const list = txnStore.recentList || []
+      const list = recentDisplayList.value
       const totals = txnStore.allDailyTotals || {}
       const groups = []
       for (const txn of list) {
@@ -711,7 +740,7 @@ export default {
       showPanel, panelPreset,
       selectedDay, showQuickAdd, parsing, parsingText,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
-      totalBudget, categoryBudgets, budgetRemaining, recentGroups,
+      totalBudget, categoryBudgets, budgetRemaining, recentGroups, showingAllToday,
       shiftCalMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,

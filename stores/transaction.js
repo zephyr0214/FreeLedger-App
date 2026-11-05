@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia'
 import {
   listTransactions, listTodayTransactions, listRecentTransactions,
+  listAllTransactionsOfDay,
   createTransaction, updateTransaction, deleteTransaction, restoreTransaction,
   getDailyTotals, getAllDailyTotals, getTransaction
 } from '@/api/transaction.js'
@@ -15,6 +16,16 @@ export const useTransactionStore = defineStore('transaction', {
   state: () => ({
     todayList: [],
     recentList: [],
+    /**
+     * 今天的**全部**流水（不限条数）
+     *
+     * ★ 为什么单独一份，不复用 todayList ★
+     *   todayList 是 listTodayTransactions(20)，有 20 条上限，
+     *   只够「今日概览」用。首页最近收支的新规则要求
+     *   「当日 >= 5 条时显示全部当日记录」——
+     *   用带上限的那个，记了 25 笔的那天就会少显示 5 笔。
+     */
+    todayAll: [],
     overview: {
       monthKey: '',
       monthExpense: 0,
@@ -59,20 +70,23 @@ export const useTransactionStore = defineStore('transaction', {
       this.loading = true
       try {
         this.currentMonth = mk
-        const [overview, today, recent, daily, allDaily] = await Promise.all([
+        const [overview, today, recent, daily, allDaily, todayAll] = await Promise.all([
           getOverview(mk),
           listTodayTransactions(20),
           listRecentTransactions(5),
           getDailyTotals(mk),
           // 首页分组金额要用「当日全部流水」的合计，
           // 一次全表按天聚合，条数很少、代价可以忽略
-          getAllDailyTotals()
+          getAllDailyTotals(),
+          // 今日全部流水（不限条数）—— 首页最近收支的新规则要用
+          listAllTransactionsOfDay()
         ])
         this.overview = overview
         this.todayList = today
         this.recentList = recent
         this.dailyTotals = daily
         this.allDailyTotals = allDaily
+        this.todayAll = todayAll
       } finally {
         this.loading = false
       }
