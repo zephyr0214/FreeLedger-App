@@ -65,7 +65,8 @@
                 class="currency-code"
                 :style="{ color: form.currency === 'CNY' ? 'var(--app-text-2)' : primaryColor }"
               >{{ form.currency }}</text>
-              <text class="currency-arrow">▾</text>
+              <!-- 线性向下箭头（不用 ▾ 字符：字体差异大、跟图标库不统一） -->
+              <LineIcon name="chevronDown" :size="14" color="var(--app-text-3)" />
             </view>
           </picker>
           <view class="amount-row">
@@ -302,6 +303,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import CategoryPickerSheet from '@/components/CategoryPickerSheet.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -320,7 +322,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet },
+  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -1262,10 +1264,19 @@ export default {
   min-width: 0;
 }
 
+/*
+ * 币种选择器：缩写 + 右侧箭头（横排）
+ *
+ * ★ 为什么改成 row 而不是 column ★
+ *   原来箭头在文字**下方**，看起来像「CNY 下面挂了个小三角」，
+ *   既占高度又不像下拉控件。改成横排后是标准的
+ *   「值 + 展开箭头」形态，和系统下拉框的观感一致。
+ */
 .currency-picker {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  gap: 6rpx;
   padding: 8rpx 16rpx;
   border-radius: 14rpx;
   background-color: var(--app-card-2);
@@ -1275,12 +1286,6 @@ export default {
 .currency-code {
   font-size: 30rpx;
   font-weight: 600;
-  line-height: 1.2;
-}
-
-.currency-arrow {
-  font-size: 16rpx;
-  color: var(--app-text-3);
   line-height: 1.2;
 }
 

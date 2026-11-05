@@ -67,7 +67,8 @@
                 class="currency-code"
                 :style="{ color: form.currency === 'CNY' ? 'var(--app-text-2)' : primaryColor }"
               >{{ form.currency }}</text>
-              <text class="currency-arrow">▾</text>
+              <!-- 线性向下箭头，与记账面板一致 -->
+              <LineIcon name="chevronDown" :size="14" color="var(--app-text-3)" />
             </view>
           </picker>
           <view class="amount-row">
@@ -254,6 +255,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import CategoryPickerSheet from '@/components/CategoryPickerSheet.vue'
+import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
@@ -278,7 +280,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet },
+  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -1073,10 +1075,12 @@ export default {
   min-width: 0;
 }
 
+/* 币种选择器：缩写 + 右侧箭头（横排，与记账面板一致） */
 .currency-picker {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  gap: 6rpx;
   padding: 8rpx 16rpx;
   border-radius: 14rpx;
   background-color: var(--app-card-2);
@@ -1086,12 +1090,6 @@ export default {
 .currency-code {
   font-size: 30rpx;
   font-weight: 600;
-  line-height: 1.2;
-}
-
-.currency-arrow {
-  font-size: 16rpx;
-  color: var(--app-text-3);
   line-height: 1.2;
 }
 
