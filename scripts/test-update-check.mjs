@@ -118,28 +118,27 @@ check(
 )
 check('assets 字段缺失', resolveUpdate({ tag_name: 'v1.16.3' }, '1.16.2').hasUpdate, false)
 
-console.log('=== force（【测试】强制更新弹窗）===')
+console.log('=== 测试入口已删除（App 内不再能强制弹窗）===')
 {
   /*
-   * ★ 测试入口：跳过「远端必须比本地新」这一条判断 ★
-   *   数据和正式路径走的是同一个接口、同一套归一化，
-   *   只有版本比较被跳过 —— 这样想验证弹窗/下载链路不必真发版本。
+   * ★ 这条入口曾被删过、又按需求加回来，现在再次删除 ★
+   *   用户：「删除系统设置中测试更新的条目及其背后的功能」
+   *
+   *   ★ 为什么这次连 api / store / 组件里的分支一起删干净 ★
+   *     留着 opt.force 这类「跳过版本比较」的死路，
+   *     以后很容易有人顺手再挂个入口上去；
+   *     而它会拿当前版本当新版本推给用户 —— 误报比省一次发版更贵。
+   *     现在真机验证更新链路只能发一个更高的 tag，这是有意的代价。
    */
   const same = resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2', { force: true })
-  check('force 下版本相同也返回更新', same.hasUpdate, true)
-  check('force 下带 forced 标记', same.forced, true)
-  check('force 下版本号照常解析', same.version, '1.16.2')
+  check('force 选项已失效（同版本不再当更新）', same.hasUpdate, false)
+  check('返回里不再有 forced 标记', same.forced, undefined)
   const older = resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2', { force: true })
-  check('force 下远端更旧也弹窗（为了测界面）', older.hasUpdate, true)
-  // 正式路径不带 forced，弹窗徽标才不会显示「测试」
-  check('正式路径没有 forced 标记', resolveUpdate(giteeFixture(), '1.16.2').forced, undefined)
-  // force 不能绕过「有没有 apk」—— 没有安装包就真的没法下载
-  check(
-    'force 仍要求有 apk 附件',
-    resolveUpdate(giteeFixture({ assets: [{ name: 'x.zip', browser_download_url: 'x' }] }), '1.16.2', { force: true }).hasUpdate,
-    false
-  )
-  check('force 仍要求有 tag_name', resolveUpdate({ assets: [] }, '1.16.2', { force: true }).hasUpdate, false)
+  check('force 不能绕过版本比较（更旧的不弹）', older.hasUpdate, false)
+  const src = read('api/update.js')
+  check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(src), true)
+  check('checkUpdate 不再有 opt 参数', /export async function checkUpdate\(\)/.test(src), true)
+  check('不再有 opt.force 分支', /opt\.force/.test(src), false)
 }
 
 /* --------------------------------------------- 3. 源码级接线 */
@@ -433,34 +432,39 @@ console.log('=== 弹窗挂在每一个页面上（全局最上层）===')
   check('首页弹窗在 <block> 外（未建账户也能弹）', idxTag > idxBlockEnd && idxBlockEnd > 0, true)
 }
 
-console.log('=== 【测试】强制更新弹窗（按新需求重建）===')
+console.log('=== 【测试】强制更新弹窗已彻底删除 ===')
 
 {
   /*
-   * ★ 这条入口曾被删过（commit 7977238），现在是按新需求加回来的 ★
-   *   用户：「系统设置下方添加一个测试按钮，拉取最新版本显示弹窗用于测试」
+   * ★ 这条入口的生命周期：加 → 删(7977238) → 按需求加回 → 再删 ★
+   *   用户：「删除系统设置中测试更新的条目及其背后的功能」
    *
-   *   为什么必须有它：正式路径只在「远端真的比本地新」时弹窗，
-   *   想验证弹窗排版 / 下载安装链路，就得先真发一个更高的版本 ——
-   *   改代码时根本没法测。它跳过版本比较，但数据仍来自真实接口。
+   *   ★ 这次要求「条目 + 背后的功能」一起删，不只是藏入口 ★
+   *     只删 UI 入口、留着 store/api 里的 force 分支，
+   *     等于留了一条「跳过版本比较」的暗路，以后很容易被顺手接回去。
+   *     而它一旦跑起来，会把当前版本当成新版本推给用户 ——
+   *     误报一次比多走一道发版流程贵得多。
+   *
+   *   ★ 现在怎么验证更新链路 ★
+   *     只能真发一个更高的 tag。这是有意的取舍，
+   *     所以下面断言的不只是「入口没了」，还有「能力没了」。
    */
   const mineSrc = read('pages/mine/index.vue')
   const storeSrc = read('stores/update.js')
   const apiSrc = read('api/update.js')
   const dlgSrc = read('components/UpdateDialog.vue')
 
-  check('我的页有【测试】条目', /【测试】强制更新弹窗/.test(mineSrc), true)
-  check('放在「系统设置」分组里', /'update-test'[\s\S]{0,40}\}\s*\]/.test(mineSrc), true)
-  check('点击走 forceCheckForUpdate', /forceCheckForUpdate\(\)/.test(mineSrc), true)
-  check('store 有 forceCheckForUpdate', /async forceCheckForUpdate\(\)/.test(storeSrc), true)
-  check('force 路径请求带 force: true', /fetchCheck\(\{ force: true \}\)/.test(storeSrc), true)
-  check('update.js 支持 force 选项', /opt\.force/.test(apiSrc), true)
-  check('resolveUpdate 透传 opt', /export function resolveUpdate\(data, current, opt = \{\}\)/.test(apiSrc), true)
-  check('正式路径仍做版本比较', /const cmp = compareVersions\(version, current\)/.test(apiSrc), true)
-  check('弹窗有测试提示条', /ud-tip/.test(dlgSrc), true)
-  check('徽标区分测试/新版本', /info\.forced \? '测试' : '新版本'/.test(dlgSrc), true)
+  check('我的页没有【测试】条目', /【测试】强制更新弹窗/.test(mineSrc), false)
+  check('没有 update-test 分支', /'update-test'/.test(mineSrc), false)
+  check('store 没有 forceCheckForUpdate', /forceCheckForUpdate/.test(storeSrc), false)
+  check('store 不再请求 force: true', /force: true/.test(storeSrc), false)
+  check('update.js 不再有 force 选项', /opt\.force/.test(apiSrc), false)
+  check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(apiSrc), true)
+  check('resolveUpdate 无条件做版本比较', /if \(cmp <= 0\) return \{ hasUpdate: false \}/.test(apiSrc), true)
+  check('弹窗没有测试提示条', /ud-tip/.test(dlgSrc), false)
+  check('徽标固定为「新版本」', />新版本<\/text>/.test(dlgSrc), true)
 
-  // 正式入口必须保留，且与测试入口互不影响
+  // 正式入口必须保留
   check('我的页保留「检查更新」', /name: '检查更新'/.test(mineSrc), true)
   check('点击走正式 checkForUpdate', /checkForUpdate\(false\)/.test(mineSrc), true)
   check('正式检查仍然比较版本（silent 语义未变）', /if \(!silent\) uni\.showToast\(\{ title: '当前已是最新版本'/.test(storeSrc), true)

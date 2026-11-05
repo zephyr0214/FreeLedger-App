@@ -40,8 +40,6 @@
         头部：版本号 + 「新版本」标记 + 包大小
         ★ 结构对齐更新日志页的 .rel-head ★
           版本号（大、粗）+ 主题色小标记 + 右侧灰色日期位（这里放大小）
-        ★ 测试入口拉到的永远是「远端最新版」，不一定是新版本 ★
-          那种情况下徽标写「测试」，避免谎报有新版本。
       -->
       <view class="ud-head">
         <view class="ud-head-left">
@@ -49,19 +47,9 @@
           <text
             class="ud-badge"
             :style="{ color: primaryColor, backgroundColor: primaryColor + '1A' }"
-          >{{ info.forced ? '测试' : '新版本' }}</text>
+          >新版本</text>
         </view>
         <text v-if="sizeText" class="ud-size">{{ sizeText }}</text>
-      </view>
-
-      <!--
-        测试模式提示条
-        ★ 只在【测试】强制更新弹窗时出现 ★
-          那条路径跳过了「远端比本地新」的比较，
-          弹出来的可能其实就是当前版本 —— 不提示的话会让人以为真发了新版。
-      -->
-      <view v-if="info.forced" class="ud-tip">
-        <text class="ud-tip-text">测试模式：跳过了版本比较，下面是远端最新版</text>
       </view>
 
       <!--
@@ -275,7 +263,6 @@ export default {
    *   之前的写法是 max-height: min(88vh, 46vh + 260rpx) + 正文固定 46vh。
    *   算下来空间不够：头部 ≈130rpx + 底部按钮 ≈144rpx =
    *   光固定部分就要 274rpx，而只给了 260rpx 余量；
-   *   测试模式再多一条提示条（≈100rpx）后更是差得远。
    *   超出部分被 overflow: hidden 直接裁掉 —— 表现就是按钮被切。
    *
    *   现在的写法：
@@ -327,32 +314,13 @@ export default {
 }
 
 /*
- * 测试模式提示条
- * ★ flex-shrink: 0 ★
- *   和头尾一样属于「不可压缩部分」—— 被压扁就失去警示作用。
- *   空间紧张时让正文（.ud-notes）去收缩。
- */
-.ud-tip {
-  flex-shrink: 0;
-  padding: 16rpx 32rpx;
-  background-color: var(--app-card-2);
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.ud-tip-text {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.5;
-}
-
-/*
  * 发行说明区 —— 有上限的滚动区
  *
  * ★ 用户要求「更新内容过长时要能够滑动，固定滑动区域大小」★
  *   这里给 max-height 而不是固定 height：
  *     · 内容长 -> 到上限就在内部滚动（满足「可滑动」）
  *     · 内容短 -> 区域自然收缩，不留一大块空白
- *     · 空间紧张（小屏 / 测试提示条占位）-> 正文先缩，
+ *     · 空间紧张（小屏）-> 正文先缩，
  *       头和底部按钮永远完整可见
  *
  * ★ 为什么不用固定 height（上一版的做法）★

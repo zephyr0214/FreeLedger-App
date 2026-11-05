@@ -78,45 +78,6 @@ export const useUpdateStore = defineStore('update', {
     },
 
     /**
-     * 【测试】强制更新弹窗 —— 跳过版本比较，拉远端最新版并直接弹窗
-     *
-     * ★ 为什么还要留这样一个入口 ★
-     *   正式路径只在「远端确实比本地新」时才弹窗，所以想验证弹窗的
-     *   排版 / 按钮 / 下载链路，就必须先真的发一个更高的版本 ——
-     *   改代码时根本没法测。这个入口跳过那一行版本比较，
-     *   但**数据仍然来自真实的 Gitee 接口**（版本号、发行说明、
-     *   下载地址、包大小都是真的），所以连带能测下载安装。
-     *
-     * ★ 和 checkForUpdate 的区别只有一处 ★
-     *   忽略「已是最新」的结论：只要远端有一个 .apk 就弹窗。
-     *   弹窗徽标会显示「测试」并多一条提示条，
-     *   免得误以为真的发了新版本（info.forced = true）。
-     */
-    async forceCheckForUpdate() {
-      if (this.checking) return false
-      // 弹窗已经开着就没必要再拉一次
-      if (this.dialogVisible) return true
-
-      this.checking = true
-      try {
-        const res = await fetchCheck({ force: true })
-        if (!res || !res.hasUpdate) {
-          uni.showToast({ title: '更新服务没有可用的 APK', icon: 'none' })
-          return false
-        }
-        this.info = res
-        this.phase = 'idle'
-        this.dialogVisible = true
-        return true
-      } catch (e) {
-        uni.showToast({ title: '检查更新失败：' + (e.message || '网络错误'), icon: 'none' })
-        return false
-      } finally {
-        this.checking = false
-      }
-    },
-
-    /**
      * 「下次再说」/「取消下载」：收弹窗
      *
      * ★ 下载中取消要连通知栏一起撤掉 ★

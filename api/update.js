@@ -36,14 +36,11 @@ export function abortDownload() {
 
 /**
  * 请求 Gitee 最新发行版并和本地版本比较
- * @param {{force?: boolean}} [opt] force=true：跳过「远端必须比本地新」的判断，
- *   只要远端有一个可用的 .apk 就返回（给「我的 → 系统设置 →【测试】强制更新弹窗」用）。
- *   仍然走真实的网络请求与真实数据，只是不比较版本号。
  * @returns {Promise<{hasUpdate:boolean, version?:string, notes?:string,
- *   downloadUrl?:string, sizeBytes?:number, forced?:boolean}>}
+ *   downloadUrl?:string, sizeBytes?:number}>}
  * @throws {Error} 网络失败 / 接口异常（由调用方决定静默还是提示）
  */
-export async function checkUpdate(opt = {}) {
+export async function checkUpdate() {
   const data = await new Promise((resolve, reject) => {
     uni.request({
       url: LATEST_API,
@@ -59,7 +56,7 @@ export async function checkUpdate(opt = {}) {
       fail: (e) => reject(new Error((e && e.errMsg) || '网络请求失败'))
     })
   })
-  return resolveUpdate(data, APP_VERSION, opt)
+  return resolveUpdate(data, APP_VERSION)
 }
 
 /**
@@ -69,32 +66,28 @@ export async function checkUpdate(opt = {}) {
  *   Gitee 会自动附带源码 zip / tar.gz，不能把它们当安装包。
  * @param {object} data /releases/latest 的响应
  * @param {string} current 本地版本号
- * @param {{force?: boolean}} [opt] force=true 时跳过版本比较（测试用）
  */
-export function resolveUpdate(data, current, opt = {}) {
+export function resolveUpdate(data, current) {
   if (!data || !data.tag_name) return { hasUpdate: false }
   const version = String(data.tag_name).replace(/^v/i, '').trim()
   const apk = (data.assets || []).find((a) => /\.apk$/i.test(a.name || ''))
   if (!version || !apk) return { hasUpdate: false }
 
   /*
-   * ★ 正式路径：远端不比本地新 -> 不算更新（永不提示降级）★
-   *   force 只给调试入口用：跳过的仅仅是这一行比较，
-   *   数据仍来自真实接口，弹窗里的版本号/说明/下载地址都是真的。
+   * ★ 远端不比本地新 -> 不算更新（永不提示降级）★
+   *   App 内不提供「强制弹窗」这类调试入口：
+   *   它会把当前版本当成新版本推给用户，误报比省一次发版更重要。
+   *   真机验证更新链路请直接发一个更高的 tag。
    */
-  const forced = !!opt.force
-  if (!forced) {
-    const cmp = compareVersions(version, current)
-    if (cmp <= 0) return { hasUpdate: false }
-  }
+  const cmp = compareVersions(version, current)
+  if (cmp <= 0) return { hasUpdate: false }
 
   return {
     hasUpdate: true,
     version,
     notes: String(data.body || ''),
     downloadUrl: apk.browser_download_url,
-    sizeBytes: apk.size || 0,
-    ...(forced ? { forced: true } : {})
+    sizeBytes: apk.size || 0
   }
 }
 

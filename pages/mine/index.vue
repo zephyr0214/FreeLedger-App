@@ -50,36 +50,48 @@
       </view>
 
       <!--
-        配置条目分三部分
+        配置条目分四部分
 
-        ★ 记账功能（2×2 宫格）★
-          分类、标签、周期、预算
-          —— 这四个都是「账本内容本身」的管理入口，
-             彼此平级、用途相近，用宫格排列更紧凑、也更好点。
-             它们都**没有副标题**（不显示"几项"），
-             宫格只放图标 + 名称，视觉干净。
+        ★ 基础功能（2×2 宫格）★
+          分类、标签、预算、汇率
+          —— 记账离不开的四个入口：分类和标签决定钱记到哪儿，
+             预算盯住花多少，汇率决定外币怎么折算。
+
+        ★ 拓展功能（2×2 宫格）★
+          借入、借出、周期、报销
+          —— 用得上才开的功能：借贷、周期账单、报销归集，
+             不是每个账本都会碰。
 
         ★ 记账设置（列表）★
-          记账按钮设置、AI 智能配置
-          —— 这两个是「怎么记账」的行为配置，带副标题说明当前状态。
+          记账按钮设置、AI 智能配置、统计板块设置
+          —— 「怎么记账」的行为配置，带副标题说明当前状态。
 
         ★ 系统设置（列表）★
-          主题外观、数据与备份
+          主题外观、数据与备份、关于与说明、检查更新
           —— App 本身的表现，跟记账内容无关。
 
         ★ 账户管理的入口已删除 ★
           账户已经在底部 tabBar 里了，再放一个入口是重复的。
       -->
 
-      <!-- 记账功能：2×2 宫格，一个大卡片里排 4 个小卡
-           ★ 每格内部是横向排列 ★
-             图标在左、文字居中偏左、› 在最右 ——
-             和下面的列表条目同一个读法，只是两列并排。 -->
-      <view class="menu-group">
-        <text class="menu-title">记账功能</text>
+      <!--
+        两个宫格分组：基础功能 / 拓展功能
+
+        ★ 每组都是 2×2，各自一张大卡片 ★
+          分成两组而不是排成 2×4 的长格子，是因为这两类功能的
+          「必然会用」程度不同：基础的是记账前提，
+          拓展的是账本长起来以后才会开的功能。
+          每组 4 项正好排满 2×2，两组的视觉重量也一致。
+
+        ★ 每格内部是横向排列 ★
+          图标在左、文字居中偏左、› 在最右 ——
+          和下面的列表条目同一个读法，只是两列并排。
+      -->
+      <view v-for="group in featureGroups" :key="group.title" class="menu-group">
+        <text class="menu-title">{{ group.title }}</text>
         <view class="feature-grid">
           <view
-            v-for="item in featureTiles"
+            v-for="item in group.items"
             :key="item.key"
             class="feature-tile"
             @click="onMenuClick(item)"
@@ -171,55 +183,69 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     /**
-     * ★ 记账功能：2×2 宫格 ★
-     *   分类 / 标签 / 周期 / 预算 —— 这四个是「账本内容本身」的管理入口，
-     *   彼此平级、用途相近，用宫格排更紧凑。
+     * ★ 两个 2×2 宫格分组：基础功能 / 拓展功能 ★
+     *
+     *   基础：分类 / 标签 / 预算 / 汇率
+     *     —— 记账离不开的四个入口：分类和标签决定钱记到哪儿，
+     *        预算盯住花多少，汇率决定外币怎么折算。
+     *
+     *   拓展：借入 / 借出 / 周期 / 报销
+     *     —— 用得上才开的功能，不是每个账本都会碰。
      *
      * ★ 刻意不带副标题 ★
      *   用户明确要求「预算管理不要显示几项」。
      *   宫格只放图标 + 名称，四个格子视觉一致；
      *   否则只有「预算管理」底下有行小字，四格会显得不齐。
+     *   所以原来给预算入口算「N 项」的 budgetLabel、
+     *   以及那条统计预算条数的 SQL 查询都删掉了。
      *
-     *   所以原来给预算入口算「N 项」的 budgetLabel、以及
-     *   那条统计预算条数的 SQL 查询都删掉了 ——
-     *   现在没有任何入口要用它，留着只会每次进页面白跑一次查询。
+     * ★ 数组顺序 = 宫格里的左右上下顺序 ★
+     *   grid 两列自动折行。用户写的是「借入、借出、周期、报销」，
+     *   不要凭「先借出后借入」的直觉调换前两项。
      */
-    const featureTiles = computed(() => [
-      { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
-      { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
-      { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
-      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
-      /*
-       * ★ 借出 / 借入管理 ★
-       *   同一页（pages/loan/manage）用 ?type 区分方向：
-       *     expense = 借出（钱借出去，支出方向）
-       *     income  = 借入（钱借进来，收入方向）
-       *   排在原有 4 个入口之后，宫格是 2 列，会自动排到第 3 行。
-       */
-      { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
-      { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' },
-      /*
-       * ★ 报销管理（左） / 今日汇率（右）★
-       *   两个都是「跟钱有关、但不在账本流水里」的辅助工具，
-       *   排在同一条（第 4 行）的左右两格。
-       *
-       *   报销管理目前是占位页（用户要的是先把入口立起来）。
-       *   今日汇率的页面会自己拉最新汇率，
-       *   这里不需要传任何参数，也不用预加载 —— 进页面才请求。
-       */
-      { key: 'reimburse', icon: 'reimburse', name: '报销管理', route: '/pages/loan/reimburse' },
-      { key: 'rate', icon: 'rate', name: '今日汇率', route: '/pages/rate/index' }
+    const featureGroups = computed(() => [
+      {
+        title: '基础功能',
+        items: [
+          { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
+          { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
+          { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
+          /*
+           * 今日汇率
+           *   页面自己拉最新汇率，不需要传参、也不用预加载 —— 进页面才请求。
+           */
+          { key: 'rate', icon: 'rate', name: '今日汇率', route: '/pages/rate/index' }
+        ]
+      },
+      {
+        title: '拓展功能',
+        items: [
+          /*
+           * ★ 借入 / 借出 ★
+           *   同一页（pages/loan/manage）用 ?type 区分方向：
+           *     income  = 借入（钱借进来，收入方向）
+           *     expense = 借出（钱借出去，支出方向）
+           */
+          { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' },
+          { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
+          { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
+          /*
+           * 报销管理目前是占位页（用户要的是先把入口立起来）。
+           */
+          { key: 'reimburse', icon: 'reimburse', name: '报销管理', route: '/pages/loan/reimburse' }
+        ]
+      }
     ])
 
     /**
      * 列表形式的设置项，分两组。
      *
      * ★ 记账设置 ★
-     *   记账按钮设置、AI 智能配置
-     *   —— 「怎么记账」的行为配置，带副标题说明当前状态。
+     *   记账按钮设置、AI 智能配置、统计板块设置
+     *   —— 「怎么记账 / 记完看什么」的行为配置，带副标题说明当前状态。
      *
      * ★ 系统设置 ★
-     *   主题外观、数据与备份
+     *   主题外观、数据与备份、关于与说明、检查更新
      *   —— App 本身的表现设置，跟记账内容无关。
      *
      * ★ 「数据与备份」入口 ★
@@ -240,7 +266,24 @@ export default {
             value: quickAddLabel.value,
             route: '/pages/settings/quick-add'
           },
-          { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' }
+          { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' },
+          /*
+           * ★ 统计板块设置（占位）★
+           *   用户要求「记账设置添加统计板块设置的占位符」——
+           *   先把入口立起来、亮明「这块要做」，页面还没写。
+           *
+           *   placeholder: true 让 onMenuClick 走「开发中」提示，
+           *   而不是硬跳一个不存在的路由（那样会白屏或者报错）。
+           *   副标题写「开发中」，和上面两行的「已配置 / 短按…」对齐，
+           *   一眼能看出这是状态说明、不是一个能进去的设置页。
+           */
+          {
+            key: 'statsSection',
+            icon: 'stats',
+            name: '统计板块设置',
+            value: '开发中',
+            placeholder: true
+          }
         ]
       },
       {
@@ -262,16 +305,7 @@ export default {
            * （手动检查，无新版/失败都有提示），
            * 有新版本时更新弹窗直接出现在本页（UpdateDialog 读 store）。
            */
-          { key: 'update', icon: 'auto', name: '检查更新' },
-          /*
-           * ★【测试】强制更新弹窗 ★
-           *   正式路径只在「远端真的比本地新」时才弹窗，
-           *   想验证弹窗排版 / 下载安装链路就得先真发一个更高的版本。
-           *   这个入口跳过版本比较，但数据仍来自真实的 Gitee 接口
-           *   （弹窗徽标显示「测试」+ 一条提示条，不会谎报有新版本）。
-           *   用户要求「在系统设置下方添加一个测试按钮」。
-           */
-          { key: 'update-test', icon: 'auto', name: '【测试】强制更新弹窗' }
+          { key: 'update', icon: 'auto', name: '检查更新' }
         ]
       }
     ])
@@ -322,9 +356,9 @@ export default {
         useUpdateStore().checkForUpdate(false)
         return
       }
-      if (item.key === 'update-test') {
-        // 【测试】强制更新弹窗：跳过版本比较，仍拉真实数据
-        useUpdateStore().forceCheckForUpdate()
+      if (item.placeholder) {
+        // 占位项（统计板块设置）：还没有页面，只说明「在做」
+        uni.showToast({ title: '统计板块设置还在开发中', icon: 'none' })
         return
       }
       if (item.route) {
@@ -389,7 +423,7 @@ export default {
       settingStore, accountStore, stats, backupHint,
       // 版本号从 utils/version.js 取，和「关于」页共用同一个来源
       APP_VERSION,
-      primaryColor, pageStyle, menuGroups, featureTiles,
+      primaryColor, pageStyle, menuGroups, featureGroups,
       themeLabel, aiLabel, quickAddLabel,
       onAddTap, onAddHoldEnd,
       onMenuClick, goProfile, goChangelog
