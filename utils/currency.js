@@ -62,9 +62,15 @@ export function currencySymbol(code) {
 /**
  * 格式化原币金额（备注追加 / 详情展示用）
  *
- * ★ 格式规范（用户拍板）★
- *   「JPY 2,000」—— 歧义币种用 ISO 代码，千分位，不加小数点后无意义位。
- *   零小数位币种（JPY/KRW/VND）不显示 .00，其余保留两位。
+ * ★ 统一用 ISO 三字母代码，不用货币符号（用户明确要求）★
+ *   符号的问题在于歧义和辨识度：
+ *     $   到底是美元、港币、新台币还是澳元？
+ *     ¥   到底是人民币还是日元？
+ *   而 HKD / USD / JPY 三个字母永远只有一个含义，
+ *   在备注这种纯文本环境里比符号可靠得多。
+ *
+ * ★ 零小数位币种不加 .00 ★
+ *   JPY / KRW / VND 实际流通无小数，写成「JPY 2,000.00」很怪。
  */
 export function formatOriginalAmount(amountCents, code) {
   const n = Math.round(Number(amountCents) || 0)
@@ -76,7 +82,7 @@ export function formatOriginalAmount(amountCents, code) {
   const str = zeroDecimal
     ? Math.round(yuan).toLocaleString('en-US')
     : yuan.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return `${meta.symbol} ${str}`
+  return `${meta.code} ${str}`
 }
 
 /**
@@ -92,21 +98,33 @@ export function buildOriginalNoteTag(amountCents, currency) {
 }
 
 /**
+ * 备注开头「原币标记」的匹配模式
+ *
+ * ★ 必须同时兼容新旧两种格式 ★
+ *   新格式：HKD 210.00 / JPY 2,000      （ISO 代码）
+ *   旧格式：HK$ 210.00 / $ 50.00        （符号，早期版本写的）
+ *   用户库里可能已经有旧格式的备注，
+ *   编辑一次就得能认出来并替换掉，否则会越叠越长。
+ *
+ * 组成：可选符号/代码 + 数字（含千分位与小数）+ 可选分隔符
+ */
+const NOTE_TAG_RE = /^(?:[A-Z]{2,4}|HK\$|NT\$|S\$|A\$|C\$|NZ\$|[€£₩¥$₽])\s[\d,]+(\.\d{1,2})?\s*(·|-)?\s*/i
+
+/**
  * 幂等地把原币标记写进备注
  *
  * ★ 为什么要单独处理 ★
  *   备注是用户可编辑的。编辑交易时如果无脑 append，
- *   改三次金额备注里就有三个「JPY 2,000」。
+ *   改三次金额备注里就有三个「HKD 210」。
  *
  * 规则：
- *   1. 备注**开头**若匹配自动标记模式（如「JPY 2,000 · 」），先剥掉再决定
+ *   1. 备注**开头**若匹配自动标记模式，先剥掉再决定
  *   2. 本币交易（tag 为 null）：剥掉旧标记，保留用户正文
  *   3. 外币交易：新标记 + 「 · 」 + 用户正文（正文为空则只有标记）
  */
 export function applyNoteTag(note, tag) {
   const body = String(note || '').trim()
-  // 剥掉开头已存在的自动标记：「XXX 1,234」+ 可选分隔符
-  const stripped = body.replace(/^[A-Z]{2,4}\s[\d,]+(\.\d{1,2})?\s*(·|-)?\s*/i, '').trim()
+  const stripped = body.replace(NOTE_TAG_RE, '').trim()
 
   if (!tag) return stripped
   return stripped ? `${tag} · ${stripped}` : tag
@@ -118,5 +136,35 @@ export function applyNoteTag(note, tag) {
  */
 export function stripNoteTag(note) {
   const body = String(note || '').trim()
-  return body.replace(/^[A-Z]{2,4}\s[\d,]+(\.\d{1,2})?\s*(·|-)?\s*/i, '').trim()
+  return body.replace(NOTE_TAG_RE, '').trim()
+}
+
+/**
+ * 备注里「没有信息量的残词」—— AI 偶尔会把动词当备注吐出来
+ *
+ * ★ 为什么需要这层兜底 ★
+ *   「打车花了 210 港币」这种句子，AI 有时会给 note = "花了" ——
+ *   因为提示词说「去掉金额和分类后剩下的部分」，
+ *   而「花了」确实没被前面的规则覆盖到。
+ *   提示词已经收紧，但模型不保证听话，这里再兜一层：
+ *   剥掉原币标记后如果只剩这些词，就当空备注处理。
+ *
+ * ★ 为什么不把「打车」这类也列进来 ★
+ *   那是有效信息（虽然和分类重复，但用户可能就想留）。
+ *   只过滤纯动词/助词，不猜意图。
+ */
+const NOISE_NOTES = new Set([
+  '花了', '用了', '付了', '消费', '支出', '收入', '记账', '记一笔',
+  '买了', '花', '用', '付', '了', '的', '元', '块', '钱'
+])
+
+/**
+ * 清理备注：剥掉原币标记，并把无信息量的残词归空
+ * @param {string} note 原始备注
+ * @returns {string} 清理后的备注（可能为空串）
+ */
+export function cleanNote(note) {
+  const body = stripNoteTag(note)
+  if (NOISE_NOTES.has(body)) return ''
+  return body
 }

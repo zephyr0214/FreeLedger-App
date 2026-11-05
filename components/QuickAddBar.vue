@@ -69,7 +69,7 @@ import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
 import { combineDayTime } from '@/utils/date.js'
-import { buildOriginalNoteTag, applyNoteTag } from '@/utils/currency.js'
+import { buildOriginalNoteTag, applyNoteTag, cleanNote } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { glassVars } from '@/utils/theme.js'
@@ -324,10 +324,19 @@ export default {
                * 备注：优先用模型给的备注，没有就退回用户原话。
                * 用户原话仍作为「备注」保存 —— 这是他自己输入的说明，
                * 和已停用的「速记原文」不是同一件事。
-               * 外币再追加原币标记（applyNoteTag 幂等，不会重复叠）。
+               *
+               * ★ 先用 cleanNote 把无信息量的残词剔除 ★
+               *   AI 偶尔会把「花了」这种动词当备注吐出来
+               *   （「打车花了 210 港币」→ note="花了"），
+               *   直接拼进备注会变成「HKD 210.00 · 花了」，很滑稽。
+               *   提示词已收紧，这里是代码兜底。
+               *
+               * ★ item.note 为「有意义的空」时不要再退回原话 ★
+               *   cleanNote 判空说明模型给的备注是噪声，
+               *   这时退回整句原话反而更糟（原话里含金额和币种）。
                */
               note: applyNoteTag(
-                item.note || pendingText,
+                cleanNote(item.note) || (item.note ? '' : pendingText),
                 originalCurrency
                   ? buildOriginalNoteTag(originalAmountCents, originalCurrency)
                   : null

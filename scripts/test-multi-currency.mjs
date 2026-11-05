@@ -21,7 +21,7 @@ import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import {
   SUPPORTED_CURRENCIES, BASE_CURRENCY, isSupportedCurrency, getCurrencyMeta,
-  currencySymbol, formatOriginalAmount, buildOriginalNoteTag, applyNoteTag, stripNoteTag
+  currencySymbol, formatOriginalAmount, buildOriginalNoteTag, applyNoteTag, stripNoteTag, cleanNote
 } from '../utils/currency.js'
 import { SCHEMA_VERSION } from '../api/db/schema.js'
 
@@ -84,9 +84,9 @@ check('CNY 用 ¥', currencySymbol('CNY'), '¥')
 console.log('=== 原币金额格式化（备注格式「JPY 2,000」）===')
 
 check('日元带千分位、无小数', formatOriginalAmount(200000, 'JPY'), 'JPY 2,000')
-check('美元两位小数', formatOriginalAmount(5000, 'USD'), '$ 50.00')
-check('大额千分位', formatOriginalAmount(1234567, 'USD'), '$ 12,345.67')
-check('韩元无小数', formatOriginalAmount(1500000, 'KRW'), '₩ 15,000')
+check('美元两位小数', formatOriginalAmount(5000, 'USD'), 'USD 50.00')
+check('大额千分位', formatOriginalAmount(1234567, 'USD'), 'USD 12,345.67')
+check('韩元无小数', formatOriginalAmount(1500000, 'KRW'), 'KRW 15,000')
 check('人民币不生成原币标记', formatOriginalAmount(100, 'CNY'), '')
 check('未知币种返回空', formatOriginalAmount(100, 'XYZ'), '')
 
@@ -323,6 +323,55 @@ console.log('=== AI 速记链路：币种必须被消费，不能只识别不用
   check('解析层返回 currency', /currency,/.test(ai) && /const currency = SUPPORTED_CURRENCIES/.test(ai), true)
   check('提示词含币种白名单', /CURRENCY_CODES/.test(ai), true)
   check('提示词明令禁止输出汇率', /绝对不要输出汇率/.test(ai), true)
+}
+
+
+console.log('=== 备注统一用 ISO 代码（用户要求，不用符号）===')
+
+{
+  /*
+   * ★ 为什么从符号改成 ISO 三字母 ★
+   *   $ 到底是美元、港币、新台币还是澳元？¥ 是人民币还是日元？
+   *   HKD / USD / JPY 永远只有一个含义，
+   *   在备注这种纯文本环境里比符号可靠得多。
+   */
+  check('HKD 用代码不用 HK$', formatOriginalAmount(21000, 'HKD'), 'HKD 210.00')
+  check('USD 用代码不用 $', formatOriginalAmount(5000, 'USD'), 'USD 50.00')
+  check('TWD 用代码不用 NT$', formatOriginalAmount(10000, 'TWD'), 'TWD 100.00')
+  check('SGD 用代码不用 S$', formatOriginalAmount(10000, 'SGD'), 'SGD 100.00')
+  check('EUR 也用代码', formatOriginalAmount(10000, 'EUR'), 'EUR 100.00')
+
+  check('标记里没有 $ 符号', buildOriginalNoteTag(5000, 'USD').includes('$'), false)
+  check('标记里没有 € 符号', buildOriginalNoteTag(10000, 'EUR').includes('€'), false)
+}
+
+console.log('=== 备注噪声清理（用户反馈「花了」这种滑稽残词）===')
+
+{
+  /*
+   * ★ 用户反馈 ★
+   *   「打车花了 210 港币」→ 备注显示「HK$ 210 · 花了」
+   *   后半部分很滑稽：AI 把动词「花了」当成了描述性内容。
+   *
+   *   两层修复：
+   *     1. 提示词明确排除动词（去掉「花了/用了/付了」这类）
+   *     2. 代码兜底 cleanNote：剥标记后只剩噪声词就归空
+   */
+  check('纯动词残词归空', cleanNote('花了'), '')
+  check('另一个动词', cleanNote('用了'), '')
+  check('剥掉旧符号标记后归空', cleanNote('HK$ 210 · 花了'), '')
+  check('剥掉新标记后归空', cleanNote('HKD 210.00 · 花了'), '')
+  /*
+   * ★ 有信息量的备注必须保住 ★
+   *   只过滤纯动词/助词，不猜用户意图 ——
+   *   「打车」虽然和分类重复，但用户可能就想留。
+   */
+  check('正常备注保留', cleanNote('打车'), '打车')
+  check('带地点的保留', cleanNote('东京'), '东京')
+  check('剥掉标记后保留正文', cleanNote('HKD 210.00 · 打车'), '打车')
+
+  const ai = read('api/aiParse.js')
+  check('提示词禁止把动词当备注', /不能是 "花了"|不要.*填「花了」/.test(ai), true)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
