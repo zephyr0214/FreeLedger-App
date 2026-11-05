@@ -18,7 +18,7 @@
  *   3. 源码级接线 —— 三个触发点、弹窗挂载、Gitee 数据源
  */
 
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync, statSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { compareVersions, APP_VERSION } from '../utils/version.js'
@@ -118,6 +118,30 @@ check(
 )
 check('assets 字段缺失', resolveUpdate({ tag_name: 'v1.16.3' }, '1.16.2').hasUpdate, false)
 
+console.log('=== force（【测试】强制更新弹窗）===')
+{
+  /*
+   * ★ 测试入口：跳过「远端必须比本地新」这一条判断 ★
+   *   数据和正式路径走的是同一个接口、同一套归一化，
+   *   只有版本比较被跳过 —— 这样想验证弹窗/下载链路不必真发版本。
+   */
+  const same = resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2', { force: true })
+  check('force 下版本相同也返回更新', same.hasUpdate, true)
+  check('force 下带 forced 标记', same.forced, true)
+  check('force 下版本号照常解析', same.version, '1.16.2')
+  const older = resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2', { force: true })
+  check('force 下远端更旧也弹窗（为了测界面）', older.hasUpdate, true)
+  // 正式路径不带 forced，弹窗徽标才不会显示「测试」
+  check('正式路径没有 forced 标记', resolveUpdate(giteeFixture(), '1.16.2').forced, undefined)
+  // force 不能绕过「有没有 apk」—— 没有安装包就真的没法下载
+  check(
+    'force 仍要求有 apk 附件',
+    resolveUpdate(giteeFixture({ assets: [{ name: 'x.zip', browser_download_url: 'x' }] }), '1.16.2', { force: true }).hasUpdate,
+    false
+  )
+  check('force 仍要求有 tag_name', resolveUpdate({ assets: [] }, '1.16.2', { force: true }).hasUpdate, false)
+}
+
 /* --------------------------------------------- 3. 源码级接线 */
 
 console.log('=== 数据源是 Gitee ===')
@@ -175,8 +199,18 @@ console.log('=== 弹窗行为 ===')
   const dlg = read('components/UpdateDialog.vue')
   check('「下次再说」按钮', /下次再说/.test(dlg), true)
   check('「立即下载更新」按钮', /立即下载更新/.test(dlg), true)
-  // z-index 约定：页面内浮层 ≤ 9，低于库弹层 15，保证失败确认框能盖上来
-  check('z-index 符合项目约定（9）', /z-index:\s*9/.test(dlg), true)
+  /*
+   * ★ z-index: 900 —— 用户实测反馈「下面的 tabbar 和 + 还是能点」★
+   *   原来的 9 是「页面内自绘浮层」的约定（1~9，低于库弹层 15），
+   *   但更新弹窗是**全局提示**：必须压住 AppTabBar（300）与
+   *   QuickAddBar（600），否则遮罩下面那两个还能点到。
+   *   又不能高过 AppDialog（1000）—— 下载失败/授权引导的确认框
+   *   要能盖在它上面。900 正好夹在中间。
+   *   该层级已登记进 scripts/check-layout.mjs 的 HIGH_LAYER_ALLOWLIST。
+   */
+  check('z-index 压住底栏与速记条（900）', /z-index:\s*900/.test(dlg), true)
+  check('不再用「页面内浮层」的 9', /z-index:\s*9;/.test(dlg), false)
+  check('低于 AppDialog（1000）', /z-index:\s*1000/.test(dlg), false)
 
   /*
    * ★ 用户反馈「弹窗太丑」，要求内部文本格式参考更新日志页 ★
@@ -354,31 +388,82 @@ console.log('=== 下载进度显示在系统通知栏 ===')
 }
 
 
-console.log('=== 测试入口已移除（只保留正式检查更新）===')
+console.log('=== 弹窗挂在每一个页面上（全局最上层）===')
 
 {
+  /*
+   * ★「全局上层」不只靠 z-index ★
+   *   uni-app 没有跨页面的全局浮层：App.vue 不渲染模板，
+   *   所以弹窗必须每个页面各挂一个实例（读同一份 store 状态，
+   *   dialogVisible 是单布尔，多实例不会重复弹）。
+   *
+   *   用户反馈「弹窗显示在首页上方，tabbar 和 + 还能点」，
+   *   除了 z-index 低于底栏，另一半原因是当时只挂了 3 个页面 ——
+   *   在别的页面检查更新压根不会弹。
+   */
+  const pageFiles = []
+  ;(function walk(dir) {
+    for (const name of readdirSync(join(ROOT, dir))) {
+      const rel = dir + '/' + name
+      const st = statSync(join(ROOT, rel))
+      if (st.isDirectory()) walk(rel)
+      else if (name.endsWith('.vue')) pageFiles.push(rel)
+    }
+  })('pages')
+
+  check('页面数量', pageFiles.length, 25)
+
+  const missingMount = []
+  const missingImport = []
+  const missingRegister = []
+  for (const rel of pageFiles) {
+    const src = read(rel)
+    if (!/<UpdateDialog\s*\/>/.test(src)) missingMount.push(rel)
+    if (!/import UpdateDialog from '@\/components\/UpdateDialog\.vue'/.test(src)) missingImport.push(rel)
+    if (!/components:\s*\{[^}]*\bUpdateDialog\b/.test(src)) missingRegister.push(rel)
+  }
+  check('每个页面都挂了 <UpdateDialog />', missingMount, [])
+  check('每个页面都 import 了组件', missingImport, [])
+  check('每个页面都注册进 components', missingRegister, [])
+
+  // 首页：必须在 <block> 外面，否则「还没账户」那个分支上没有弹窗
+  const index = read('pages/index/index.vue')
+  const idxTag = index.indexOf('<UpdateDialog />')
+  const idxBlockEnd = index.indexOf('</block>')
+  check('首页弹窗在 <block> 外（未建账户也能弹）', idxTag > idxBlockEnd && idxBlockEnd > 0, true)
+}
+
+console.log('=== 【测试】强制更新弹窗（按新需求重建）===')
+
+{
+  /*
+   * ★ 这条入口曾被删过（commit 7977238），现在是按新需求加回来的 ★
+   *   用户：「系统设置下方添加一个测试按钮，拉取最新版本显示弹窗用于测试」
+   *
+   *   为什么必须有它：正式路径只在「远端真的比本地新」时弹窗，
+   *   想验证弹窗排版 / 下载安装链路，就得先真发一个更高的版本 ——
+   *   改代码时根本没法测。它跳过版本比较，但数据仍来自真实接口。
+   */
   const mineSrc = read('pages/mine/index.vue')
   const storeSrc = read('stores/update.js')
   const apiSrc = read('api/update.js')
   const dlgSrc = read('components/UpdateDialog.vue')
 
-  /*
-   * 测试模式（跳过版本比较）已随调试入口一起删除：
-   * 它的逻辑/样式就是正式功能本身的逻辑/样式，
-   * 删除时只去掉「跳过比较」这个行为，正式路径不受影响。
-   */
-  check('我的页无【测试】条目', /【测试】强制更新弹窗/.test(mineSrc), false)
-  check('store 不再有 forceCheckForUpdate', /forceCheckForUpdate/.test(storeSrc), false)
-  check('update.js 不再有 force 选项', /opt\.force/.test(apiSrc), false)
-  check('resolveUpdate 恢复无条件版本比较', /const cmp = compareVersions\(version, current\)/.test(apiSrc), true)
-  // resolveUpdate 签名回到两参数（force 已移除）
-  check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(apiSrc), true)
-  check('弹窗不再有测试提示条', /ud-tip/.test(dlgSrc), false)
-  check('弹窗徽标固定为「新版本」', /新版本</.test(dlgSrc), true)
+  check('我的页有【测试】条目', /【测试】强制更新弹窗/.test(mineSrc), true)
+  check('放在「系统设置」分组里', /'update-test'[\s\S]{0,40}\}\s*\]/.test(mineSrc), true)
+  check('点击走 forceCheckForUpdate', /forceCheckForUpdate\(\)/.test(mineSrc), true)
+  check('store 有 forceCheckForUpdate', /async forceCheckForUpdate\(\)/.test(storeSrc), true)
+  check('force 路径请求带 force: true', /fetchCheck\(\{ force: true \}\)/.test(storeSrc), true)
+  check('update.js 支持 force 选项', /opt\.force/.test(apiSrc), true)
+  check('resolveUpdate 透传 opt', /export function resolveUpdate\(data, current, opt = \{\}\)/.test(apiSrc), true)
+  check('正式路径仍做版本比较', /const cmp = compareVersions\(version, current\)/.test(apiSrc), true)
+  check('弹窗有测试提示条', /ud-tip/.test(dlgSrc), true)
+  check('徽标区分测试/新版本', /info\.forced \? '测试' : '新版本'/.test(dlgSrc), true)
 
-  // 正式入口必须保留
+  // 正式入口必须保留，且与测试入口互不影响
   check('我的页保留「检查更新」', /name: '检查更新'/.test(mineSrc), true)
   check('点击走正式 checkForUpdate', /checkForUpdate\(false\)/.test(mineSrc), true)
+  check('正式检查仍然比较版本（silent 语义未变）', /if \(!silent\) uni\.showToast\(\{ title: '当前已是最新版本'/.test(storeSrc), true)
 }
 
 

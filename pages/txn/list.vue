@@ -295,6 +295,9 @@
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -305,6 +308,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -320,7 +324,7 @@ import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateRangePicker, AppDialog },
+  components: { MoneyText, EmptyState, DateRangePicker, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

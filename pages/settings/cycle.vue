@@ -230,6 +230,9 @@
 
     <!-- 弹窗宿主 -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -241,6 +244,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import CyclePanel from '@/components/CyclePanel.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCycles, deleteCycle, recurrenceLabel, listCycleCounts, nextOccurrence } from '@/api/cycle.js'
@@ -252,7 +256,7 @@ import { onBackPress } from '@dcloudio/uni-app'
 import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

@@ -305,17 +305,21 @@
 
       <!-- 记账面板（长按或展开时打开） -->
       <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
-
-      <!--
-        更新弹窗
-        ★ 首页也挂一个的原因 ★
-          开屏静默检查在 App.vue 的 onLaunch 里跑，
-          那时用户正看着首页 —— 弹窗必须能在这里出现。
-          组件读的是 stores/update.js 的同一份状态，
-          三个页面各挂一个实例不会重复弹（dialogVisible 是单布尔）。
-      -->
-      <UpdateDialog />
     </block>
+
+    <!--
+      更新弹窗
+      ★ 首页也挂一个的原因 ★
+        开屏静默检查在 App.vue 的 onLaunch 里跑，
+        那时用户正看着首页 —— 弹窗必须能在这里出现。
+        组件读的是 stores/update.js 的同一份状态，
+        多个页面各挂一个实例不会重复弹（dialogVisible 是单布尔）。
+      ★ 必须放在 <block> 外面 ★
+        上面两个分支是「有没有账户」的互斥渲染，放在 v-else 里的话，
+        首次使用（还没账户）那个分支上弹窗根本不存在 ——
+        而开屏检查恰恰就是那时候跑的。
+    -->
+    <UpdateDialog />
   </view>
 </template>
 

@@ -212,6 +212,8 @@
       @hold-end="onAddHoldEnd"
     />
 
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -225,6 +227,7 @@ import SmoothLineChart from '@/components/SmoothLineChart.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AccountIcon from '@/components/AccountIcon.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useUiStore } from '@/stores/ui.js'
@@ -233,7 +236,7 @@ import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { formatCents } from '@/utils/money.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar },
+  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

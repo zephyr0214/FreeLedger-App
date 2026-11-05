@@ -251,7 +251,16 @@ export default {
            * （手动检查，无新版/失败都有提示），
            * 有新版本时更新弹窗直接出现在本页（UpdateDialog 读 store）。
            */
-          { key: 'update', icon: 'auto', name: '检查更新' }
+          { key: 'update', icon: 'auto', name: '检查更新' },
+          /*
+           * ★【测试】强制更新弹窗 ★
+           *   正式路径只在「远端真的比本地新」时才弹窗，
+           *   想验证弹窗排版 / 下载安装链路就得先真发一个更高的版本。
+           *   这个入口跳过版本比较，但数据仍来自真实的 Gitee 接口
+           *   （弹窗徽标显示「测试」+ 一条提示条，不会谎报有新版本）。
+           *   用户要求「在系统设置下方添加一个测试按钮」。
+           */
+          { key: 'update-test', icon: 'auto', name: '【测试】强制更新弹窗' }
         ]
       }
     ])
@@ -300,6 +309,11 @@ export default {
       if (item.key === 'update') {
         // 检查更新：手动检查，无新版/失败都有提示
         useUpdateStore().checkForUpdate(false)
+        return
+      }
+      if (item.key === 'update-test') {
+        // 【测试】强制更新弹窗：跳过版本比较，仍拉真实数据
+        useUpdateStore().forceCheckForUpdate()
         return
       }
       if (item.route) {

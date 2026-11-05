@@ -148,6 +148,9 @@
 
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -155,13 +158,14 @@
 import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { APP_VERSION, APP_VERSION_LABEL } from '@/utils/version.js'
 
 export default {
-  components: { PageNav, AppDialog },
+  components: { PageNav, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 

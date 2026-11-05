@@ -58,6 +58,9 @@
 
       <view class="bottom-space" />
     </scroll-view>
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -65,11 +68,12 @@
 import { computed } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
 
 export default {
-  components: { PageNav, LineIcon },
+  components: { PageNav, LineIcon, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 

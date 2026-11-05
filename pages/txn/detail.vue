@@ -118,6 +118,9 @@
 
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -128,6 +131,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import { handleBackPress } from '@/utils/layerStack.js'
 import TxnPanel from '@/components/TxnPanel.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } from '@/api/transaction.js'
@@ -136,7 +140,7 @@ import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { MoneyText, TxnPanel, AppDialog },
+  components: { MoneyText, TxnPanel, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const txnStore = useTransactionStore()

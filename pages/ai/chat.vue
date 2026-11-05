@@ -170,6 +170,9 @@
 
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -178,6 +181,7 @@ import { ref, computed, nextTick } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -211,7 +215,7 @@ const THINK_STAGES = [
 ]
 
 export default {
-  components: { PageNav, AppDialog },
+  components: { PageNav, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

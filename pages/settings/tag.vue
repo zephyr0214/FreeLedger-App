@@ -117,6 +117,9 @@
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -127,6 +130,7 @@ import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
 import { query } from '@/api/db/index.js'
@@ -134,7 +138,7 @@ import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 

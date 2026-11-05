@@ -339,6 +339,8 @@
       @hold-end="onAddHoldEnd"
     />
 
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -350,6 +352,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
@@ -366,7 +369,7 @@ import {
 } from '@/utils/date.js'
 
 export default {
-  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction, AppTabBar },
+  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction, AppTabBar, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const uiStore = useUiStore()

@@ -140,6 +140,9 @@
 
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -163,6 +166,7 @@ import RecentTxnList from '@/components/RecentTxnList.vue'
 import AccountIcon from '@/components/AccountIcon.vue'
 import BalanceSheet from '@/components/BalanceSheet.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
@@ -171,7 +175,7 @@ import { backAfterAccountDelete } from '@/utils/navBack.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, AccountIcon, BalanceSheet, AppDialog },
+  components: { MoneyText, DetailShell, RecentTxnList, AccountIcon, BalanceSheet, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

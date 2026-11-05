@@ -306,6 +306,9 @@
 
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -325,9 +328,10 @@ import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 import { backAfterAccountDelete } from '@/utils/navBack.js'
 import MoneyText from '@/components/MoneyText.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 
 export default {
-  components: { AppDialog, AccountIcon, MoneyText },
+  components: { AppDialog, AccountIcon, MoneyText, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 

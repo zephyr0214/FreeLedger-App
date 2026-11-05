@@ -172,6 +172,9 @@
 
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -179,12 +182,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { testConnection } from '@/api/ai.js'
 import { alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { PageNav, AppDialog },
+  components: { PageNav, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 

@@ -69,6 +69,9 @@
         <text class="loading-text">{{ notFound ? '这个周期不存在或已被删除' : '加载中…' }}</text>
       </view>
     </DetailShell>
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -78,6 +81,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import {
@@ -87,7 +91,7 @@ import { listCategories } from '@/api/category.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

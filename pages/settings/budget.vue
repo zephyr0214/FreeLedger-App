@@ -271,6 +271,9 @@
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -280,6 +283,7 @@ import { onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { listBudgets, createBudget, updateBudget, deleteBudget, summarizeAllocation, checkCategoryAllocation } from '@/api/budget.js'
@@ -290,7 +294,7 @@ import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { PageNav, MoneyText, AppDialog },
+  components: { PageNav, MoneyText, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 

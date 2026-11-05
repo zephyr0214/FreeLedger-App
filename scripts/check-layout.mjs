@@ -118,10 +118,27 @@ const CUSTOM_LAYER_MAX = 9
  *   - AppTabBar    圆角悬浮底栏 + 记账按钮，永驻在页面最上层，
  *                  但低于记账面板/速记条（那两个要盖住它）
  *   - QuickAddBar  速记输入条
+ *   - UpdateDialog 更新提示，见下方理由
  */
 const HIGH_LAYER_ALLOWLIST = [
   { file: 'components/AppTabBar.vue', reason: '悬浮底栏，需压住页面内容但低于弹层' },
-  { file: 'components/QuickAddBar.vue', reason: '速记输入条，与弹层互斥' }
+  { file: 'components/QuickAddBar.vue', reason: '速记输入条，与弹层互斥' },
+  {
+    file: 'components/UpdateDialog.vue',
+    /*
+     * ★ 它不是「页面内浮层」，而是全局提示 ★
+     *   用户实测反馈：更新弹窗弹出来时，底下的悬浮底栏（300）
+     *   和中间的 + 按钮（600）从遮罩里穿出来、还能点 ——
+     *   因为它按「页面内浮层」的约定写了 z-index: 9。
+     *
+     *   更新提示要盖住整屏，所以取 900：
+     *     · 高于底栏 300 / 速记条 600 / 库弹层 15
+     *     · 低于 AppDialog 的 1000 —— 下载失败、授权引导的确认框
+     *       要能盖在它上面（那才是用户要看的最后一层）
+     *   它与记账面板（wd-popup）互斥出现，不会出现「盖住库弹层」的问题。
+     */
+    reason: '全局更新提示，需压住悬浮底栏与速记条，但低于 AppDialog'
+  }
 ]
 
 for (const file of files) {

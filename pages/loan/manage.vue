@@ -123,6 +123,9 @@
 
     <!-- 全局弹窗宿主 -->
     <AppDialog />
+
+    <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <UpdateDialog />
   </view>
 </template>
 
@@ -157,6 +160,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
 import TxnPanel from '@/components/TxnPanel.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { ensureLoanCategories, listCategories } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
@@ -166,7 +170,7 @@ import { handleBackPress } from '@/utils/layerStack.js'
 const INCOME_COLOR = '#07C160'
 
 export default {
-  components: { PageNav, MoneyText, EmptyState, RecentTxnList, TxnPanel, AppDialog },
+  components: { PageNav, MoneyText, EmptyState, RecentTxnList, TxnPanel, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 
