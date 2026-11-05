@@ -82,17 +82,30 @@ function requestJson(url) {
  * 三个源的 JSON 形状不同，这里各自归一化。
  */
 function parseRates(name, data) {
-  if (name === 'open.er-api') {
-    return (data && data.rates) || null
+  let raw = null
+  if (name === 'open.er-api' || name === 'frankfurter') {
+    raw = data && data.rates
+  } else if (data && typeof data === 'object' && data.usd && typeof data.usd === 'object') {
+    // fawazahmed0: { date: "...", usd: { jpy: 150, cny: 7.2 } }
+    raw = data.usd
   }
-  if (name === 'frankfurter') {
-    return (data && data.rates) || null
+  if (!raw || typeof raw !== 'object') return null
+
+  /*
+   * ★ 键的大小写各家不一样，统一归一化成小写 ★
+   *   open.er-api  -> { USD: 1, CNY: 7.24 }   大写
+   *   frankfurter  -> { CNY: 7.24 }           大写
+   *   fawazahmed0  -> { usd: 1, cny: 7.24 }   小写
+   *   原来直接返回原对象、下游统一按小写取（rates.cny），
+   *   于是 open.er-api 永远报「响应缺少 rates」——
+   *   真机日志正是这么暴露的。归一化后下游不用关心来源差异。
+   */
+  const out = {}
+  for (const k of Object.keys(raw)) {
+    const v = Number(raw[k])
+    if (Number.isFinite(v) && v > 0) out[String(k).toLowerCase()] = v
   }
-  // fawazahmed0: { date: "...", usd: { jpy: 150, cny: 7.2, ... } }
-  if (data && typeof data === 'object' && data.usd && typeof data.usd === 'object') {
-    return data.usd
-  }
-  return null
+  return Object.keys(out).length > 0 ? out : null
 }
 
 /**

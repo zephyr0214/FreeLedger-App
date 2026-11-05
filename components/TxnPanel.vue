@@ -35,12 +35,24 @@
 
       <!-- 金额：实时显示输入内容（算式或数字），点「完成」才结算 -->
       <view class="amount-area">
-        <text class="amount-label">{{ form.type === 'transfer' ? '转账金额' : '金额' }}</text>
+        <view class="amount-label-row">
+          <text class="amount-label">{{ form.type === 'transfer' ? '转账金额' : '金额' }}</text>
+          <!--
+            汇率只读显示在「金额」后面
+            ★ 用户要求：不要输入框、不允许手动改 ★
+              汇率是客观数据，手改只会记错账；显示出来是让用户知道
+              这笔折算按什么价算的。取不到汇率时不显示（保存会拦）。
+          -->
+          <text v-if="isForeign && exchangeRate > 0" class="rate-inline">
+            汇率 {{ formatRate(exchangeRate) }}
+          </text>
+        </view>
 
         <!--
-          币种选择：默认人民币。
-          ★ 选中外币才显示汇率行 ★
-            人民币是 99% 的日常用法，把汇率行藏起来保持面板紧凑。
+          币种选择：金额左侧，显示 ISO 缩写（CNY / JPY / USD），默认 CNY
+          ★ 为什么显示缩写而不是符号 ★
+            日元和人民币符号都是 ¥，符号根本分不清是哪种钱。
+            缩写是最不容易误读的标识。
         -->
         <view class="currency-row">
           <picker
@@ -49,9 +61,10 @@
             @change="onCurrencyChange"
           >
             <view class="currency-picker">
-              <text class="currency-code" :style="{ color: form.currency === 'CNY' ? 'var(--app-text-3)' : primaryColor }">
-                {{ currencySymbol }}
-              </text>
+              <text
+                class="currency-code"
+                :style="{ color: form.currency === 'CNY' ? 'var(--app-text-2)' : primaryColor }"
+              >{{ form.currency }}</text>
               <text class="currency-arrow">▾</text>
             </view>
           </picker>
@@ -64,22 +77,13 @@
         </view>
         <!-- 算式时提示会算成多少 -->
         <text v-if="isRawInput" class="amount-preview">
-          = {{ computedPreview }} {{ currencySymbol }}
+          = {{ computedPreview }}
         </text>
 
-        <!-- 汇率行 + 折算预览（选了外币才出现） -->
-        <view v-if="isForeign" class="fx-row">
-          <text class="fx-label">汇率</text>
-          <input
-            v-model="form.exchangeRateInput"
-            class="fx-input"
-            type="digit"
-            placeholder="1 外币 = ? 人民币"
-            placeholder-class="form-placeholder"
-          />
-          <text v-if="convertedPreview" class="fx-converted">{{ convertedPreview }}</text>
-        </view>
-        <text v-if="isForeign && rateSourceText" class="fx-source">{{ rateSourceText }}</text>
+        <!-- 外币折算预览（选了外币才出现） -->
+        <text v-if="isForeign && convertedPreview" class="fx-converted-line">
+          {{ convertedPreview }}
+        </text>
       </view>
 
       <!--
@@ -250,10 +254,21 @@
       @pick-category="pickCategoryFromMore"
     />
 
-    <!-- 日期选择：wd-calendar 无 visible 属性，需 ref.open() -->
+    <!--
+      日期选择：wd-calendar 无 visible 属性，需 ref.open()
+
+      ★ min-date / max-date 必须显式给，否则无法切换月份（用户反馈）★
+        wd-calendar-view 的默认 minDate 是「6 个月前」、maxDate 是「6 个月后」。
+        但本项目只传了 max-date（今天），min-date 走默认值 ——
+        在某些版本的实现里，一旦传了 max-date 而 min-date 用默认的相对日期，
+        月份切换会被限制在极窄的范围（表现为「只能选本月」）。
+        显式给出两端：往前 3 年（记账常见回溯范围，也够覆盖周期补记），
+        往后到今天（不接受未来日期）。
+    -->
     <wd-calendar
       ref="calendarRef"
       v-model="calendarValue"
+      :min-date="minDate"
       :max-date="maxDate"
       :with-cell="false"
       @confirm="onCalendarConfirm"
@@ -345,7 +360,6 @@ export default {
       tag_ids: [],
       /** 外币：币种代码（'CNY' = 本位币）与用户可改的汇率 */
       currency: 'CNY',
-      exchangeRateInput: ''
     })
 
     /* ------------------------------------------------------ 外币与汇率 */
@@ -356,10 +370,15 @@ export default {
      */
     const fxCache = ref({ rates: {}, day: '', source: '' })
 
-    /** 支持的币种（下拉列表） */
+    /** 支持的币种（下拉列表，显示 ISO 缩写） */
     const currencyOptions = [{ code: 'CNY', symbol: BASE_SYMBOL, name: '人民币' }]
       .concat(SUPPORTED_CURRENCIES.map((c) => ({ code: c.code, symbol: c.symbol, name: c.name })))
-    const currencyNames = currencyOptions.map((c) => `${c.name} ${c.code}`)
+    /*
+     * ★ 下拉里显示「缩写 + 中文名」★
+     *   列表本身要给不熟悉代码的人看懂（CNY 人民币），
+     *   但面板上那个小按钮只显示缩写（CNY/JPY）——省地方且不易误读。
+     */
+    const currencyNames = currencyOptions.map((c) => `${c.code} ${c.name}`)
     const currencyIndex = computed(() => {
       const idx = currencyOptions.findIndex((c) => c.code === form.currency)
       return idx >= 0 ? idx : 0
@@ -371,19 +390,20 @@ export default {
     /** 是否外币记账 */
     const isForeign = computed(() => !!currencyMeta.value)
 
-    /** 金额输入框旁边的符号：外币用自己的符号 */
-    const currencySymbol = computed(() => {
-      return isForeign.value ? currencyMeta.value.symbol : settingStore.currencySymbol
+    /**
+     * 汇率（1 外币 = ? CNY）
+     *
+     * ★ 只读，来自缓存，不支持手动修改（用户明确要求）★
+     *   汇率是客观数据，手改只会记错账；
+     *   显示的汇率同时也是折算依据，两者必须同一个数。
+     */
+    const exchangeRate = computed(() => {
+      if (!isForeign.value) return 1
+      return Number(fxCache.value.rates[form.currency]) || 0
     })
 
     /** 原币金额（分）—— 用户输入的原币数字 */
     const originalCents = computed(() => evaluateAmount(form.amountRaw))
-
-    /** 汇率（1 外币 = ? CNY）—— 用户输入优先，空则取缓存 */
-    const exchangeRate = computed(() => {
-      const n = Number(form.exchangeRateInput)
-      return Number.isFinite(n) && n > 0 ? n : (fxCache.value.rates[form.currency] || 0)
-    })
 
     /** 折算后的 CNY 分（amount_cents 将存这个值） */
     const convertedCents = computed(() => {
@@ -393,7 +413,7 @@ export default {
       return Math.round(originalCents.value * rate)
     })
 
-    /** 折算预览：金额输入旁「≈ ¥1,440.00」 */
+    /** 折算预览：「≈ ¥1,440.00」 */
     const convertedPreview = computed(() => {
       if (!convertedCents.value) return ''
       return '≈ ¥' + (convertedCents.value / 100).toLocaleString('en-US', {
@@ -401,23 +421,24 @@ export default {
       })
     })
 
-    /** 汇率数据来源标注（Gitee 拉取日期 / 手动） */
-    const rateSourceText = computed(() => {
-      const rate = Number(form.exchangeRateInput)
-      if (Number.isFinite(rate) && rate > 0) return '汇率已手动修改'
-      if (fxCache.value.day) return `汇率日期 ${fxCache.value.day}（${fxCache.value.source || '缓存'}）`
-      return ''
-    })
+    /**
+     * 汇率展示格式
+     *
+     * 日元这类汇率很小（0.048），直接 toFixed(2) 会显示成 0.05 —— 精度丢失。
+     * 按量级决定小数位：>=1 用 4 位，<1 用 6 位。
+     */
+    function formatRate(rate) {
+      const n = Number(rate) || 0
+      if (n <= 0) return ''
+      return n >= 1 ? n.toFixed(4) : n.toFixed(6)
+    }
 
-    /** 换币种时重填汇率（缓存优先），切回 CNY 清空 */
+    /** 换币种：只切币种，汇率自动从缓存取 */
     function onCurrencyChange(e) {
       const idx = Number(e.detail.value) || 0
       const opt = currencyOptions[idx]
       if (!opt) return
       form.currency = opt.code
-      form.exchangeRateInput = opt.code === 'CNY'
-        ? ''
-        : String(fxCache.value.rates[opt.code] || '')
     }
 
     /** 面板每次打开时拉一次最新汇率（静默，失败用缓存） */
@@ -426,10 +447,6 @@ export default {
       try {
         const res = await fetchLatestRates()
         fxCache.value = { rates: res.rates, day: res.day, source: res.source }
-        // 当前选中的是外币且用户没手填过 -> 顺带刷新汇率
-        if (isForeign.value && !form.exchangeRateInput) {
-          form.exchangeRateInput = String(fxCache.value.rates[form.currency] || '')
-        }
       } catch (e) {}
       // #endif
     }
@@ -445,7 +462,18 @@ export default {
     const showMoreCategories = ref(false)
     const calendarRef = ref(null)
     const calendarValue = ref(Date.now())
+    /** 最晚可选：今天（不接受未来日期） */
     const maxDate = ref(Date.now())
+    /**
+     * 最早可选：3 年前
+     *
+     * ★ 为什么必须显式给 ★
+     *   只给 max-date 时，min-date 会落到组件默认值（相对今天 6 个月），
+     *   实测会导致日历月份切换范围异常（用户反馈「只能选本月」）。
+     *   显式给一个足够早的固定下界，月份就能正常前后翻。
+     *   3 年对个人记账足够（更早的账基本靠导入）。
+     */
+    const minDate = ref(new Date(new Date().getFullYear() - 3, 0, 1).getTime())
     /** 时间选择器（wd-datetime-picker，type=time，值是 'HH:mm' 字符串） */
     const timePickerRef = ref(null)
     const timePickerValue = ref(currentTimeText())
@@ -795,7 +823,6 @@ export default {
        *   用户不会每次注意金额旁边的小币种标签。
        */
       form.currency = 'CNY'
-      form.exchangeRateInput = ''
       form.occurred_day = toDayKey()
       // 新记录默认是「此刻」
       form.occurred_time = currentTimeText()
@@ -850,10 +877,8 @@ export default {
       if (txn.original_currency && txn.original_amount_cents) {
         form.currency = txn.original_currency
         form.amountRaw = String(txn.original_amount_cents / 100)
-        form.exchangeRateInput = txn.exchange_rate ? String(txn.exchange_rate) : ''
       } else {
         form.currency = 'CNY'
-        form.exchangeRateInput = ''
         form.amountRaw = String(txn.amount_cents / 100)
       }
 
@@ -948,7 +973,13 @@ export default {
       if (isForeign.value) {
         const rate = exchangeRate.value
         if (!rate || rate <= 0) {
-          uni.showToast({ title: '请填写汇率', icon: 'none' })
+          /*
+           * ★ 汇率拿不到就不让存 ★
+           *   汇率不可手动填写，只能来自接口/缓存。
+           *   这时存下去要么折成 0 元、要么按 1:1 记错 ——
+           *   明确告诉用户原因（多半是网络问题），比记错账好得多。
+           */
+          uni.showToast({ title: '汇率未获取，请稍后重试或换人民币记账', icon: 'none' })
           return
         }
         // 原币金额（分）：用户输入的原始数字
@@ -1127,16 +1158,16 @@ export default {
     )
 
     return {
-      visible, types, form, primaryColor, currencySymbol,
+      visible, types, form, primaryColor,
       categories, categoryList, categoryRows, moreRowItems, allCategoryItems, usageCounts,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       /* 外币记账 */
-      currencyNames, currencyIndex, currencySymbol, isForeign,
-      convertedPreview, rateSourceText, onCurrencyChange,
+      currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
+      convertedPreview, onCurrencyChange,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
-      showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
+      showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate, minDate,
       timePickerRef, timePickerValue, openTimePicker, onTimeConfirm,
       iconChar, catIconStyle, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
@@ -1273,46 +1304,29 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 外币：汇率输入行 + 数据来源标注 */
-.fx-row {
+/* 外币：金额标签行的汇率（只读，紧跟在「金额」后面） */
+.amount-label-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 14rpx;
-  margin-top: 14rpx;
 }
 
-.fx-label {
-  font-size: 24rpx;
+.rate-inline {
+  font-size: 22rpx;
   color: var(--app-text-3);
-  flex-shrink: 0;
-}
-
-.fx-input {
-  flex: 1;
-  min-width: 0;
-  height: 60rpx;
-  padding: 0 18rpx;
-  font-size: 26rpx;
-  color: var(--app-text);
-  background-color: var(--app-card-2);
-  border-radius: 10rpx;
   font-variant-numeric: tabular-nums;
 }
 
-.fx-converted {
+/* 外币：折算预览（金额下方一行） */
+.fx-converted-line {
+  display: block;
   font-size: 26rpx;
   font-weight: 600;
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+  margin-top: 6rpx;
 }
 
-.fx-source {
-  display: block;
-  font-size: 20rpx;
-  color: var(--app-text-3);
-  margin-top: 8rpx;
-}
 
 /* 分类：固定两行，每行 6 个位置 */
 .cat-rows {

@@ -47,17 +47,42 @@
 
       <!-- 金额 -->
       <view class="amount-area">
-        <text class="amount-label">{{ form.type === 'transfer' ? '转账金额' : '金额' }}</text>
-        <view class="amount-row">
-          <text class="amount-symbol" :style="{ color: primaryColor }">{{ currencySymbol }}</text>
-          <text
-            class="amount-value"
-            :class="{ 'is-raw': isRawInput }"
-            :style="{ color: form.amountRaw ? 'var(--app-text)' : 'var(--app-text-3)' }"
-          >{{ amountDisplay || '0.00' }}</text>
+        <view class="amount-label-row">
+          <text class="amount-label">{{ form.type === 'transfer' ? '转账金额' : '金额' }}</text>
+          <!-- 汇率只读显示（与记账面板同款，不可手动改） -->
+          <text v-if="isForeign && exchangeRate > 0" class="rate-inline">
+            汇率 {{ formatRate(exchangeRate) }}
+          </text>
+        </view>
+
+        <!-- 币种选择（显示 ISO 缩写）：与记账面板保持一致 -->
+        <view class="currency-row">
+          <picker
+            :value="currencyIndex"
+            :range="currencyNames"
+            @change="onCurrencyChange"
+          >
+            <view class="currency-picker">
+              <text
+                class="currency-code"
+                :style="{ color: form.currency === 'CNY' ? 'var(--app-text-2)' : primaryColor }"
+              >{{ form.currency }}</text>
+              <text class="currency-arrow">▾</text>
+            </view>
+          </picker>
+          <view class="amount-row">
+            <text
+              class="amount-value"
+              :class="{ 'is-raw': isRawInput }"
+              :style="{ color: form.amountRaw ? 'var(--app-text)' : 'var(--app-text-3)' }"
+            >{{ amountDisplay || '0.00' }}</text>
+          </view>
         </view>
         <text v-if="isRawInput" class="amount-preview">
           = {{ computedPreview }}
+        </text>
+        <text v-if="isForeign && convertedPreview" class="fx-converted-line">
+          {{ convertedPreview }}
         </text>
       </view>
 
@@ -233,6 +258,8 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
 import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay, skipCycleDay } from '@/api/cycle.js'
+import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta } from '@/utils/currency.js'
+import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { evaluateAmount } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
@@ -271,7 +298,6 @@ export default {
     const editing = computed(() => props.editing)
 
     const primaryColor = computed(() => settingStore.primaryColor)
-    const currencySymbol = computed(() => settingStore.currencySymbol)
 
     const types = [
       { key: 'expense', name: '支出' },
@@ -288,8 +314,72 @@ export default {
       note: '',
       recurrence: 'monthly',
       weekday: 1,
-      day_of_month: 1
+      day_of_month: 1,
+      /** 外币：币种代码（CNY = 本位币），与记账面板一致 */
+      currency: 'CNY'
     })
+
+    /* ------------------------------------------------------ 外币与汇率 */
+
+    /** 汇率缓存（与 TxnPanel 同一份接口，各自拉一份即可） */
+    const fxCache = ref({ rates: {}, day: '', source: '' })
+
+    const currencyOptions = [{ code: 'CNY', symbol: BASE_SYMBOL, name: '人民币' }]
+      .concat(SUPPORTED_CURRENCIES.map((c) => ({ code: c.code, symbol: c.symbol, name: c.name })))
+    const currencyNames = currencyOptions.map((c) => `${c.code} ${c.name}`)
+    const currencyIndex = computed(() => {
+      const idx = currencyOptions.findIndex((c) => c.code === form.currency)
+      return idx >= 0 ? idx : 0
+    })
+
+    const currencyMeta = computed(() => getCurrencyMeta(form.currency))
+    const isForeign = computed(() => !!currencyMeta.value)
+
+    /**
+     * 汇率（1 外币 = ? CNY）—— 只读，来自缓存
+     * ★ 周期是模板，这里显示的汇率只是「创建时的参考」
+     *   实际补记时会按每笔发生日重新取（见 api/cycle.js 的 recordCycleForDay）★
+     */
+    const exchangeRate = computed(() => {
+      if (!isForeign.value) return 1
+      return Number(fxCache.value.rates[form.currency]) || 0
+    })
+
+    const originalCents = computed(() => evaluateAmount(form.amountRaw))
+    const convertedCents = computed(() => {
+      if (!isForeign.value) return originalCents.value
+      const rate = exchangeRate.value
+      if (!rate || rate <= 0) return 0
+      return Math.round(originalCents.value * rate)
+    })
+    const convertedPreview = computed(() => {
+      if (!convertedCents.value) return ''
+      return '≈ ¥' + (convertedCents.value / 100).toLocaleString('en-US', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      })
+    })
+
+    function formatRate(rate) {
+      const n = Number(rate) || 0
+      if (n <= 0) return ''
+      return n >= 1 ? n.toFixed(4) : n.toFixed(6)
+    }
+
+    function onCurrencyChange(e) {
+      const idx = Number(e.detail.value) || 0
+      const opt = currencyOptions[idx]
+      if (opt) form.currency = opt.code
+    }
+
+    /** 静默预取汇率 */
+    async function prefetchRates() {
+      // #ifdef APP-PLUS
+      try {
+        const res = await fetchLatestRates()
+        fxCache.value = { rates: res.rates, day: res.day, source: res.source }
+      } catch (e) {}
+      // #endif
+    }
 
     /** 当前类型名（编辑时顶栏不显示切换 tab，居中展示它） */
     const typeName = computed(() => {
@@ -581,7 +671,14 @@ export default {
 
     function fillFromCycle(c) {
       form.type = c.type
-      form.amountRaw = String(c.amount_cents / 100)
+      // 外币模板：回显原币金额与币种（amount_cents 就是原币金额）
+      if (c.original_currency && c.original_currency !== 'CNY') {
+        form.currency = c.original_currency
+        form.amountRaw = String((c.original_amount_cents || c.amount_cents) / 100)
+      } else {
+        form.currency = 'CNY'
+        form.amountRaw = String(c.amount_cents / 100)
+      }
       form.account_id = c.account_id
       form.to_account_id = c.to_account_id || ''
       // 编辑时沿用周期自己的分类；万一分类被删了则退回默认第一个
@@ -628,6 +725,12 @@ export default {
         return
       }
 
+      /*
+       * ★ 周期的金额语义：存**原币金额** ★
+       *   与普通交易不同 —— 周期是模板，还没有「某一天」可言，
+       *   实际折算发生在每次补记时（按发生日汇率，见 recordCycleForDay）。
+       *   所以这里直接把用户输入的原币金额和币种存进模板。
+       */
       const cents = evaluateAmount(form.amountRaw)
       const patch = {
         type: form.type,
@@ -638,7 +741,10 @@ export default {
         note: form.note.trim(),
         recurrence: form.recurrence,
         weekday: form.recurrence === 'weekly' ? Number(form.weekday) : null,
-        day_of_month: form.recurrence === 'monthly' ? Number(form.day_of_month) : null
+        day_of_month: form.recurrence === 'monthly' ? Number(form.day_of_month) : null,
+        // 外币模板（人民币为 null）
+        original_currency: isForeign.value ? form.currency : null,
+        original_amount_cents: isForeign.value ? cents : null
       }
       try {
         if (props.editing) {
@@ -752,6 +858,8 @@ export default {
         } else {
           resetForm()
         }
+        // 静默预取汇率（不阻塞打开，失败无声）
+        prefetchRates()
       }
     )
 
@@ -819,10 +927,13 @@ export default {
     )
 
     return {
-      visible, editing, types, typeName, form, primaryColor, currencySymbol,
+      visible, editing, types, typeName, form, primaryColor,
       categories, categoryRows, moreRowItems, allCategoryItems,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, amountFilled,
+      /* 外币记账（与 TxnPanel 同款） */
+      currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
+      convertedPreview, onCurrencyChange,
       currentAccountName, toAccountName, accountActions, toAccountActions,
       recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
       dayActions, dayOfMonthLabel,
@@ -940,16 +1051,64 @@ export default {
   color: var(--app-text-3);
 }
 
+/* 金额标签行：标签 + 只读汇率（与 TxnPanel 同款） */
+.amount-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+}
+
+.rate-inline {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 币种选择器 */
+.currency-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.currency-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  border-radius: 14rpx;
+  background-color: var(--app-card-2);
+  flex-shrink: 0;
+}
+
+.currency-code {
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.currency-arrow {
+  font-size: 16rpx;
+  color: var(--app-text-3);
+  line-height: 1.2;
+}
+
+/* 折算预览 */
+.fx-converted-line {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 6rpx;
+}
+
 .amount-row {
   display: flex;
   align-items: baseline;
   flex: 1;
-}
-
-.amount-symbol {
-  font-size: 36rpx;
-  font-weight: 500;
-  margin-right: 8rpx;
 }
 
 .amount-value {

@@ -173,19 +173,34 @@ console.log('=== 手动面板：折算逻辑与汇率校验 ===')
   const panel = read('components/TxnPanel.vue')
 
   check('面板有币种选择器', /currencyOptions/.test(panel) && /onCurrencyChange/.test(panel), true)
-  check('外币才显示汇率行', /v-if="isForeign"/.test(panel), true)
+  check('外币才显示汇率', /v-if="isForeign && exchangeRate > 0"/.test(panel), true)
   check('折算预览', /convertedPreview/.test(panel), true)
+
+  /*
+   * ★ 用户要求：汇率不做输入框、不允许手动修改 ★
+   *   汇率是客观数据，手改只会记错账；显示出来只是让用户知道
+   *   按什么价折算的。所以源码里不该再有汇率输入框。
+   */
+  check('没有汇率输入框（不可手动修改）', /fx-input/.test(panel), false)
+  check('不再提示「汇率已手动修改」', /汇率已手动修改/.test(panel), false)
+  check('汇率以只读文本显示', /class="rate-inline"/.test(panel), true)
+
+  /*
+   * ★ 币种下拉显示 ISO 缩写（CNY/JPY），不是符号 ★
+   *   日元和人民币符号都是 ¥，符号分不清。
+   */
+  check('币种按钮显示 ISO 缩写', /\{\{ form\.currency \}\}/.test(panel), true)
 
   /*
    * ★ 折算公式：原币分 × 汇率 = 人民币分 ★
    *   这是整个功能的算账核心，必须能在源码里认出来。
    */
-  check('折算用 Math.round(原币 × 汇率)', /Math\.round\(cents \* rate\)/.test(panel), true)
+  check('折算用 Math.round(原币 × 汇率)', /Math\.round\(originalCents\.value \* rate\)/.test(panel), true)
   /*
    * ★ 汇率缺失必须拒绝保存 ★
    *   不拦的话会记成 0 元或按 1:1 记错金额，比报错更糟。
    */
-  check('汇率缺失时拒绝保存', /请填写汇率/.test(panel), true)
+  check('汇率缺失时拒绝保存', /请填写汇率|汇率不可用|汇率未获取/.test(panel), true)
   check('保存时写原币快照', /original_currency: originalCurrency/.test(panel), true)
   check('保存时备注走 applyNoteTag', /applyNoteTag\(note, tag\)/.test(panel), true)
 
