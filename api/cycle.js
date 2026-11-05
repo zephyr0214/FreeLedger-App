@@ -13,6 +13,7 @@
 
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { createTransaction, listTransactions } from './transaction.js'
+import { getRateForDay } from './exchangeRate.js'
 import { getAccount, isComboType } from './account.js'
 import { prefixedId } from '../utils/id.js'
 import { toDayKey, parseDayKey, clampDayOfMonth, toMonthKey, shiftDay } from '../utils/date.js'
@@ -340,19 +341,52 @@ export function occurrencesInRange(cycle, startDay, endDay) {
  * ★ 与 recordCycle 的区别 ★
  *   自动补记要把 occurred_day 设成「应该发生的那天」（比如 10-15 的房租，
  *   用户在 10-20 打开才补记，occurred_day 仍应是 2026-10-15，而非今天）。
+ *
+ * ★ 外币周期按「当单所在日」的汇率折算（用户拍板口径）★
+ *   一个「每月 15 号扣 20 美元」的订阅，10 月那次要用 10-15 的汇率，
+ *   9 月那次用 9-15 的 —— 而不是创建周期时的汇率。
+ *   汇率查不到时退回原始 CNY 金额（宁可按 CNY 记，也不丢这笔账），
+ *   并把情况打在日志里。
  */
 export async function recordCycleForDay(id, day) {
   const c = await getCycle(id)
   if (!c) throw new Error('周期不存在')
+
+  /*
+   * ★ 外币折算：先取「发生日当天」的汇率 ★
+   *   周期表里 original_currency 非空才算外币周期；
+   *   amount_cents 对周期而言是**原币金额**（与 txn 的语义不同，
+   *   因为周期是模板，还没有折算这一步）。
+   */
+  let amountCents = c.amount_cents
+  let rate = null
+  if (c.original_currency && c.original_currency !== 'CNY') {
+    const got = await getRateForDay(day, c.original_currency)
+    if (got && got.rate > 0) {
+      rate = got.rate
+      amountCents = Math.round(c.amount_cents * got.rate)
+    } else {
+      // 拿不到历史汇率：保持原样记成 CNY，并留痕
+      console.warn(
+        `[cycle] ${day} ${c.original_currency} 汇率不可用，` +
+        `本笔按人民币 ${(c.amount_cents / 100).toFixed(2)} 记录`
+      )
+    }
+  }
+
   return createTransaction({
     type: c.type,
-    amount_cents: c.amount_cents,
+    amount_cents: amountCents,
     account_id: c.account_id,
     to_account_id: c.type === 'transfer' ? c.to_account_id : null,
     category_id: c.type === 'transfer' ? null : c.category_id,
     note: c.note || '',
     occurred_day: day,
-    cycle_id: id
+    cycle_id: id,
+    // 外币快照（拿到汇率才写，否则保持 NULL = 人民币）
+    original_currency: rate ? c.original_currency : null,
+    original_amount_cents: rate ? c.amount_cents : null,
+    exchange_rate: rate
   })
 }
 

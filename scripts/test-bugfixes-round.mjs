@@ -209,8 +209,21 @@ check('创建不再写 raw_text', /input\.raw_text/.test(txnApi), false)
 check('关键词搜索不再查 raw_text', /t\.raw_text LIKE/.test(txnApi), false)
 
 const schemaNow = read('api/db/schema.js')
-check('建表 DDL 不再有 source 列', /source\s+TEXT/.test(schemaNow), false)
-check('建表 DDL 不再有 raw_text 列', /raw_text\s+TEXT/.test(schemaNow), false)
+/*
+ * ★ 只查 txn 表的 DDL ★
+ *   原来是对整个 schema.js 做 /source\s+TEXT/ ——
+ *   后来 v17 加了 exchange_rate 表（有 source TEXT 列，记录汇率来源），
+ *   这条就误报了。断言的真正意图是「txn 表不再有 source / raw_text」，
+ *   所以先把 txn 的建表语句切出来再查。
+ */
+const txnDdl = (() => {
+  const i = schemaNow.indexOf('CREATE TABLE IF NOT EXISTS txn (')
+  if (i < 0) return ''
+  const j = schemaNow.indexOf(')`', i)
+  return j > i ? schemaNow.slice(i, j) : schemaNow.slice(i, i + 2000)
+})()
+check('txn 建表 DDL 不再有 source 列', /source\s+TEXT/.test(txnDdl), false)
+check('txn 建表 DDL 不再有 raw_text 列', /raw_text\s+TEXT/.test(txnDdl), false)
 
 const quick = read('components/QuickAddBar.vue')
 check('AI 速记不再写 source', /source: 'quick'/.test(quick), false)

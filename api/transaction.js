@@ -504,19 +504,18 @@ export async function createTransaction(input) {
 
   await transaction(async () => {
     /*
-     * ★ 不再写入 source / raw_text ★
-     *   这两列已停用（见 api/db/index.js 的 v10 迁移）：
-     *   交易详情不展示「来源 / 速记原文」，库里也不再记录。
-     *   新装库根本没有这两列，所以 INSERT 里必须去掉 ——
-     *   否则全新安装会直接报「no column named source」。
-     *   老库那两列是 nullable / 有默认值，不写也不影响插入。
+     * ★ 外币快照（v17）★
+     *   original_currency / original_amount_cents / exchange_rate
+     *   只在有原币信息时写入；人民币交易三列全 NULL（与迁移默认一致）。
+     *   amount_cents 仍是折算后的 CNY 分 —— 统计层零改动。
      */
     await execute(
       `INSERT INTO txn (
         id, type, amount_cents, account_id, to_account_id, category_id, note,
         occurred_at, occurred_day, month_key, year_key, tz_offset,
-        created_at, updated_at, deleted_at, cycle_id, via_combo_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
+        created_at, updated_at, deleted_at, cycle_id, via_combo_id,
+        original_currency, original_amount_cents, exchange_rate
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?)`,
       [
         id,
         input.type,
@@ -533,7 +532,10 @@ export async function createTransaction(input) {
         now,
         now,
         input.cycle_id || null,
-        resolved.viaComboId || null
+        resolved.viaComboId || null,
+        input.original_currency || null,
+        input.original_amount_cents || null,
+        input.exchange_rate || null
       ]
     )
 
@@ -604,12 +606,13 @@ export async function updateTransaction(id, patch) {
   affected.add(finalAccountId)
 
   await transaction(async () => {
-    // 同样不再更新 source / raw_text（两列已停用，新库没有它们）
+    // 外币快照随编辑一起更新（patch 带了才写；没带沿用旧值——merged 已合并）
     await execute(
       `UPDATE txn SET
         type = ?, amount_cents = ?, account_id = ?, to_account_id = ?, category_id = ?, note = ?,
         occurred_at = ?, occurred_day = ?, month_key = ?, year_key = ?,
-        updated_at = ?, via_combo_id = ?
+        updated_at = ?, via_combo_id = ?,
+        original_currency = ?, original_amount_cents = ?, exchange_rate = ?
        WHERE id = ?`,
       [
         merged.type,
@@ -624,6 +627,9 @@ export async function updateTransaction(id, patch) {
         keys.year_key,
         now,
         resolved.viaComboId || null,
+        merged.original_currency || null,
+        merged.original_amount_cents || null,
+        merged.exchange_rate || null,
         id
       ]
     )

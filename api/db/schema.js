@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 16
+export const SCHEMA_VERSION = 17
 
 /**
  * 「对账」固定分类（v4 起）
@@ -417,6 +417,27 @@ export const SCHEMA_V1 = [
     member_id TEXT    NOT NULL,
     sort      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (combo_id, member_id)
+  )`,
+
+  /*
+   * 汇率历史（v17）—— 外币记账的配套表
+   *
+   * 为什么按 (day, currency) 存快照：
+   *   · 周期补记要用「发生日当天」的汇率，一天一价即可（记账对汇率
+   *     精度的要求远低于外汇交易，日级快照完全够用）
+   *   · 拉到就落表复用，同一天同一币种绝不重复请求
+   *   · 离线/接口全挂时，表里最近一次的汇率就是兜底
+   *
+   * rate 的口径：1 单位外币 = rate 人民币元（例如 USD -> 7.24）。
+   * source 记录数据来自哪个接口，排查汇率异常时用。
+   */
+  `CREATE TABLE IF NOT EXISTS exchange_rate (
+    day        TEXT    NOT NULL,
+    currency   TEXT    NOT NULL,
+    rate       REAL    NOT NULL,
+    source     TEXT    NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (day, currency)
   )`
 ]
 

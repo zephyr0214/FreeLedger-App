@@ -36,18 +36,50 @@
       <!-- 金额：实时显示输入内容（算式或数字），点「完成」才结算 -->
       <view class="amount-area">
         <text class="amount-label">{{ form.type === 'transfer' ? '转账金额' : '金额' }}</text>
-        <view class="amount-row">
-          <text class="amount-symbol" :style="{ color: primaryColor }">{{ currencySymbol }}</text>
-          <text
-            class="amount-value"
-            :class="{ 'is-raw': isRawInput }"
-            :style="{ color: form.amountRaw ? 'var(--app-text)' : 'var(--app-text-3)' }"
-          >{{ amountDisplay || '0.00' }}</text>
+
+        <!--
+          币种选择：默认人民币。
+          ★ 选中外币才显示汇率行 ★
+            人民币是 99% 的日常用法，把汇率行藏起来保持面板紧凑。
+        -->
+        <view class="currency-row">
+          <picker
+            :value="currencyIndex"
+            :range="currencyNames"
+            @change="onCurrencyChange"
+          >
+            <view class="currency-picker">
+              <text class="currency-code" :style="{ color: form.currency === 'CNY' ? 'var(--app-text-3)' : primaryColor }">
+                {{ currencySymbol }}
+              </text>
+              <text class="currency-arrow">▾</text>
+            </view>
+          </picker>
+          <view class="amount-row">
+            <text class="amount-value"
+              :class="{ 'is-raw': isRawInput }"
+              :style="{ color: form.amountRaw ? 'var(--app-text)' : 'var(--app-text-3)' }"
+            >{{ amountDisplay || '0.00' }}</text>
+          </view>
         </view>
         <!-- 算式时提示会算成多少 -->
         <text v-if="isRawInput" class="amount-preview">
-          = {{ computedPreview }}
+          = {{ computedPreview }} {{ currencySymbol }}
         </text>
+
+        <!-- 汇率行 + 折算预览（选了外币才出现） -->
+        <view v-if="isForeign" class="fx-row">
+          <text class="fx-label">汇率</text>
+          <input
+            v-model="form.exchangeRateInput"
+            class="fx-input"
+            type="digit"
+            placeholder="1 外币 = ? 人民币"
+            placeholder-class="form-placeholder"
+          />
+          <text v-if="convertedPreview" class="fx-converted">{{ convertedPreview }}</text>
+        </view>
+        <text v-if="isForeign && rateSourceText" class="fx-source">{{ rateSourceText }}</text>
       </view>
 
       <!--
@@ -263,6 +295,8 @@ import { listTags } from '@/api/tag.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combineDayTime } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
+import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta, buildOriginalNoteTag, applyNoteTag, stripNoteTag } from '@/utils/currency.js'
+import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
@@ -291,7 +325,6 @@ export default {
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
-    const currencySymbol = computed(() => settingStore.currencySymbol)
 
     const types = [
       { key: 'expense', name: '支出' },
@@ -309,8 +342,97 @@ export default {
       /** 发生时刻（当天 HH:mm），默认当前时间 */
       occurred_time: currentTimeText(),
       note: '',
-      tag_ids: []
+      tag_ids: [],
+      /** 外币：币种代码（'CNY' = 本位币）与用户可改的汇率 */
+      currency: 'CNY',
+      exchangeRateInput: ''
     })
+
+    /* ------------------------------------------------------ 外币与汇率 */
+
+    /**
+     * 汇率缓存（当前最新一次拉取结果）
+     * day/source 用于在界面上标注汇率日期，让用户知道用的哪天的价。
+     */
+    const fxCache = ref({ rates: {}, day: '', source: '' })
+
+    /** 支持的币种（下拉列表） */
+    const currencyOptions = [{ code: 'CNY', symbol: BASE_SYMBOL, name: '人民币' }]
+      .concat(SUPPORTED_CURRENCIES.map((c) => ({ code: c.code, symbol: c.symbol, name: c.name })))
+    const currencyNames = currencyOptions.map((c) => `${c.name} ${c.code}`)
+    const currencyIndex = computed(() => {
+      const idx = currencyOptions.findIndex((c) => c.code === form.currency)
+      return idx >= 0 ? idx : 0
+    })
+
+    /** 选中的币种元信息（CNY 返回 null） */
+    const currencyMeta = computed(() => getCurrencyMeta(form.currency))
+
+    /** 是否外币记账 */
+    const isForeign = computed(() => !!currencyMeta.value)
+
+    /** 金额输入框旁边的符号：外币用自己的符号 */
+    const currencySymbol = computed(() => {
+      return isForeign.value ? currencyMeta.value.symbol : settingStore.currencySymbol
+    })
+
+    /** 原币金额（分）—— 用户输入的原币数字 */
+    const originalCents = computed(() => evaluateAmount(form.amountRaw))
+
+    /** 汇率（1 外币 = ? CNY）—— 用户输入优先，空则取缓存 */
+    const exchangeRate = computed(() => {
+      const n = Number(form.exchangeRateInput)
+      return Number.isFinite(n) && n > 0 ? n : (fxCache.value.rates[form.currency] || 0)
+    })
+
+    /** 折算后的 CNY 分（amount_cents 将存这个值） */
+    const convertedCents = computed(() => {
+      if (!isForeign.value) return originalCents.value
+      const rate = exchangeRate.value
+      if (!rate || rate <= 0) return 0
+      return Math.round(originalCents.value * rate)
+    })
+
+    /** 折算预览：金额输入旁「≈ ¥1,440.00」 */
+    const convertedPreview = computed(() => {
+      if (!convertedCents.value) return ''
+      return '≈ ¥' + (convertedCents.value / 100).toLocaleString('en-US', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      })
+    })
+
+    /** 汇率数据来源标注（Gitee 拉取日期 / 手动） */
+    const rateSourceText = computed(() => {
+      const rate = Number(form.exchangeRateInput)
+      if (Number.isFinite(rate) && rate > 0) return '汇率已手动修改'
+      if (fxCache.value.day) return `汇率日期 ${fxCache.value.day}（${fxCache.value.source || '缓存'}）`
+      return ''
+    })
+
+    /** 换币种时重填汇率（缓存优先），切回 CNY 清空 */
+    function onCurrencyChange(e) {
+      const idx = Number(e.detail.value) || 0
+      const opt = currencyOptions[idx]
+      if (!opt) return
+      form.currency = opt.code
+      form.exchangeRateInput = opt.code === 'CNY'
+        ? ''
+        : String(fxCache.value.rates[opt.code] || '')
+    }
+
+    /** 面板每次打开时拉一次最新汇率（静默，失败用缓存） */
+    async function prefetchRates() {
+      // #ifdef APP-PLUS
+      try {
+        const res = await fetchLatestRates()
+        fxCache.value = { rates: res.rates, day: res.day, source: res.source }
+        // 当前选中的是外币且用户没手填过 -> 顺带刷新汇率
+        if (isForeign.value && !form.exchangeRateInput) {
+          form.exchangeRateInput = String(fxCache.value.rates[form.currency] || '')
+        }
+      } catch (e) {}
+      // #endif
+    }
 
     const categories = ref([])
     const tags = ref([])
@@ -666,6 +788,14 @@ export default {
       form.amountRaw = ''
       form.note = ''
       form.tag_ids = []
+      /*
+       * ★ 币种每次重置回人民币 ★
+       *   外币是偶发场景（出游/海淘），绝大多数记账是人民币。
+       *   让上一次选的 JPY 粘到下一次会让人误记 ——
+       *   用户不会每次注意金额旁边的小币种标签。
+       */
+      form.currency = 'CNY'
+      form.exchangeRateInput = ''
       form.occurred_day = toDayKey()
       // 新记录默认是「此刻」
       form.occurred_time = currentTimeText()
@@ -710,14 +840,36 @@ export default {
     /** 用已有交易填充 */
     function fillFromTxn(txn) {
       form.type = txn.type
-      form.amountRaw = String(txn.amount_cents / 100)
+
+      /*
+       * ★ 外币交易回显的是**原币金额**，不是折算后的人民币 ★
+       *   库里 amount_cents 是折算后的人民币，直接回填会让用户
+       *   看到 9.60 而不是他当时输入的 2000 日元 —— 编辑一次金额就错了。
+       *   所以有原币快照时优先用它，并恢复币种与汇率。
+       */
+      if (txn.original_currency && txn.original_amount_cents) {
+        form.currency = txn.original_currency
+        form.amountRaw = String(txn.original_amount_cents / 100)
+        form.exchangeRateInput = txn.exchange_rate ? String(txn.exchange_rate) : ''
+      } else {
+        form.currency = 'CNY'
+        form.exchangeRateInput = ''
+        form.amountRaw = String(txn.amount_cents / 100)
+      }
+
       form.account_id = txn.account_id
       form.to_account_id = txn.to_account_id || ''
       form.category_id = txn.category_id || ''
       form.occurred_day = txn.occurred_day
       // 编辑时保留原来的时刻
       form.occurred_time = formatTime(txn.occurred_at)
-      form.note = txn.note || ''
+      /*
+       * ★ 备注要剥掉自动追加的原币标记 ★
+       *   否则编辑时把「JPY 2,000 · 晚饭」整串显示给用户，
+       *   保存时 applyNoteTag 再追加一次就成了「JPY 2,000 · JPY 2,000 · 晚饭」。
+       *   （applyNoteTag 本身有剥离逻辑，这里剥一次让用户看到纯正文更清爽）
+       */
+      form.note = stripNoteTag(txn.note || '')
       form.tag_ids = Array.isArray(txn.tag_ids) ? [...txn.tag_ids] : []
     }
 
@@ -782,7 +934,48 @@ export default {
         uni.showToast({ title: '请选择分类', icon: 'none' })
         return
       }
-      const cents = evaluateAmount(form.amountRaw)
+
+      /*
+       * ★ 外币折算（核心逻辑）★
+       *   amount_cents 存**折算后的 CNY 分** —— 统计/预算/资产全部零改动。
+       *   原币金额、币种、汇率作为快照字段一起入库，供展示与回溯。
+       *   汇率缺失时不允许保存：否则会记成 0 元或错误金额。
+       */
+      let cents = evaluateAmount(form.amountRaw)
+      let originalCurrency = null
+      let originalAmountCents = null
+
+      if (isForeign.value) {
+        const rate = exchangeRate.value
+        if (!rate || rate <= 0) {
+          uni.showToast({ title: '请填写汇率', icon: 'none' })
+          return
+        }
+        // 原币金额（分）：用户输入的原始数字
+        originalAmountCents = cents
+        originalCurrency = form.currency
+        // 折算成人民币分
+        cents = Math.round(cents * rate)
+        if (cents <= 0) {
+          uni.showToast({ title: '折算后金额无效', icon: 'none' })
+          return
+        }
+      }
+
+      /*
+       * ★ 备注自动追加原币标记（幂等）★
+       *   格式「JPY 2,000」，用 applyNoteTag 做替换而非追加：
+       *   编辑三次金额不会留下三个标记，用户手写的正文永远保留。
+       */
+      let note = form.note.trim()
+      if (isForeign.value) {
+        const tag = buildOriginalNoteTag(originalAmountCents, originalCurrency)
+        note = applyNoteTag(note, tag)
+      } else {
+        // 从外币改回人民币：剥掉遗留的标记
+        note = applyNoteTag(note, null)
+      }
+
       const payload = {
         type: form.type,
         amount_cents: cents,
@@ -792,8 +985,12 @@ export default {
         occurred_day: form.occurred_day,
         // ★ 带上具体时刻，不再固定 12:00 ★
         occurred_at: combineDayTime(form.occurred_day, form.occurred_time),
-        note: form.note.trim(),
-        tag_ids: form.tag_ids
+        note,
+        tag_ids: form.tag_ids,
+        // 外币快照（人民币交易为 null）
+        original_currency: originalCurrency,
+        original_amount_cents: originalAmountCents,
+        exchange_rate: isForeign.value ? exchangeRate.value : null
       }
 
       try {
@@ -901,6 +1098,12 @@ export default {
         } else {
           resetForm()
         }
+
+        /*
+         * 静默预取汇率（不阻塞面板打开、失败无声）
+         * 用户切到外币时 fxCache 里已经有值，不用等网络。
+         */
+        prefetchRates()
       }
     )
 
@@ -928,6 +1131,9 @@ export default {
       categories, categoryList, categoryRows, moreRowItems, allCategoryItems, usageCounts,
       showMoreCategories, openMoreCategories, pickCategoryFromMore,
       amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
+      /* 外币记账 */
+      currencyNames, currencyIndex, currencySymbol, isForeign,
+      convertedPreview, rateSourceText, onCurrencyChange,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate,
@@ -1016,10 +1222,35 @@ export default {
   flex: 1;
 }
 
-.amount-symbol {
-  font-size: 36rpx;
-  font-weight: 500;
-  margin-right: 8rpx;
+/* 币种选择器（金额左侧） */
+.currency-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.currency-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  border-radius: 14rpx;
+  background-color: var(--app-card-2);
+  flex-shrink: 0;
+}
+
+.currency-code {
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.currency-arrow {
+  font-size: 16rpx;
+  color: var(--app-text-3);
+  line-height: 1.2;
 }
 
 .amount-value {
@@ -1040,6 +1271,47 @@ export default {
   font-size: 26rpx;
   color: var(--app-text-3);
   font-variant-numeric: tabular-nums;
+}
+
+/* 外币：汇率输入行 + 数据来源标注 */
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 14rpx;
+}
+
+.fx-label {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.fx-input {
+  flex: 1;
+  min-width: 0;
+  height: 60rpx;
+  padding: 0 18rpx;
+  font-size: 26rpx;
+  color: var(--app-text);
+  background-color: var(--app-card-2);
+  border-radius: 10rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-converted {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.fx-source {
+  display: block;
+  font-size: 20rpx;
+  color: var(--app-text-3);
+  margin-top: 8rpx;
 }
 
 /* 分类：固定两行，每行 6 个位置 */

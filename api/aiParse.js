@@ -11,6 +11,7 @@
 
 import { chat } from './ai.js'
 import { SYSTEM_PRESET_GROUP_NAME } from './db/schema.js'
+import { SUPPORTED_CURRENCIES } from '../utils/currency.js'
 
 /* ------------------------------------------------------------------ 常量 */
 
@@ -21,6 +22,16 @@ const MAX_AMOUNT_CENTS = 10000000000
 
 /** 一次最多解析多少条，防止模型刷屏 */
 const MAX_ITEMS = 20
+
+/**
+ * 币种白名单（拼进提示词用）
+ *
+ * ★ 为什么给模型一份显式清单 ★
+ *   AI 只负责「这句话里提到的是哪种货币」这个判断，
+ *   给清单能显著减少它把「日元」猜成「人民币」或编个不存在的币种。
+ *   校验层还会再挡一次：不在白名单的币种一律退回 CNY。
+ */
+const CURRENCY_CODES = SUPPORTED_CURRENCIES.map((c) => `${c.code}（${c.name}）`).join('、')
 
 /** 一次解析最多自动重试几次（用户要求：最多 2 次） */
 const MAX_PARSE_RETRIES = 2
@@ -352,6 +363,19 @@ export function validateItem(raw, ctx) {
     return { ok: false, reason: `金额无效: ${JSON.stringify(raw.amount)}` }
   }
 
+  /*
+   * ★ 币种识别（AI 只做判断，不碰汇率）★
+   *   AI 返回的 currency 必须落在白名单里，否则一律当人民币 ——
+   *   模型可能编出 "RMB"/"￥"/"Yen" 这类非标准写法，不能让它们入库。
+   *   ★ 这里只有币种代码，没有汇率 ★
+   *     汇率由调用方（TxnPanel / 补记流程）从 exchange_rate 表或接口取，
+   *     计算也在那边做 —— AI 全程不参与金额换算。
+   */
+  const rawCurrency = String(raw.currency || '').toUpperCase().trim()
+  const currency = SUPPORTED_CURRENCIES.some((c) => c.code === rawCurrency)
+    ? rawCurrency
+    : 'CNY'
+
   // 类型：非法值退化为支出（记账里支出最常见）
   let type = String(raw.type || '').toLowerCase().trim()
   if (!VALID_TYPES.includes(type)) {
@@ -525,7 +549,13 @@ export function validateItem(raw, ctx) {
     ok: true,
     item: {
       type,
+      /*
+       * ★ amount_cents 此时是**原币金额**，不是人民币 ★
+       *   调用方（TxnPanel / 补记流程）负责乘汇率折成人民币再入库。
+       *   currency 就是给它们判断要不要折算用的。
+       */
       amount_cents: cents,
+      currency,
       category_id: categoryId,
       category_name: categoryName,
       account_id: accountId,
@@ -860,6 +890,14 @@ export async function parseMessageToTransactions(text, ctx) {
 3. 如果某条信息没提到，用 null 或者省略该字段，不要编造。
 4. amount 只填数字（单位：元），不要带货币符号。
 5. type 只能是 "expense"（支出）、"income"（收入）、"transfer"（转账）。
+5b. **currency：外币币种代码，只做识别，绝不算汇率**
+   - 用户提到外币时填对应代码，从这份白名单里选：
+     ${CURRENCY_CODES}
+   - 没提到外币、或提到人民币，一律填 "CNY"。
+   - **amount 填用户说的那个数（原币金额）**，不要自己换算成人民币。
+   - **绝对不要输出汇率** —— 汇率由程序从接口取，你给了也是错的。
+   - 例：「在东京花了 2000 日元」→ {"amount": 2000, "currency": "JPY"}
+   - 例：「午饭 45」→ {"amount": 45, "currency": "CNY"}
 6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮食品/正餐」）。
    - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段；
      少数几项是短名（如「借款归还」「借出」），也原样填。
@@ -931,7 +969,10 @@ ${fallbackNames.map((n) => `- ${n}`).join('\n')}
 用户消息：${message}
 
 请输出 JSON 数组，每个元素格式：
-{"amount": 45.5, "type": "expense", "category": "餐饮食品/正餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
+{"amount": 45.5, "type": "expense", "currency": "CNY", "category": "餐饮食品/正餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
+
+外币的格式（amount 是原币金额，currency 是币种代码；不要给汇率）：
+{"amount": 2000, "type": "expense", "currency": "JPY", "category": "餐饮食品/正餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "东京晚饭"}
 
 转账的格式（两个账户都在上面的账户列表里）：
 {"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "time": null, "note": "转给支付宝"}

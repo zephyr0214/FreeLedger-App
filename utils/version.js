@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.16.5'
+export const APP_VERSION = '1.17.0'
 
 /**
  * 三段式版本号（兜底补零）
@@ -138,6 +138,34 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.17.0',
+    date: '2026-11-05',
+    schemaVersion: 17,
+    sections: [
+      {
+        title: '新增',
+        items: [
+          '外币记账：手动面板可选 16 种外币，自动拉取汇率折算成人民币入账',
+          'AI 速记能认出外币（「在东京花了 2000 日元」），汇率同样由程序取，不让模型算'
+        ]
+      },
+      {
+        title: '优化',
+        items: [
+          '外币交易的备注自动带原币（如「JPY 2,000」），列表里一眼看得出这笔花的什么钱',
+          '汇率有 4 个数据源依次兜底，全挂了也能用上次的汇率继续记账'
+        ]
+      },
+      {
+        title: '数据迁移',
+        items: [
+          '交易增加原币快照字段，老数据不受影响',
+          '新增汇率历史表，周期账按发生日当天的汇率折算'
+        ]
+      }
+    ]
+  },
   {
     version: '1.16.5',
     date: '2026-11-04',

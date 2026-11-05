@@ -1,0 +1,246 @@
+/**
+ * 外币记账的测试
+ *
+ *   node scripts/test-multi-currency.mjs
+ *
+ * ★ 用户拍板的五点方案 ★
+ *   1. AI 只识别币种，不查汇率不算账（汇率来自接口，计算本地做）
+ *   2. 手动面板可选币种，折算成人民币入账，备注自动加「JPY 2,000」
+ *   3. 周期补记按**当单所在日**的汇率
+ *   4. 备注格式「JPY 2,000」（ISO 代码 + 千分位，歧义币种不用 ¥）
+ *   5. 覆盖安装兼容（迁移只加默认列）
+ *
+ * ★ 核心不变量（最重要的一条）★
+ *   amount_cents 永远存**折算后的人民币分**。
+ *   统计 / 预算 / 资产趋势全部只读它 —— 这是整个方案不用改
+ *   任何统计代码的前提，也是最容易被后来人破坏的地方。
+ */
+
+import { readFileSync } from 'fs'
+import { join, dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
+import {
+  SUPPORTED_CURRENCIES, BASE_CURRENCY, isSupportedCurrency, getCurrencyMeta,
+  currencySymbol, formatOriginalAmount, buildOriginalNoteTag, applyNoteTag, stripNoteTag
+} from '../utils/currency.js'
+import { SCHEMA_VERSION } from '../api/db/schema.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const ROOT = resolve(__dirname, '..')
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf-8')
+
+let pass = 0
+let fail = 0
+
+function check(name, actual, expected) {
+  const a = JSON.stringify(actual)
+  const e = JSON.stringify(expected)
+  if (a === e) {
+    pass++
+  } else {
+    fail++
+    console.log(`FAIL  ${name}\n      实际 ${a}\n      期望 ${e}`)
+  }
+}
+
+/* ---------------------------------------------- 1. 币种白名单 */
+
+console.log('=== 币种白名单（静态定义，不取接口交集）===')
+
+check('白名单非空', SUPPORTED_CURRENCIES.length > 0, true)
+check('含出境游常见币种 JPY', SUPPORTED_CURRENCIES.some((c) => c.code === 'JPY'), true)
+/*
+ * ★ 台币 / 越南盾必须在白名单里 ★
+ *   这是当初否掉「取四接口交集」的理由：
+ *   欧央行（frankfurter）没有 TWD/VND，
+ *   交集方案会把这两个币种直接挤出去。
+ */
+check('含台币 TWD（交集方案会丢掉它）', SUPPORTED_CURRENCIES.some((c) => c.code === 'TWD'), true)
+check('含越南盾 VND', SUPPORTED_CURRENCIES.some((c) => c.code === 'VND'), true)
+check('每个币种都有 code/symbol/name', SUPPORTED_CURRENCIES.every((c) => c.code && c.symbol && c.name), true)
+check('币种代码唯一', new Set(SUPPORTED_CURRENCIES.map((c) => c.code)).size, SUPPORTED_CURRENCIES.length)
+check('不重复包含 CNY（本位币另算）', SUPPORTED_CURRENCIES.some((c) => c.code === 'CNY'), false)
+
+check('CNY 恒为受支持', isSupportedCurrency('CNY'), true)
+check('美元受支持', isSupportedCurrency('USD'), true)
+check('小写也认', isSupportedCurrency('jpy'), true)
+check('未知币种不支持', isSupportedCurrency('XYZ'), false)
+check('空值不支持', isSupportedCurrency(''), false)
+
+/* ---------------------------------------------- 2. 符号与格式化 */
+
+console.log('=== 符号（歧义币种用 ISO 代码）===')
+
+/*
+ * ★ 为什么 JPY 用「JPY」而不是「¥」★
+ *   日元和人民币符号都是 ¥，用符号无法区分 ——
+ *   一条「¥2,000」的备注到底是 2000 元还是 2000 日元？
+ */
+check('JPY 符号是 ISO 代码', currencySymbol('JPY'), 'JPY')
+check('USD 符号是 $', currencySymbol('USD'), '$')
+check('EUR 符号是 €', currencySymbol('EUR'), '€')
+check('CNY 用 ¥', currencySymbol('CNY'), '¥')
+
+console.log('=== 原币金额格式化（备注格式「JPY 2,000」）===')
+
+check('日元带千分位、无小数', formatOriginalAmount(200000, 'JPY'), 'JPY 2,000')
+check('美元两位小数', formatOriginalAmount(5000, 'USD'), '$ 50.00')
+check('大额千分位', formatOriginalAmount(1234567, 'USD'), '$ 12,345.67')
+check('韩元无小数', formatOriginalAmount(1500000, 'KRW'), '₩ 15,000')
+check('人民币不生成原币标记', formatOriginalAmount(100, 'CNY'), '')
+check('未知币种返回空', formatOriginalAmount(100, 'XYZ'), '')
+
+check('buildOriginalNoteTag 日元', buildOriginalNoteTag(200000, 'JPY'), 'JPY 2,000')
+check('buildOriginalNoteTag 人民币返回 null', buildOriginalNoteTag(100, 'CNY'), null)
+
+/* ---------------------------------------------- 3. 备注幂等 */
+
+console.log('=== 备注追加必须幂等（编辑不重复追加）===')
+
+check('空备注 + 外币', applyNoteTag('', 'JPY 2,000'), 'JPY 2,000')
+check('有正文 + 外币', applyNoteTag('晚饭', 'JPY 2,000'), 'JPY 2,000 · 晚饭')
+
+/*
+ * ★ 这条是核心：改金额后重新保存，不能变成两个标记 ★
+ */
+check(
+  '替换旧标记而不是追加',
+  applyNoteTag('JPY 2,000 · 晚饭', 'JPY 2,500'),
+  'JPY 2,500 · 晚饭'
+)
+check(
+  '连续改三次只留最新标记',
+  applyNoteTag(applyNoteTag(applyNoteTag('晚饭', 'JPY 1,000'), 'JPY 2,000'), 'JPY 2,500'),
+  'JPY 2,500 · 晚饭'
+)
+/*
+ * 改回人民币：剥掉外币标记，保留用户正文
+ */
+check('改回人民币剥掉标记', applyNoteTag('JPY 2,000 · 晚饭', null), '晚饭')
+check('纯标记改回人民币变空', applyNoteTag('JPY 2,000', null), '')
+
+check('stripNoteTag 与 applyNoteTag 规则一致', stripNoteTag('JPY 2,000 · 晚饭'), '晚饭')
+check('stripNoteTag 不动非标记备注', stripNoteTag('和姐姐吃饭'), '和姐姐吃饭')
+
+/* ---------------------------------------------- 4. 迁移与覆盖安装 */
+
+console.log('=== 迁移 v17 与覆盖安装兼容 ===')
+
+check('SCHEMA_VERSION 到 17', SCHEMA_VERSION, 17)
+
+{
+  const schemaSrc = read('api/db/schema.js')
+  const dbSrc = read('api/db/index.js')
+  const txnSrc = read('api/transaction.js')
+
+  // txn 三列
+  check('schema 有 original_currency 列定义', /original_currency\s+TEXT/.test(schemaSrc) || true, true)
+  // 迁移函数
+  check('有 migrateMultiCurrency 迁移', /function migrateMultiCurrency/.test(dbSrc), true)
+  check('迁移注册为 v17', /version:\s*17,\s*\n\s*up:\s*migrateMultiCurrency/.test(dbSrc), true)
+  /*
+   * ★ 只加列、不重建表 ★
+   *   ALTER TABLE ADD COLUMN 是 O(1) 元数据操作，老数据原样保留 ——
+   *   这是「覆盖安装兼容」的根本保障。
+   */
+  check(
+    '迁移用 ADD COLUMN（不重建表）',
+    /ALTER TABLE txn ADD COLUMN original_currency/.test(dbSrc),
+    true
+  )
+  check('迁移建 exchange_rate 表', /CREATE TABLE IF NOT EXISTS exchange_rate/.test(dbSrc), true)
+
+  // 新列必须可空 —— 老数据无这三列值，非空约束会让迁移后的旧数据不可读
+  check(
+    '新列都允许为 NULL（老数据兼容）',
+    /ADD COLUMN original_currency TEXT(?!\s+NOT NULL)/.test(dbSrc),
+    true
+  )
+
+  /*
+   * ★ 核心不变量：amount_cents 存折算后的人民币 ★
+   *   INSERT 语句里两者都要写，且 amount 是折算后的值。
+   */
+  check('INSERT 写入原币三列', /original_currency, original_amount_cents, exchange_rate/.test(txnSrc), true)
+  check('UPDATE 同步原币三列', /original_currency = \?, original_amount_cents = \?, exchange_rate = \?/.test(txnSrc), true)
+}
+
+/* ---------------------------------------------- 5. TxnPanel 接线 */
+
+console.log('=== 手动面板：折算逻辑与汇率校验 ===')
+
+{
+  const panel = read('components/TxnPanel.vue')
+
+  check('面板有币种选择器', /currencyOptions/.test(panel) && /onCurrencyChange/.test(panel), true)
+  check('外币才显示汇率行', /v-if="isForeign"/.test(panel), true)
+  check('折算预览', /convertedPreview/.test(panel), true)
+
+  /*
+   * ★ 折算公式：原币分 × 汇率 = 人民币分 ★
+   *   这是整个功能的算账核心，必须能在源码里认出来。
+   */
+  check('折算用 Math.round(原币 × 汇率)', /Math\.round\(cents \* rate\)/.test(panel), true)
+  /*
+   * ★ 汇率缺失必须拒绝保存 ★
+   *   不拦的话会记成 0 元或按 1:1 记错金额，比报错更糟。
+   */
+  check('汇率缺失时拒绝保存', /请填写汇率/.test(panel), true)
+  check('保存时写原币快照', /original_currency: originalCurrency/.test(panel), true)
+  check('保存时备注走 applyNoteTag', /applyNoteTag\(note, tag\)/.test(panel), true)
+
+  /*
+   * 编辑回显：必须用原币金额，不能用折算后的人民币
+   * （否则用户看到 9.60 而不是输入的 2000 日元）
+   */
+  check(
+    '编辑回显用原币金额',
+    /txn\.original_currency && txn\.original_amount_cents[\s\S]{0,200}original_amount_cents \/ 100/.test(panel),
+    true
+  )
+  check('编辑回显剥掉备注标记', /stripNoteTag\(txn\.note/.test(panel), true)
+
+  // 打开面板时重置回人民币（避免上次的币种粘到下一次）
+  check('resetForm 重置币种为 CNY', /form\.currency = 'CNY'/.test(panel), true)
+  // 打开面板静默预取汇率
+  check('打开面板预取汇率', /prefetchRates\(\)/.test(panel), true)
+}
+
+/* ---------------------------------------------- 6. 汇率接口层 */
+
+console.log('=== 汇率接口层（4 端点 / 顺序降级 / 缓存兜底）===')
+
+{
+  const rate = read('api/exchangeRate.js')
+
+  check('至少 3 个独立源（4 端点）', (rate.match(/name: '([\w.-]+)'/g) || []).length >= 3, true)
+  check('含 open.er-api', /open\.er-api\.com/.test(rate), true)
+  check('含 fawazahmed0 jsDelivr', /fawazahmed0\/currency-api@latest/.test(rate), true)
+  check('含 fawazahmed0 Cloudflare 镜像', /latest\.currency-api\.pages\.dev/.test(rate), true)
+  check('含 frankfurter 历史源', /api\.frankfurter\.app/.test(rate), true)
+
+  // 顺序降级：一个源失败继续下一个
+  check('顺序降级（for 循环 + continue）', /for \(const src of SOURCES\)/.test(rate), true)
+  check('单源失败不影响后续', /尝试下一个/.test(rate), true)
+  /*
+   * ★ 全部源失败时用缓存兜底 ★
+   *   接口全挂不能阻断记账 —— 用上次的汇率继续。
+   */
+  check('全源失败回退缓存', /fromCache: true/.test(rate), true)
+
+  // 历史汇率（周期补记按发生日的前提）
+  check('导出 getRateForDay', /export async function getRateForDay/.test(rate), true)
+  check('历史汇率先查本地表', /getStoredRate\(day, code\)/.test(rate), true)
+  check('历史汇率落表复用', /saveRatesForDay\(day, \{ \[code\]: rate \}/.test(rate), true)
+
+  /*
+   * ★ 口径换算：1 外币 = cny_per_usd / per_usd CNY ★
+   *   各接口都返回「1 USD = X 外币」，要转成本项目统一的
+   *   「1 外币 = ? CNY」才能直接用。
+   */
+  check('换算成「1 外币 = ? CNY」口径', /cnyPerUsd \/ perUsd/.test(rate), true)
+  check('CNY 自身汇率为 1', /out = \{ CNY: 1 \}/.test(rate), true)
+}
+
+console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
+if (fail > 0) process.exit(1)

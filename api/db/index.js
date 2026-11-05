@@ -332,6 +332,27 @@ const MIGRATIONS = [
     //   详见 migrateRenameLoanCategories()。
     version: 16,
     up: migrateRenameLoanCategories
+  },
+  {
+    /*
+     * ★ v17 —— 外币记账支持 ★
+     *
+     *   1. txn 加原币快照三列（全部可空/带默认）：
+     *        original_currency       币种代码（NULL = 人民币）
+     *        original_amount_cents   原币金额（分）
+     *        exchange_rate           记账时汇率（1 原币 = rate CNY）
+     *      ★ 核心原则：amount_cents 仍是折算后的 CNY 分 ★
+     *        所有统计/预算/资产只认它，一笔不用改；
+     *        原币只是快照，丢了也不影响账目（但会丢展示信息）。
+     *
+     *   2. 新建 exchange_rate 汇率历史表（day, currency 唯一）：
+     *        周期补记要用「发生日当天」的汇率，一天一价；
+     *        拉到就落表复用，离线时表里最近的汇率就是兜底。
+     *
+     *   老数据兼容：全部列可空，老交易原样 = 人民币交易，行为零变化。
+     */
+    version: 17,
+    up: migrateMultiCurrency
   }
 ]
 
@@ -1671,6 +1692,55 @@ async function migrateRenameLoanCategories() {
   console.log(
     `[db] migration v16: 借入借出分类已改名（改名 ${renamed} 条，合并 ${merged} 条）`
   )
+}
+
+/**
+ * 迁移 v17 —— 外币记账支持
+ *
+ * 结构：txn 加原币快照三列 + 新建 exchange_rate 汇率历史表。
+ * 设计说明见 MIGRATIONS 数组 v17 的注释与 schema.js 的表注释。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateMultiCurrency() {
+  const run = async (sql) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v17 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  // ALTER TABLE ADD COLUMN 是 O(1) 元数据操作（v3 起一直这么用）
+  await run(`ALTER TABLE txn ADD COLUMN original_currency TEXT`)
+  await run(`ALTER TABLE txn ADD COLUMN original_amount_cents INTEGER`)
+  await run(`ALTER TABLE txn ADD COLUMN exchange_rate REAL`)
+
+  // 汇率历史表（定义与 schema.js 的 SCHEMA_V1 保持一致）
+  await run(`CREATE TABLE IF NOT EXISTS exchange_rate (
+    day        TEXT    NOT NULL,
+    currency   TEXT    NOT NULL,
+    rate       REAL    NOT NULL,
+    source     TEXT    NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (day, currency)
+  )`)
+
+  /*
+   * 周期模板的外币字段
+   *
+   * ★ 为什么周期也要带币种 ★
+   *   用户明确要求「周期补记的汇率口径 = 当单所在日的汇率」。
+   *   一个「每月 15 号扣 20 美元订阅」的周期，每次补记都该按
+   *   **那一天**的汇率折算，而不是创建周期时的汇率 ——
+   *   否则一年下来误差会累积成实打实的金额偏差。
+   *
+   *   老周期全部为 NULL（= 人民币），行为完全不变。
+   */
+  await run(`ALTER TABLE cycle ADD COLUMN original_currency TEXT`)
+  await run(`ALTER TABLE cycle ADD COLUMN original_amount_cents INTEGER`)
 }
 
 async function migrate() {
