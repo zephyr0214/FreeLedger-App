@@ -223,5 +223,38 @@ check('RecentTxnList 无分组汇总行', /group\.expense|group\.income/.test(re
 // amountColor 必须返回 'auto'，不能再写死颜色（图标色不在此列）
 check('amountColor 交给统一规则', /function amountColor\(\) \{\s*return 'auto'\s*\}/.test(recent), true)
 
+/* ------------------------------------- 货币符号：定死为 ¥（设置项已删） */
+
+console.log('=== 货币符号定死为 ¥（个人信息页的设置项已删除）===')
+
+/*
+ * ★ 为什么这条要断言「不存在」★
+ *   本位币恒为人民币，符号只能是 ¥。
+ *   原来个人信息页给了一个可编辑的「货币符号」，
+ *   改成 $ 之后金额显示成 $12.00 但实际还是人民币 ——
+ *   数字和币种自相矛盾，用户已经要求把它彻底删掉。
+ *   谁再把输入框加回来，或者让组件重新去读设置，这里会立刻失败。
+ */
+const profilePage = read('pages/settings/profile.vue')
+check('个人信息页没有 currencySymbol 字段', /currencySymbol/.test(profilePage), false)
+check('个人信息页没有「货币符号」一行', /货币符号/.test(profilePage), false)
+
+const settingsApi = read('api/settings.js')
+check('DEFAULT_SETTINGS 不再定义 currencySymbol', /currencySymbol\s*:/.test(settingsApi), false)
+
+const settingStore = read('stores/setting.js')
+check('setting store 没有 currencySymbol getter', /currencySymbol\s*\(/.test(settingStore), false)
+
+check('MoneyText 的符号来自 BASE_SYMBOL', /symbol: props\.symbol \? BASE_SYMBOL : ''/.test(money), true)
+
+const balanceSheet = read('components/BalanceSheet.vue')
+check('对账弹层的符号来自 BASE_SYMBOL', /const currencySymbol = BASE_SYMBOL/.test(balanceSheet), true)
+// 注释里会提到「原来读 settingStore.currencySymbol」，所以断言前先剥掉注释
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+check('对账弹层不再读设置里的符号', /settingStore\.currencySymbol/.test(stripComments(balanceSheet)), false)
+
+check('账户页的符号来自 BASE_SYMBOL', /symbol: BASE_SYMBOL/.test(accPage), true)
+check('账户页不再读设置里的符号', /settingStore\.currencySymbol/.test(stripComments(accPage)), false)
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

@@ -234,6 +234,7 @@ import { useUiStore } from '@/stores/ui.js'
 import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { formatCents } from '@/utils/money.js'
+import { BASE_SYMBOL } from '@/utils/currency.js'
 
 export default {
   components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar, UpdateDialog },
@@ -299,12 +300,13 @@ export default {
       //   按用户要求：只保留「组合账户」这个组名，右侧留空。
       if (group.key === 'combo') return ''
       const sum = group.accounts.reduce((acc, a) => acc + a.balance_cents, 0)
-      return formatCents(sum, { symbol: settingStore.currencySymbol })
+      // 本位币符号恒为 ¥（currencySymbol 设置项已删除）
+      return formatCents(sum, { symbol: BASE_SYMBOL })
     }
 
     /** 折线图触摸气泡里的金额（与页面其它地方保持一致） */
     function formatAmount(cents) {
-      return formatCents(cents, { symbol: settingStore.currencySymbol })
+      return formatCents(cents, { symbol: BASE_SYMBOL })
     }
 
     /**

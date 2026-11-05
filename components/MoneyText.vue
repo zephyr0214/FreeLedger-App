@@ -5,6 +5,7 @@
 <script>
 import { computed } from 'vue'
 import { formatCents } from '@/utils/money.js'
+import { BASE_SYMBOL } from '@/utils/currency.js'
 import { useSettingStore } from '@/stores/setting.js'
 
 /**
@@ -144,9 +145,15 @@ export default {
        *   但 0 若也被压成「0」，用户会以为金额没加载出来。
        */
       const hideDecimals = props.hideZeroDecimals && !isZero.value
+      /*
+       * ★ 符号定死为 ¥，不再读设置 ★
+       *   本位币恒为人民币（utils/currency.js 的 BASE_CURRENCY），
+       *   个人信息页那个「货币符号」输入框已经删了 ——
+       *   允许改成 $ 只会让金额和币种对不上。
+       */
       return formatCents(signedCents.value, {
         sign: showSign.value,
-        symbol: props.symbol ? settingStore.currencySymbol : '',
+        symbol: props.symbol ? BASE_SYMBOL : '',
         grouping: props.grouping,
         hideZeroDecimals: hideDecimals
       })

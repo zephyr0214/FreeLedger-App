@@ -90,6 +90,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { adjustAccountBalance, setAccountBalanceDirect } from '@/api/account.js'
 import { yuanToCents, formatCents } from '@/utils/money.js'
+import { BASE_SYMBOL } from '@/utils/currency.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -116,7 +117,13 @@ export default {
     const autoFocus = ref(false)
 
     const primaryColor = computed(() => settingStore.primaryColor)
-    const currencySymbol = computed(() => settingStore.currencySymbol)
+    /*
+     * ★ 输入框左边的币种符号定死为 ¥ ★
+     *   原来读 settingStore.currencySymbol（个人信息页可改），
+     *   但本位币恒为人民币，符号跟着用户改只会自相矛盾，
+     *   那个输入框已按用户要求删除。
+     */
+    const currencySymbol = BASE_SYMBOL
 
     /** 两种口径的说明 */
     const modes = [
@@ -131,7 +138,7 @@ export default {
     const diffText = computed(() => {
       const d = diffCents.value
       if (d === 0) return '无变化'
-      return `${d > 0 ? '+' : '-'}${formatCents(Math.abs(d), { symbol: currencySymbol.value })}`
+      return `${d > 0 ? '+' : '-'}${formatCents(Math.abs(d), { symbol: currencySymbol })}`
     })
     const diffColor = computed(() => {
       if (diffCents.value === 0) return 'var(--app-text-3)'

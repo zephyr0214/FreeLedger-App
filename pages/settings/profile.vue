@@ -43,18 +43,6 @@
             :maxlength="30"
           />
         </view>
-
-        <view class="form-row">
-          <text class="form-label">货币符号</text>
-          <input
-            v-model="form.currencySymbol"
-            class="form-input"
-            placeholder="¥"
-            placeholder-class="form-placeholder"
-            :maxlength="3"
-          />
-        </view>
-
       </view>
 
       <view class="bottom-space" />
@@ -84,8 +72,7 @@ export default {
     const form = reactive({
       nickname: '',
       signature: '',
-      avatar: '',
-      currencySymbol: '¥'
+      avatar: ''
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -143,8 +130,7 @@ export default {
         await settingStore.update({
           nickname: form.nickname.trim(),
           signature: form.signature.trim(),
-          avatar: form.avatar,
-          currencySymbol: form.currencySymbol || '¥'
+          avatar: form.avatar
         })
         uni.showToast({ title: '已保存', icon: 'success' })
         setTimeout(() => uni.navigateBack(), 500)
@@ -163,7 +149,6 @@ export default {
       form.nickname = s.nickname || ''
       form.signature = s.signature || ''
       form.avatar = s.avatar || ''
-      form.currencySymbol = s.currencySymbol || '¥'
     })
 
     return {

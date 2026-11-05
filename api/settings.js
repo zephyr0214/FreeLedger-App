@@ -16,7 +16,13 @@ export const DEFAULT_SETTINGS = {
 
   // 记账
   defaultAccountId: '',
-  currencySymbol: '¥',
+  /*
+   * ★ currencySymbol（个人信息页的「货币符号」）已删除 ★
+   *   本位币就是人民币，符号恒为 ¥（utils/currency.js 的 BASE_SYMBOL），
+   *   让用户改它只会让金额显示和实际币种对不上（改成 $ 也还是人民币）。
+   *   老用户库里可能还残留一个 currencySymbol 行 —— 无任何代码读它，
+   *   属于历史遗留的死数据，不值得为它发一条 DB 迁移。
+   */
   firstRunDone: false,
 
   /**

@@ -40,7 +40,6 @@ export const useSettingStore = defineStore('setting', {
       avatar: '',
       signature: '',
       defaultAccountId: '',
-      currencySymbol: '¥',
       firstRunDone: false,
       themeMode: THEME_MODE.SYSTEM,
       themePreset: 'green',
@@ -114,9 +113,6 @@ export const useSettingStore = defineStore('setting', {
         return themePrimaryLightDark(p.primary, state.isDark)
       }
       return p.light
-    },
-    currencySymbol(state) {
-      return state.settings.currencySymbol || '¥'
     },
     privacyMode(state) {
       return !!state.settings.privacyMode
