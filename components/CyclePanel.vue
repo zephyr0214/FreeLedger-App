@@ -1102,13 +1102,12 @@ export default {
   line-height: 1.2;
 }
 
-/* 折算预览 */
-/* 预览行：算式结果 + 外币折算同一行（与记账面板一致） */
+/* 预览行：算式结果 + 外币折算紧挨在一起（与记账面板一致） */
 .amount-sub-row {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 16rpx;
+  justify-content: flex-start;
+  gap: 10rpx;
   margin-top: 6rpx;
 }
 

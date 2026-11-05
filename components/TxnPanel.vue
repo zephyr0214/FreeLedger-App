@@ -1331,17 +1331,18 @@ export default {
 
 /* 算式结果预览 */
 /*
- * 预览行：算式结果 + 外币折算同一行
+ * 预览行：算式结果 + 外币折算，紧挨在一起
  *
- * 两者都是为了核对「这个数对不对」，放一行看更连贯，
- * 也省下小屏上的垂直空间（下面就是分类区）。
- * 两端对齐：左边算式、右边折算，中间留空隙不挤在一起。
+ * ★ 为什么不用 space-between ★
+ *   两者是同一句话的两个部分（「= 2000 ≈ ¥144.80」），
+ *   两端对齐中间拉出大空隙，看起来像两个无关的信息。
+ *   靠左连排、只留一个小 gap，读起来是一个整体。
  */
 .amount-sub-row {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 16rpx;
+  justify-content: flex-start;
+  gap: 10rpx;
   margin-top: 6rpx;
 }
 
