@@ -179,7 +179,8 @@ check('顶部有来源/更新时间一行', /class="meta-bar"/.test(page), true)
 check('左边显示汇率来源', /class="meta-text">\{\{ sourceText \}\}/.test(page), true)
 check('右边显示更新时间', /class="meta-text">\{\{ updatedText \}\}/.test(page), true)
 check('来源文案带上「来源：」', /来源：/.test(page), true)
-check('更新时间写成「更新于 HH:mm」', /更新于 ' \+ currentTimeText\(\)/.test(page), true)
+check('更新时间写成「更新于 YYYY-MM-DD HH:MM」', /更新于 ' \+ nowText\(\)/.test(page), true)
+check('时间格式含日期', /return `\$\{toDayKey\(\)\} \$\{currentTimeText\(\)\}`/.test(page), true)
 check('两端对齐（space-between）', /justify-content: space-between/.test(page), true)
 
 // 2. 两句说明文案已删除

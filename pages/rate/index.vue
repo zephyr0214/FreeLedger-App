@@ -100,7 +100,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { SUPPORTED_CURRENCIES, BASE_CURRENCY } from '@/utils/currency.js'
-import { currentTimeText } from '@/utils/date.js'
+import { toDayKey, currentTimeText } from '@/utils/date.js'
 import {
   DEFAULT_BASE_AMOUNT,
   sanitizeAmountInput,
@@ -222,7 +222,7 @@ export default {
         const res = await fetchLatestRates()
         rates.value = res.rates || { [BASE_CURRENCY]: 1 }
         sourceText.value = buildSourceText(res)
-        updatedText.value = '更新于 ' + currentTimeText()
+        updatedText.value = '更新于 ' + nowText()
         if (res.fromCache) {
           errorText.value = '实时汇率获取失败，当前显示的是 ' + (res.day || '上次') + ' 的缓存'
         }
@@ -243,6 +243,19 @@ export default {
       if (res && res.fromCache) return '来源：本地缓存'
       const src = (res && res.source) || '在线'
       return `来源：${src}`
+    }
+
+    /**
+     * 更新时间的展示格式：YYYY-MM-DD HH:MM
+     *
+     * ★ 为什么带上日期 ★
+     *   只写「更新于 14:32」时，用户分不清这是今天的 14:32
+     *   还是昨天、甚至上一次打开页面时的 14:32 ——
+     *   缓存兜底的情况下尤其容易误读。
+     *   带上日期，一眼就知道这行汇率是不是今天的。
+     */
+    function nowText() {
+      return `${toDayKey()} ${currentTimeText()}`
     }
 
     function goBack() {
