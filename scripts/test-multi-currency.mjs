@@ -257,5 +257,35 @@ console.log('=== 汇率接口层（4 端点 / 顺序降级 / 缓存兜底）==='
   check('CNY 自身汇率为 1', /out = \{ CNY: 1 \}/.test(rate), true)
 }
 
+console.log('=== 币种下拉箭头：线性图标 + 真实色值 ===')
+
+{
+  const panel = read('components/TxnPanel.vue')
+  const cycle = read('components/CyclePanel.vue')
+
+  for (const [name, src] of [['记账面板', panel], ['周期面板', cycle]]) {
+    // 箭头用 LineIcon 而不是 ▾ 字符（字符三角形跟图标库不统一）
+    check(`${name} 用线性箭头图标`, /<LineIcon name="chevronDown"/.test(src), true)
+    check(`${name} 不再用 ▾ 字符`, /▾/.test(src), false)
+    /*
+     * ★ color 必须是真实色值，不能是 CSS 变量 ★
+     *   LineIcon 用 <image> 加载 SVG data URI —— 独立图片文档，
+     *   var(--app-text-3) 解析不了，描边会变无效值，图标整个不显示。
+     *   这个 bug 已经踩过一次，写成断言防复发。
+     */
+    check(
+      `${name} 图标色值不是 CSS 变量`,
+      /name="chevronDown"[^>]*color="var\(/.test(src),
+      false
+    )
+    check(`${name} 提供 iconInk 真实色`, /const iconInk = computed/.test(src), true)
+  }
+
+  // 预览行合并：算式结果与外币折算在同一行
+  check('记账面板预览合并成一行', /class="amount-sub-row"/.test(panel), true)
+  check('周期面板预览合并成一行', /class="amount-sub-row"/.test(cycle), true)
+  check('不再有独立的折算行样式', /fx-converted-line/.test(panel), false)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

@@ -65,8 +65,16 @@
                 class="currency-code"
                 :style="{ color: form.currency === 'CNY' ? 'var(--app-text-2)' : primaryColor }"
               >{{ form.currency }}</text>
-              <!-- 线性向下箭头（不用 ▾ 字符：字体差异大、跟图标库不统一） -->
-              <LineIcon name="chevronDown" :size="14" color="var(--app-text-3)" />
+              <!--
+                线性向下箭头
+
+                ★ color 必须是真实色值，不能传 CSS 变量 ★
+                  LineIcon 把 SVG 编成 data URI 交给 <image> 加载，
+                  那是独立图片文档，解析不了 var(--app-text-3) ——
+                  传变量会得到无效 stroke，图标整个不显示（已踩）。
+                  所以用 iconInk 计算属性给出深浅两套真实色。
+              -->
+              <LineIcon name="chevronDown" :size="14" :color="iconInk" />
             </view>
           </picker>
           <view class="amount-row">
@@ -76,15 +84,24 @@
             >{{ amountDisplay || '0.00' }}</text>
           </view>
         </view>
-        <!-- 算式时提示会算成多少 -->
-        <text v-if="isRawInput" class="amount-preview">
-          = {{ computedPreview }}
-        </text>
 
-        <!-- 外币折算预览（选了外币才出现） -->
-        <text v-if="isForeign && convertedPreview" class="fx-converted-line">
-          {{ convertedPreview }}
-        </text>
+        <!--
+          预览行：算式结果 + 外币折算，**同一行**
+          ★ 为什么要合并 ★
+            「= 20.00」和「≈ ¥144.80」原来是上下两行，
+            小屏上把下面的分类区挤下去了，而且两个都是为了
+            确认「这个数对不对」，放一起看才连贯。
+          两者互不冲突：算式时显示左边，外币时显示右边，
+          外币用算式输入时两个都显示。
+        -->
+        <view v-if="isRawInput || (isForeign && convertedPreview)" class="amount-sub-row">
+          <text v-if="isRawInput" class="amount-preview">
+            = {{ computedPreview }}
+          </text>
+          <text v-if="isForeign && convertedPreview" class="fx-converted-inline">
+            {{ convertedPreview }}
+          </text>
+        </view>
       </view>
 
       <!--
@@ -342,6 +359,16 @@ export default {
     })
 
     const primaryColor = computed(() => settingStore.primaryColor)
+
+    /**
+     * 线性图标的描边色（深/浅两套真实 hex）
+     *
+     * ★ 不能传 CSS 变量 ★
+     *   LineIcon 用 <image> 加载 SVG data URI，那是独立文档，
+     *   currentColor / var() 都解析不了，会让图标变成不可见。
+     *   项目里 account/edit.vue 也是同样的处理（iconInk）。
+     */
+    const iconInk = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
 
     const types = [
       { key: 'expense', name: '支出' },
@@ -1166,7 +1193,7 @@ export default {
       amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       /* 外币记账 */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
-      convertedPreview, onCurrencyChange,
+      convertedPreview, onCurrencyChange, iconInk,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate, minDate,
@@ -1303,6 +1330,21 @@ export default {
 }
 
 /* 算式结果预览 */
+/*
+ * 预览行：算式结果 + 外币折算同一行
+ *
+ * 两者都是为了核对「这个数对不对」，放一行看更连贯，
+ * 也省下小屏上的垂直空间（下面就是分类区）。
+ * 两端对齐：左边算式、右边折算，中间留空隙不挤在一起。
+ */
+.amount-sub-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 6rpx;
+}
+
 .amount-preview {
   font-size: 26rpx;
   color: var(--app-text-3);
@@ -1323,13 +1365,12 @@ export default {
 }
 
 /* 外币：折算预览（金额下方一行） */
-.fx-converted-line {
-  display: block;
+.fx-converted-inline {
   font-size: 26rpx;
   font-weight: 600;
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
-  margin-top: 6rpx;
+  flex-shrink: 0;
 }
 
 

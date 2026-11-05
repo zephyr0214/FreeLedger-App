@@ -67,8 +67,8 @@
                 class="currency-code"
                 :style="{ color: form.currency === 'CNY' ? 'var(--app-text-2)' : primaryColor }"
               >{{ form.currency }}</text>
-              <!-- 线性向下箭头，与记账面板一致 -->
-              <LineIcon name="chevronDown" :size="14" color="var(--app-text-3)" />
+              <!-- 线性向下箭头，与记账面板一致（color 必须真实色值，不能传 CSS 变量） -->
+              <LineIcon name="chevronDown" :size="14" :color="iconInk" />
             </view>
           </picker>
           <view class="amount-row">
@@ -79,12 +79,15 @@
             >{{ amountDisplay || '0.00' }}</text>
           </view>
         </view>
-        <text v-if="isRawInput" class="amount-preview">
-          = {{ computedPreview }}
-        </text>
-        <text v-if="isForeign && convertedPreview" class="fx-converted-line">
-          {{ convertedPreview }}
-        </text>
+        <!-- 预览行：算式结果 + 外币折算同一行（与记账面板一致） -->
+        <view v-if="isRawInput || (isForeign && convertedPreview)" class="amount-sub-row">
+          <text v-if="isRawInput" class="amount-preview">
+            = {{ computedPreview }}
+          </text>
+          <text v-if="isForeign && convertedPreview" class="fx-converted-inline">
+            {{ convertedPreview }}
+          </text>
+        </view>
       </view>
 
       <!-- 分类：固定两行，每行 6 个，第 12 个位置是「更多」 -->
@@ -300,6 +303,12 @@ export default {
     const editing = computed(() => props.editing)
 
     const primaryColor = computed(() => settingStore.primaryColor)
+
+    /**
+     * 线性图标描边色（真实 hex，不能传 CSS 变量）
+     * LineIcon 用 <image> 加载 SVG data URI，独立文档解析不了 var()。
+     */
+    const iconInk = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
 
     const types = [
       { key: 'expense', name: '支出' },
@@ -935,7 +944,7 @@ export default {
       amountDisplay, isRawInput, computedPreview, amountFilled,
       /* 外币记账（与 TxnPanel 同款） */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
-      convertedPreview, onCurrencyChange,
+      convertedPreview, onCurrencyChange, iconInk,
       currentAccountName, toAccountName, accountActions, toAccountActions,
       recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
       dayActions, dayOfMonthLabel,
@@ -1094,13 +1103,21 @@ export default {
 }
 
 /* 折算预览 */
-.fx-converted-line {
-  display: block;
+/* 预览行：算式结果 + 外币折算同一行（与记账面板一致） */
+.amount-sub-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 6rpx;
+}
+
+.fx-converted-inline {
   font-size: 26rpx;
   font-weight: 600;
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
-  margin-top: 6rpx;
+  flex-shrink: 0;
 }
 
 .amount-row {
