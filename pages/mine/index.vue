@@ -197,7 +197,18 @@ export default {
        *   排在原有 4 个入口之后，宫格是 2 列，会自动排到第 3 行。
        */
       { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
-      { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' }
+      { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' },
+      /*
+       * ★ 报销管理（左） / 今日汇率（右）★
+       *   两个都是「跟钱有关、但不在账本流水里」的辅助工具，
+       *   排在同一条（第 4 行）的左右两格。
+       *
+       *   报销管理目前是占位页（用户要的是先把入口立起来）。
+       *   今日汇率的页面会自己拉最新汇率，
+       *   这里不需要传任何参数，也不用预加载 —— 进页面才请求。
+       */
+      { key: 'reimburse', icon: 'reimburse', name: '报销管理', route: '/pages/loan/reimburse' },
+      { key: 'rate', icon: 'rate', name: '今日汇率', route: '/pages/rate/index' }
     ])
 
     /**

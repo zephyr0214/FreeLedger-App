@@ -1,0 +1,202 @@
+/**
+ * 今日汇率页的换算规则测试
+ *
+ *   node scripts/test-exchange-calc.mjs
+ *
+ * ★ 为什么这一页要单独测 ★
+ *   「改一行、其余行跟着变」这件事在 UI 上很难肉眼验收：
+ *   汇率小数点后四位、浮点误差、清空输入时的行为，
+ *   错一点点用户看到的就是一串 0.30000000000000004。
+ *   这里把纯函数钉死，页面只管把结果铺到输入框里。
+ *
+ * ★ 核心口径 ★
+ *   rates[code] = 1 单位外币值多少 CNY（与 api/exchangeRate.js 一致），
+ *   CNY 恒为 1。外币金额 × rate = 人民币金额。
+ */
+
+import { readFileSync } from 'fs'
+import { join, dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
+import {
+  AMOUNT_DECIMALS,
+  DEFAULT_BASE_AMOUNT,
+  sanitizeAmountInput,
+  roundTo,
+  formatAmount,
+  convertToCny,
+  amountFromCny,
+  buildAmountTexts
+} from '../utils/exchange.js'
+import { BASE_CURRENCY, SUPPORTED_CURRENCIES } from '../utils/currency.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const ROOT = resolve(__dirname, '..')
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf-8')
+
+let pass = 0
+let fail = 0
+
+function check(name, actual, expected) {
+  const a = JSON.stringify(actual)
+  const e = JSON.stringify(expected)
+  if (a === e) {
+    pass++
+  } else {
+    fail++
+    console.log(`FAIL  ${name}`)
+    console.log(`      实际 ${a}`)
+    console.log(`      期望 ${e}`)
+  }
+}
+
+/* ------------------------------------------------------------ 常量 */
+
+console.log('=== 展示口径 ===')
+check('保留四位小数', AMOUNT_DECIMALS, 4)
+check('默认基准金额是 100 元', DEFAULT_BASE_AMOUNT, 100)
+check('基准币种是 CNY', BASE_CURRENCY, 'CNY')
+
+/* --------------------------------------------------- 输入清洗 */
+
+console.log('=== 输入清洗（不许吃掉用户正在敲的字）===')
+check('普通数字原样', sanitizeAmountInput('123.45'), '123.45')
+check('去掉非数字字符', sanitizeAmountInput('1a2b3'), '123')
+check('只保留第一个小数点', sanitizeAmountInput('1.2.3'), '1.23')
+check('小数最多四位', sanitizeAmountInput('1.23456789'), '1.2345')
+check('末尾的小数点保留（正在输入）', sanitizeAmountInput('12.'), '12.')
+check('空串仍是空串', sanitizeAmountInput(''), '')
+check('null 变空串', sanitizeAmountInput(null), '')
+check('整数部分限长', sanitizeAmountInput('1234567890123456').length, 12)
+check('中文/符号被剔除', sanitizeAmountInput('￥1,000元'), '1000')
+
+/* ------------------------------------------------------ 四舍五入 */
+
+console.log('=== 四舍五入 ===')
+check('roundTo 四位', roundTo(1.23456), 1.2346)
+check('roundTo 消除浮点尾巴', roundTo(0.1 + 0.2), 0.3)
+check('roundTo 非法值归零', roundTo(NaN), 0)
+check('roundTo 字符串数字', roundTo('2.34567'), 2.3457)
+
+/* --------------------------------------------------------- 格式化 */
+
+console.log('=== 金额文本 ===')
+check('外币固定四位', formatAmount(13.81), '13.8100')
+check('人民币可省尾零', formatAmount(100, { fixed: false }), '100')
+check('人民币保留有效小数', formatAmount(100.5, { fixed: false }), '100.5')
+check('不把整数削成 1', formatAmount(100, { fixed: false }), '100')
+check('四舍五入后补零', formatAmount(0.1 + 0.2, { fixed: false }), '0.3')
+
+/* ----------------------------------------------------- 单步换算 */
+
+// 1 USD = 7.24 CNY，1 JPY = 0.048 CNY
+const RATES = { CNY: 1, USD: 7.24, JPY: 0.048 }
+
+console.log('=== 单币种换算 ===')
+check('人民币不动', convertToCny('CNY', 100, RATES), 100)
+check('美元 -> 人民币', convertToCny('USD', 100, RATES), 724)
+check('日元 -> 人民币', convertToCny('JPY', 10000, RATES), 480)
+check('人民币 -> 美元', amountFromCny('USD', 724, RATES), 100)
+check('人民币 -> 日元', amountFromCny('JPY', 480, RATES), 10000)
+check('缺汇率时返回 0', convertToCny('TWD', 100, RATES), 0)
+check('缺汇率时反算返回 0', amountFromCny('TWD', 100, RATES), 0)
+check('金额为 0 时返回 0', convertToCny('USD', 0, RATES), 0)
+check('非法金额返回 0', convertToCny('USD', 'abc', RATES), 0)
+
+/* ------------------------------------------- 「改一行，其余同步」 */
+
+console.log('=== 改一行，其余行同步 ===')
+
+const CODES = ['CNY', 'USD', 'JPY']
+
+// 第一次进入：CNY 100
+{
+  const r = buildAmountTexts('CNY', 100, CODES, RATES)
+  check('基准：人民币金额', r.cny, 100)
+  check('基准：CNY 文本', r.texts.CNY, '100')
+  check('基准：USD 四位小数', r.texts.USD, (100 / 7.24).toFixed(4))
+  check('基准：JPY 四位小数', r.texts.JPY, (100 / 0.048).toFixed(4))
+}
+
+// 用户改美元那一行 -> 人民币与日元都要跟着变
+{
+  const r = buildAmountTexts('USD', 50, CODES, RATES)
+  check('改美元：折算人民币', r.cny, 362)
+  check('改美元：CNY 文本', r.texts.CNY, '362')
+  check('改美元：JPY 同步', r.texts.JPY, (362 / 0.048).toFixed(4))
+  // 被编辑的那一行由页面自己保留原始输入，这里的文本只用于其它行
+  check('改美元：USD 自身也给出四位', r.texts.USD, '50.0000')
+}
+
+// 用户改日元那一行
+{
+  const r = buildAmountTexts('JPY', 10000, CODES, RATES)
+  check('改日元：折算人民币', r.cny, 480)
+  check('改日元：USD 同步', r.texts.USD, (480 / 7.24).toFixed(4))
+}
+
+// 清空输入：全部归零，不能出 NaN
+{
+  const r = buildAmountTexts('USD', '', CODES, RATES)
+  check('清空：人民币归零', r.cny, 0)
+  check('清空：CNY 文本为零', r.texts.CNY, '0')
+  check('清空：JPY 文本为零（不是 NaN）', r.texts.JPY, '0.0000')
+}
+
+// 只有小数点（用户刚敲完小数点）
+{
+  const r = buildAmountTexts('CNY', '12.', CODES, RATES)
+  check('半个小数：人民币取 12', r.cny, 12)
+  check('半个小数：USD 有值', r.texts.USD, (12 / 7.24).toFixed(4))
+}
+
+/* ------------------------------------------------ 页面源码约束 */
+
+console.log('=== 今日汇率页 ===')
+const page = read('pages/rate/index.vue')
+
+check('用 onShow 拉取（每次进入都重拉）', /onShow\(\(\) => \{\s*reload\(\)/.test(page), true)
+check('页面里调 fetchLatestRates', /fetchLatestRates\(\)/.test(page), true)
+check('关联的币种来自白名单', /SUPPORTED_CURRENCIES/.test(page), true)
+check('拉完汇率后回到 100 元基准', /applyBase\(DEFAULT_BASE_AMOUNT\)/.test(page), true)
+check('第一行是 CNY 基准行', /isBase: true/.test(page), true)
+check('输入框允许编辑（@input）', /@input="\(e\) => onAmountInput/.test(page), true)
+check('输入框用 digit 键盘', /type="digit"/.test(page), true)
+check('挂在页面上的 UpdateDialog', /<UpdateDialog \/>/.test(page), true)
+
+// 币种顺序必须与白名单一致（CNY 打头，然后是 SUPPORTED_CURRENCIES 的原序）
+{
+  const idx = page.indexOf('for (const c of SUPPORTED_CURRENCIES)')
+  check('按白名单顺序铺行', idx > 0, true)
+  check('基准行在循环之前', page.indexOf('isBase: true') < idx, true)
+}
+
+/* --------------------------------- 新入口必须在「我的」页宫格里 */
+
+console.log('=== 「我的」页记账功能新增两个入口 ===')
+const mine = read('pages/mine/index.vue')
+check('有报销管理入口', /name: '报销管理'/.test(mine), true)
+check('报销管理指向占位页', /\/pages\/loan\/reimburse/.test(mine), true)
+check('有今日汇率入口', /name: '今日汇率'/.test(mine), true)
+check('今日汇率指向汇率页', /\/pages\/rate\/index/.test(mine), true)
+// 顺序：报销管理在左、今日汇率在右 —— 宫格是 2 列，靠数组顺序决定左右
+check(
+  '报销管理排在今日汇率前面（左→右）',
+  mine.indexOf('name: \'报销管理\'') < mine.indexOf('name: \'今日汇率\''),
+  true
+)
+
+console.log('=== 占位页 ===')
+const reimburse = read('pages/loan/reimburse.vue')
+check('报销页有标题', /title="报销管理"/.test(reimburse), true)
+check('报销页说明是占位', /占位|还在路上/.test(reimburse), true)
+check('报销页没有假按钮', /<button/.test(reimburse), false)
+check('报销页也挂了 UpdateDialog', /<UpdateDialog \/>/.test(reimburse), true)
+
+console.log('=== 路由声明 ===')
+const pagesJson = JSON.parse(read('pages.json'))
+const paths = pagesJson.pages.map((p) => p.path)
+check('pages.json 声明了汇率页', paths.includes('pages/rate/index'), true)
+check('pages.json 声明了报销页', paths.includes('pages/loan/reimburse'), true)
+
+console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
+if (fail > 0) process.exit(1)

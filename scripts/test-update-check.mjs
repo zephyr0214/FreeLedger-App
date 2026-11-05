@@ -411,7 +411,7 @@ console.log('=== 弹窗挂在每一个页面上（全局最上层）===')
     }
   })('pages')
 
-  check('页面数量', pageFiles.length, 25)
+  check('页面数量', pageFiles.length, 27)
 
   const missingMount = []
   const missingImport = []

@@ -180,6 +180,20 @@
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "借入借出"
 			}
+		},
+		{
+			"path": "pages/loan/reimburse",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "报销管理"
+			}
+		},
+		{
+			"path": "pages/rate/index",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "今日汇率"
+			}
 		}
 	],
 	"globalStyle": {
