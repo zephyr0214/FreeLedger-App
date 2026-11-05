@@ -170,6 +170,40 @@ check('挂在页面上的 UpdateDialog', /<UpdateDialog \/>/.test(page), true)
   check('基准行在循环之前', page.indexOf('isBase: true') < idx, true)
 }
 
+/* --------------------------------------- 汇率页的界面调整（m00910） */
+
+console.log('=== 今日汇率页的界面调整 ===')
+
+// 1. 上方左来源、右更新时间
+check('顶部有来源/更新时间一行', /class="meta-bar"/.test(page), true)
+check('左边显示汇率来源', /class="meta-text">\{\{ sourceText \}\}/.test(page), true)
+check('右边显示更新时间', /class="meta-text">\{\{ updatedText \}\}/.test(page), true)
+check('来源文案带上「来源：」', /来源：/.test(page), true)
+check('更新时间写成「更新于 HH:mm」', /更新于 ' \+ currentTimeText\(\)/.test(page), true)
+check('两端对齐（space-between）', /justify-content: space-between/.test(page), true)
+
+// 2. 两句说明文案已删除
+check('已删「数据仅供参考…」', /数据仅供参考/.test(page), false)
+check('已删「改任意一行…」', /改任意一行的金额，其余币种/.test(page), false)
+check('不再有 tip-text 提示条', /class="tip-text"/.test(page), false)
+
+// 3. 汇率说明统一成「1 CNY = X 币种」
+check('统一以人民币为 1', /return `1 CNY = \$\{formatAmount\(1 \/ rate\)\} \$\{code\}`/.test(page), true)
+check('不再按 rate 大小分左右两种写法', /rate >= 1 \?/.test(page), false)
+check('CNY 行也用同一句（不再写「基准币种」）', /rateText: '基准币种'/.test(page), false)
+check('CNY 行也走 rateTextOf', /rateText: rateTextOf\(BASE_CURRENCY, 1\)/.test(page), true)
+
+// 4. 每个币种一张卡、行间留白（照分类管理页）
+check('列表容器是 rate-list', /class="rate-list"/.test(page), true)
+check('每一项是独立卡片', /class="rate-item"/.test(page), true)
+check('卡片之间 16rpx 间隔', /\.rate-item \{[\s\S]*?margin-bottom: 16rpx;/.test(page), true)
+check('卡片有自己的圆角', /\.rate-item \{[\s\S]*?border-radius: 20rpx;/.test(page), true)
+check('不再用整张大卡 + 分隔线', /border-bottom: 1rpx solid var\(--app-line\);\s*\}\s*\.rate-row/.test(page), false)
+
+// 5. 人民币前面不再有主题色竖线
+check('已删基准行的主题色左边线', /\.rate-row\.is-base/.test(page), false)
+check('基准行不再绑 is-base 样式类', /:class="\{ 'is-base': row\.isBase \}"/.test(page), false)
+
 /* --------------------------------- 新入口必须在「我的」页宫格里 */
 
 console.log('=== 「我的」页记账功能新增两个入口 ===')

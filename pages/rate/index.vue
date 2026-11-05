@@ -14,16 +14,14 @@
 
     <scroll-view class="page-scroll" scroll-y>
       <!--
-        汇率说明条
-
-        ★ 为什么要写「仅供参考」★
-          这几个源都是每日/工作日一价，不是银行柜台价。
-          拿它算旅行预算完全够用，当成结算价就会差出几毛钱。
-          提前说清楚，比藏在关于页里诚实。
+        ★ 左边来源、右边更新时间 ★
+          用户要求「左上角显示汇率来源，右上角显示更新时间」。
+          数据源是从哪个站拉的、什么时候拉的，是这一页唯一需要解释的东西，
+          放在表格上方一眼能看到，不用再去猜数字是不是今天的。
       -->
-      <view class="hint-row">
-        <text class="hint-text">{{ sourceText }}</text>
-        <text class="hint-text">数据仅供参考，以实际结算为准</text>
+      <view class="meta-bar">
+        <text class="meta-text">{{ sourceText }}</text>
+        <text class="meta-text">{{ updatedText }}</text>
       </view>
 
       <!-- 加载中（首次进入、还没有任何汇率时才有意义） -->
@@ -44,7 +42,7 @@
         </view>
       </view>
 
-      <view v-else class="rate-card">
+      <view v-else class="rate-list">
         <!--
           ★ 第一行恒为 CNY 100 元 ★
             用户明确要求「第一位显示 CNY，100 元」，
@@ -52,19 +50,23 @@
             所以每次重拉汇率后都把基准重置成 100，不保留上次的输入。
             下面每一行都是它的换算结果，也可以反过来改：
             改任何一行，其余所有行跟着重算。
+
+          ★ 每个币种单独一张卡 ★
+            和分类管理页一样一行一块、行间留白 16rpx。
+            原本是一张大卡里用分隔线切开，行与行贴在一起，
+            数字右对齐又长得一样，扫一眼分不清哪行是哪行。
         -->
         <view
           v-for="row in rows"
           :key="row.code"
-          class="rate-row"
-          :class="{ 'is-base': row.isBase }"
+          class="rate-item"
         >
           <view class="rate-left">
             <view class="rate-name-row">
               <text class="rate-name">{{ row.name }}</text>
               <text class="rate-code">{{ row.code }}</text>
             </view>
-            <text v-if="row.rateText" class="rate-per">{{ row.rateText }}</text>
+            <text class="rate-per">{{ row.rateText }}</text>
           </view>
           <input
             class="rate-input"
@@ -80,10 +82,6 @@
       <!-- 刷新失败但有旧数据：提示条（不挡操作） -->
       <view v-if="errorText && hasRates" class="warn-bar">
         <text class="warn-text">{{ errorText }}</text>
-      </view>
-
-      <view class="tip-text">
-        <text>改任意一行的金额，其余币种会按当前汇率同步换算，保留四位小数。</text>
       </view>
 
       <view class="bottom-space" />
@@ -102,6 +100,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { SUPPORTED_CURRENCIES, BASE_CURRENCY } from '@/utils/currency.js'
+import { currentTimeText } from '@/utils/date.js'
 import {
   DEFAULT_BASE_AMOUNT,
   sanitizeAmountInput,
@@ -123,8 +122,10 @@ export default {
     const amounts = reactive({})
     const loading = ref(false)
     const errorText = ref('')
-    /** 数据来源的说明文字（源 + 日期，来自接口返回） */
-    const sourceText = ref('')
+    /** 数据来源的说明文字（只写源名，日期挪到右边的更新时间） */
+    const sourceText = ref('来源：在线')
+    /** 右侧的更新时间（这次真正把汇率写进页面上的时刻） */
+    const updatedText = ref('')
 
     /**
      * 要展示的行
@@ -140,7 +141,7 @@ export default {
      */
     const rows = computed(() => {
       const list = [
-        { code: BASE_CURRENCY, name: '人民币', isBase: true, rateText: '基准币种' }
+        { code: BASE_CURRENCY, name: '人民币', isBase: true, rateText: rateTextOf(BASE_CURRENCY, 1) }
       ]
       for (const c of SUPPORTED_CURRENCIES) {
         const rate = Number(rates.value[c.code])
@@ -170,14 +171,15 @@ export default {
     /**
      * 某一行的汇率说明
      *
-     * ★ 为什么不是一律写「1 外币 = x CNY」★
-     *   越南盾、日元这类币种的 rate 很小（VND ≈ 0.00028），
-     *   保留四位小数会变成 0.0003，一眼看不出真实价格。
-     *   所以 rate < 1 时反过来写「1 CNY = x 外币」，
-     *   两种写法都是四位小数，读起来都不失真。
+     * ★ 统一写成「1 CNY = x 币种」★
+     *   以前 rate ≥ 1 写「1 USD = 7.2400 CNY」、rate < 1 写「1 CNY = 20.8333 JPY」，
+     *   同一列里方向来回翻，看表的人得先判断这一行是哪种写法才能读懂。
+     *   现在一律以人民币为 1，方向永远一致：
+     *   想知道「1 块人民币换多少外币」，直接读数字就行。
+     *
+     *   对 CNY 这一行，公式算出来就是 1 CNY = 1.0000 CNY，不做特例。
      */
     function rateTextOf(code, rate) {
-      if (rate >= 1) return `1 ${code} = ${formatAmount(rate)} CNY`
       return `1 CNY = ${formatAmount(1 / rate)} ${code}`
     }
 
@@ -220,13 +222,14 @@ export default {
         const res = await fetchLatestRates()
         rates.value = res.rates || { [BASE_CURRENCY]: 1 }
         sourceText.value = buildSourceText(res)
+        updatedText.value = '更新于 ' + currentTimeText()
         if (res.fromCache) {
           errorText.value = '实时汇率获取失败，当前显示的是 ' + (res.day || '上次') + ' 的缓存'
         }
       } catch (e) {
         // 一行数据都没有时才有必要把错误甩给用户看；有数据就继续用
         errorText.value = '刷新失败：' + ((e && e.message) || '网络错误')
-        if (!sourceText.value) sourceText.value = '未能获取汇率'
+        if (!updatedText.value) updatedText.value = '更新失败'
       } finally {
         loading.value = false
         // ★ 每次都回到「CNY 100」这个基准 ★
@@ -235,11 +238,11 @@ export default {
       }
     }
 
-    /** 说明条的文案：来源 + 日期 */
+    /** 说明条的文案：只写来源；缓存时写明是缓存 */
     function buildSourceText(res) {
-      const day = res && res.day ? res.day : ''
-      const src = res && res.fromCache ? '缓存' : (res && res.source) || '在线'
-      return day ? `汇率来源：${src} · ${day}` : `汇率来源：${src}`
+      if (res && res.fromCache) return '来源：本地缓存'
+      const src = (res && res.source) || '在线'
+      return `来源：${src}`
     }
 
     function goBack() {
@@ -260,7 +263,7 @@ export default {
 
     return {
       settingStore, primaryColor, pageStyle,
-      loading, errorText, sourceText, hasRates,
+      loading, errorText, sourceText, updatedText, hasRates,
       rows, amounts,
       onAmountInput, reload, goBack
     }
@@ -279,14 +282,21 @@ export default {
   padding: 0 32rpx;
 }
 
-.hint-row {
+/*
+ * 顶部说明：左来源、右更新时间
+ *
+ * 两端对齐（space-between），小字号弱色，
+ * 不抢表格的视觉重量 —— 它是注解，不是内容。
+ */
+.meta-bar {
   display: flex;
-  flex-direction: column;
-  gap: 6rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
   padding: 20rpx 8rpx 4rpx;
 }
 
-.hint-text {
+.meta-text {
   font-size: 22rpx;
   color: var(--app-text-3);
   line-height: 1.5;
@@ -329,38 +339,36 @@ export default {
   font-weight: 500;
 }
 
-/* 汇率表 */
-.rate-card {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 0 28rpx;
-  margin-top: 20rpx;
+/*
+ * 汇率列表
+ *
+ * ★ 每个币种一张独立卡片、行间 16rpx ★
+ *   照搬分类管理页（.cat-group）的节奏：
+ *   卡片 = 圆角 20rpx + var(--app-card) 底，
+ *   卡片之间留 16rpx 空隙（用 margin-bottom 而不是 gap，
+ *   和分类页一致；scroll-view 里的子元素 gap 在旧内核上不稳）。
+ *
+ * ★ 为什么不再是一张大卡 + 分隔线 ★
+ *   十六行数字贴在一起、右对齐、字号相同，
+ *   扫一眼根本分不清哪一行的数字属于哪个币种。
+ *   隔开之后每一块自带边界，视线不会串行。
+ */
+.rate-list {
+  padding-top: 16rpx;
 }
 
-.rate-row {
+.rate-item {
   display: flex;
   align-items: center;
   gap: 20rpx;
-  min-height: 112rpx;
-  padding: 16rpx 0;
-  border-bottom: 1rpx solid var(--app-line);
+  background-color: var(--app-card);
+  border-radius: 20rpx;
+  padding: 24rpx 28rpx;
+  margin-bottom: 16rpx;
 }
 
-.rate-row:last-child {
-  border-bottom: none;
-}
-
-/*
- * 基准行（CNY）左侧加一条主题色竖线
- *
- * ★ 为什么要有这个标记 ★
- *   这一页的每一行都能编辑、数字长得都一样，
- *   不给基准行一点视觉重量的话，用户会分不清「哪一行是源、哪些是换算结果」。
- */
-.rate-row.is-base {
-  border-left: 4rpx solid var(--app-primary);
-  padding-left: 16rpx;
-  margin-left: -20rpx;
+.rate-item:last-child {
+  margin-bottom: 0;
 }
 
 .rate-left {
@@ -427,12 +435,5 @@ export default {
   font-size: 22rpx;
   color: var(--app-text-2);
   line-height: 1.5;
-}
-
-.tip-text {
-  padding: 24rpx 8rpx 0;
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.6;
 }
 </style>
