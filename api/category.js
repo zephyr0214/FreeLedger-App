@@ -657,32 +657,35 @@ export async function seedDefaultCategories() {
 }
 
 /**
- * 把默认分类表「补齐」到库里（幂等，每次启动都可以跑）。
+ * 启动时对账「固定分类」—— 只碰系统锁死的那几条，绝不碰用户的分类。
  *
- * ★ 为什么需要它，而不是再写一条迁移 ★
+ * ★ 为什么「不补默认分类表」是这个函数的重点 ★
+ *   默认分类表是**新用户的产品内容**：全新安装、清空数据、导入之后
+ *   由 seedDefaultCategories() 按最新定义写一份。
+ *   但老用户已经按自己的习惯改过分类、记过账 ——
+ *   启动时再按默认表往里塞 9 个新一级分类和 40 多个二级分类，
+ *   等于把别人整理好的账本重新洗一遍，是绝对不能做的事。
+ *   所以这里只处理两类东西：
+ *     1. 固定分类组的改名（系统预置分类 → 系统分类）；
+ *     2. 固定子类的补齐（借出 / 借款归还 / 对账支出、借入 / 借款收回 /
+ *        对账收入 / 报销收入）—— 这些是程序算账要用的口径，
+ *        少了页面就算不出「还欠多少」，不属于用户可以自定义的部分。
+ *
+ * ★ 为什么要它，而不是再写一条迁移 ★
  *   迁移只在 SCHEMA_VERSION 变大时执行一次，而版本号由用户自己控制。
- *   可分类表是产品内容，改一版就该让老设备也拿到 ——
- *   所以做成「启动时对账」：缺什么补什么，缺一次补一次。
- *   用户已经删掉的分类不会被复活（删除是软删，这里只补「从来没有过」的）。
+ *   固定分类是功能性的，改了名就该让老设备也拿到 ——
+ *   所以做成「启动时对账」：缺什么补什么，幂等，跑多少遍都一样。
  *
- * ★ 只补不改 ★
- *   一级分类已存在时不覆盖 icon / color / sort ——
- *   用户可能改过图标、拖过顺序，每次启动都刷回去等于白改。
- *   判断「存在」只看名字 + type + 一级（parent_id IS NULL）。
- *
- * ★ 顺序 ★
- *   先把新分类补齐，最后才改名 —— 改名放到最后是因为
- *   「系统分类」这个名字可能在补齐过程中已经被
- *   ensurePresetGroupRow() 按新名建出来；
- *   先把普通分类补齐，再统一处理这一组，逻辑上更好读。
+ * ★ 怎么区分「老用户的分类」和「新装的分类」★
+ *   不区分。默认表一个字段都不读，自然就碰不到。
  *
  * ★ 返回报告而不是条数 ★
  *   测试要分别断言「补了几个一级 / 几个二级 / 改了几条名字」，
  *   只返回一个总数没法定位是哪一段没生效。
  *
  * @returns {Promise<{parents:number, children:number, renamed:number}>}
- *   parents  新插入的一级分类条数
- *   children 新插入的二级分类条数
+ *   parents  新建的「系统分类」组条数（老库几乎总是 0）
+ *   children 新补的固定子类条数（典型场景就是「报销收入」那一条）
  *   renamed  从「系统预置分类」改名成「系统分类」的条数（0 或 1~2）
  */
 export async function syncDefaultCategories() {
@@ -691,58 +694,12 @@ export async function syncDefaultCategories() {
   await transaction(async () => {
     const now = Date.now()
 
-    // ---------- 1) 一级 + 二级：缺什么补什么 ----------
-    for (const type of ['expense', 'income']) {
-      const list = type === 'expense' ? DEFAULT_EXPENSE_CATEGORIES : DEFAULT_INCOME_CATEGORIES
-
-      for (let i = 0; i < list.length; i++) {
-        const item = list[i]
-
-        let parentId = null
-        const existing = await queryOne(
-          'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
-          [item.name, type]
-        )
-        if (existing) {
-          parentId = existing.id
-        } else {
-          parentId = prefixedId('cat')
-          await execute(
-            `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-             VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-            [parentId, null, item.name, type, item.icon, item.color, i, now, now]
-          )
-          report.parents++
-        }
-
-        const children = item.children || []
-        for (let j = 0; j < children.length; j++) {
-          const child = children[j]
-          const childName = typeof child === 'string' ? child : child.name
-
-          // 同名子类只看「这个父级下」，别的一级下可能有同名分类（如「送礼」）
-          const found = await queryOne(
-            'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
-            [childName, type, parentId]
-          )
-          if (found) continue
-
-          await execute(
-            `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-             VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-            [
-              prefixedId('cat'), parentId, childName, type,
-              childIcon(child, item.icon), childColor(child, item.color),
-              j, now, now
-            ]
-          )
-          report.children++
-        }
-      }
-    }
-
-    // ---------- 2) 「系统预置分类」→「系统分类」 ----------
+    // ---------- 1) 「系统预置分类」→「系统分类」 ----------
     /*
+     * ★ 必须排在建组之前 ★
+     *   ensurePresetGroupRow() 只按新名字找父级。老库里那条还叫旧名，
+     *   先建组就会另起一条新的空组，固定子类从此挂在两个组中间。
+     *
      * ★ 按 type 分别改，不加一条 UPDATE 改两张 ★
      *   老库里两个 type 各有一条旧名的一级分类。
      *   如果某个 type 下新名字已经存在（比如上一次启动只改成功了一半），
@@ -770,21 +727,31 @@ export async function syncDefaultCategories() {
       report.renamed++
     }
 
-    // ---------- 3) 收入侧的「报销收入」（v18 新增的固定子类） ----------
-    //   放在改名之后：ensurePresetChildRow() 会先取或建父级，
-    //   此时父级已经是「系统分类」，不会再建出一个旧名字的组。
-    /*
-     * 先探一次存在性，为了把「新增条数」算进 report.children。
-     * ensurePresetChildRow() 自己也是幂等的，这里多查一次只是为了让报告准确 ——
-     * 测试要靠这个数字区分「补了二级」和「什么都没补」。
-     */
-    const incomeGroupId = await ensurePresetGroupRow('income')
-    const hadReimburse = await queryOne(
-      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
-      ['报销收入', 'income', incomeGroupId]
-    )
-    await ensurePresetChildRow('income', '报销收入')
-    if (!hadReimburse) report.children++
+    // ---------- 2) 固定分类组：只保证这一组和它的固定子类在 ----------
+    for (const type of ['expense', 'income']) {
+      const groupExisted = await queryOne(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [SYSTEM_PRESET_GROUP_NAME, type]
+      )
+      const groupId = await ensurePresetGroupRow(type)
+      if (!groupExisted) report.parents++
+
+      for (const def of SYSTEM_PRESET_CHILDREN) {
+        if (def.type !== type) continue
+
+        /*
+         * 先探一次存在性，只为了把「新增条数」算准。
+         * ensurePresetChildRow() 自己也是幂等的，这里多查一次不影响正确性 ——
+         * 测试要靠这个数字区分「补了固定子类」和「什么都没补」。
+         */
+        const had = await queryOne(
+          'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+          [def.name, type, groupId]
+        )
+        await ensurePresetChildRow(type, def.name)
+        if (!had) report.children++
+      }
+    }
   })
 
   return report

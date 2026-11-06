@@ -1912,16 +1912,58 @@ export async function transaction(fn) {
 /** 批量执行（同一事务内），用于导入 */
 
 
-/** 清空所有业务表（保留结构），用于「清空数据」与「覆盖导入」 */
+/**
+ * 清空所有业务表（保留结构），用于「清空数据」与「覆盖导入」。
+ *
+ * ★ 这张清单必须覆盖库里**每一张**表 ★
+ *   漏一张的表现不是报错，而是「点了清空，某块数据还在」——
+ *   比如漏掉 cycle_skip，清空后新建的周期会把用户早先删掉的补记又记一遍。
+ *   所以清单从「所有建表语句」里推：SCHEMA_V1 的 11 张
+ *   + 只在迁移里建的 cycle（v7）/ cycle_skip（v9）/ exchange_rate（v17）。
+ *   scripts/test-clear-all.mjs 会逐张断言，加了新表忘了这里会被测试挡住。
+ *
+ * ★ 为什么要逐表 try 住，而不是一把梭 ★
+ *   迁移失败是不阻断开库的（见 migrate() 的注释），
+ *   所以老设备上完全可能没有 cycle_skip / exchange_rate 这些表。
+ *   那里 DELETE 会抛 "no such table"，而整段是包在 transaction 里的 ——
+ *   一条语句失败就把**整笔清空回滚**，
+ *   用户看到「清空失败」，其实一张表都没清掉。
+ *   清空的目标是「把能清的都清掉」，缺一张表不该让整个操作作废。
+ *
+ * ★ 关于 app_meta 与迁移版本号 ★
+ *   迁移游标是 SQLite 库头里的 PRAGMA user_version，
+ *   不是 app_meta 的某一行（全仓没有代码往里写游标）。
+ *   app_meta 只是 KV 草稿表，删掉它不会让 v1~v17 重跑。
+ *   但「清空库却把版本号留在某个业务表里」这种设计太容易被人以后踩进去，
+ *   所以这里删完之后再显式把版本号写一遍 SCHEMA_VERSION ——
+ *   正常情况下是空操作，异常情况下能兜住「迁移把刚补的分类又重建一遍」。
+ */
 export async function truncateAll() {
   const tables = [
-    'txn_tag', 'txn', 'account_snapshot', 'budget', 'cycle',
-    'category', 'tag', 'account', 'account_combo_member', 'setting', 'app_meta'
+    'txn_tag', 'txn', 'account_snapshot', 'budget', 'cycle', 'cycle_skip',
+    'category', 'tag', 'account', 'account_combo_member', 'exchange_rate',
+    'setting', 'app_meta'
   ]
+
   return transaction(async () => {
+    const missing = []
     for (const t of tables) {
-      await execute(`DELETE FROM ${t}`)
+      try {
+        await execute(`DELETE FROM ${t}`)
+      } catch (e) {
+        // 表不存在（迁移没跑成）时继续清后面的，最后把名字带回去给调用方看
+        if (/no such table/i.test(e && e.message ? e.message : '')) {
+          missing.push(t)
+          continue
+        }
+        throw e
+      }
     }
+
+    // 见上方注释：版本号本来就在库头，这里只是显式对齐一次，防迁移重跑
+    await writeUserVersion(SCHEMA_VERSION)
+
+    return { missing }
   })
 }
 

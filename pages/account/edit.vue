@@ -100,8 +100,11 @@
           ★ 其余账户类型都可以改（用户明确要求）★
             以前编辑时整个类型项是锁死的，导致「现金记成了储蓄卡」
             这种建错类型的情况没法自己修，只能删了重建（余额和流水全丢）。
-            现在编辑时也能改类型：切换成信用卡就出现额度/账单日，
-            切回储蓄卡就把这些清掉（保存时字段置 null）。
+            现在编辑时也能改类型。改类型不再需要清任何「专属字段」——
+            信用卡那四项（额度/账单日/还款日/卡尾号）已经整套删掉了，
+            所有真实类型的表单条目现在完全一样，只有两处跟着类型变：
+              1. 初始余额的标签（欠钱类叫「当前欠款」，保存时自动取负）
+              2. 分组位置（账户页按 type 分组展示）
 
           ★ API 层还有一道兜底 ★
             api/account.js 的 updateAccount() 会拦住「组合 <-> 真实」的转换，
@@ -130,7 +133,7 @@
         </view>
       </view>
 
-      <!-- 余额与额度（组合账户没有余额，整块不显示） -->
+      <!-- 余额（组合账户没有余额，整块不显示） -->
       <view v-if="!isCombo" class="form-card">
         <!--
           ★ 编辑页不再管余额 ★
@@ -143,16 +146,44 @@
           ★ 新建时还是要填初始余额 ★
             新建账户没有「当前余额」可言，
             这里填的就是期初余额（还没有任何交易），直接输入框最省事。
+
+          ★ 欠钱类账户（信用卡 / 网络借贷）改叫「当前欠款」★
+            用户后来的要求是「删掉默认的 - 号，选中这两类时
+            初始余额改叫当前欠款、自动设置为负值」。
+            所以界面上**看不到任何负号**：
+              · 标签换成「当前欠款」，用户填的永远是心里想的正数
+                （「我欠 5000」就填 5000），负号由 onSave 自动加。
+              · 不在输入框里回显 -5000：那会让用户一边打字
+                一边被改写，光标乱跳，也没法改（数字键盘打不出负号）。
+            编辑回填仍走绝对值 —— 负余额是欠款，输入框只表达金额大小。
         -->
-        <view v-if="!isEdit" class="form-row">
-          <text class="form-label">初始余额</text>
-          <input
-            v-model="form.balanceYuan"
-            class="form-input"
-            type="digit"
-            placeholder="0.00"
-            placeholder-class="form-placeholder"
-          />
+        <!--
+          余额 + 欠款提示是**一组**，共用同一条分割线。
+
+          ★ 为什么必须包一层 ★
+            .form-row 自带 border-bottom（见样式区），
+            而提示语是「当前欠款」这一项的补充说明。
+            如果提示直接跟在 .form-row 后面，分割线会先画在
+            输入框下方、提示语浮在线下面又不属于下一项，
+            看起来像「一行字掉到了两个条目中间」。
+            包进 .form-group 后，线由这一组负责画，
+            提示语始终在线**上方**，归属一目了然。
+        -->
+        <view v-if="!isEdit" class="form-group">
+          <view class="form-row form-row-flush">
+            <text class="form-label">{{ isDebtType ? '当前欠款' : '初始余额' }}</text>
+            <input
+              v-model="form.balanceYuan"
+              class="form-input"
+              type="digit"
+              placeholder="0.00"
+              placeholder-class="form-placeholder"
+            />
+          </view>
+          <view v-if="isDebtType" class="form-group-hint">
+            <!-- 把「自动取负」当场演给用户看：填 5000 就明说会记成 -5000 -->
+            <text class="form-group-hint-text">{{ debtHintText }}</text>
+          </view>
         </view>
 
         <view class="form-row">
@@ -163,53 +194,6 @@
             @change="onToggleInclude"
           />
         </view>
-
-        <!-- 信用卡专属 -->
-        <block v-if="isCredit">
-          <view class="form-row">
-            <text class="form-label">信用额度</text>
-            <input
-              v-model="form.creditLimitYuan"
-              class="form-input"
-              type="digit"
-              placeholder="如 20000"
-              placeholder-class="form-placeholder"
-            />
-          </view>
-          <view class="form-row">
-            <text class="form-label">账单日</text>
-            <picker
-              mode="selector"
-              :range="dayRange"
-              :value="form.bill_day - 1"
-              @change="(e) => form.bill_day = Number(e.detail.value) + 1"
-            >
-              <text class="form-picker">{{ form.bill_day }} 号</text>
-            </picker>
-          </view>
-          <view class="form-row">
-            <text class="form-label">还款日</text>
-            <picker
-              mode="selector"
-              :range="dayRange"
-              :value="form.repay_day - 1"
-              @change="(e) => form.repay_day = Number(e.detail.value) + 1"
-            >
-              <text class="form-picker">{{ form.repay_day }} 号</text>
-            </picker>
-          </view>
-          <view class="form-row">
-            <text class="form-label">卡号后四位</text>
-            <input
-              v-model="form.card_tail"
-              class="form-input"
-              type="number"
-              placeholder="选填"
-              placeholder-class="form-placeholder"
-              :maxlength="4"
-            />
-          </view>
-        </block>
       </view>
 
       <!-- 组合账户：扣款顺序成员配置 -->
@@ -295,7 +279,7 @@
             </view>
           </view>
           <view v-if="availableMembers.length === 0" class="member-pick-empty">
-            没有可选的账户（组合不能包含组合或信用卡）
+            没有可选的账户（组合不能嵌套组合）
           </view>
         </scroll-view>
         <view class="member-sheet-foot">
@@ -358,10 +342,6 @@ export default {
       type: 'cash',
       balanceYuan: '',
       include_in_total: true,
-      creditLimitYuan: '',
-      bill_day: 1,
-      repay_day: 20,
-      card_tail: '',
       color: '',
       /**
        * 选中的预设图标 key（空串 = 用账户名首字符）。
@@ -390,8 +370,35 @@ export default {
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
-    const isCredit = computed(() => isCreditType(form.type))
     const isCombo = computed(() => isComboType(form.type))
+    /**
+     * 这个类型是不是「欠钱」的（信用卡 / 网络借贷）。
+     *
+     * ★ 命名从 showMinusSign 改成 isDebtType ★
+     *   用户后来要求界面上不显示负号、把标签改成「当前欠款」，
+     *   名字再叫 showMinusSign 就是骗人了。
+     *   它现在管两件事：标签文案、保存时自动取负。
+     *   挂在 isCreditType 上而不是写死 key 列表 ——
+     *   以后再加同类账户只改 ACCOUNT_TYPES，这里不用动。
+     */
+    const isDebtType = computed(() => isCreditType(form.type))
+
+    /**
+     * 欠款输入框下面那句提示的文案。
+     *
+     * ★ 为什么要实时把负数算给用户看 ★
+     *   「自动设置为负值」如果只在保存那一刻发生，用户全程看不到，
+     *   会觉得「我明明填的是正数，凭什么记成欠款」。
+     *   边输边显示「将记为 -5000.00」，把隐式约定变成可见反馈，
+     *   用户就不用去猜账本里到底存了什么。
+     *   没填的时候不显示预览，否则会出现一句「将记为 -0.00」的废话。
+     */
+    const debtHintText = computed(() => {
+      const raw = String(form.balanceYuan || '').trim()
+      if (!raw) return '欠款按负值保存，用来计入负债'
+      const cents = Math.abs(yuanToCents(raw))
+      return `欠款按负值保存，将记为 -${(cents / 100).toFixed(2)}`
+    })
 
     /** 编辑模式里只读展示的账户类型名 */
     const typeName = computed(() => {
@@ -403,52 +410,57 @@ export default {
      * 可选账户类型
      *
      * ★ 规则 ★
-     *   新建：**六种类型全都可以选**，包括组合账户。
+     *   新建：**全部类型都可以选**，包括组合账户。
      *        以前这里过滤掉了组合，注释说「入口在账户页的分组说明」——
      *        但那个入口根本不存在，结果组合账户完全建不出来（用户反馈的 bug）。
-     *        选组合后表单自动变形：余额/额度整块隐藏，改成「扣款顺序」成员配置。
-     *   编辑真实账户：五种真实类型之间随便改（可以现金改储蓄卡、
-     *        储蓄卡改信用卡），但**不能改成组合** ——
+     *        选组合后表单自动变形：余额整块隐藏，改成「扣款顺序」成员配置。
+     *   编辑真实账户：真实类型之间随便改（现金改储蓄卡、储蓄卡改信用卡、
+     *        储蓄卡改电话卡……），但**不能改成组合** ——
      *        组合没有余额，转换会让余额语义彻底乱掉。
      *   编辑组合账户：类型整块锁死（模板里走只读分支）。
+     *
+     * ★ 别在这里写死类型个数 ★
+     *   直接 filter ACCOUNT_TYPES，加减类型只改 api/account.js 一处。
      */
     const selectableTypes = computed(() => {
       // 编辑真实账户：只给真实类型，不能转成组合
       if (isEdit.value && !isCombo.value) {
         return ACCOUNT_TYPES.filter((t) => !t.isCombo)
       }
-      // 新建：六种全给（含组合），选了组合就变成成员配置表单
+      // 新建：全给（含组合），选了组合就变成成员配置表单
       return ACCOUNT_TYPES
     })
 
     /**
      * 切换账户类型
      *
-     * ★ 切出信用卡时要把信用卡专属字段清掉 ★
-     *   否则「储蓄卡 -> 信用卡 -> 储蓄卡」之后，
-     *   数据库里会残留一份额度/账单日，总资产统计里
-     *   它只是个普通储蓄卡，但编辑页会冒出莫名其妙的额度行。
+     * ★ 只需要改 form.type ★
+     *   以前这里要在「切出信用卡」时把额度/账单日/还款日/卡尾号清空，
+     *   现在这四项已经整套删掉了，所有真实类型的表单条目完全一样，
+     *   没有类型专属字段需要收尾。
+     *   跟着类型变的只有两处纯展示：初始余额那一行的标签（欠钱类叫「当前欠款」）、
+     *   以及分组位置。保存时是否取负由 isDebtType 决定，也在同一处判断。
      */
     function onPickType(key) {
       if (form.type === key) return
       form.type = key
-
-      if (!isCreditType(key)) {
-        form.creditLimitYuan = ''
-        form.bill_day = 1
-        form.repay_day = 20
-        form.card_tail = ''
-      }
     }
 
     /**
-     * 组合成员候选：真实账户，排除组合（禁止嵌套）和信用卡（不支持）。
+     * 组合成员候选：除组合（禁止嵌套）以外的所有真实账户。
+     *
+     * ★ 用户要求允许信用卡 / 网络借贷当成员 ★
+     *   以前这里用 `!a.isCredit` 把欠钱类账户排除在外，
+     *   理由是「负余额扣不动」。
+     *   但组合的价值在于「按顺序试扣」，欠钱的卡余额是负的，
+     *   自然会在 availableCents() 那里排到后面去 ——
+     *   这属于运行时排序问题，不该在选人阶段就替用户否决。
+     *   而且把信用卡放进组合，用户就能统一「这个组合先刷花呗、
+     *   不够再走储蓄卡」，比逼他每次手动换账户省事得多。
      */
     const availableMembers = computed(() =>
-      accountStore.list.filter((a) => !a.isCombo && !a.isCredit)
+      accountStore.list.filter((a) => !a.isCombo)
     )
-
-    const dayRange = Array.from({ length: 31 }, (_, i) => `${i + 1}`)
 
     function onToggleInclude(e) {
       form.include_in_total = e.detail.value
@@ -547,13 +559,21 @@ export default {
       initialSnapshot.value = acc
       form.name = acc.name
       form.type = acc.type
-      // 编辑时显示**当前余额**（不是期初余额）
-      form.balanceYuan = (acc.balance_cents / 100).toFixed(2)
+      /*
+       * 编辑时回填**当前余额**，并且取绝对值。
+       *
+       * ★ 为什么要 abs ★
+       *   信用卡 / 网络借贷的余额是负数（欠款），
+       *   而表单里表达的是「金额大小」，符号由类型决定。
+       *   直接回填 -5000 会让用户看到一个自己打不出来的数
+       *   （数字键盘没有负号），改都没法改。
+       *
+       * ★ 这一行现在其实不会显示 ★
+       *   余额输入框只在新建时出现（编辑改余额走详情页的弹层），
+       *   保留回填是为了初始快照对比，也让「切类型看预览」不至于读到空字符串。
+       */
+      form.balanceYuan = (Math.abs(acc.balance_cents) / 100).toFixed(2)
       form.include_in_total = acc.include_in_total
-      form.creditLimitYuan = acc.credit_limit_cents ? (acc.credit_limit_cents / 100).toFixed(0) : ''
-      form.bill_day = acc.bill_day || 1
-      form.repay_day = acc.repay_day || 20
-      form.card_tail = acc.card_tail || ''
       // 图标：预设 key（空串 = 用首字符）
       form.icon = acc.icon || ''
 
@@ -588,19 +608,27 @@ export default {
        *   这里绝不能拿它当 initial_balance_cents 写回去 ——
        *   那会把用户在详情页弹层里改好的余额又覆盖掉。
        */
-      const targetCents = yuanToCents(form.balanceYuan || 0)
+      /*
+       * ★ 欠钱类账户：输入的是正数，落库自动取负 ★
+       *   界面上叫「当前欠款」，但存储上的含义没变：
+       *   负余额 = 欠款。用户在信用卡 / 网络借贷上填 5000，
+       *   心里想的是「我欠 5000」，所以存 -5000。
+       *   这一步不能省 —— getAssetOverview() 是拿余额正负来拆
+       *   资产 / 负债的（见 api/account.js 里的注释），
+       *   存成正数会让这笔欠款被算成资产，净资产直接错一个量级。
+       *
+       *   用 -Math.abs() 而不是直接写负号：数字键盘敲不出负号，
+       *   但粘贴可以。万一粘进来一个 "-5000"，abs 保证结果还是 -5000，
+       *   不会把用户的欠款翻成存款。
+       */
+      const rawCents = yuanToCents(form.balanceYuan || 0)
+      const targetCents = isDebtType.value ? -Math.abs(rawCents) : rawCents
 
       // 新建：余额就是期初余额（还没有任何交易）
       const payload = {
         name: form.name.trim(),
         type: form.type,
         include_in_total: form.include_in_total,
-        credit_limit_cents: isCredit.value && form.creditLimitYuan
-          ? yuanToCents(form.creditLimitYuan)
-          : null,
-        bill_day: isCredit.value ? form.bill_day : null,
-        repay_day: isCredit.value ? form.repay_day : null,
-        card_tail: form.card_tail || null,
         // 预设图标 key（空串 = 用首字符）
         icon: form.icon || null
       }
@@ -616,15 +644,20 @@ export default {
           /*
            * 编辑：只更新账户资料。
            *
-           * ★ 余额与类型的关系 ★
-           *   类型可以改了（v14 起），如果从信用卡改成储蓄卡，
-           *   payload 里的 credit_limit_cents / bill_day / repay_day 是 null，
-           *   updateAccount 会把它们写空 —— 是对的（不再是信用卡了）。
-           *
            * ★ 余额不受影响 ★
            *   期初余额没动，所以余额（期初 + 收入 - 支出）自然不变。
            *   用户如果刚在弹层里改过余额，那个改动已经落库了，
            *   这里重新 update 一遍不会把它冲掉（payload 里没有余额字段）。
+           *
+           * ★ 改类型也不用收尾 ★
+           *   信用卡那四项专属字段已经整套删掉，
+           *   所有真实类型的表单条目一样，改类型只改 type 这一个值。
+           *   唯一跟着类型变的是「初始余额前有没有负号」，纯展示层。
+           *
+           * ★ 净资产口径自动跟上 ★
+           *   信用卡 -> 储蓄卡时余额不变、符号不变；
+           *   若用户想把这个负余额翻正，去详情页的「修改余额」里改 ——
+           *   那是独立的一条动账路径，不该由「改资料」顺手完成。
            */
           await accountStore.update(editId.value, payload)
           await accountStore.refresh()
@@ -644,8 +677,8 @@ export default {
         /*
          * ★ 编辑真实账户保存后：退到账户列表，而不是退回详情页 ★
          *   原因和删除一样 —— 详情页是「某个账户」的视图，
-         *   但用户可能刚把类型从储蓄卡改成了信用卡，
-         *   详情页里信用卡专属的额度/还款日区块要重新按新类型渲染。
+         *   但用户可能刚把类型从储蓄卡改成了网络借贷，
+         *   分组位置变了、余额符号的含义也变了（正数=存款，负数=欠款），
          *   退回账户列表（用户能看到改完之后的分组位置也变了）更自然。
          *
          *   新建账户照旧：回上一页（通常是账户列表或首页）。
@@ -720,10 +753,9 @@ export default {
     return {
       ACCOUNT_TYPES, ACCOUNT_ICONS, AccountIcon, iconInk,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
-      isCredit, dayRange, selectableTypes, onPickType,
+      isDebtType, debtHintText, selectableTypes, onPickType,
       onToggleInclude, onSave, onDelete, goBack, settingStore,
       /* 余额弹层 */
-      /* 组合账户 */
       /* 组合账户 */
       isCombo, typeName, memberList, showMemberPicker, pickDraft,
       availableMembers, openMemberPicker, closeMemberPicker,
@@ -844,13 +876,14 @@ export default {
   /* 选中态的背景色/边框色由模板内联注入（跟账户色一致） */
 }
 
-.form-hint {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.6;
-  width: 100%;
-  margin-top: 4rpx;
-}
+/*
+ * 说明文字统一走 .form-group-hint-text（见下方「一行 + 补充说明」那组）。
+ *
+ * 这里原来有一个 .form-hint（width:100% + margin-top:4rpx），
+ * 是给「整张卡片的补充说明」用的通用类。现在卡内唯一的说明文字
+ * 就是欠款那行注脚，它需要跟着自己的输入行成组、由组控制间距，
+ * 通用类反而要去和 border 抢位置，所以删掉 —— 一个用途一套样式。
+ */
 
 .form-card {
   background-color: var(--app-card);
@@ -895,6 +928,46 @@ export default {
 .form-placeholder {
   color: var(--app-text-3);
   font-size: 28rpx;
+}
+
+/*
+ * 「一行 + 它的补充说明」合成一组，分割线画在组尾。
+ *
+ * ★ 为什么要这层 ★
+ *   .form-row 自己带 border-bottom，提示语却不属于任何 form-row，
+ *   直接跟在后面就会出现「线在提示语上方 / 提示语像孤儿」的错位感。
+ *   把线交给组来画，组内永远无内部分割线，提示语稳定贴在输入框下方。
+ */
+.form-group {
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.form-group:last-child {
+  border-bottom: none;
+}
+
+/* 组内的输入行不再自己画线，否则线和组的线会叠成两条 */
+.form-row-flush {
+  border-bottom: none;
+}
+
+.form-group-hint {
+  display: flex;
+  padding: 0 0 20rpx;
+}
+
+/*
+ * 提示语用自己的类，不复用 .form-hint。
+ *
+ * .form-hint 原本是给「整张卡片的说明文字」用的（width:100%、margin-top:4rpx），
+ * 塞进这一组里还要靠负 margin 把它拽回去 —— 两个用途抢一套样式，
+ * 下次谁改 .form-hint 就会顺手把这行提示的间距弄乱。
+ * 这里显式写全，和分割线的关系只由本组的 padding 决定。
+ */
+.form-group-hint-text {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  line-height: 1.5;
 }
 
 .form-picker {

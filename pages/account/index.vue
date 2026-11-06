@@ -29,6 +29,12 @@
             借来的钱进了真实账户（已计入总资产），
             但它同时是一笔要还的债；不算进负债，净资产会凭空多出这一笔。
             算的是净额（借入 - 借款归还），还清后负债自动回落。
+
+          ★ 信用卡 / 网络借贷怎么进负债 ★
+            不靠类型判断，靠余额正负：这两类账户的初始余额
+            默认就是负数（新建时输入框前有固定的 `-`），
+            于是自动落进「负余额绝对值之和」里。
+            以后再加新的欠钱类型，这边一个字都不用改。
         -->
         <view class="asset-overview">
           <MoneyText
@@ -151,7 +157,6 @@
               <view class="acc-info">
                 <view class="acc-name-row">
                   <text class="acc-name">{{ acc.name }}</text>
-                  <text v-if="acc.card_tail" class="acc-tail">*{{ acc.card_tail }}</text>
                   <view v-if="acc.id === defaultAccountId" class="default-badge">
                     <text class="default-badge-text">默认</text>
                   </view>
@@ -169,6 +174,9 @@
                   账户余额：无论正负都不加颜色、不加符号（用户要求）。
                   ★ 唯一例外：不计入资产的账户用中性浅灰 ★
                     这类账户不参与总资产，浅灰提示「它不算在这本账里」。
+                  ★ 这里原来还有一行「额度 xxxx」★
+                    信用卡的额度字段已整套删掉，那一行也随之删除；
+                    网络借贷沿用信用卡，同样不显示（它只有余额，没有额度）。
                 -->
                 <MoneyText
                   v-else
@@ -177,9 +185,6 @@
                   :size="32"
                   :weight="500"
                 />
-                <text v-if="acc.isCredit && acc.credit_limit_cents" class="acc-limit">
-                  额度 {{ (acc.credit_limit_cents / 100).toFixed(0) }}
-                </text>
               </view>
 
               <text class="acc-arrow">›</text>
@@ -666,11 +671,6 @@ export default {
   font-weight: 500;
 }
 
-.acc-tail {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-}
-
 .acc-type {
   font-size: 22rpx;
   color: var(--app-text-3);
@@ -682,11 +682,6 @@ export default {
   align-items: flex-end;
   gap: 4rpx;
   flex-shrink: 0;
-}
-
-.acc-limit {
-  font-size: 20rpx;
-  color: var(--app-text-3);
 }
 
 /* 组合账户标签（替代余额，说明它是记账用的虚拟账户） */

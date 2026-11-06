@@ -1,24 +1,26 @@
 /**
- * 「日/月/年 ｜ 自定义」时间筛选切换的形态检查
+ * 时间筛选条（年月日筛选 ｜ 自定义筛选）的形态检查
  *
  *   node scripts/test-date-mode-toggle.mjs
  *
- * 用户需求（原话）：
- *   「在全部交易页面和统计页面上方，时间筛选面板上方新增一个 tab 切换按钮，
- *     类似于统计页面一级二级的切换 tab，分别为日月年筛选和自定义筛选，
- *     日月年下方使用当前逻辑，自定义支持选择开始日和结束日进行筛选」
+ * 用户需求（原话，分两次提的）：
+ *   1.「在全部交易页面和统计页面上方，时间筛选面板上方新增一个 tab 切换按钮，
+ *      类似于统计页面一级二级的切换 tab，分别为日月年筛选和自定义筛选，
+ *      日月年下方使用当前逻辑，自定义支持选择开始日和结束日进行筛选」
+ *   2.「两个页面的 tab 内容修改为"年月日筛选"、"自定义筛选"，自定义筛选下面的
+ *      ui 优化，日期选择面板使用和记账面板日期选择一致」
+ *   3.「你这样筛选太长了，只显示开始日期和结束日期，其他不要，显示在一行」
+ *   4.「把年月日筛选组件和自定义筛选则组件做到高度一致，删除全部交易页面左上角
+ *      的日期显示，保留笔数」
  *
  * ★ 为什么要静态检查 ★
- *   这套切换涉及「两套状态 + 两个查询分支」，写错时编译不报、运行也不报，
- *   只在真机上表现为「切了没反应」或「跨月只查得到一个月」——
- *   都是很难从报错里看出来的。所以把关键形态钉死：
- *     1. 两个页面都有 toggle，且都叫「日/月/年」和「自定义」
- *     2. toggle 在日期选择器**上方**（用户明确说的位置）
- *     3. 两套状态各存各的（dateMode / dateRange / customStart / customEnd）
- *     4. 切换时立刻重新查询（不刷新等于没切换）
- *     5. 自定义分支不给 monthKey（给了会把跨月查询掐成一个月）
- *     6. 起止颠倒要自动纠正（否则永远是空结果）
- *     7. styles 里有 .mode-toggle / .mode-tag.active 和 .custom-bar
+ *   这套切换涉及「两套状态 + 两个查询分支 + 两个组件」，写错时编译不报、
+ *   运行也不报，只在真机上表现为「切了没反应」「跨月只查得到一个月」
+ *   「换个 tab 内容跳一下」—— 都很难从报错里看出来。
+ *
+ * ★ 现在检查的是「组件化之后」的形态 ★
+ *   筛选条已经抽成 components/DateFilterBar.vue，两个页面只负责传值和重查。
+ *   所以断言分两层：组件本身的实现，以及两个页面有没有正确接上。
  */
 
 import { readFileSync } from 'fs'
@@ -52,8 +54,8 @@ function read(rel) {
  * 去掉注释再断言。
  *
  * ★ 必须做 ★
- *   这两个页面的注释里写了大量「monthKey」「dateMode」这类词，
- *   直接在原文上正则匹配会大量误判 —— 之前 test-share-intent 就吃过这个亏。
+ *   这些文件的注释里写了大量「monthKey」「dateMode」「原生 picker」这类词，
+ *   直接在原文上正则匹配会大量误判 —— test-share-intent 就吃过这个亏。
  */
 function stripComments(src) {
   return src
@@ -62,10 +64,254 @@ function stripComments(src) {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }
 
+const BAR = 'components/DateFilterBar.vue'
 const PAGES = [
-  { name: '全部交易', file: 'pages/txn/list.vue' },
-  { name: '统计', file: 'pages/stats/index.vue' }
+  { name: '全部交易', file: 'pages/txn/list.vue', reload: 'loadFirstPage' },
+  { name: '统计', file: 'pages/stats/index.vue', reload: 'loadAll' }
 ]
+
+/* ================================ 1. 组件本身 ============================ */
+
+console.log('=== 1. DateFilterBar 组件 ===')
+
+const barRaw = read(BAR)
+const barCode = stripComments(barRaw)
+const barTpl = stripComments((barRaw.match(/<template>([\s\S]*)<\/template>/) || [])[1] || '')
+const barStyle = (barRaw.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+
+// --- 文案（用户逐字指定）
+check('有「年月日筛选」按钮', />年月日筛选</.test(barTpl), true)
+check('有「自定义筛选」按钮', />自定义筛选</.test(barTpl), true)
+check('不再用旧的「日/月/年」文案', /日\/月\/年/.test(barTpl), false)
+check('不再用旧的「自定义」短文案', />自定义</.test(barTpl), false)
+
+// --- toggle
+check('用 .mode-toggle 包住两个按钮', /class="mode-toggle"/.test(barTpl), true)
+check('按钮用 .mode-tag', (barTpl.match(/class="mode-tag"/g) || []).length >= 2, true)
+check(
+  '选中态按 mode 判断',
+  /:class="\{ active: mode === 'period' \}"/.test(barTpl) &&
+    /:class="\{ active: mode === 'custom' \}"/.test(barTpl),
+  true
+)
+check(
+  '点按钮会切模式',
+  /@click="pickMode\('period'\)"/.test(barTpl) && /@click="pickMode\('custom'\)"/.test(barTpl),
+  true
+)
+
+// --- 年月日筛选分支仍是原来那套三级联动
+check('period 分支渲染 DateRangePicker', /v-if="mode === 'period'"/.test(barTpl), true)
+check('DateRangePicker 仍被引入', /import DateRangePicker from '@\/components\/DateRangePicker.vue'/.test(barCode), true)
+check('有 periodRef 以便透传 collapse', /const periodRef = ref\(null\)/.test(barCode), true)
+
+// --- 自定义筛选：必须只有一行起止日，不能有多余内容
+console.log('\n--- 自定义筛选只保留一行起止日 ---')
+
+check('custom 分支是 v-else 的单行容器', /v-else class="custom-row"/.test(barTpl), true)
+check('有开始日期入口', /openCalendar\('start'\)/.test(barTpl), true)
+check('有结束日期入口', /openCalendar\('end'\)/.test(barTpl), true)
+check('开始日期文案', /startDay \|\| '开始日期'/.test(barTpl), true)
+check('结束日期文案', /endDay \|\| '结束日期'/.test(barTpl), true)
+
+// ★ 用户说过「其他不要」：一排 chip、天数提示、重置按钮都不许回来
+check('没有一排快捷 chip', /quick-chip|quick-row/.test(barRaw), false)
+check('没有「共 N 天」提示', /共 \{\{|dayCount/.test(barRaw), false)
+check('没有重置按钮', /resetCustom|hint-reset/.test(barRaw), false)
+check('没有中间的长破折号分隔', /custom-sep/.test(barRaw), false)
+
+// --- 预设下拉（用户第二批要求：最左侧一个下拉框）
+console.log('\n--- 最左侧预设下拉 ---')
+
+check('用原生 picker mode="selector" 做预设下拉', /<picker[\s\S]{0,240}?mode="selector"/.test(barTpl), true)
+check('预设下拉绑了 range', /:range="PRESET_LABELS"/.test(barTpl), true)
+check('预设下拉绑了 value', /:value="presetIndex"/.test(barTpl), true)
+check('预设下拉有 change 处理', /@change="onPresetChange"/.test(barTpl), true)
+
+// 六项，顺序照用户说的
+const presetBlock = (barCode.match(/const PRESETS = \[([\s\S]*?)\n\]/) || [])[1] || ''
+for (const label of ['自定义', '近一周', '近一月', '近半年', '近一年', '近五年']) {
+  check(`预设里有「${label}」`, new RegExp(`label: '${label}'`).test(presetBlock), true)
+}
+check('预设正好六项', (presetBlock.match(/key: '/g) || []).length, 6)
+check(
+  '预设顺序：自定义在最前',
+  presetBlock.indexOf("'自定义'") < presetBlock.indexOf("'近一周'"),
+  true
+)
+
+/*
+ * ★ 预设为什么不能自己存一个变量 ★
+ *   如果额外存 activePreset，手动改日期时就必须记得同步它 ——
+ *   两处状态一定会漏。这里要求它是 computed 反推出来的。
+ */
+check('当前预设是反推出来的（computed）', /const activePresetKey = computed\(/.test(barCode), true)
+check(
+  '反推依据是起止日与预设区间的比较',
+  /r\.startDay === props\.startDay && r\.endDay === props\.endDay/.test(barCode),
+  true
+)
+check('对不上就落回自定义', /return 'custom'/.test(barCode), true)
+check(
+  '选「自定义」时不清空日期',
+  /if \(!preset \|\| preset\.key === 'custom'\) return/.test(barCode),
+  true
+)
+
+// --- 预设区间的算法
+check('近一周按 7 天算（含今天）', /shiftDay\(todayKey, -6\)/.test(barCode), true)
+check('近一月按 30 天算（含今天）', /shiftDay\(todayKey, -29\)/.test(barCode), true)
+check(
+  '半年/一年/五年用日历回退而不是天数乘法',
+  /getMonth\(\) - 6/.test(barCode) && /getFullYear\(\) - 1/.test(barCode) && /getFullYear\(\) - 5/.test(barCode),
+  true
+)
+
+// --- 三格布局：预设 + 两个日期
+check(
+  '三格在同一行（预设 + 两个日期）',
+  /custom-preset/.test(barTpl) && (barTpl.match(/class="custom-cell"/g) || []).length === 2,
+  true
+)
+check(
+  '预设格固定宽度、不与日期平分',
+  /\.custom-preset \{[^}]*flex: none/.test(barStyle) && /width: 168rpx/.test(barStyle),
+  true
+)
+check(
+  '预设格与日期格之间有分隔线',
+  (barStyle.match(/border-right: 1rpx solid var\(--app-line\)/g) || []).length >= 2,
+  true
+)
+
+// --- 日期面板必须与记账面板一致（wd-calendar，不是原生 picker）
+console.log('\n--- 日期面板用 wd-calendar（与记账面板一致）---')
+
+check(
+  '用两个 wd-calendar',
+  (barTpl.match(/<wd-calendar/g) || []).length === 2,
+  true
+)
+check('没用原生 picker mode="date"', /<picker mode="date"/.test(barTpl), false)
+check('日历有 ref（要靠 open() 打开）', /ref="startCalRef"/.test(barTpl) && /ref="endCalRef"/.test(barTpl), true)
+check('日历 with-cell=false（不额外渲染一行）', (barTpl.match(/:with-cell="false"/g) || []).length === 2, true)
+
+/*
+ * ★ min-date 必须显式给 ★
+ *   wd-calendar 默认 minDate 是「6 个月前」，只给 max-date 时
+ *   月份会被限制在极窄范围（记账面板踩过，见 TxnPanel 的注释）。
+ *   而且预设里有「近五年」，下界必须盖得住它。
+ */
+check('显式给了 min-date', (barTpl.match(/:min-date="minDate"/g) || []).length === 2, true)
+check('显式给了 max-date', (barTpl.match(/:max-date="maxDate"/g) || []).length === 2, true)
+check('minDate 覆盖五年', /getFullYear\(\) - 5, 0, 1\)\.getTime\(\)/.test(barCode), true)
+check('maxDate 截到今天 23:59:59', /23, 59, 59\)\.getTime\(\)/.test(barCode), true)
+
+// ★ 打开前必须先喂当前值，否则会停在今天
+check(
+  'openCalendar 先赋值再 open',
+  /function openCalendar\(which\)[\s\S]{0,420}?startValue\.value = ts[\s\S]{0,220}?\.open\(\)/.test(barCode) &&
+    /function openCalendar\(which\)[\s\S]{0,420}?endValue\.value = ts/.test(barCode),
+  true
+)
+check('open() 有存在性检查', /typeof target\.open === 'function'/.test(barCode), true)
+
+// ★ confirm 的 value 是毫秒时间戳，要用本地时区的 toDayKey 转
+check('confirm 收 value', /function onStartConfirm\(\{ value \}\)/.test(barCode) && /function onEndConfirm\(\{ value \}\)/.test(barCode), true)
+check('用 toDayKey 转（不是 toISOString）', /tsToDay\(ts\)[\s\S]{0,120}?toDayKey\(new Date\(ts\)\)/.test(barCode), true)
+check('没直接用 toISOString', /toISOString/.test(barCode), false)
+
+// --- 起止颠倒只在组件里纠正一次
+check(
+  'commit 里交换起止',
+  /function commit\(start, end\)[\s\S]{0,320}?a > b[\s\S]{0,160}?a = b/.test(barCode),
+  true
+)
+
+// --- 事件名不能撞原生事件（check-events 会拦）
+check('emits 声明了 custom-change', /'custom-change'/.test(barCode), true)
+check('emits 里没有 change（撞原生）', /\bemits:[\s\S]{0,300}?'change'/.test(barCode), false)
+check('emits 里没有 confirm（撞原生）', /\bemits:[\s\S]{0,300}?'confirm'/.test(barCode), false)
+
+// --- 两个 tab 高度必须一致
+console.log('\n--- 两个 tab 高度一致 ---')
+
+/*
+ * ★ 对齐依据是 DateRangePicker 的 .drp-bar ★
+ *   .drp-cell 的 height 是 72rpx、flex:1、居中、右边框 1rpx 分隔。
+ *   自定义那行必须抄同一组数值，否则切 tab 时下面的内容会上下跳一下。
+ */
+const drpRaw = read('components/DateRangePicker.vue')
+const drpStyle = (drpRaw.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+const drpCellHeight = (drpStyle.match(/\.drp-cell\s*\{[^}]*height:\s*(\d+)rpx/) || [])[1]
+check('.drp-cell 高度基准是 72rpx', drpCellHeight, '72')
+
+/*
+ * ★ 高度写在合并规则里 ★
+ *   `.custom-preset, .custom-cell { ... height: 72rpx ... }` 是共享布局，
+ *   后面 `.custom-cell { flex:1; min-width:0; ... }` 只补差异部分。
+ *   所以按「所有 .custom-cell 相关规则」判断，不能只取最后一条。
+ */
+const cellRuleGroup = (barStyle.match(/(?:\.custom-preset,\s*\.custom-cell|\.custom-cell)\s*\{[^}]*\}/g) || []).join('\n')
+/*
+ * 取「最后一条」.custom-cell 规则：
+ *   合并规则 `.custom-preset, .custom-cell {...}` 也会被正则命中，
+ *   但它只是共享的布局部分（高度/居中），差异（flex/min-width）在后面那条。
+ */
+const cellAll = barStyle.match(/\.custom-cell\s*\{[^}]*\}/g) || []
+const cellFlexRule = cellAll[cellAll.length - 1] || ''
+const cellBaseRule = (barStyle.match(/\.custom-preset,\s*\.custom-cell\s*\{[^}]*\}/) || [])[0] || ''
+check('自定义格用 72rpx 高（与 .drp-cell 一致）', /height:\s*72rpx/.test(cellRuleGroup), true)
+check('自定义格 flex:1（与日期格一致）', /flex:\s*1/.test(cellFlexRule), true)
+check('自定义格 min-width:0（长日期不会撑破）', /min-width:\s*0/.test(cellFlexRule), true)
+check('基础布局规则同时作用于预设格与日期格', cellBaseRule.length > 0, true)
+check('自定义容器圆角与 .drp-bar 一致', /border-radius:\s*16rpx/.test((barStyle.match(/\.custom-row\s*\{[^}]*\}/) || [])[0] || ''), true)
+
+/* ---------------------------------------------------- 弹层层级（用户报告） */
+
+console.log('\n--- 日历弹层不能被底栏和「+」压住 ---')
+
+/*
+ * ★ 这个 bug 的表现和根因 ★
+ *   wd-calendar 内部是 wd-action-sheet，默认 z-index 只有 15；
+ *   而统计页的 AppTabBar 是 300、QuickAddBar（+ 记账）是 600。
+ *   15 < 300，日期弹层的下半截就被压在底栏和「+」下面了。
+ *   所以这里要求组件显式把 :z-index 传到 wd-calendar 上。
+ */
+check('两个日历都传了 :z-index', (barTpl.match(/:z-index="CALENDAR_Z_INDEX"/g) || []).length === 2, true)
+check('定义了 CALENDAR_Z_INDEX', /const CALENDAR_Z_INDEX = \d+/.test(barCode), true)
+
+const calZ = Number((barCode.match(/const CALENDAR_Z_INDEX = (\d+)/) || [])[1] || 0)
+check('日历层级高于 AppTabBar(300)', calZ > 300, true)
+check('日历层级高于 QuickAddBar(600)', calZ > 600, true)
+check('日历层级高于 AppDialog(1000)', calZ > 1000, true)
+check('CALENDAR_Z_INDEX 在 return 里（模板要用）', /return \{[\s\S]{0,300}?CALENDAR_Z_INDEX/.test(barCode), true)
+
+// 交叉校验：这两个层级来自真实组件，不能凭记忆写
+const tabBarStyle = (read('components/AppTabBar.vue').match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+const quickAddStyle = (read('components/QuickAddBar.vue').match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+const tabZ = Number((tabBarStyle.match(/\.tabbar-host\s*\{[^}]*z-index:\s*(\d+)/) || [])[1] || 0)
+const quickZ = Number((quickAddStyle.match(/z-index:\s*(\d+)/) || [])[1] || 0)
+check('AppTabBar 的层级确实是 300', tabZ, 300)
+check('QuickAddBar 的层级确实是 600', quickZ, 600)
+check('日历层级高于这两个（真实值比较）', calZ > Math.max(tabZ, quickZ), true)
+
+/* ------------------------------------------------------------------ 默认值 */
+
+console.log('\n--- 默认显示「近一月」 ---')
+
+/*
+ * ★ 默认值必须和组件的「近一月」预设算得一模一样 ★
+ *   否则左边的下拉会显示成「自定义」，用户会以为默认没生效。
+ *   这里直接 import 真的函数来比，不靠读源码。
+ */
+const { defaultCustomRange, shiftDay, toDayKey, parseDayKey } = await import('../utils/date.js')
+const dcr = defaultCustomRange()
+check('默认结束日是今天', dcr.endDay, toDayKey())
+check('默认开始日是 29 天前（共 30 天）', dcr.startDay, shiftDay(toDayKey(), -29))
+check('默认区间跨度为 29 天', Math.round((parseDayKey(dcr.endDay) - parseDayKey(dcr.startDay)) / 86400000), 29)
+
+/* ============================== 2. 两个页面 ============================== */
 
 for (const page of PAGES) {
   const raw = read(page.file)
@@ -73,211 +319,114 @@ for (const page of PAGES) {
   const template = stripComments((raw.match(/<template>([\s\S]*)<\/template>/) || [])[1] || '')
   const style = (raw.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
 
-  console.log(`\n=== ${page.name}页（${page.file}）===`)
+  console.log(`\n=== 2. ${page.name}页（${page.file}）===`)
 
-  /* ---------------------------------------------- 1. toggle 存在且文案正确 */
+  // --- 用的是共用组件
+  check(`${page.name}页引入 DateFilterBar`, /import DateFilterBar from '@\/components\/DateFilterBar.vue'/.test(code), true)
+  check(`${page.name}页注册 DateFilterBar`, /components:\s*\{[^}]*DateFilterBar[^}]*\}/.test(code), true)
+  check(`${page.name}页不再直接用 DateRangePicker`, /<DateRangePicker/.test(template), false)
+  check(`${page.name}页不再 import DateRangePicker`, /import DateRangePicker/.test(code), false)
 
-  check(`${page.name}页有「日/月/年」按钮`, />日\/月\/年</.test(template), true)
-  check(`${page.name}页有「自定义」按钮`, />自定义</.test(template), true)
-  check(`${page.name}页用 .mode-toggle 包住两个按钮`, /class="mode-toggle"/.test(template), true)
-  check(
-    `${page.name}页按钮用 .mode-tag`,
-    (template.match(/class="mode-tag"/g) || []).length >= 2,
-    true
-  )
-  check(
-    `${page.name}页选中态是 .active`,
-    /:class="\{ active: dateMode === 'period' \}"/.test(template) &&
-      /:class="\{ active: dateMode === 'custom' \}"/.test(template),
-    true
-  )
-  check(
-    `${page.name}页点按钮会切模式`,
-    /@click="switchDateMode\('period'\)"/.test(template) &&
-      /@click="switchDateMode\('custom'\)"/.test(template),
-    true
-  )
-
-  /* ---------------------------------- 2. toggle 必须在日期选择器上方 */
-
-  /*
-   * ★ 位置是用户明说的 ★
-   *   「时间筛选面板上方新增一个 tab 切换按钮」——
-   *   放在选择器下面就成了「筛选结果的说明」，语义不对。
-   *   用人话的判据：.mode-toggle 的 index < DateRangePicker 的 index。
-   */
-  const iToggle = template.indexOf('class="mode-toggle"')
-  const iPicker = template.indexOf('<DateRangePicker')
-  check(`${page.name}页 DateRangePicker 存在`, iPicker > 0, true)
-  check(`${page.name}页 toggle 在日期选择器上方`, iToggle > 0 && iToggle < iPicker, true)
-
-  /* -------------------------------- 3. 「日/月/年」下方仍是原来那套逻辑 */
-
-  check(
-    `${page.name}页日/月/年分支仍渲染 DateRangePicker`,
-    /v-if="dateMode === 'period'"/.test(template) &&
-      /<DateRangePicker[\s\S]{0,300}?\/>/.test(template),
-    true
-  )
-
-  /* ------------------------------------------ 4. 自定义分支的两个日期格 */
-
-  check(`${page.name}页自定义分支用 v-else`, /v-else class="custom-bar"/.test(template), true)
-  check(
-    `${page.name}页有「开始」「结束」两个日期格`,
-    />开始</.test(template) && />结束</.test(template),
-    true
-  )
-  check(
-    `${page.name}页用原生 picker mode="date"`,
-    (template.match(/<picker mode="date"/g) || []).length >= 2,
-    true
-  )
-  check(
-    `${page.name}页结束日不能超过今天`,
-    /:end="todayKey"/.test(template),
-    true
-  )
-
-  /* -------------------------------------- 5. 两套状态各存各的（不互相覆盖） */
-
-  check(`${page.name}页有 dateMode 状态`, /const dateMode = ref\('period'\)/.test(code), true)
-  check(`${page.name}页有 customStart 状态`, /const customStart = ref\(/.test(code), true)
-  check(`${page.name}页有 customEnd 状态`, /const customEnd = ref\(/.test(code), true)
-  check(`${page.name}页有 todayKey`, /const todayKey = toDayKey\(\)/.test(code), true)
-  check(
-    `${page.name}页仍然保留 dateRange（旧逻辑没被拆掉）`,
-    /const dateRange = ref\(/.test(code),
-    true
-  )
-  check(
-    `${page.name}页的 switchDateMode 直接改 ref 而不是重建`,
-    /function switchDateMode\(mode\)[\s\S]{0,200}?dateMode\.value = mode/.test(code),
-    true
-  )
-
-  /* ------------------------------------ 6. 切换后必须立刻重新查询 */
-
-  /*
-   * ★ 不重查 = 切换没生效 ★
-   *   两个页面的刷新函数不同（loadFirstPage / loadAll），
-   *   所以这里只看「switchDateMode 里有没有调刷新」。
-   */
-  check(
-    `${page.name}页切换模式会立刻重查`,
-    /function switchDateMode\(mode\)[\s\S]{0,300}?(loadFirstPage|loadAll)\(\)/.test(code),
-    true
-  )
-  check(
-    `${page.name}页改开始日会重查`,
-    /function onCustomStart\(e\)[\s\S]{0,300}?(loadFirstPage|loadAll)\(\)/.test(code),
-    true
-  )
-  check(
-    `${page.name}页改结束日会重查`,
-    /function onCustomEnd\(e\)[\s\S]{0,300}?(loadFirstPage|loadAll)\(\)/.test(code),
-    true
-  )
-
-  /* -------------------- 7. 起止颠倒自动纠正 + 自定义分支不给 monthKey */
-
-  check(
-    `${page.name}页开始日晚于结束日时自动纠正`,
-    /function onCustomStart\(e\)[\s\S]{0,300}?customStart\.value > customEnd\.value[\s\S]{0,120}?customEnd\.value = customStart\.value/.test(code),
-    true
-  )
-  check(
-    `${page.name}页结束日早于开始日时自动纠正`,
-    /function onCustomEnd\(e\)[\s\S]{0,300}?customEnd\.value < customStart\.value[\s\S]{0,120}?customStart\.value = customEnd\.value/.test(code),
-    true
-  )
-
-  /*
-   * ★ 自定义分支为什么要单独判 monthKey ★
-   *   给了 monthKey，api/transaction.js 与 api/stats.js 会按 month_key 等值过滤，
-   *   跨月区间只剩一个月的数据。customToRange 只在「正好整月」时回填，
-   *   所以这里断言的是「用了 customToRange」，而不是「绝对不能有 monthKey」。
-   */
-  check(
-    `${page.name}页自定义分支走 customToRange`,
-    /customToRange\(customStart\.value, customEnd\.value\)/.test(code),
-    true
-  )
-
-  /* --------------------------------------- 8. 模板引用的东西都从 setup 返回 */
-
-  for (const key of ['dateMode', 'customStart', 'customEnd', 'todayKey']) {
-    check(
-      `${page.name}页 return 里有 ${key}`,
-      new RegExp(`return \\{[\\s\\S]*?\\b${key}\\b`).test(code),
-      true
-    )
-  }
-  for (const fn of ['switchDateMode', 'onCustomStart', 'onCustomEnd']) {
-    check(
-      `${page.name}页 return 里有 ${fn}`,
-      new RegExp(`return \\{[\\s\\S]*?\\b${fn}\\b`).test(code),
-      true
-    )
+  // --- 传值
+  for (const [attr, val] of [
+    ['mode', 'dateMode'],
+    ['model-value', 'dateRange'],
+    ['start-day', 'customStart'],
+    ['end-day', 'customEnd']
+  ]) {
+    check(`${page.name}页传了 ${attr}`, new RegExp(`:${attr}="${val}"`).test(template), true)
   }
 
-  /* ------------------------------------------------ 9. 样式必须跟上 */
+  // --- 事件
+  check(`${page.name}页接 mode 切换`, /@update:mode="onModeChange"/.test(template), true)
+  check(`${page.name}页接自定义区间`, /@custom-change="onCustomChange"/.test(template), true)
 
-  check(`${page.name}页有 .mode-toggle 样式`, /\.mode-toggle\s*\{/.test(style), true)
-  check(`${page.name}页有 .mode-tag 样式`, /\.mode-tag\s*\{/.test(style), true)
-  check(`${page.name}页有选中态样式`, /\.mode-tag\.active\s*\{/.test(style), true)
-  check(`${page.name}页有 .custom-bar 样式`, /\.custom-bar\s*\{/.test(style), true)
-  check(`${page.name}页有 .custom-cell 样式`, /\.custom-cell\s*\{/.test(style), true)
+  // --- 切模式就重查
+  check(
+    `${page.name}页切模式立刻重查`,
+    new RegExp(`function onModeChange\\(mode\\)[\\s\\S]{0,260}?${page.reload}\\(\\)`).test(code),
+    true
+  )
+  check(
+    `${page.name}页改起止日会重查`,
+    new RegExp(`function onCustomChange\\(\\{ startDay, endDay \\}\\)[\\s\\S]{0,300}?${page.reload}\\(\\)`).test(code),
+    true
+  )
+
+  /*
+   * ★ 颠倒纠正不该在页面里再做一遍 ★
+   *   组件 commit() 已经交换过了，页面再判一次就是两份逻辑，
+   *   以后改一处漏一处必然出问题。
+   */
+  check(
+    `${page.name}页不再自己做颠倒纠正`,
+    /customStart\.value > customEnd\.value/.test(code),
+    false
+  )
+
+  // --- 旧的一次性实现必须清干净（否则两套东西并存，改哪套都不知道）
+  check(`${page.name}页没有旧的 switchDateMode`, /switchDateMode/.test(code), false)
+  check(`${page.name}页没有旧的 onCustomStart`, /onCustomStart/.test(code), false)
+  check(`${page.name}页没有旧的 onCustomEnd`, /onCustomEnd/.test(code), false)
+  check(`${page.name}页没有旧的 .mode-toggle 样式`, /\.mode-toggle\s*\{/.test(style), false)
+  check(`${page.name}页没有旧的 .custom-bar 样式`, /\.custom-bar\s*\{/.test(style), false)
+
+  // --- 模板引用的东西都从 setup 返回
+  for (const key of ['dateMode', 'customStart', 'customEnd', 'dateRange']) {
+    check(`${page.name}页 return 里有 ${key}`, new RegExp(`return \\{[\\s\\S]*?\\b${key}\\b`).test(code), true)
+  }
+  check(`${page.name}页 return 里有 onModeChange`, /return \{[\s\S]*?onModeChange/.test(code), true)
+  check(`${page.name}页 return 里有 onCustomChange`, /return \{[\s\S]*?onCustomChange/.test(code), true)
 }
 
-/* -------------------------------- 10. 两个页面的样式必须一致（观感统一） */
+/* ========================= 3. 全部交易页汇总条 ========================== */
 
-console.log('\n=== 两页样式一致性 ===')
+console.log('\n=== 3. 全部交易页汇总条只保留笔数 ===')
 
-function modeStyle(file) {
-  const style = (read(file).match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
-  const grab = (sel) => {
-    const m = style.match(new RegExp(`\\${sel}\\s*\\{[^}]*\\}`))
-    return m ? m[0].replace(/\s+/g, ' ').trim() : ''
-  }
-  return { toggle: grab('.mode-toggle'), tag: grab('.mode-tag'), bar: grab('.custom-bar') }
-}
-
-const a = modeStyle('pages/txn/list.vue')
-const b = modeStyle('pages/stats/index.vue')
-check('.mode-toggle 两页一致', a.toggle, b.toggle)
-check('.mode-tag 两页一致', a.tag, b.tag)
-check('.custom-bar 两页一致', a.bar, b.bar)
-
-/* ------------------------------------------ 11. 账户名在备注左边（用户第 2 条） */
-
-console.log('\n=== 账户名显示在备注左边 ===')
+const listTpl = stripComments((read('pages/txn/list.vue').match(/<template>([\s\S]*)<\/template>/) || [])[1] || '')
 
 /*
- * 用户原话：「在所有出现交易、流水信息的地方，将账户名显示在备注的左边」
- * 判据：拼副标题时 account_name 的 push 必须出现在 note 的 push 之前。
+ * 用户原话：「删除全部交易页面左上角的日期显示，保留笔数」。
+ * 判据：.summary-text 里不能再出现 rangeLabel，但「共 N 笔」要在。
  */
-const SUB_FILES = [
-  'pages/txn/list.vue',
-  'pages/index/index.vue',
-  'components/RecentTxnList.vue'
-]
-for (const file of SUB_FILES) {
+const summaryRule = (listTpl.match(/<text class="summary-text">([\s\S]*?)<\/text>/) || [])[1] || ''
+check('汇总条还显示笔数', /共 \{\{ summary\.count \}\} 笔/.test(listTpl), true)
+check('汇总条不再显示日期范围', /rangeLabel/.test(summaryRule), false)
+
+/* ============================ 4. 删除后要刷新 ============================ */
+
+console.log('\n=== 4. 删除交易后列表会刷新 ===')
+
+const listCode = stripComments(read('pages/txn/list.vue'))
+
+/*
+ * ★ 「删了但没消失」的根因 ★
+ *   detail 页删完 navigateBack 回到列表，而列表页的 onShow 以前只同步主题、
+ *   不重查数据，所以还是离开前的旧列表。
+ */
+check(
+  '列表页 onShow 里会重新查询',
+  /onShow\(\(\) => \{[\s\S]{0,600}?loadFirstPage\(\)/.test(listCode),
+  true
+)
+check('重查前先跳过首次 onShow（避免与 onMounted 重复）', /shownOnce/.test(listCode), true)
+
+/* ======================== 5. 账户名在备注左边（旧需求）=================== */
+
+console.log('\n=== 5. 账户名显示在备注左边 ===')
+
+for (const file of ['pages/txn/list.vue', 'pages/index/index.vue', 'components/RecentTxnList.vue']) {
   const code = stripComments(read(file))
-  const fn = code.match(/function txnSub\(txn\)[\s\S]*?\n    \}/)
-  const body = fn ? fn[0] : ''
+  const body = (code.match(/function txnSub\(txn\)[\s\S]*?\n    \}/) || [])[0] || ''
   const iAcc = body.indexOf('account_name')
   const iNote = body.indexOf('txn.note')
   check(`${file} 的 txnSub 里账户名在备注之前`, iAcc > 0 && iNote > 0 && iAcc < iNote, true)
 }
 
-// 统计页 Top10 是模板里的一行三元表达式，单独判
 const statsTpl = stripComments(read('pages/stats/index.vue'))
-check(
-  '统计页 Top10 副标题账户名在前',
-  /t\.account_name \|\| t\.note/.test(statsTpl),
-  true
-)
+check('统计页 Top10 副标题账户名在前', /t\.account_name \|\| t\.note/.test(statsTpl), true)
+
+/* ================================ 收尾 ================================== */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) {

@@ -20,7 +20,7 @@
  */
 
 import { query, queryOne } from './db/index.js'
-import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey } from '../utils/date.js'
+import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey, monthSpan, TREND_DAY_MAX_MONTHS } from '../utils/date.js'
 import { ACCOUNT_TYPES } from './account.js'
 
 /* ============================================================ 区间基础 */
@@ -590,11 +590,24 @@ export async function getAccountTypeStatsRange(range, type = 'expense') {
 /**
  * 账户类别配色（饼图用）
  * 取自 PIE_PALETTE 的前几个色位，和分类统计的饼图是同一套视觉语言。
+ *
+ * ★ 欠钱的两个类型故意用邻近的红/粉 ★
+ *   信用卡和网络借贷在概念上是一类（都是负债），
+ *   分到完全不相关的颜色会让人以为是两种毫不相干的账户；
+ *   红配粉既能区分，又能一眼看出「这俩都在负债那边」。
+ *   电话卡用青色：它是储蓄卡之外最常见的「存钱的卡」，
+ *   取一个和绿色（储蓄卡）区分度高、又不抢眼的色位。
+ *
+ * ★ 别漏 ★
+ *   ACCOUNT_TYPES 里每加一个真实类型，这里要补一个色位，
+ *   否则饼图会掉到兜底色 '#1989FA'，和「网络支付」撞成同一个蓝。
  */
 const ACCOUNT_TYPE_COLORS = {
   online: PIE_PALETTE[0],   // 蓝
   credit: PIE_PALETTE[3],   // 红
+  loan: PIE_PALETTE[5],     // 粉（和信用卡同属负债）
   debit: PIE_PALETTE[2],    // 绿
+  phone: PIE_PALETTE[8],    // 青
   cash: PIE_PALETTE[1],     // 橙
   prepaid: PIE_PALETTE[4]   // 紫
 }
@@ -721,7 +734,19 @@ export async function getDailyTrend(monthKey) {
  *   整月  → 按天分桶，label 为「日」号（如 '15'）
  *   整年  → 按月分桶，12 项，label 为月份号（如 '1'…'12'）
  *   单日  → 1 项，label 为该日的日号（如 '15'）
- *   全部  → 按月分桶，只输出有交易的月份，label 为月份号（无交易返回空数组）
+ *   自定义 → 看跨了几个月（见下）
+ *   全部  → 按月分桶，只输出有交易的月份（无交易返回空数组）
+ *
+ * ★ 自定义区间的分桶规则（用户指定）★
+ *   跨 1~2 个自然月 → 按天分桶（近一周、近一月都落在这里）；
+ *   跨 3 个月以上   → 按月分桶（近半年、近一年、近五年）。
+ *   判据用 utils/date.js 的 monthSpan，不是写死多少天 ——
+ *   写死 62 天会让「7/1~8/31」（正好两个整月、62 天）卡在边界上，
+ *   相邻两个月来回点会看到图表在日/月之间跳。
+ *
+ * ★ 自定义区间的天/月桶要「连续」★
+ *   以前只输出有交易的那些桶，于是「近半年」画出来可能只有 2 根柱子，
+ *   时间轴被压缩，看着像统计漏了月份。现在按区间补全空桶。
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @returns {Promise<Array<{bucket:'day'|'month',label:string,expense:number,income:number}>>}
@@ -759,10 +784,9 @@ export async function getDailyTrendRange(range) {
     return out
   }
 
-  // 整年 / 全部 / 自定义区间 → 按月分桶
-  const rows = await trendByMonth(scope)
-
+  // 整年 → 固定 12 个月，不足补 0
   if (kind === 'year') {
+    const rows = await trendByMonth(scope)
     const year = e.startDay.slice(0, 4)
     const map = {}
     rows.forEach((r) => { map[r.mk] = r })
@@ -779,7 +803,58 @@ export async function getDailyTrendRange(range) {
     return out
   }
 
-  // 全部（不限时间）/ 自定义区间：只输出有交易的月份
+  // 自定义区间：按跨月数决定日/月分桶
+  if (kind === 'custom') {
+    const span = monthSpan(e.startDay, e.endDay)
+
+    /*
+     * 跨 1~2 个月 → 按天连续补全。
+     * label 在跨月时写成「M/D」：两段里都有 15 号，只写「15」分不清是哪个月。
+     */
+    if (span > 0 && span <= TREND_DAY_MAX_MONTHS) {
+      const rows = await trendByDay(scope)
+      const map = {}
+      rows.forEach((r) => {
+        map[String(r.day_key)] = { expense: Number(r.exp) || 0, income: Number(r.inc) || 0 }
+      })
+      const crossMonth = e.startDay.slice(0, 7) !== e.endDay.slice(0, 7)
+      const out = []
+      let cur = e.startDay
+      // 上限兜底：区间再长也不会超过 62 天（两个月），循环不可能爆
+      for (let guard = 0; guard < 400; guard++) {
+        const item = map[cur] || { expense: 0, income: 0 }
+        const dayNum = String(Number(cur.slice(8, 10)))
+        out.push({
+          bucket: 'day',
+          label: crossMonth ? `${Number(cur.slice(5, 7))}/${dayNum}` : dayNum,
+          expense: item.expense,
+          income: item.income
+        })
+        if (cur === e.endDay) break
+        cur = shiftDay(cur, 1)
+      }
+      return out
+    }
+
+    // 跨 3 个月以上 → 按月连续补全（近半年 6 根、近一年 12 根，不是只画有数据的月份）
+    const rows = await trendByMonth(scope)
+    const map = {}
+    rows.forEach((r) => { map[r.mk] = r })
+    const out = []
+    for (const mk of monthRangeList(e.startDay.slice(0, 7), e.endDay.slice(0, 7))) {
+      const item = map[mk]
+      out.push({
+        bucket: 'month',
+        label: String(Number(mk.slice(5, 7))),
+        expense: item ? Number(item.exp) || 0 : 0,
+        income: item ? Number(item.inc) || 0 : 0
+      })
+    }
+    return out
+  }
+
+  // 全部（不限时间）：只输出有交易的月份 —— 全量可能横跨好几年，补全没意义
+  const rows = await trendByMonth(scope)
   return rows.map((r) => ({
     bucket: 'month',
     label: String(Number(r.mk.slice(5, 7))),
@@ -858,7 +933,34 @@ async function rangeDaysPassed(range) {
     return dayDiffInclusive(first, end)
   }
 
-  // 整月 / 单日 / 自定义：区间起止与今天的交集
+  // 自定义区间：用区间内「最早一笔 ~ 最晚一笔」的实际跨度（用户指定）
+  //
+  // ★ 为什么不再用「区间起止与今天的交集」★
+  //   用户选「近一月」时可能只有 3 天有账，按 30 天算日均会把数字压得很小，
+  //   看着像「这个月花得很少」，其实是分母被空白天数摊薄了。
+  //   改成真实记账跨度后，日均表达的是「有账的那几天平均花了多少」。
+  //
+  // ★ 为什么是「含首尾的天数」而不是纯差值 ★
+  //   只有一笔时最早 == 最晚，纯差值是 0，日均就成了 0（除零保护生效）；
+  //   dayDiffInclusive 是含首尾的算法，单笔正好得到 1，日均就等于这笔钱本身。
+  //
+  // ★ 一笔都没有时返回 0 ★
+  //   调用方 getAveragesRange 里是 daysPassed > 0 ? total / daysPassed : 0，
+  //   所以给 0 就是「日均 0」，不会出 NaN。
+  if (kind === 'custom') {
+    const scope = rangeScope(range)
+    const row = await queryOne(
+      `SELECT MIN(t.occurred_day) AS first_day, MAX(t.occurred_day) AS last_day
+       FROM txn t WHERE t.deleted_at IS NULL${withScope('', scope)}`,
+      scope.params
+    )
+    const firstDay = row && row.first_day ? String(row.first_day) : ''
+    const lastDay = row && row.last_day ? String(row.last_day) : ''
+    if (!firstDay || !lastDay) return 0
+    return dayDiffInclusive(firstDay, lastDay)
+  }
+
+  // 整月 / 单日：区间起止与今天的交集
   const start = e.startDay
   const end = e.endDay || e.startDay
   const effEnd = end < today ? end : today

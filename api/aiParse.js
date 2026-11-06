@@ -840,7 +840,7 @@ function matchByNameOrId(rawValue, list) {
  * @param {string} text 用户输入
  * @param {object} ctx {
  *   categories: [{id,name,type,parent_id}],
- *   accounts:   [{id,name,type,card_tail}],
+ *   accounts:   [{id,name,type}],
  *   tags:       [{id,name}],
  *   defaultAccountId: string,
  *   baseDate: Date

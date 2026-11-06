@@ -198,6 +198,9 @@ import {
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
 import { truncateAll } from '@/api/db/index.js'
+// ★ 清空后要当场把默认分类写回去，不能等下次启动 ★
+//   （详见 onClearAll 里的说明）
+import { seedDefaultCategories, syncDefaultCategories } from '@/api/category.js'
 import { confirmDialog, alertDialog, promptDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -502,7 +505,35 @@ export default {
       uni.showLoading({ title: '清理中…' })
       try {
         await autoBackup('before-clear')
-        await truncateAll()
+        const truncated = await truncateAll()
+        if (truncated && truncated.missing && truncated.missing.length > 0) {
+          // 老设备上迁移可能没跑成，缺表是正常的，只记录不影响结果
+          console.warn('[clear] 这些表不存在，已跳过:', truncated.missing.join(', '))
+        }
+
+        /*
+         * ★ 为什么必须在这里补默认分类 ★
+         *   默认分类只在 App.vue 的 onLaunch 里写（seed + sync）。
+         *   而下面的 uni.reLaunch() 只重建页面栈，
+         *   **不会重跑 onLaunch** —— App 进程还活着，onLaunch 一辈子只跑一次。
+         *   于是分类表被 truncateAll() 清空后就一直是空的，
+         *   分类页、记账面板都读不到任何分类；
+         *   用户杀掉 App 重进才触发 onLaunch 补回来 ——「重进才能加载默认分类」。
+         *
+         *   所以清空之后当场补：seed 先把空库写成全新安装的样子，
+         *   sync 再对齐到最新的分类表（幂等，重复跑不会翻倍）。
+         *   两句都放在 try 里：清空是主操作，
+         *   补分类失败（磁盘满、库异常）也只提示，不能把清空结果回滚。
+         */
+        let seedOk = true
+        try {
+          await seedDefaultCategories()
+          await syncDefaultCategories()
+        } catch (e) {
+          seedOk = false
+          console.error('[clear] 补默认分类失败:', e)
+        }
+
         clearSettingsCache()
         await settingStore.load()
         await accountStore.refresh()
@@ -511,7 +542,9 @@ export default {
         uni.hideLoading()
         await alertDialog({
           title: '已清空',
-          content: '数据已全部清除。应用将重新初始化默认分类。'
+          content: seedOk
+            ? '数据已全部清除，默认分类已重新初始化。'
+            : '数据已全部清除，但默认分类初始化失败，可稍后在分类页手动新增。'
         })
         uni.reLaunch({ url: '/pages/index/index' })
       } catch (e) {

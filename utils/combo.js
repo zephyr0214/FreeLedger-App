@@ -18,8 +18,11 @@
  *     而用户的真实诉求只是「别让我选账户」，不是「必须按余额拆」。
  *
  * ★ 限制（与产品约定一致）★
- *   · 成员不含信用卡（组合账户不支持选择信用卡）
  *   · 成员不含其它组合账户（禁止嵌套）
+ *   · 信用卡 / 网络借贷**可以**当成员（用户明确要求）：
+ *     它们余额通常是负的，availableCents() 返回 0，
+ *     所以扣款时会自然被跳过，轮到后面的储蓄卡 ——
+ *     这正是用户想要的「先刷信用卡，不够再走储蓄卡」的语义。
  *   · 总余额不足的情况按约定不考虑；但为了不崩，仍给一个兜底
  */
 
@@ -30,16 +33,27 @@
  *   这个 App 的余额口径是「初始 + 收入 + 转入 − 支出 − 转出」，
  *   balance_cents 就是实时维护的可用余额，不需要再算。
  *
- * ★ 为什么不处理信用卡 ★
- *   按产品约定组合账户不支持信用卡成员，
- *   所以这里不引入「信用额度 + 负余额」那套特殊口径，
- *   保持函数只做一件事。
+ * ★ 欠钱类账户（信用卡 / 网络借贷）恒为「够用」★
+ *   它们的余额是负数（欠款），但**余额为负恰恰证明它还能刷** ——
+ *   花的时候余额继续往下走，欠款变大，账本语义是自洽的。
+ *   早先把它们排除在组合之外，就是因为这里算不出「可用额度」：
+ *   信用额度字段已经随「信用额度/账单日/还款日/卡尾号」一起删了，
+ *   没有上限可以比对。
+ *
+ *   现在用户的诉求是「组合里也能放信用卡」（先刷信用卡、不够再走储蓄卡），
+ *   所以给出一个「上限无穷」的取值：用 MAX_SAFE_INTEGER 而不是 Infinity，
+ *   它会出现在 pick.available 里一路传下去，Infinity 序列化成 JSON 会变成 null。
+ *
+ *   ★ 这是本轮唯一的语义取舍 ★
+ *     不校验信用额度（没有额度数据可校验），超额由用户自己掌握 ——
+ *     比「算不出可用额度就干脆不让用」更符合信用卡的直觉。
  *
  * @param {object} account
- * @returns {number} 可用于支付的金额（分）；负数按 0 处理
+ * @returns {number} 可用于支付的金额（分）；普通账户负数按 0 处理
  */
 export function availableCents(account) {
   if (!account) return 0
+  if (account.isCredit) return Number.MAX_SAFE_INTEGER
   const n = Number(account.balance_cents) || 0
   return n > 0 ? n : 0
 }
@@ -122,10 +136,17 @@ export function resolveComboAccount(members, amountCents) {
 /**
  * 判断某个账户类型能否作为组合成员。
  *
+ * 语义是「能不能从这个账户扣款」：
+ *   · 组合不能嵌套
+ *   · 信用卡 / 网络借贷**可以**（用户明确要求）：
+ *     它们的可用额度算作无限，排在前就会先刷它们，排在最后就是兜底。
+ * 所以现在只拦组合，剩下的类型全部放行 —— 加新类型时自动可用。
+ * （api/account.js 那边等价逻辑也是只拦 isComboType()；
+ *  这个函数目前没有调用方，保持简单即可。）
+ *
  * @param {string} type account.type
  * @returns {boolean}
  */
 export function canBeComboMember(type) {
-  // 组合不能嵌套；信用卡按产品约定不支持
-  return !!type && type !== 'combo' && type !== 'credit'
+  return !!type && type !== 'combo'
 }

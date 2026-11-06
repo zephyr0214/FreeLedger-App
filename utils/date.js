@@ -191,17 +191,22 @@ export function customToRange(startDay, endDay) {
 }
 
 /**
- * 自定义区间的默认态：本月 1 号 ~ 今天
+ * 自定义区间的默认态：近一月（今天往前 30 天，含今天）
  *
- * ★ 为什么不是「本月 1 号 ~ 月末」★
- *   月末是未来日期，选上来会让人以为「后面还有数据」；
- *   默认给到今天就够看当前进度了。
+ * ★ 为什么默认是「近一月」而不是「本月 1 号」★
+ *   用户要求默认显示「近一月」。
+ *   而且月初那几天用「本月 1 号 ~ 今天」只有一两天数据，
+ *   看着像统计坏了；近一月无论哪天打开都有一段像样的数据。
+ *
+ * ★ 必须和 DateFilterBar 的「近一月」预设算得一模一样 ★
+ *   组件里的近一月是 shiftDay(today, -29) ~ today（共 30 天）。
+ *   两处算法一旦不同，默认状态下左边的下拉就显示成「自定义」，
+ *   而不是「近一月」—— 用户会以为默认值没生效。
  */
 export function defaultCustomRange() {
   const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  return { startDay: `${y}-${m}-01`, endDay: toDayKey(now) }
+  const today = toDayKey(now)
+  return { startDay: shiftDay(today, -29), endDay: today }
 }
 
 /**
@@ -215,6 +220,58 @@ export function customRangeLabel(startDay, endDay) {
   if (!r.startDay) return '全部时间'
   if (r.startDay === r.endDay) return r.startDay
   return `${r.startDay} ~ ${r.endDay}`
+}
+
+/**
+ * 趋势图「按天分桶」允许的最大自然月跨度
+ *
+ * ★ 为什么是「月跨度」而不是「多少天」★
+ *   写死 62 天会踩两个坑：
+ *     1. 2 月（28 天）整月只有 28 天，判成日趋势天经地义；
+ *        但 62 天这个数字会让「7 月 1 号 ~ 8 月 31 号」这种正好两个整月
+ *        的区间变成 62 天，边界上忽日忽月，用户点相邻两个月会看到图表跳变。
+ *     2. 用户选的是「月」，脑子里的单位就是月。
+ *   所以按「跨了几个自然月」判断：跨 1~2 个月用日趋势，3 个月以上用月趋势。
+ *   两个月 = 最多 62 天（31+31），正好是「再密也塞得下」的上限。
+ */
+export const TREND_DAY_MAX_MONTHS = 2
+
+/**
+ * 区间跨越的自然月数（含首尾）
+ *
+ *   '2026-03-15' ~ '2026-03-20' → 1
+ *   '2026-03-15' ~ '2026-04-02' → 2
+ *   '2026-01-01' ~ '2026-12-31' → 12
+ *   任一端为空 / 起止颠倒 / 格式不对 → 0（表示「不限」，由调用方按不限处理）
+ *
+ * @param {string} startDay YYYY-MM-DD
+ * @param {string} endDay YYYY-MM-DD
+ * @returns {number}
+ */
+export function monthSpan(startDay, endDay) {
+  const a = String(startDay || '')
+  const b = String(endDay || '')
+  if (!a || !b || a > b) return 0
+  const [ay, am] = a.split('-').map(Number)
+  const [by, bm] = b.split('-').map(Number)
+  if (!ay || !am || !by || !bm) return 0
+  return (by - ay) * 12 + (bm - am) + 1
+}
+
+/**
+ * 趋势图该按「日」还是「月」分桶
+ *
+ * ★ 不限时间（两端都空）一律按月 ★
+ *   全量数据可能横跨好几年，按天画出来是上千根柱子，既看不清也画不动。
+ *
+ * @param {string} startDay
+ * @param {string} endDay
+ * @returns {'day'|'month'}
+ */
+export function trendBucketOf(startDay, endDay) {
+  const span = monthSpan(startDay, endDay)
+  if (span <= 0) return 'month'
+  return span <= TREND_DAY_MAX_MONTHS ? 'day' : 'month'
 }
 
 /** 某月的第一天与最后一天 */
@@ -307,7 +364,14 @@ export function clampDayOfMonth(year, month, day) {
   return Math.min(day, last)
 }
 
-/** 距离下一次「还款日/账单日」还有几天（返回 0 表示今天） */
+/**
+ * 距离「本月某个第 N 天」还有几天（返回 0 表示今天）。
+ *
+ * ★ 通用工具，不再绑定信用卡 ★
+ *   以前给账户的「还款日」做倒计时用；信用卡的账单日/还款日已经整套删掉，
+ *   但「离某个月的某一天还有几天」本身是个通用问题（周期记账、
+ *   自定义提醒都用得上），所以函数留着，scripts/test-logic.mjs 也还在测它。
+ */
 export function daysUntilMonthDay(dayOfMonth) {
   const now = new Date()
   const y = now.getFullYear()

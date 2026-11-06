@@ -4,7 +4,10 @@
  * ★ 余额一致性规则（本项目最关键的约束）★
  *   权威余额 = initial_balance + Σ收入 - Σ支出 + Σ转入 - Σ转出
  *   account.balance_cents 只是缓存，任何改动都在同一事务里 recalc。
- *   信用卡余额为负数（欠款），额度不计入资产。
+ *
+ *   负债类账户（信用卡 / 网络借贷）的余额是负数（欠款）：
+ *   它只让「负债」变大，永远不进「总资产」——
+ *   见 getAssetOverview() 里按余额正负拆分的口径。
  */
 
 import { query, queryOne, execute, transaction } from './db/index.js'
@@ -16,10 +19,12 @@ import { getSetting, setSetting } from './settings.js'
 /**
  * 账户类型
  *
- * ★ 就这五种，不再有别的 ★
+ * ★ 就这七种（真实账户），不再有别的 ★
  *   网络支付：支付宝、微信等零钱账户
  *   信用卡  ：可以透支的信用账户（花呗算这里）
+ *   网络借贷：网贷/分期这类要先借后还的账户
  *   储蓄卡  ：银行的储蓄账户
+ *   电话卡  ：手机号绑定的余额（话费），条目与储蓄卡一样
  *   现金    ：手里的现金
  *   充值卡  ：公交卡、饭卡等预付卡
  *
@@ -27,13 +32,37 @@ import { getSetting, setSetting } from './settings.js'
  * 用户没提这些，直接删掉了 ——
  * 账户类型就是用户挑的这几种，不多不少。
  *
- * isCredit = 会欠款的账户（信用卡）。
- * 只有这类账户才显示「信用额度」设置项。
+ * ★ isCredit 只表达一件事：这是「欠钱」的账户 ★
+ *   信用卡、网络借贷都是 isCredit = true。
+ *   它现在的用途只有两个：
+ *     1. 新建账户时「初始余额」那一行改叫「当前欠款」，保存时自动取负
+ *     2. 页面按「欠钱类 / 资金账户」分类展示（见 stores/account.js 的 getters）
+ *   负债统计**不按它算**，见 getAssetOverview() 的注释：
+ *   负债按余额正负拆，这样「信用卡还多了变正数」也不会多算一笔负债。
+ *
+ * ★ 为什么现在允许信用卡当组合成员 ★
+ *   用户明确要求「组合账户支持添加信用卡和网络借贷账户」。
+ *   原来排除它们的理由是「负余额扣不动」，但那是运行时问题：
+ *   utils/combo.js 的 availableCents() 对负余额返回 0，
+ *   自然会把它们排到后面，不值得在选人阶段替用户否决。
+ *
+ * ★ 为什么信用卡 / 网络借贷没有任何专属字段了 ★
+ *   用户要求把「信用额度 / 账单日 / 还款日 / 卡号后四位」全部删掉。
+ *   数据库里那四列还在（见 api/db/schema.js），但业务上不再读写：
+ *   删列要重建表（老 SQLite 不支持 DROP COLUMN），风险远大于收益。
+ *   现在这两类账户的表单条目和储蓄卡完全一致，只多了个「当前欠款」的标签。
+ *
+ * ★ icon 字段的用途 ★
+ *   它只是类型自身的语义标记（normalizeAccount 的 typeIcon），
+ *   页面渲染的是用户给账户挑的 icon，不是这里的。
+ *   key 取自 utils/icons.js 的 ICON_MAP，换名字前先确认那里有。
  */
 export const ACCOUNT_TYPES = [
   { key: 'online',  name: '网络支付', icon: 'wechat',     isCredit: false, group: 'online' },
   { key: 'credit',  name: '信用卡',   icon: 'creditcard', isCredit: true,  group: 'credit' },
+  { key: 'loan',    name: '网络借贷', icon: 'loan',       isCredit: true,  group: 'loan' },
   { key: 'debit',   name: '储蓄卡',   icon: 'card',       isCredit: false, group: 'debit' },
+  { key: 'phone',   name: '电话卡',   icon: 'phone',      isCredit: false, group: 'phone' },
   { key: 'cash',    name: '现金',     icon: 'wallet',     isCredit: false, group: 'cash' },
   { key: 'prepaid', name: '充值卡',   icon: 'prepaid',    isCredit: false, group: 'prepaid' },
   /*
@@ -50,14 +79,24 @@ export const ACCOUNT_TYPES = [
 /**
  * 账户页的展示分组
  *
- * ★ 组合账户单独成组、排在最后 ★
- *   它不是真实资金账户，和「网络支付 / 信用卡」并列会误导；
- *   放最后也符合「它是记账时用的辅助工具」这个定位。
+ * ★ 顺序的理由 ★
+ *   网络支付 → 信用卡 → 网络借贷 → 储蓄卡 → 电话卡 → 现金 → 充值卡 → 组合账户
+ *
+ *   · 两个**负债类**（信用卡、网络借贷）排在一起、且紧跟网络支付：
+ *     它们「欠钱」的语义一致，挨着放用户一眼能看出这是一类；
+ *     用户去账户页多半是先看自己欠了多少（账单焦虑），
+ *     放在上半屏比压在现金/充值卡后面更顺手。
+ *   · 电话卡紧跟储蓄卡：它的表单条目和储蓄卡完全一样（都是「一张卡里的余额」），
+ *     放在一起暗示「这是同一种东西，只是用途不同」。
+ *   · 组合账户单独成组、排最后：它不是真实资金账户，
+ *     和上面这些并列会误导；放最后也符合「它是记账时用的辅助工具」这个定位。
  */
 export const ACCOUNT_GROUPS = [
   { key: 'online',  name: '网络支付' },
   { key: 'credit',  name: '信用卡' },
+  { key: 'loan',    name: '网络借贷' },
   { key: 'debit',   name: '储蓄卡' },
+  { key: 'phone',   name: '电话卡' },
   { key: 'cash',    name: '现金' },
   { key: 'prepaid', name: '充值卡' },
   { key: 'combo',   name: '组合账户' }
@@ -109,7 +148,17 @@ function normalizeAccount(row) {
     initial_balance_cents: Number(row.initial_balance_cents) || 0,
     balance_cents: Number(row.balance_cents) || 0,
     include_in_total: Number(row.include_in_total) === 1,
-    credit_limit_cents: row.credit_limit_cents === null ? null : Number(row.credit_limit_cents),
+    /*
+     * ★ 信用卡那四列不再透出给页面 ★
+     *   row 里还带着（SELECT * 拿到的），但业务上已经没有页面该用它们了。
+     *   这里显式把它们抹成 null，是为了让「谁还在读」一眼可查：
+     *   以后若有人在页面里写 account.credit_limit_cents，值恒为 null，
+     *   不会出现「界面莫名冒出个额度」这种只在老账户上复现的怪事。
+     */
+    credit_limit_cents: null,
+    bill_day: null,
+    repay_day: null,
+    card_tail: null,
     archived: Number(row.archived) === 1,
     typeName: meta.name,
     typeIcon: meta.icon,
@@ -161,9 +210,17 @@ export async function getTotalAssets() {
  * ★ 口径 ★
  *   只算 include_in_total = 1 且未归档、未删除的账户。
  *     总资产 = 账户正余额之和
- *     负  债 = 账户负余额绝对值之和（信用卡欠款等）
+ *     负  债 = 账户负余额绝对值之和（信用卡 / 网络借贷的欠款等）
  *            + **尚未归还的借入**（借入 - 借款归还）
  *     净资产 = 总资产 - 负债
+ *
+ * ★ 「网络借贷」计入负债靠的是什么 ★
+ *   不靠类型判断。新类型的初始余额默认带负号（用户填正数、存负数），
+ *   余额一为负，下面这条 SQL 的 CASE 就把它算进 debt，
+ *   同时也一并不会算进 assets。换句话说：口径是「按余额正负」，
+ *   所以 credit 和 loan **不需要**任何额外分支，
+ *   以后再加新的「欠钱」类型也自动生效。
+ *   （这正是当初不按 isCredit 拆的原因 —— 见下面一段。）
  *
  * ★ 为什么要单独加「未归还的借入」★
  *   借入的钱记在「借入」（收入分类）下，钱进的是真实账户，
@@ -248,7 +305,7 @@ export async function getOutstandingLending() {
   return Math.max(0, Number(row ? row.lending : 0) || 0)
 }
 
-/** 总负债（信用卡/借入的绝对值） */
+/** 总负债（负余额账户的绝对值之和；同样按余额正负，不看类型） */
 export async function getTotalDebt() {
   const row = await queryOne(
     'SELECT COALESCE(SUM(ABS(balance_cents)), 0) AS total FROM account WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1 AND balance_cents < 0'
@@ -270,8 +327,13 @@ export async function getTotalDebt() {
  *
  * ★ 过滤规则 ★
  *   · 组合不能作为成员（禁止嵌套）
- *   · 信用卡不能作为成员（按需求：组合账户不支持选择信用卡）
  *   · 不存在的账户直接丢弃（防止脏 id 写进来）
+ *
+ *   ★ 欠钱类账户（信用卡 / 网络借贷）现在是合法成员 ★
+ *     用户明确要求「组合账户支持添加信用卡和网络借贷账户」。
+ *     它们余额通常是负的，availableCents() 会返回 0，
+ *     扣款解析时自然排在后面 —— 这是排序问题，不是资格问题。
+ *     真要刷信用卡，用户把它的顺序调到前面即可。
  *
  * @param {string} comboId
  * @param {string[]} memberIds 有序的真实账户 id 列表
@@ -282,7 +344,7 @@ export async function replaceComboMembers(comboId, memberIds) {
   const ids = Array.isArray(memberIds) ? memberIds.filter(Boolean) : []
   if (ids.length === 0) return
 
-  // 一次性取回这些账户的类型，用来过滤组合/信用卡
+  // 一次性取回这些账户的类型，用来过滤掉组合账户
   const rows = await query(
     `SELECT id, type FROM account WHERE deleted_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`,
     ids
@@ -295,7 +357,6 @@ export async function replaceComboMembers(comboId, memberIds) {
     const t = typeOf[mid]
     if (!t) continue                     // 账户不存在
     if (isComboType(t)) continue         // 禁止嵌套
-    if (isCreditType(t)) continue        // 不支持信用卡
     await execute(
       'INSERT OR IGNORE INTO account_combo_member (combo_id, member_id, sort) VALUES (?,?,?)',
       [comboId, mid, sort]
@@ -376,12 +437,19 @@ export async function createAccount(input) {
   const sort = input.sort !== undefined ? input.sort : await nextSort()
 
   await transaction(async () => {
+    /*
+     * ★ 信用卡那四列不再写入 ★
+     *   credit_limit_cents / bill_day / repay_day / card_tail 在表里还在
+     *   （见 api/db/schema.js，删列要重建表，风险大），
+     *   但业务上已经彻底不用了：新账户一律写 NULL。
+     *   老账户上的历史值保持原样不动（这里的 INSERT 不碰它们的行）。
+     */
     await execute(
       `INSERT INTO account (
         id, name, type, icon, color, initial_balance_cents, balance_cents,
         include_in_total, credit_limit_cents, bill_day, repay_day, card_tail,
         sort, archived, created_at, updated_at, deleted_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,NULL)`,
+      ) VALUES (?,?,?,?,?,?,?,?,NULL,NULL,NULL,NULL,?,0,?,?,NULL)`,
       [
         id,
         input.name || meta.name,
@@ -391,10 +459,6 @@ export async function createAccount(input) {
         initial,
         initial, // 新账户余额 = 期初（组合账户恒为 0）
         includeInTotal,
-        input.credit_limit_cents === undefined || input.credit_limit_cents === null ? null : Number(input.credit_limit_cents),
-        input.bill_day === undefined ? null : input.bill_day,
-        input.repay_day === undefined ? null : input.repay_day,
-        input.card_tail || null,
         sort,
         now,
         now
@@ -439,13 +503,15 @@ export async function updateAccount(id, patch) {
    *     储蓄卡 -> 组合：余额没地方放了（recalcBalance 会强制写 0），
    *       原来那笔钱从总资产里凭空消失，而且理财/流水全挂在它名下。
    *     组合 -> 储蓄卡：成员列表变成孤儿，组合也没了「按顺序扣款」的意义。
-   *   所以这两种转换一律拦掉，其余（现金<->储蓄卡<->信用卡<->网络支付<->充值卡）随便改。
+   *   所以这两种转换一律拦掉，
+   *   其余（现金<->储蓄卡<->信用卡<->网络借贷<->网络支付<->电话卡<->充值卡）随便改。
    *
-   * ★ 改成 / 改离信用卡时的字段清理 ★
-   *   updateAccount 用 patch 里传了什么就写什么，
-   *   所以「信用卡 -> 储蓄卡」时界面会把 credit_limit_cents / bill_day /
-   *   repay_day 传成 null，这里直接写空即可（不清会残留额度，
-   *   虽然统计不再按信用卡算，但编辑页会冒出莫名其妙的额度行）。
+   * ★ 删掉信用卡专属字段后的清理 ★
+   *   credit_limit_cents / bill_day / repay_day / card_tail 已经不再读写，
+   *   所以这里**不需要**再为「改成 / 改离信用卡」做任何字段清理：
+   *   新账户这四列恒为 NULL，老账户的历史值原样留着（不再有 UI 看它）。
+   *   以前那段「信用卡 -> 储蓄卡 时把这几个字段传 null」的逻辑一并删掉了，
+   *   因为已经没有界面字段会往这里传值。
    */
   const willBeCombo = patch.type !== undefined
     ? isComboType(patch.type)
@@ -466,12 +532,13 @@ export async function updateAccount(id, patch) {
     assign('include_in_total', patch.include_in_total ? 1 : 0)
   }
 
-  if (patch.credit_limit_cents !== undefined) {
-    assign('credit_limit_cents', patch.credit_limit_cents === null ? null : Number(patch.credit_limit_cents))
-  }
-  if (patch.bill_day !== undefined) assign('bill_day', patch.bill_day)
-  if (patch.repay_day !== undefined) assign('repay_day', patch.repay_day)
-  if (patch.card_tail !== undefined) assign('card_tail', patch.card_tail)
+  /*
+   * ★ 信用卡那四列不再接受 patch ★
+   *   credit_limit_cents / bill_day / repay_day / card_tail 已从账户体系里删掉。
+   *   这里刻意**不**保留「兼容写入」分支：留着就等于留了一条没人用却还能写脏数据的路，
+   *   以后有人忘了背景又接回来，用户会看到「明明删了的功能又冒出来」。
+   *   数据库列本身还在（schema 里注释了原因），历史值不动。
+   */
   if (patch.archived !== undefined) assign('archived', patch.archived ? 1 : 0)
   if (patch.sort !== undefined) assign('sort', patch.sort)
 

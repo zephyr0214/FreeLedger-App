@@ -365,6 +365,12 @@ export const SCHEMA_V1 = [
     initial_balance_cents INTEGER NOT NULL DEFAULT 0,
     balance_cents         INTEGER NOT NULL DEFAULT 0,
     include_in_total      INTEGER NOT NULL DEFAULT 1,
+    -- ★ 以下四列是历史遗留，业务上已不再使用 ★
+    --   信用卡的「额度 / 账单日 / 还款日 / 卡号后四位」已经整套从账户体系删除
+    --   （用户需求），新建账户一律写 NULL，页面也不再读。
+    --   列**故意保留**：SQLite 删列要重建表，风险远大于收益，
+    --   而且老账户的历史值留着比抹掉好（用户想查也查得到，只是没有界面）。
+    --   将来真要清理，另开一次带备份的迁移，别顺手在这里删。
     credit_limit_cents    INTEGER,
     bill_day              INTEGER,
     repay_day             INTEGER,

@@ -33,11 +33,16 @@ export const useAccountStore = defineStore('account', {
   }),
 
   getters: {
-    /** 信用账户（信用卡）—— 会欠款的 */
+    /** 欠钱类账户（信用卡 / 网络借贷）—— 余额通常是负的 */
     creditAccounts(state) {
       return state.list.filter((a) => a.isCredit)
     },
-    /** 资金账户（不含信用）：网络支付 / 储蓄卡 / 现金 / 充值卡 */
+    /**
+     * 资金账户（不含欠钱类）：网络支付 / 储蓄卡 / 电话卡 / 现金 / 充值卡
+     *
+     * ★ 按 isCredit 取反，不要写 type !== 'credit' ★
+     *   网络借贷也是欠钱的，写死 key 会把它漏到「资金账户」里。
+     */
     fundAccounts(state) {
       return state.list.filter((a) => !a.isCredit)
     },

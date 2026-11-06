@@ -12,9 +12,13 @@
     </view>
 
     <view class="summary-bar">
-      <text class="summary-text">
-        {{ rangeLabel }} · 共 {{ summary.count }} 笔
-      </text>
+      <!--
+        ★ 只显示笔数，不显示日期范围（用户要求）★
+          日期范围在上面的筛选条里已经能看到（三级联动是「2026年3月」，
+          自定义是「2026-03-01 — 2026-03-15」），这里再写一遍是重复信息，
+          而且那段文字一长就把右边的收支数字挤掉。
+      -->
+      <text class="summary-text">共 {{ summary.count }} 笔</text>
       <view class="summary-right">
         <text class="summary-label">支出</text>
         <MoneyText :cents="summary.expense" type="expense" :size="26" />
@@ -23,55 +27,25 @@
       </view>
     </view>
 
-    <!-- 时间范围选择：日/月/年 三级联动下拉，或自定义起止日
-         放在汇总条下面，下拉面板展开时不会被汇总条压住 -->
+    <!--
+      时间筛选：年月日筛选（三级联动）｜ 自定义筛选（wd-calendar 选起止日）
+
+      ★ 为什么抽成 DateFilterBar 组件 ★
+        统计页有一模一样的一份，以前两页各写一遍，
+        改文案就得改两处，日期面板还容易一边用原生 picker
+        一边用 wd-calendar，观感对不上。共用一份实现后想不一致都难。
+    -->
     <view class="month-bar">
-      <!--
-        ★ 筛选方式切换（用户指定）★
-          「日/月/年」= 原来那套三级联动，一行不差；
-          「自定义」= 自己挑开始日与结束日，跨月跨年都行。
-          样式复用统计页「一级/二级」那组 type-toggle，两个页面观感一致。
-      -->
-      <view class="mode-toggle">
-        <text
-          class="mode-tag"
-          :class="{ active: dateMode === 'period' }"
-          @click="switchDateMode('period')"
-        >日/月/年</text>
-        <text
-          class="mode-tag"
-          :class="{ active: dateMode === 'custom' }"
-          @click="switchDateMode('custom')"
-        >自定义</text>
-      </view>
-
-      <DateRangePicker
-        v-if="dateMode === 'period'"
-        ref="datePickerRef"
-        v-model="dateRange"
+      <DateFilterBar
+        ref="filterBarRef"
+        :mode="dateMode"
+        :model-value="dateRange"
+        :start-day="customStart"
+        :end-day="customEnd"
+        @update:mode="onModeChange"
         @range-change="onDateChange"
+        @custom-change="onCustomChange"
       />
-
-      <!--
-        ★ 为什么用原生 picker 而不是 wd-calendar ★
-          这里只挑「某一天」，原生 picker 是系统级日期轮，最省事也最稳；
-          wd-calendar 是区间选择器，画出来是两个日历，在这个位置太高了。
-      -->
-      <view v-else class="custom-bar">
-        <picker mode="date" :value="customStart" :end="customEnd || todayKey" @change="onCustomStart">
-          <view class="custom-cell">
-            <text class="custom-label">开始</text>
-            <text class="custom-value">{{ customStart || '选择' }}</text>
-          </view>
-        </picker>
-        <text class="custom-sep">—</text>
-        <picker mode="date" :value="customEnd" :start="customStart || ''" :end="todayKey" @change="onCustomEnd">
-          <view class="custom-cell">
-            <text class="custom-label">结束</text>
-            <text class="custom-value">{{ customEnd || '选择' }}</text>
-          </view>
-        </picker>
-      </view>
     </view>
 
     <scroll-view
@@ -351,7 +325,7 @@ import { ref, reactive, computed, onMounted, watch, onUnmounted } from 'vue'
 import { onShow, onLoad, onBackPress } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import DateRangePicker from '@/components/DateRangePicker.vue'
+import DateFilterBar from '@/components/DateFilterBar.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -372,7 +346,7 @@ import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateRangePicker, AppDialog, UpdateDialog },
+  components: { MoneyText, EmptyState, DateFilterBar, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -402,8 +376,8 @@ export default {
     const hasMore = ref(true)
     const loading = ref(false)
     const showFilter = ref(false)
-    /** 日期选择器实例（打开筛选时要先收起它的下拉） */
-    const datePickerRef = ref(null)
+    /** 时间筛选条实例（打开筛选面板前要先收起它的下拉） */
+    const filterBarRef = ref(null)
 
     /**
      * 分类缓存
@@ -863,28 +837,22 @@ export default {
      *   两套状态各存各的，切过去如果不查，列表还停在上一种方式的结果上，
      *   用户会以为切换没生效。
      */
-    function switchDateMode(mode) {
+    function onModeChange(mode) {
       if (dateMode.value === mode) return
       dateMode.value = mode
       loadFirstPage()
     }
 
-    /** 自定义：改开始日 */
-    function onCustomStart(e) {
-      customStart.value = e.detail.value
-      // 起止颠倒时自动纠正，避免查出空结果
-      if (customEnd.value && customStart.value > customEnd.value) {
-        customEnd.value = customStart.value
-      }
-      loadFirstPage()
-    }
-
-    /** 自定义：改结束日 */
-    function onCustomEnd(e) {
-      customEnd.value = e.detail.value
-      if (customStart.value && customEnd.value < customStart.value) {
-        customStart.value = customEnd.value
-      }
+    /**
+     * 自定义区间的起止日变化。
+     *
+     * ★ 颠倒纠正交给组件了 ★
+     *   DateFilterBar 的 commit() 内部会交换起止（统计页、交易页共用同一份），
+     *   这里直接采用即可，不再重复判断 —— 两处都判断反而容易改漏一处。
+     */
+    function onCustomChange({ startDay, endDay }) {
+      customStart.value = startDay
+      customEnd.value = endDay
       loadFirstPage()
     }
 
@@ -896,8 +864,8 @@ export default {
      *   看起来像是浮在筛选面板上面。
      */
     function openFilter() {
-      if (datePickerRef.value && typeof datePickerRef.value.collapse === 'function') {
-        datePickerRef.value.collapse()
+      if (filterBarRef.value && typeof filterBarRef.value.collapse === 'function') {
+        filterBarRef.value.collapse()
       }
       showFilter.value = true
     }
@@ -1172,8 +1140,26 @@ export default {
       }
     })
 
+    /**
+     * ★ 回到本页时必须重查一次 ★
+     *   从详情页删掉一笔、或改完一笔再返回时，本页还是离开前的旧列表 ——
+     *   用户看到的就是「删了但没消失」，只能手动下拉刷新。
+     *   onShow 是唯一能覆盖「返回」「切后台再回来」的钩子，所以放这儿。
+     *
+     * ★ 但要跳过第一次 onShow ★
+     *   首次进入时 onShow 和 onMounted 都会触发，
+     *   onMounted 里已经查过一遍了，这里再查就是重复请求。
+     */
+    let shownOnce = false
     onShow(() => {
       settingStore.syncSystemTheme()
+      if (!shownOnce) {
+        shownOnce = true
+        return
+      }
+      // 页面还没挂载完时不要查（onMounted 里会查）
+      if (!mounted.value) return
+      loadFirstPage()
     })
 
     /*
@@ -1218,10 +1204,10 @@ export default {
 
     return {
       settingStore, accountStore, statusBarHeight,
-      dateRange, datePickerRef, list, summary, hasMore, loading, showFilter,
+      dateRange, filterBarRef, list, summary, hasMore, loading, showFilter,
       // 时间筛选方式（日/月/年 或 自定义起止日）
       dateMode, customStart, customEnd, todayKey,
-      switchDateMode, onCustomStart, onCustomEnd,
+      onModeChange, onCustomChange,
       filter, appliedFilter, typeOptions, categories, tags,
       primaryColor, pageStyle, rangeLabel, parentCategories, subCategories, filterCount, groups,
       // 下拉选择器
@@ -1295,67 +1281,10 @@ export default {
   padding: 0 32rpx 12rpx;
 }
 
-/* 时间筛选方式切换（日/月/年 ｜ 自定义）
-   样式照抄统计页「一级/二级」那组 type-toggle，两页观感一致 */
-.mode-toggle {
-  display: flex;
-  gap: 8rpx;
-  background-color: var(--app-card-2);
-  border-radius: 16rpx;
-  padding: 4rpx;
-  margin-bottom: 12rpx;
-}
-
-.mode-tag {
-  flex: 1;
-  text-align: center;
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  padding: 12rpx 0;
-  border-radius: 12rpx;
-}
-
-.mode-tag.active {
-  background-color: var(--app-card);
-  color: var(--app-text);
-  font-weight: 500;
-}
-
-/* 自定义区间的两个日期格 */
-.custom-bar {
-  display: flex;
-  align-items: center;
-  background-color: var(--app-card);
-  border-radius: 16rpx;
-  overflow: hidden;
-}
-
-.custom-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  height: 72rpx;
-  padding: 0 16rpx;
-  flex: 1;
-  min-width: 0;
-}
-
-.custom-label {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.custom-value {
-  font-size: 26rpx;
-  color: var(--app-text);
-}
-
-.custom-sep {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  flex-shrink: 0;
-}
+/*
+ * 时间筛选（toggle + 自定义起止日）的样式已经搬进
+ * components/DateFilterBar.vue —— 两页共用一份，改一处两页都变。
+ */
 
 /* 汇总 */
 .summary-bar {

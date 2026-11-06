@@ -7,47 +7,23 @@
       </template>
     </AppHeader>
 
-    <!-- 时间范围选择：日/月/年 三级联动下拉，或自定义起止日 -->
+    <!--
+      时间筛选：年月日筛选（三级联动）｜ 自定义筛选（一行起止日 + wd-calendar）
+
+      ★ 与「全部交易」页共用 DateFilterBar ★
+        文案、样式、日期面板全部一致；
+        以前两页各写一份，改一处忘一处，日期面板还会一边原生一边组件库。
+    -->
     <view class="range-picker-bar">
-      <!--
-        ★ 筛选方式切换（用户指定）★
-          和「全部交易」页同一组样式（type-toggle），
-          两个页面切来切去时观感一致。
-      -->
-      <view class="mode-toggle">
-        <text
-          class="mode-tag"
-          :class="{ active: dateMode === 'period' }"
-          @click="switchDateMode('period')"
-        >日/月/年</text>
-        <text
-          class="mode-tag"
-          :class="{ active: dateMode === 'custom' }"
-          @click="switchDateMode('custom')"
-        >自定义</text>
-      </view>
-
-      <DateRangePicker
-        v-if="dateMode === 'period'"
-        v-model="dateRange"
+      <DateFilterBar
+        :mode="dateMode"
+        :model-value="dateRange"
+        :start-day="customStart"
+        :end-day="customEnd"
+        @update:mode="onModeChange"
         @range-change="onRangeChange"
+        @custom-change="onCustomChange"
       />
-
-      <view v-else class="custom-bar">
-        <picker mode="date" :value="customStart" :end="customEnd || todayKey" @change="onCustomStart">
-          <view class="custom-cell">
-            <text class="custom-label">开始</text>
-            <text class="custom-value">{{ customStart || '选择' }}</text>
-          </view>
-        </picker>
-        <text class="custom-sep">—</text>
-        <picker mode="date" :value="customEnd" :start="customStart || ''" :end="todayKey" @change="onCustomEnd">
-          <view class="custom-cell">
-            <text class="custom-label">结束</text>
-            <text class="custom-value">{{ customEnd || '选择' }}</text>
-          </view>
-        </picker>
-      </view>
     </view>
 
     <scroll-view class="page-scroll" scroll-y>
@@ -392,7 +368,7 @@ import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
-import DateRangePicker from '@/components/DateRangePicker.vue'
+import DateFilterBar from '@/components/DateFilterBar.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -410,11 +386,12 @@ import {
 } from '@/api/stats.js'
 import {
   selectionToRange, defaultSelection, selectionLabel,
-  customToRange, customRangeLabel, defaultCustomRange, toDayKey
+  customToRange, customRangeLabel, defaultCustomRange, toDayKey,
+  trendBucketOf
 } from '@/utils/date.js'
 
 export default {
-  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction, AppTabBar, AppDialog, UpdateDialog },
+  components: { AppHeader, MoneyText, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const uiStore = useUiStore()
@@ -494,31 +471,49 @@ export default {
         : selectionLabel(dateRange.value)
     )
 
-    /** 趋势图标题：按天还是按月 */
-    const trendTitle = computed(() => {
+    /**
+     * 趋势图该按「日」还是「月」分桶
+     *
+     * ★ 判据（用户指定）★
+     *   自定义区间跨 1~2 个自然月（近一周、近一月都算）→ 日趋势；
+     *   跨 3 个月以上（近半年、近一年、近五年）→ 月趋势。
+     *   年月日筛选仍按原来的三级选择：选了日 → 日趋势，选了月/年/全部 → 月趋势。
+     *
+     * ★ 为什么用 monthSpan 而不是天数字面量 ★
+     *   写死「≤62 天」会让 7/1~8/31（正好两个整月、62 天）卡在边界上，
+     *   相邻两个月来回点会看到图表在日/月之间跳；
+     *   按自然月跨度判断，用户选「月」得到的就是按月的结果。
+     */
+    const trendBucket = computed(() => {
+      if (dateMode.value === 'custom') {
+        return trendBucketOf(customStart.value, customEnd.value)
+      }
       const sel = dateRange.value
-      if (!sel.year) return '月趋势'
-      if (!sel.month) return '月趋势'
-      if (!sel.day) return '日趋势'
-      return '当日支出'
+      if (!sel.year || !sel.month) return 'month'
+      return 'day'
+    })
+
+    /** 趋势图标题 */
+    const trendTitle = computed(() => {
+      if (trendBucket.value === 'day') {
+        // 单日没法「按天画趋势」，只有一根柱子，标题直接说这一天的支出
+        if (dateMode.value === 'period' && dateRange.value.day) return '当日支出'
+        return '日趋势'
+      }
+      return '月趋势'
     })
 
     /** 趋势图副标题 */
     const trendSubtitle = computed(() => {
-      const sel = dateRange.value
-      if (!sel.year) return '每月支出'
-      if (!sel.month) return '每月支出'
-      if (!sel.day) return '每日支出'
-      return '当天支出'
+      if (trendBucket.value === 'day') {
+        if (dateMode.value === 'period' && dateRange.value.day) return '当天支出'
+        return '每日支出'
+      }
+      return '每月支出'
     })
 
-    /** 趋势图坐标轴单位 */
-    const trendUnit = computed(() => {
-      const sel = dateRange.value
-      if (!sel.year) return '月'
-      if (!sel.month) return '月'
-      return '日'
-    })
+    /** 趋势图坐标轴 / 极值单位 */
+    const trendUnit = computed(() => (trendBucket.value === 'day' ? '日' : '月'))
 
     const categoryTotal = computed(() =>
       categoryStats.value.reduce((acc, c) => acc + c.amount, 0)
@@ -683,27 +678,22 @@ export default {
      *   用户会以为切换没生效（统计页所有卡片都要重算，代价比列表大，
      *   所以这里不接受「等下次操作再刷新」的偷懒做法）。
      */
-    function switchDateMode(mode) {
+    function onModeChange(mode) {
       if (dateMode.value === mode) return
       dateMode.value = mode
       loadAll()
     }
 
-    /** 自定义：改开始日 */
-    function onCustomStart(e) {
-      customStart.value = e.detail.value
-      if (customEnd.value && customStart.value > customEnd.value) {
-        customEnd.value = customStart.value
-      }
-      loadAll()
-    }
-
-    /** 自定义：改结束日 */
-    function onCustomEnd(e) {
-      customEnd.value = e.detail.value
-      if (customStart.value && customEnd.value < customStart.value) {
-        customStart.value = customEnd.value
-      }
+    /**
+     * 自定义区间的起止日变化。
+     *
+     * ★ 颠倒纠正交给组件了 ★
+     *   DateFilterBar 的 commit() 内部会交换起止（交易页共用同一份），
+     *   这里直接采用即可，两处都判断反而容易改漏一处。
+     */
+    function onCustomChange({ startDay, endDay }) {
+      customStart.value = startDay
+      customEnd.value = endDay
       loadAll()
     }
 
@@ -876,12 +866,12 @@ export default {
       dateRange,
       // 时间筛选方式（日/月/年 或 自定义起止日）
       dateMode, customStart, customEnd, todayKey,
-      switchDateMode, onCustomStart, onCustomEnd,
+      onModeChange, onCustomChange,
       categoryStatType, accountStatType, averageStatType,
       categoryLevel, averageLevel, accountViewMode,
       categoryStats, categoryAverages,
       dailyTrend, averages, topExpenses, overview,
-      primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit,
+      primaryColor, pageStyle, rangeLabel, trendTitle, trendSubtitle, trendUnit, trendBucket,
       categoryTotal, categoryDonutUri, accountTotal, accountTypeTotal,
       accountViewList, accountViewDonutUri,
       dailyExtremes,
@@ -914,67 +904,10 @@ export default {
   padding: 8rpx 32rpx 20rpx;
 }
 
-/* 时间筛选方式切换（日/月/年 ｜ 自定义）
-   与「全部交易」页同一套样式，两处观感一致 */
-.mode-toggle {
-  display: flex;
-  gap: 8rpx;
-  background-color: var(--app-card-2);
-  border-radius: 16rpx;
-  padding: 4rpx;
-  margin-bottom: 12rpx;
-}
-
-.mode-tag {
-  flex: 1;
-  text-align: center;
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  padding: 12rpx 0;
-  border-radius: 12rpx;
-}
-
-.mode-tag.active {
-  background-color: var(--app-card);
-  color: var(--app-text);
-  font-weight: 500;
-}
-
-/* 自定义区间的两个日期格 */
-.custom-bar {
-  display: flex;
-  align-items: center;
-  background-color: var(--app-card);
-  border-radius: 16rpx;
-  overflow: hidden;
-}
-
-.custom-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  height: 72rpx;
-  padding: 0 16rpx;
-  flex: 1;
-  min-width: 0;
-}
-
-.custom-label {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.custom-value {
-  font-size: 26rpx;
-  color: var(--app-text);
-}
-
-.custom-sep {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  flex-shrink: 0;
-}
+/*
+ * 时间筛选（toggle + 自定义起止日）的样式已经搬进
+ * components/DateFilterBar.vue —— 两页共用一份，改一处两页都变。
+ */
 
 /* 收支摘要 */
 .ov-summary {

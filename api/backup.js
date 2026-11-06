@@ -14,6 +14,9 @@ import { query, queryOne, execute, transaction, truncateAll } from './db/index.j
 import { getAllSettings, setSettings, clearSettingsCache } from './settings.js'
 import { prefixedId } from '../utils/id.js'
 import { recalcAllBalances } from './account.js'
+// ★ 覆盖导入时补默认分类 ★
+//   （为什么必须补，见 importPayload 的 overwrite 分支注释）
+import { seedDefaultCategories, syncDefaultCategories } from './category.js'
 
 const BACKUP_APP_ID = 'books'
 const BACKUP_SCHEMA_VERSION = 2
@@ -668,6 +671,30 @@ export async function importPayload(payload, opt = {}) {
   if (mode === 'overwrite') {
     await truncateAll()
     clearSettingsCache()
+
+    /*
+     * ★ 覆盖导入必须先补一份默认分类 ★
+     *   truncateAll() 把 category 表清空了，而下面只按 payload.categories 逐条 INSERT ——
+     *   备份包可能是三种「没有分类」的样子：
+     *     · 老版本导出的（那时候还没有分类表）
+     *     · 被用户手工编辑/裁剪过的 JSON
+     *     · 只有流水没有分类的半成品备份
+     *   这时库里的分类就是空的，后果不是「分类页空着」这么简单：
+     *   recalcAllBalances 不依赖分类，但所有按分类的统计、记账面板的
+     *   分类选择器都会退化成「未分类」，用户看到的是
+     *   「导入成功，但每一笔都是未分类」—— 比直接报错还难排查。
+     *
+     *   所以先 seed 一份完整的默认分类垫底，再让备份里的分类叠上去。
+     *
+     * ★ 失败只告警，不能挡住导入 ★
+     *   导入才是主操作。seed 挂了（磁盘满、库异常）也得把用户数据导进来。
+     */
+    try {
+      const n = await seedDefaultCategories()
+      logStep('已预置默认分类', { count: n })
+    } catch (e) {
+      console.warn('[import] 预置默认分类失败（不影响导入）:', e && e.message)
+    }
   }
 
   await transaction(async () => {
@@ -705,6 +732,14 @@ export async function importPayload(payload, opt = {}) {
             a.type === 'combo' ? 0 : (a.initial_balance_cents || 0),
             a.type === 'combo' ? 0 : (a.balance_cents || 0),
             a.type === 'combo' ? 0 : (a.include_in_total === undefined ? 1 : a.include_in_total),
+            /*
+             * ★ 信用卡那四列（credit_limit_cents / bill_day / repay_day / card_tail）★
+             *   业务上已经不用了（界面与新建逻辑都删干净），但这里**照旧搬回来**：
+             *   这是「历史兼容」路径 —— 老备份里带着值，恢复后原样落在表里，
+             *   不丢数据。表里那四列还在（见 api/db/schema.js），
+             *   normalizeAccount() 会把它们抹成 null，所以不会冒到界面上。
+             *   新备份里这四项自然都是 null。
+             */
             a.credit_limit_cents === undefined ? null : a.credit_limit_cents,
             a.bill_day === undefined ? null : a.bill_day,
             a.repay_day === undefined ? null : a.repay_day,
@@ -734,6 +769,26 @@ export async function importPayload(payload, opt = {}) {
 
     // ---------- 分类
     if (Array.isArray(payload.categories)) {
+      /*
+       * ★ 备份里带分类时，先撤掉上面垫底的那份 seed ★
+       *   两张表之间没有任何唯一键能把「同名分类」判成同一行
+       *   （category 的主键是 uuid，name+type+parent_id 上没有约束），
+       *   所以 seed 的「餐饮食品」和备份里的「餐饮食品」会并排存两行 ——
+       *   用户恢复完会看到每个分类都出现两次，比没有分类更难受。
+       *
+       *   ★ 为什么可以直接 DELETE FROM category ★
+       *     此刻在同一笔事务里，分类表里只有刚 seed 的那些行
+       *     （前面的 settings / account / comboMember 都不碰 category），
+       *     所以整表清掉不会有误伤。备份里的分类马上会逐条插进来。
+       *
+       *   ★ 空数组时不能清 ★
+       *     payload.categories 是空数组 = 这份备份没有分类数据，
+       *     那正是 seed 要救的场，清掉就白垫了。
+       */
+      if (mode === 'overwrite' && payload.categories.length > 0) {
+        await execute('DELETE FROM category')
+      }
+
       for (const c of payload.categories) {
         const exists = mode === 'merge' ? await queryOne('SELECT id FROM category WHERE id = ?', [c.id]) : null
         if (exists) { report.skipped++; continue }
@@ -863,6 +918,24 @@ export async function importPayload(payload, opt = {}) {
 
   // 恢复后重算所有余额，修正任何不一致
   await recalcAllBalances()
+
+  /*
+   * ★ 导入完成后把默认分类对齐到最新设计 ★
+   *   seedDefaultCategories() 只会写「全新安装」那一份，
+   *   而分类表是产品内容，改一版就该让恢复回来的老库也拿到新分类
+   *   （和 App.vue onLaunch 里做的事一致）。
+   *   ★ 幂等、只补不改 ★
+   *     已存在的分类不覆盖，用户自己改过的图标/顺序不会被刷回去，
+   *     软删掉的也不会被复活 —— 所以放在用户数据导完之后跑是安全的。
+   *   ★ 只告警 ★
+   *     导入已经成功，这一步只是锦上添花，不该让它把整个恢复判成失败。
+   */
+  try {
+    const r = await syncDefaultCategories()
+    logStep('默认分类已对齐', r)
+  } catch (e) {
+    console.warn('[import] 对齐默认分类失败（不影响导入）:', e && e.message)
+  }
 
   return report
 }

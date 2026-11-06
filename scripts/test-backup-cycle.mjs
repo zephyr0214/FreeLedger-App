@@ -49,6 +49,16 @@ const fakeSettings = {
   clearSettingsCache() {}
 }
 const fakeId = { prefixedId: (p) => `${p}_stub` }
+/*
+ * ★ backup.js 现在还要引 api/category.js ★
+ *   覆盖导入会先 seed 一份默认分类垫底、导完再 sync 对齐。
+ *   这个测试只关心 cycle 的落库，所以 category 用空桩 ——
+ *   真库行为由 scripts/test-import-fallback.mjs 负责验证。
+ */
+const fakeCategory = {
+  seedDefaultCategories: async () => 0,
+  syncDefaultCategories: async () => ({ parents: 0, children: 0, renamed: 0 })
+}
 
 const { Module } = await import('module')
 const path = await import('path')
@@ -74,6 +84,10 @@ src = src.replace(
   /import\s*\{[^}]*\}\s*from\s*'\.\.\/utils\/id\.js'/,
   `const { prefixedId } = globalThis.__STUB_ID__;`
 )
+src = src.replace(
+  /import\s*\{[^}]*\}\s*from\s*'\.\/category\.js'/,
+  `const { seedDefaultCategories, syncDefaultCategories } = globalThis.__STUB_CAT__;`
+)
 
 // 2) 把 ESM export 改成 CommonJS 导出，使文件能在 Node 里用 _compile 加载
 src = src.replace(/export\s+async\s+function\s+(\w+)/g, 'module.exports.$1 = async function $1')
@@ -84,6 +98,7 @@ globalThis.__STUB_DB__ = fakeDb
 globalThis.__STUB_ACC__ = fakeAccount
 globalThis.__STUB_SET__ = fakeSettings
 globalThis.__STUB_ID__ = fakeId
+globalThis.__STUB_CAT__ = fakeCategory
 
 const m = new Module(backupPath, null)
 m.filename = backupPath

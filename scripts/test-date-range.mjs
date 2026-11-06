@@ -12,7 +12,7 @@
 
 import {
   selectionToRange, defaultSelection, selectionFromDayKey, selectionLabel,
-  cascadeSelection, customToRange, customRangeLabel, defaultCustomRange, toDayKey
+  cascadeSelection, customToRange, customRangeLabel, defaultCustomRange, toDayKey, shiftDay
 } from '../utils/date.js'
 
 let pass = 0
@@ -204,9 +204,16 @@ check('两头都空 -> 不限', customToRange('', ''), {
 
 console.log('=== 自定义区间的默认值与文案 ===')
 
+/*
+ * ★ 默认是「近一月」，不是「本月 1 号」★
+ *   用户要求默认显示近一月。月初那几天用「本月 1 号~今天」只有一两天数据，
+ *   看着像统计坏了；近一月无论哪天打开都有一段像样的数据。
+ *   必须和 components/DateFilterBar.vue 的「近一月」预设算得一模一样
+ *   （都是 shiftDay(today, -29) ~ today），否则左边下拉会显示成「自定义」。
+ */
 const dcr = defaultCustomRange()
-check('默认开始是本月 1 号', dcr.startDay, `${toDayKey().slice(0, 7)}-01`)
 check('默认结束是今天', dcr.endDay, toDayKey())
+check('默认开始是 29 天前（共 30 天）', dcr.startDay, shiftDay(toDayKey(), -29))
 check('默认区间能换算出 startDay', customToRange(dcr.startDay, dcr.endDay).startDay, dcr.startDay)
 
 check('文案 单日', customRangeLabel('2026-03-15', '2026-03-15'), '2026-03-15')

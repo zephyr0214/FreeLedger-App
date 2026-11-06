@@ -28,7 +28,6 @@
             <view class="bal-info">
               <view class="bal-name-row">
                 <text class="bal-name">{{ account.name }}</text>
-                <text v-if="account.card_tail" class="bal-tail">*{{ account.card_tail }}</text>
               </view>
               <text class="bal-type">{{ account.typeName }}</text>
             </view>
@@ -52,7 +51,7 @@
               「修改」入口：放在余额数字的右下角。
 
               ★ 为什么放这里而不是放右上角的「编辑」★
-                「编辑」改的是账户资料（名字、类型、图标、额度）。
+                「编辑」改的是账户资料（名字、类型、图标、颜色）。
                 改余额是另一件事 —— 它动的是账（要么记一笔对账，
                 要么改期初余额），口径必须让用户当场选。
                 放在余额旁边，用户看到数字就能就地改，
@@ -62,33 +61,13 @@
             -->
             <text v-if="!account.isCombo" class="bal-edit-link" @click="openBalanceSheet">修改</text>
           </view>
-
-          <!-- 信用卡信息 -->
-          <view v-if="account.isCredit && account.credit_limit_cents" class="credit-info">
-            <view class="credit-row">
-              <text class="credit-label">信用额度</text>
-              <MoneyText :cents="account.credit_limit_cents" :size="26" color="var(--app-text-2)" />
-            </view>
-            <view class="credit-row">
-              <text class="credit-label">已用额度</text>
-              <text class="credit-value">
-                {{ usedPercent }}%
-              </text>
-            </view>
-            <view class="credit-bar">
-              <view
-                class="credit-fill"
-                :style="{
-                  width: Math.min(usedPercent, 100) + '%',
-                  backgroundColor: usedPercent > 80 ? 'var(--app-danger)' : primaryColor
-                }"
-              />
-            </view>
-            <view v-if="account.repay_day" class="credit-row">
-              <text class="credit-label">还款日</text>
-              <text class="credit-value">{{ account.repay_day }} 号（{{ repayCountdown }}）</text>
-            </view>
-          </view>
+          <!--
+            ★ 这里原来有一整块「信用卡信息」（信用额度 / 已用额度进度条 / 还款日）★
+              用户要求把信用卡的额度、账单日、还款日、卡号后四位整套删掉，
+              不只是隐藏 —— 所以这块连同 usedPercent / repayCountdown
+              两个 computed 一起删了（它们只服务这块 UI）。
+              网络借贷沿用信用卡的条目，也就自然没有这一块了。
+          -->
         </view>
 
         <!-- 本月收支 -->
@@ -170,7 +149,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
-import { daysUntilMonthDay, toMonthKey } from '@/utils/date.js'
+import { toMonthKey } from '@/utils/date.js'
 import { backAfterAccountDelete } from '@/utils/navBack.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 
@@ -188,19 +167,6 @@ export default {
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
-
-    const usedPercent = computed(() => {
-      if (!account.value || !account.value.credit_limit_cents) return 0
-      const used = Math.abs(account.value.balance_cents)
-      return Math.round((used / account.value.credit_limit_cents) * 100)
-    })
-
-    const repayCountdown = computed(() => {
-      if (!account.value || !account.value.repay_day) return ''
-      const d = daysUntilMonthDay(account.value.repay_day)
-      if (d === 0) return '今天'
-      return `${d} 天后`
-    })
 
     async function load() {
       const acc = await accountStore.getById(accountId.value)
@@ -260,7 +226,8 @@ export default {
      * 弹层改完余额
      *
      * ★ 要重新拉一次账户 ★
-     *   余额变了，头部的大数字、已用额度百分比都要跟着变。
+     *   余额变了，头部的大数字要跟着变；
+     *   「修改」是唯一改余额的入口，所以这里重新 load() 一次就够了。
      */
     async function onBalanceSaved() {
       await load()
@@ -301,7 +268,7 @@ export default {
 
     return {
       settingStore, accountId, account, txnList, monthStats, loading,
-      primaryColor, pageStyle, usedPercent, repayCountdown,
+      primaryColor, pageStyle,
       showBalanceSheet, openBalanceSheet, onBalanceSaved,
       goEdit, goAllTxn, goBack
     }
@@ -366,11 +333,6 @@ export default {
   color: var(--app-text);
 }
 
-.bal-tail {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
 .bal-type {
   font-size: 22rpx;
   color: var(--app-text-3);
@@ -405,44 +367,6 @@ export default {
   font-weight: 500;
   padding: 8rpx 0 8rpx 16rpx;
   flex-shrink: 0;
-}
-
-/* 信用卡 */
-.credit-info {
-  margin-top: 32rpx;
-  padding-top: 24rpx;
-  border-top: 1rpx solid var(--app-line);
-  display: flex;
-  flex-direction: column;
-  gap: 14rpx;
-}
-
-.credit-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.credit-label {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.credit-value {
-  font-size: 26rpx;
-  color: var(--app-text-2);
-}
-
-.credit-bar {
-  height: 10rpx;
-  background-color: var(--app-card-2);
-  border-radius: 5rpx;
-  overflow: hidden;
-}
-
-.credit-fill {
-  height: 100%;
-  border-radius: 5rpx;
 }
 
 /* 本月 */
