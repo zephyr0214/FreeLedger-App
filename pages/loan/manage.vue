@@ -141,7 +141,7 @@
  *   借款收回  income   钱回到我账户
  *   借入      income   钱进我账户
  *   借款归还  expense  钱从我账户出去
- *   这四个分类都挂在「系统预置分类」下，由 ensureLoanCategories() 保证存在。
+ *   这四个分类都挂在「系统分类」下，由 ensureLoanCategories() 保证存在。
  *
  * ★ 当前借出 / 当前借入 = 正 - 反 ★
  *   借出：借出合计 - 借款收回合计
