@@ -356,6 +356,61 @@ const expectedCategories =
   check('重复补分类不会翻倍', countOf(db, 'category'), expectedCategories)
 }
 
+/* ------------------------------------- 3b) 老用户的库：sync 不许塞默认分类 */
+
+console.log('=== 老用户库上 sync 只补固定分类，不动用户自己的分类 ===')
+
+{
+  const { fake, db } = makeFakePlus()
+  globalThis.plus = fake
+
+  /*
+   * ★ 这是「用户纠正过」的一条语义 ★
+   *   默认分类表是**新用户**的产品内容（全新安装 / 清空数据时由 seed 写入）。
+   *   老用户已经按自己的习惯整理过分类，启动时再按默认表补一遍，
+   *   等于把别人的账本重新洗一遍。sync 只负责固定分类（改名 + 补子类），
+   *   默认表一个字段都不该读。
+   */
+  const now = 1
+  db.prepare(
+    `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+     VALUES ('mine', NULL, '我自己的吃饭', 'expense', 'food', '#123456', 0, 0, ?, ?, NULL)`
+  ).run(now, now)
+  db.prepare(
+    `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+     VALUES ('old_g', NULL, '系统预置分类', 'expense', 'more', '#969799', 999, 0, ?, ?, NULL)`
+  ).run(now, now)
+
+  const cat = await import('../api/category.js?t=' + Math.random())
+  const report = await cat.syncDefaultCategories()
+
+  /*
+   * parents 这里不用断言成 0：收入侧那条组本来就不存在，建它是应该的。
+   * 真正要守住的是「默认表里的名字一个都没被插进来」——
+   * 那才是老用户被洗账本的地方。
+   */
+  const tops = db.prepare(
+    'SELECT name, type FROM category WHERE deleted_at IS NULL AND parent_id IS NULL'
+  ).all().map((r) => `${r.type}/${r.name}`)
+
+  const defaultNames = [
+    ...DEFAULT_EXPENSE_CATEGORIES.map((c) => `expense/${c.name}`),
+    ...DEFAULT_INCOME_CATEGORIES.map((c) => `income/${c.name}`)
+  ]
+  check(
+    'sync 没把默认分类表插进老用户的库',
+    tops.filter((t) => defaultNames.includes(t)),
+    []
+  )
+  check('用户的分类还在', tops.includes('expense/我自己的吃饭'), true)
+  check('组被改名成「系统分类」', report.renamed, 1)
+
+  const mine = db.prepare(
+    "SELECT icon, color FROM category WHERE id = 'mine'"
+  ).get()
+  check('用户改过的图标/颜色没被覆盖', mine, { icon: 'food', color: '#123456' })
+}
+
 /* ------------------------------------- 4) 两个函数本身要存在且 async */
 
 console.log('=== seedDefaultCategories / syncDefaultCategories ===')
