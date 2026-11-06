@@ -110,7 +110,7 @@ export async function updateCategory(id, patch) {
   const existing = await getCategory(id)
   if (!existing) throw new Error('分类不存在')
 
-  // ★ 固定分类（「系统预置分类」及其下的借出/借入/对账支出/对账收入）不允许改 ★
+  // ★ 固定分类（「系统分类」及其下的借出/借入/对账支出/对账收入）不允许改 ★
   //   UI 层已经拦了一道，这里是 API 层的兜底 ——
   //   万一别处（导入、脚本）绕过了 UI，也不能把固定分类改了。
   if (await isFixedCategoryById(existing)) {
@@ -216,13 +216,13 @@ async function nextSort(type, parentId) {
   return Number(row ? row.m : -1) + 1
 }
 
-/* ---------------------------------------------- 固定分类（系统预置分类） */
+/* ---------------------------------------------- 固定分类（系统分类） */
 
 /**
- * 「系统预置分类」—— 固定分类组（v14 起）
+ * 「系统分类」—— 固定分类组（v14 起）
  *
  * ★ 结构 ★
- *   一级分类「系统预置分类」在 expense / income 下各一条（名字相同、type 不同），
+ *   一级分类「系统分类」在 expense / income 下各一条（名字相同、type 不同），
  *   它下面挂的是系统自己用的固定子类：
  *     支出：借出、对账支出
  *     收入：借入、对账收入
@@ -302,7 +302,7 @@ export function isPresetGroupCategory(cat) {
  * 是不是「对账」固定分类（名字 + type 匹配，不看层级）。
  *
  * ★ 为什么不再要求「必须是一级」★
- *   v14 起「对账支出 / 对账收入」是「系统预置分类」下的**二级**分类，
+ *   v14 起「对账支出 / 对账收入」是「系统分类」下的**二级**分类，
  *   还按「一级」判定就会漏判 —— 这两个分类就又能被改名删除了。
  *
  * @param {object|null} cat 分类对象（至少含 name / type）
@@ -348,7 +348,7 @@ function isFixedChildName(cat) {
 }
 
 /**
- * 名字是不是「系统预置分类」里的固定分类名（同步、不查库）。
+ * 名字是不是「系统分类」里的固定分类名（同步、不查库）。
  *
  * 用于在**扁平分类列表**里把这些分类挑出来 / 跳过它们。
  * 典型场景：记账面板选默认分类时不能让「借出」当默认，
@@ -367,14 +367,14 @@ export function isSystemPresetName(name, type) {
  * 是不是固定分类（不可改名 / 改图标 / 删除）—— 同步版，给 UI 用。
  *
  * ★ 判定规则 ★
- *   · 「系统预置分类」这个一级分类本身
+ *   · 「系统分类」这个一级分类本身
  *   · 「对账支出 / 对账收入 / 借出 / 借入」这些固定名字
  *   · 旧结构遗留的一级「对账支出 / 对账收入」（迁移前的数据）
  *
  * UI 层只需要「这个分类能不能改」的答案，不需要查库，
  * 所以这里只看对象自带的字段。
  * API 层（updateCategory / deleteCategory）另有 isFixedCategoryById，
- * 会再确认一次父级是不是「系统预置分类」，防止用户自建的同名分类被误锁。
+ * 会再确认一次父级是不是「系统分类」，防止用户自建的同名分类被误锁。
  *
  * @param {object|null} cat
  * @returns {boolean}
@@ -390,7 +390,7 @@ export function isFixedCategory(cat) {
  * 是不是固定分类 —— 带库校验版，给 API 层兜底用。
  *
  * 和 isFixedCategory 的区别：对「二级」的固定名字会再查一次父级，
- * 只有当父级确实是「系统预置分类」时才算固定 ——
+ * 只有当父级确实是「系统分类」时才算固定 ——
  * 用户自己在别的分类下建一个叫「借出」的子分类不会被误锁。
  *
  * @param {object|null} cat 分类对象（含 id / name / type / parent_id）
@@ -406,9 +406,9 @@ export async function isFixedCategoryById(cat) {
   return !!parent && isPresetGroupCategory(parent)
 }
 
-/* ------------------------------------------- 系统预置分类的创建（幂等） */
+/* ------------------------------------------- 系统分类的创建（幂等） */
 
-/** 取或建「系统预置分类」这一条一级分类，返回 id */
+/** 取或建「系统分类」这一条一级分类，返回 id */
 async function ensurePresetGroupRow(type) {
   const def = SYSTEM_PRESET_GROUPS[type]
   const row = await queryOne(
@@ -428,7 +428,7 @@ async function ensurePresetGroupRow(type) {
   return id
 }
 
-/** 取或建「系统预置分类」下某个固定子类，返回 id */
+/** 取或建「系统分类」下某个固定子类，返回 id */
 async function ensurePresetChildRow(type, name) {
   const def = SYSTEM_PRESET_CHILDREN.find((d) => d.type === type && d.name === name)
   if (!def) return null
@@ -472,7 +472,7 @@ async function ensurePresetChildRow(type, name) {
 }
 
 /**
- * 确保「系统预置分类」整组存在（两个父级 + 六个固定子类）。
+ * 确保「系统分类」整组存在（两个父级 + 六个固定子类）。
  *
  * ★ 六个固定子类 ★
  *   支出：借出、借款归还、对账支出
@@ -523,7 +523,7 @@ export async function ensurePresetCategories() {
  *
  * ★ API 契约不变 ★
  *   api/account.js 的 adjustAccountBalance() 只把这两个 id 写进 txn.category_id。
- *   v14 起它们是「系统预置分类」下的二级分类，
+ *   v14 起它们是「系统分类」下的二级分类，
  *   而 txn.category_id 本来就是二级分类的标准用法 —— 完全合法。
  *
  * 幂等：已经存在就直接返回，不重复插入。
@@ -605,7 +605,7 @@ async function insertDefaultCategories(exec, makeId, now) {
   }
 
   /*
-   * ★ 「系统预置分类」固定分类组（v14 起）★
+   * ★ 「系统分类」固定分类组（v14 起）★
    *   全新安装也要有这一组，否则用户第一次改账户余额时
    *   得等到 ensureReconcileCategory() 被调用才会凭空冒出来 ——
    *   分类页里会「突然多出一个一级分类」，很突兀。

@@ -220,7 +220,7 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
     [...DEFAULT_EXPENSE_CATEGORIES.map((c) => c.name), SYSTEM_PRESET_GROUPS.expense.name]
   )
 
-  // ---- 收入一级分类应该是新的 9 个（+ 「系统预置分类」这一条固定父级） ----
+  // ---- 收入一级分类应该是新的 9 个（+ 「系统分类」这一条固定父级） ----
   check(
     '收入一级分类已换成新的',
     topNames(db, 'income'),
@@ -267,11 +267,11 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
   check('失效的分类预算被删除，总预算保留', budgets, ['b2'])
 
   /*
-   * ---- 「系统预置分类」这一组还在 ----
+   * ---- 「系统分类」这一组还在 ----
    *
    * ★ v14 起结构变了 ★
    *   以前「对账支出 / 对账收入」是各自独立的一级分类。
-   *   现在统一收进一级分类「系统预置分类」下当固定子类：
+   *   现在统一收进一级分类「系统分类」下当固定子类：
    *     支出 -> 借出、对账支出
    *     收入 -> 借入、对账收入
    *   所以这里断言的是「组存在 + 子类挂在组下面」，
@@ -281,7 +281,7 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
     const group = db.prepare(
       'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL'
     ).get(SYSTEM_PRESET_GROUPS[type].name, type)
-    check(`${type} 的「系统预置分类」重建了`, !!group, true)
+    check(`${type} 的「系统分类」重建了`, !!group, true)
     if (!group) continue
 
     const childNames = db.prepare(
@@ -297,11 +297,11 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
 
   // ---- 分类数量对得上 ----
   //   默认分类（一级 + 二级）
-  //   + 每个 type 一条「系统预置分类」父级 + 它下面的固定子类
+  //   + 每个 type 一条「系统分类」父级 + 它下面的固定子类
   const expectedCount =
     DEFAULT_EXPENSE_CATEGORIES.reduce((n, c) => n + 1 + c.children.length, 0) +
     DEFAULT_INCOME_CATEGORIES.reduce((n, c) => n + 1 + c.children.length, 0) +
-    2 + // 两个「系统预置分类」父级（expense / income 各一条）
+    2 + // 两个「系统分类」父级（expense / income 各一条）
     SYSTEM_PRESET_CHILDREN.length
   check('活着的分类总数', activeCats(db).length, expectedCount)
 

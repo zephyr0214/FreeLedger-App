@@ -272,11 +272,15 @@ check('自定义容器圆角与 .drp-bar 一致', /border-radius:\s*16rpx/.test(
 console.log('\n--- 日历弹层不能被底栏和「+」压住 ---')
 
 /*
- * ★ 这个 bug 的表现和根因 ★
- *   wd-calendar 内部是 wd-action-sheet，默认 z-index 只有 15；
- *   而统计页的 AppTabBar 是 300、QuickAddBar（+ 记账）是 600。
- *   15 < 300，日期弹层的下半截就被压在底栏和「+」下面了。
- *   所以这里要求组件显式把 :z-index 传到 wd-calendar 上。
+ * ★ 这个 bug 的表现和根因（踩过两轮）★
+ *   第一轮：wd-calendar 内部是 wd-action-sheet，默认层级只有 15；
+ *          而统计页的悬浮底栏是 300、「+」记账按钮是 600，弹层被压住。
+ *          解法是把 :z-index 传到 wd-calendar 上。
+ *   第二轮（用户仍然反馈「还是在下层」）：真正的元凶是**祖先创建了层叠上下文**。
+ *          `.range-picker-bar` / `.month-bar` / `.dfb` 都写过
+ *          `position: relative; z-index: 5`，于是日历的 1100 只是这个 5
+ *          的上下文里的老大，跟页面级的 300 / 600 比，整棵子树还是 5。
+ *          所以那几个祖先容器的 z-index 必须删掉。
  */
 check('两个日历都传了 :z-index', (barTpl.match(/:z-index="CALENDAR_Z_INDEX"/g) || []).length === 2, true)
 check('定义了 CALENDAR_Z_INDEX', /const CALENDAR_Z_INDEX = \d+/.test(barCode), true)
@@ -286,6 +290,34 @@ check('日历层级高于 AppTabBar(300)', calZ > 300, true)
 check('日历层级高于 QuickAddBar(600)', calZ > 600, true)
 check('日历层级高于 AppDialog(1000)', calZ > 1000, true)
 check('CALENDAR_Z_INDEX 在 return 里（模板要用）', /return \{[\s\S]{0,300}?CALENDAR_Z_INDEX/.test(barCode), true)
+
+/* ---------------------------------- 祖先容器不能创建层叠上下文（最关键） */
+
+console.log('\n--- 祖先容器不许带 z-index（否则弹层永远在底下）---')
+
+/*
+ * 判据：去掉注释后，这三个容器的 CSS 规则里不允许出现 z-index。
+ * 只查注释外的真实声明 —— 注释里为了写清来历会提到这些数字。
+ */
+function ruleWithoutZIndex(src, selector) {
+  const code = stripComments(src)
+  const style = (code.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+  const rule = (style.match(new RegExp(`\\${selector}\\s*\\{[^}]*\\}`)) || [])[0] || ''
+  return { rule, hasZ: /z-index:/.test(rule) }
+}
+
+const dfbRule = ruleWithoutZIndex(barRaw, '.dfb')
+check('.dfb 规则存在', dfbRule.rule.length > 0, true)
+check('.dfb 不带 z-index', dfbRule.hasZ, false)
+
+for (const [name, file, sel] of [
+  ['统计页', 'pages/stats/index.vue', '.range-picker-bar'],
+  ['全部交易页', 'pages/txn/list.vue', '.month-bar']
+]) {
+  const r = ruleWithoutZIndex(read(file), sel)
+  check(`${name}的 ${sel} 规则存在`, r.rule.length > 0, true)
+  check(`${name}的 ${sel} 不带 z-index`, r.hasZ, false)
+}
 
 // 交叉校验：这两个层级来自真实组件，不能凭记忆写
 const tabBarStyle = (read('components/AppTabBar.vue').match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''

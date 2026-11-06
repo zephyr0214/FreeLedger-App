@@ -892,15 +892,18 @@ export default {
 }
 
 /* 时间范围选择 */
+/*
+ * ★ 这里不能设层级 ★
+ *   之前写了 `z-index: 5` 本意是让年月日筛的下拉面板别被下面的列表盖住，
+ *   但 position + z-index 会创建**层叠上下文**：wd-calendar 弹层哪怕自己
+ *   设了 1100，也只是在这个 5 的上下文里当老大，跟页面上的底栏（300）、
+ *   「+」按钮（600）比，整棵子树还是 5 —— 于是弹层被压在下面。
+ *   层叠只看同一上下文里的兄弟，所以父级一概不设 z-index，
+ *   需要浮起来的自己跟页面级比。
+ */
 .range-picker-bar {
   flex-shrink: 0;
   position: relative;
-  /*
-   * 层级 5：
-   *   高于下方的 scroll-view（无 z-index）——下拉面板才不会被内容盖住；
-   *   低于库弹层（wd-popup 等默认 10）——弹层打开时不会浮在上面。
-   */
-  z-index: 5;
   padding: 8rpx 32rpx 20rpx;
 }
 

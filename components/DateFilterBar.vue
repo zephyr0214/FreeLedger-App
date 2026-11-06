@@ -377,14 +377,23 @@ export default {
 </script>
 
 <style scoped>
+/*
+ * ★ 这里绝对不能写 z-index ★
+ *
+ *   踩过的坑（用户报「日期弹层显示在下层」两次）：
+ *   之前给 .dfb 写了 `position: relative; z-index: 5`，
+ *   本意是让年月日筛的那个下拉面板别被下面的列表盖住。
+ *   但 `position` + `z-index` 会**创建一个层叠上下文**，
+ *   于是 wd-calendar 弹层即便自己写了 z-index: 1100，
+ *   也只是在这个 5 的上下文里排第一 ——
+ *   跟页面上的底栏（300）、「+」按钮（600）比，整个子树还是 5，照样被压。
+ *
+ *   z-index 只对「同一个层叠上下文里的兄弟」有意义。
+ *   所以这里不能设；需要浮起来的元素（DateRangePicker 的下拉面板、
+ *   日历弹层）各自去跟页面级比层级。
+ */
 .dfb {
   position: relative;
-  /*
-   * 层级 5：
-   *   高于下方 scroll-view（无 z-index），下拉面板才不会被内容盖住；
-   *   低于库弹层（wd-popup / wd-calendar 默认 10~15），弹层打开时不会浮上去。
-   */
-  z-index: 5;
 }
 
 /* 筛选方式切换（年月日筛选 ｜ 自定义筛选） */

@@ -1,10 +1,10 @@
 /**
- * 迁移 v14（「系统预置分类」固定分类组）的测试
+ * 迁移 v14（「系统分类」固定分类组）的测试
  *
  *   node scripts/test-preset-categories.mjs
  *
  * ★ 用户要求 ★
- *   分类页面，固定分类的一级分类名为「系统预置分类」，
+ *   分类页面，固定分类的一级分类名为「系统分类」，
  *   二级分类支出为「借出」「对账支出」，收入为「借入」「对账收入」。
  *
  * ★ 为什么必须靠迁移，不能只改代码 ★
@@ -15,7 +15,7 @@
  * ★ 迁移必须「收编」而不是「重建」★
  *   如果软删旧行再新建，历史流水的 category_id 会变成悬空引用，
  *   账面上那几笔「余额对账调整」就说不清了。
- *   正确做法是把旧行的 parent_id 改到「系统预置分类」下面，保留 id。
+ *   正确做法是把旧行的 parent_id 改到「系统分类」下面，保留 id。
  *
  * 这里驱动真实的 api/db/index.js（用 node:sqlite 造真库）。
  */
@@ -134,7 +134,7 @@ function insertTxn(db, { id, category_id, type = 'expense' }) {
   ).run(id, type, category_id, now, now, now)
 }
 
-/** 找「系统预置分类」这一条一级分类 */
+/** 找「系统分类」这一条一级分类 */
 function groupRow(db, type) {
   return db.prepare(
     'SELECT id, name, icon, color, sort FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL'
@@ -174,8 +174,8 @@ console.log('=== 场景 1：老库（对账支出/对账收入是独立一级）
   // ---- 组建出来了 ----
   const gExp = groupRow(db, 'expense')
   const gInc = groupRow(db, 'income')
-  check('支出的「系统预置分类」存在', !!gExp, true)
-  check('收入的「系统预置分类」存在', !!gInc, true)
+  check('支出的「系统分类」存在', !!gExp, true)
+  check('收入的「系统分类」存在', !!gInc, true)
 
   // ---- 固定子类齐了，顺序是用户指定的 ----
   check('支出的固定子类', childrenOf(db, gExp.id).map((c) => c.name), ['借出', '借款归还', '对账支出'])
