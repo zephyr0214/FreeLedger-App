@@ -6,6 +6,10 @@ dist/
 *.log
 .idea/
 .vscode/
+agent.md
 
 # HBuilderX 自动生成的隐私协议配置（每次打包都会重写）
 androidPrivacy.json
+
+# 调研助手写的临时笔记，不进仓库
+.team/

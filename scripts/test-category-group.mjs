@@ -177,7 +177,7 @@ check(
 
 /*
  * ★ 灰色分类也要能看出选中 ★
- *   「其他/杂项」这类分类色是 #969799（中性灰），
+ *   「其他支出」这类分类色是 #969799（中性灰），
  *   如果圈用分类色，在浅底上几乎看不见。
  *   用主题色就解决了 —— 下面这条把结论钉住。
  */
@@ -218,12 +218,12 @@ console.log('\n=== groupCategoriesByParent（按一级分类分组） ===')
  * 一组典型的支出分类：
  *   餐饮食品（一级，有 3 个二级）
  *   交通出行（一级，有 2 个二级）
- *   其他/杂项（一级，无二级 → 自己就是可选的一级）
+ *   其他支出（一级，无二级 → 自己就是可选的一级）
  */
 const ALL = [
   { id: 'food',  name: '餐饮食品', parent_id: null, isParent: true },
-  { id: 'lunch', name: '正餐',     parent_id: 'food', isParent: false },
-  { id: 'drink', name: '饮品',     parent_id: 'food', isParent: false },
+  { id: 'lunch', name: '日常三餐',     parent_id: 'food', isParent: false },
+  { id: 'drink', name: '奶茶饮料',     parent_id: 'food', isParent: false },
   { id: 'snack', name: '零食',     parent_id: 'food', isParent: false },
   { id: 'car',   name: '交通出行', parent_id: null, isParent: true },
   { id: 'taxi',  name: '打车',     parent_id: 'car',  isParent: false },

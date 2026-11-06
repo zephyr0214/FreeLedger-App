@@ -1,7 +1,7 @@
 <script>
 import { useSettingStore } from '@/stores/setting.js'
 import { openDb } from '@/api/db/index.js'
-import { seedDefaultCategories } from '@/api/category.js'
+import { seedDefaultCategories, syncDefaultCategories } from '@/api/category.js'
 import { writeAllTodaySnapshots } from '@/api/account.js'
 import { pruneOldRates } from '@/api/rateStore.js'
 import { getAllSettings, setSettings } from '@/api/settings.js'
@@ -12,11 +12,17 @@ import { confirmDialog } from '@/utils/dialog.js'
 import { catchUpCycles } from '@/api/cycle.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { useUpdateStore } from '@/stores/update.js'
+import { useAccountStore } from '@/stores/account.js'
+import { useTransactionStore } from '@/stores/transaction.js'
+import { clearSettingsCache } from '@/api/settings.js'
+import { handleExternalOpen, installIncomingListener } from '@/api/shareIntent.js'
 
 export default {
   data() {
     return {
-      themeListener: null
+      themeListener: null,
+      /** 取消 newintent 监听的函数（onHide 不用，App 生命周期比页面长） */
+      offIncoming: null
     }
   },
   async onLaunch() {
@@ -79,6 +85,30 @@ export default {
       console.error('[app] 默认分类初始化失败:', e.message)
     }
 
+    /*
+     * 3b) 老设备补齐新分类（幂等，只补不改）
+     *
+     * ★ 为什么不在迁移里做 ★
+     *   迁移是先判断 user_version 再跑的，只跑一次；
+     *   而「默认分类表」以后还会继续调（用户改分类习惯是很常见的需求），
+     *   每次都加一条迁移的话，版本号会被这些纯数据变更顶得飞快。
+     *   这里做成「每次启动对一遍」，缺什么补什么、已有的不覆盖 ——
+     *   用户删掉的分类除非重启才会被补回来，这个代价可以接受。
+     *
+     * ★ 为什么必须 try 住 ★
+     *   它只是「锦上添花」，失败绝不能让 App 起不来。
+     */
+    try {
+      const r = await syncDefaultCategories()
+      if (r.parents || r.children || r.renamed) {
+        console.log(
+          `[app] 默认分类已对齐（新增一级 ${r.parents}、二级 ${r.children}、改名 ${r.renamed}）`
+        )
+      }
+    } catch (e) {
+      console.error('[app] 默认分类对齐失败:', e.message)
+    }
+
     // 4) 每日快照（资产趋势的数据源）
     try {
       await writeAllTodaySnapshots()
@@ -135,6 +165,26 @@ export default {
     //    setUIStyle('auto') 已在前面调过（它同时是收到事件的前提）
     this.bindThemeListener()
 
+    /*
+     * 6b) 外部打开：微信 / 文件管理器「用其他应用打开」把 JSON 交给本应用
+     *
+     * ★ 为什么放在启动流程最后 ★
+     *   导入会清库重写（覆盖模式），必须等 openDb 的迁移、默认分类、
+     *   每日备份这些前置动作全部完成，否则会和它们抢事务。
+     *
+     * ★ 冷启动 + 热启动两条路都要接 ★
+     *   · 冷启动：应用被文件拉起 → onLaunch 里读一次启动 Intent；
+     *   · 热启动：应用在后台时被拉起 → 系统不会重跑 onLaunch，
+     *     走 Activity 的 onNewIntent，DCloud 暴露成 plus.globalEvent 的
+     *     'newintent' 事件。该事件在个别机型/时机不触发，
+     *     所以 onShow 里还会再兜一次（见下面的 onShow），
+     *     重复的靠 api/shareIntent.js 里的 uri 去重挡住。
+     */
+    // #ifdef APP-PLUS
+    this.bindIncomingListener()
+    this.consumeIncomingFile()
+    // #endif
+
     // 7) 检查更新（静默）：每次开屏查一次 Gitee 最新发行版。
     //    有新版本时，更新弹窗会在首页出现（UpdateDialog 挂在首页/我的/更新日志）；
     //    无新版、网络失败一律静默，绝不在开屏时打扰用户。
@@ -158,6 +208,23 @@ export default {
         settingStore.refreshTabBar()
       }
     } catch (e) {}
+
+    /*
+     * 外部打开兜底（第 2 条通道）
+     *
+     * ★ 为什么 onShow 也要读一次 ★
+     *   应用在后台时被「用其他应用打开」拉起，理论上走 newintent 事件，
+     *   但该事件在部分机型/系统版本上不触发（社区反复提到）。
+     *   onShow 一定会执行，所以在这里再读一次 Intent。
+     *
+     * ★ 不会重复导入 ★
+     *   冷启动时 onLaunch 先读了同一个 uri，
+     *   api/shareIntent.js 里有 8 秒同 uri 去重窗口，第二次直接返回 duplicate。
+     *   延时 120ms 是为了等系统把 content:// 的临时读权限交过来。
+     */
+    // #ifdef APP-PLUS
+    this.consumeIncomingFile(120)
+    // #endif
 
     // 周期自动补记：每次进前台都跑一次。
     // 游标（last_caught_up_day）保证幂等——同一天重复进不会重复记、
@@ -220,6 +287,119 @@ export default {
       } catch (e) {
         console.warn('[app] 主题监听失败，将依赖 onShow 兜底:', e.message)
       }
+    },
+
+    /* ------------------------------------------------ 外部打开导入 */
+
+    /**
+     * 注册「应用在后台时被文件唤醒」的监听（newintent）。
+     *
+     * 回调**没有参数**（官方事件原型 onTrig()），
+     * 里面要自己再去读 Intent —— 这部分封装在
+     * api/shareIntent.js 的 installIncomingListener 里。
+     */
+    bindIncomingListener() {
+      if (this.offIncoming) return
+      try {
+        this.offIncoming = installIncomingListener({
+          silent: true,
+          /*
+           * ★ 这里要自己刷新 + 自己提示 ★
+           *   newintent 是从原生层直接进来的，不经过 consumeIncomingFile()，
+           *   所以「导入后重载数据」和「告诉用户导了多少」都得在这里做，
+           *   否则用户看到的是：弹了一下 → 页面还是旧数据。
+           */
+          onImported: async (report) => {
+            await this.refreshAfterImport()
+            this.reportImported(report)
+          }
+        })
+      } catch (e) {
+        console.warn('[app] newintent 监听失败，将依赖 onShow 兜底:', e && e.message)
+      }
+    },
+
+    /**
+     * 读一次当前 Intent，若带着文件就导入。
+     *
+     * @param {number} delay 延迟毫秒。冷启动用 0；onShow 用 120，
+     *                       给系统把 content:// 的临时读权限交过来留点时间。
+     */
+    consumeIncomingFile(delay = 0) {
+      const run = async () => {
+        try {
+          /*
+           * ★ 这里不要用 onImported 做刷新 ★
+           *   onImported 是导入流程内部的回调，它是**不 await** 的
+           *   （见 api/shareIntent.js），如果在那里刷新，
+           *   下面 reportImported 的 reLaunch 可能抢在刷新完成之前，
+           *   页面重建时读到的仍是旧 store。
+           *   所以放在 handleExternalOpen 返回之后，串行做。
+           */
+          const res = await handleExternalOpen({ silent: true })
+          if (!res || !res.handled) return
+          await this.refreshAfterImport()
+          this.reportImported(res.report)
+        } catch (e) {
+          console.warn('[app] 外部打开处理失败:', e && e.message)
+        }
+      }
+      if (delay > 0) setTimeout(run, delay)
+      else run()
+    },
+
+    /**
+     * 导入后刷新全局数据。
+     *
+     * 顺序照抄 pages/settings/data.vue 的导入流程：
+     * 清 settings 缓存 → 重载设置 → 账户 → 首页交易。
+     * 少任何一步都会出现「数据导进来了但界面还是旧的」。
+     */
+    async refreshAfterImport() {
+      try {
+        clearSettingsCache()
+        await useSettingStore().load()
+      } catch (e) {
+        console.warn('[app] 导入后重载设置失败:', e && e.message)
+      }
+      try {
+        await useAccountStore().refresh()
+      } catch (e) {
+        console.warn('[app] 导入后刷新账户失败:', e && e.message)
+      }
+      try {
+        await useTransactionStore().loadHome(true)
+      } catch (e) {
+        console.warn('[app] 导入后刷新流水失败:', e && e.message)
+      }
+      // 通知各页面自己再拉一次（统计页的月视图、账户页的图表等）
+      try { uni.$emit('data:imported') } catch (e) {}
+    },
+
+    /**
+     * 导入成功的提示与跳转。
+     *
+     * ★ 为什么要跳首页 ★
+     *   导入是覆盖，用户原来停在「统计 / 账户详情」这类页面上，
+     *   数据已经整库换掉了，继续留在那页看到的很可能是空数据 / 错位数据。
+     *   切回首页最稳。
+     */
+    reportImported(report) {
+      const r = report || {}
+      const text = `已导入 ${r.accounts || 0} 账户 / ${r.transactions || 0} 笔`
+      try {
+        uni.showToast({ title: text, icon: 'none', duration: 2500 })
+      } catch (e) {}
+
+      try {
+        const pages = getCurrentPages()
+        const top = pages[pages.length - 1]
+        const route = top && top.route ? String(top.route) : ''
+        // 已经在首页就不跳，避免无谓的闪一下
+        if (route !== 'pages/index/index') {
+          uni.reLaunch({ url: '/pages/index/index' })
+        }
+      } catch (e) {}
     }
   }
 }

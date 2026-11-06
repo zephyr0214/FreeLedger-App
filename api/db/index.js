@@ -12,6 +12,7 @@ import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
   SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
+  SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME,
   childIcon, childColor
 } from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
@@ -1127,8 +1128,8 @@ async function rebuildDefaultCategories() {
   //   旧分类已经没了，txn.category_id 还指着它们就成了悬空引用，
   //   统计时 JOIN 不到分类（会显示成「未分类」）。
   //
-  //   支出交易 -> 归到「其他/杂项」
-  //   收入交易 -> 归到「其他/杂项」？收入的分类表里没有「其他/杂项」，
+  //   支出交易 -> 归到「其他支出」
+  //   收入交易 -> 归到「其他支出」？收入的分类表里没有「其他支出」，
   //              所以收入这边统一归到「奖金补贴」？语义不对。
   //              —— 收入里最中性的是……收入分类表里确实没有「其他」。
   //              折中做法：收入的旧交易归到「工资」显然不对。
@@ -1138,7 +1139,7 @@ async function rebuildDefaultCategories() {
   //   比归到一个语义不对的分类里更诚实。
   const expenseFallback = await select(
     'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
-    ['其他/杂项', 'expense']
+    ['其他支出', 'expense']
   )
   const fallbackId = expenseFallback && expenseFallback.length > 0 ? expenseFallback[0].id : null
 
@@ -1357,12 +1358,24 @@ async function migrateSystemPresetCategories() {
   let created = 0
 
   for (const type of ['expense', 'income']) {
-    // ---- 1) 取或建「系统预置分类」这一条一级分类 ----
+    // ---- 1) 取或建固定分类组这一条一级分类 ----
     const groupDef = SYSTEM_PRESET_GROUPS[type]
+    /*
+     * ★ 组名要按「新名 → 旧名」各查一遍 ★
+     *   v18 起常量里的名字是「系统分类」，但跑到这条迁移的库可能还停在
+     *   v14~v17（组叫「系统预置分类」）。只按常量名查会查不到，
+     *   于是又建出一条同名不同 era 的组，历史子类就被劈成两半。
+     */
     let groupRows = await select(
       'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
       [groupDef.name, type]
     )
+    if (groupRows !== null && groupRows.length === 0) {
+      groupRows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [SYSTEM_PRESET_LEGACY_NAME, type]
+      )
+    }
     if (groupRows === null) continue
 
     let groupId = groupRows.length > 0 ? groupRows[0].id : null
@@ -1493,12 +1506,26 @@ async function migrateLoanReturnCategories() {
     )
     if (!def) continue
 
-    // ---- 1) 取或建「系统预置分类」父级 ----
+    // ---- 1) 取或建固定分类组父级 ----
     const groupDef = SYSTEM_PRESET_GROUPS[target.type]
-    const groupRows = await select(
+    /*
+     * ★ 组名要按「新名 → 旧名」各查一遍 ★
+     *   v18 起常量里的名字是「系统分类」，而这条迁移跑在 v14 之后、
+     *   v18 改名之前 —— 组还叫「系统预置分类」。
+     *   只按常量名查会查不到，于是新建一个空组，
+     *   紧接着的「组下有没有同名子类」永远查不到，
+     *   于是同一个分类被插了两条。
+     */
+    let groupRows = await select(
       'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
       [groupDef.name, target.type]
     )
+    if (groupRows !== null && groupRows.length === 0) {
+      groupRows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [SYSTEM_PRESET_LEGACY_NAME, target.type]
+      )
+    }
     if (groupRows === null) continue
 
     let groupId = groupRows.length > 0 ? groupRows[0].id : null
@@ -1614,6 +1641,13 @@ async function migrateRenameLoanCategories() {
     { type: 'expense', from: '借入归还', to: '借款归还' }
   ]
 
+  /*
+   * ★ 这里故意写死旧名字面量，不要换成 SYSTEM_PRESET_GROUP_NAME ★
+   *   v18 起这一组的新名是「系统分类」，但这条迁移面对的老库里
+   *   存的还是「系统预置分类」。改成新名就查不到那一行，
+   *   下面的「先定位父级再改子类」全部落空，旧分类名会一直留在库里。
+   *   改名本身交给 syncDefaultCategories()（启动时对账），不在这里做。
+   */
   const GROUP_NAME = '系统预置分类'
   let renamed = 0
   let merged = 0

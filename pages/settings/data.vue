@@ -45,30 +45,24 @@
         </view>
       </view>
 
-      <!-- 导入 -->
+      <!--
+        导入
+
+        ★ 这里刻意只是一个说明，不是按钮 ★
+          导入没有「应用内发起」这回事：JSON 在微信 / 文件管理里，
+          用户从那里「用其他应用打开 / 分享」过来，应用被拉起后自动弹确认框。
+          在应用里放一个「选择文件」的按钮，反而会诱导用户去系统的文件选择器
+          （那条路在此基座上 onActivityResult 不回调，早就废弃了）。
+          所以这里只把「怎么导入」写清楚。
+      -->
       <view id="section-import" class="section">
         <text class="section-title">导入</text>
         <view class="card">
-          <view class="card-row" @click="onImport">
+          <view class="card-row">
             <view class="row-info">
-              <text class="row-name">从文件导入</text>
-              <text class="row-desc">浏览应用文件夹，选一个 JSON 覆盖当前数据（先自动备份）</text>
+              <text class="row-name">从其他应用导入</text>
+              <text class="row-desc">在 JSON 中选用其他应用打开，选择自由记即可</text>
             </view>
-            <text class="row-arrow">›</text>
-          </view>
-        </view>
-      </view>
-
-      <!-- 历史数据管理：扫描三个文件夹（_doc/_downloads/_documents）里的所有 JSON，可逐个恢复 / 删除 -->
-      <view id="section-data" class="section">
-        <text class="section-title">数据管理</text>
-        <view class="card">
-          <view class="card-row" @click="onOpenDataManager">
-            <view class="row-info">
-              <text class="row-name">历史数据管理</text>
-              <text class="row-desc">{{ dataFiles.length }} 个 JSON 文件，可恢复或删除</text>
-            </view>
-            <text class="row-arrow">›</text>
           </view>
         </view>
       </view>
@@ -98,6 +92,20 @@
         </view>
       </view>
 
+      <!-- 历史数据管理：扫描三个文件夹（_doc/_downloads/_documents）里的所有 JSON，可逐个恢复 / 删除 -->
+      <view id="section-data" class="section">
+        <text class="section-title">数据管理</text>
+        <view class="card">
+          <view class="card-row" @click="onOpenDataManager">
+            <view class="row-info">
+              <text class="row-name">历史数据管理</text>
+              <text class="row-desc">{{ dataFiles.length }} 个 JSON 文件，可恢复或删除</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </view>
+      </view>
+
       <!-- 维护 -->
       <view class="section">
         <text class="section-title">维护</text>
@@ -118,13 +126,6 @@
             <text class="row-arrow">›</text>
           </view>
         </view>
-      </view>
-
-      <view class="tip-card">
-        <text class="tip-text">
-          数据全部保存在本机的 SQLite 数据库中，路径为 _doc/books.db。
-          备份位于 _doc/backup/，导出位于 _doc/export/，可在「数据管理」里恢复或删除。
-        </text>
       </view>
 
       <view class="bottom-space" />
@@ -171,39 +172,6 @@
       </view>
     </wd-popup>
 
-    <!-- 导入：应用内文件浏览（系统选择器在当前基座不回调，改用 plus.io 扫描） -->
-    <wd-popup v-model="showImportPicker" position="bottom" :safe-area-inset-bottom="true">
-      <view class="backup-panel">
-        <view class="panel-head">
-          <text class="panel-title">选择要导入的文件</text>
-          <text class="panel-close" @click="showImportPicker = false">关闭</text>
-        </view>
-
-        <view class="panel-tip">
-          <text class="panel-tip-text">扫描的是应用可访问的文件夹（_doc / _downloads / _documents），按修改时间排序。</text>
-        </view>
-
-        <view v-if="importFiles.length === 0" class="panel-empty">
-          <text class="panel-empty-text">没有找到可导入的 JSON 文件</text>
-        </view>
-
-        <scroll-view v-else class="backup-scroll" scroll-y>
-          <view
-            v-for="f in importFiles"
-            :key="f.path"
-            class="backup-row"
-            @click="onPickImportFile(f)"
-          >
-            <view class="backup-info">
-              <text class="backup-name">{{ formatImportTime(f.time) }}</text>
-              <text class="backup-file">{{ f.name }}</text>
-            </view>
-            <text class="backup-action">导入</text>
-          </view>
-        </scroll-view>
-      </view>
-    </wd-popup>
-
     <!-- 全局弹窗宿主（组件库重绘的确认框） -->
     <AppDialog />
 
@@ -225,7 +193,7 @@ import { queryOne } from '@/api/db/index.js'
 import {
   autoBackup, restoreBackup,
   exportToFile, deleteExportFile, shareExportFile,
-  listImportableFiles, importFromFile
+  listImportableFiles
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
 import { recalcAllBalances } from '@/api/account.js'
@@ -242,8 +210,6 @@ export default {
 
     const counts = ref({ transactions: 0, accounts: 0, categories: 0, tags: 0 })
     const autoBackupEnabled = ref(true)
-    const importFiles = ref([])
-    const showImportPicker = ref(false)
     /** 数据管理：备份 + 导出合并列表，每个 { path, name, time, kind } */
     const dataFiles = ref([])
     const showDataManager = ref(false)
@@ -471,84 +437,6 @@ export default {
       }
     }
 
-    /* ------------------------------------------------------ 导入 */
-
-    /**
-     * 从应用文件夹导入。
-     *
-     * ★ 为什么不是系统文件选择器 ★
-     *   用户实测（日志）：这个基座上 startActivityForResult 能调起，
-     *   但 onActivityResult 事件从不回调，90 秒后报「系统未回调」。
-     *   所以 Native.js + ACTION_GET_CONTENT 走不通。
-     *
-     *   官方文档对 App 端的建议是：选 _doc/_downloads/_documents 里的
-     *   文件，用 plus.io API 自己做选择框。这里就照着做：
-     *   扫这几个目录列出 .json，用户在应用内挑一个。
-     *
-     * ★ 导入是「覆盖」而不是「合并」★
-     *   覆盖前 api 层会自动备份当前库，能反悔。
-     */
-    async function onImport() {
-      const T0 = Date.now()
-      const log = (tag, extra) => {
-        const t = new Date(Date.now())
-        const pad = (n) => String(n).padStart(2, '0')
-        const stamp = `${t.getHours()}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`
-        console.log(`[自由记导入页面] ${stamp} ${tag}`, extra === undefined ? '' : extra)
-      }
-
-      log('onImport 开始（应用内浏览）')
-      uni.showLoading({ title: '扫描文件…' })
-      try {
-        importFiles.value = await listImportableFiles()
-        uni.hideLoading()
-        log('listImportableFiles 返回', { 数量: importFiles.value.length, 耗时ms: Date.now() - T0 })
-      } catch (e) {
-        uni.hideLoading()
-        log('listImportableFiles 失败', (e && e.message) || '')
-        await alertDialog({ title: '扫描失败', content: (e && e.message) || '无法读取文件列表' })
-        return
-      }
-      showImportPicker.value = true
-    }
-
-    /** 用户在应用内文件列表里选中一个 */
-    async function onPickImportFile(file) {
-      showImportPicker.value = false
-      const ok = await confirmDialog({
-        title: '用这个文件覆盖当前数据？',
-        content: `${file.name}\n\n导入会清空当前所有账户、交易、分类，再写入文件里的内容。\n导入前会自动备份一次，万一不对可以从备份恢复。`,
-        confirmText: '导入',
-        danger: true
-      })
-      if (!ok) return
-
-      uni.showLoading({ title: '导入中…' })
-      try {
-        const report = await importFromFile(file.path)
-        uni.hideLoading()
-
-        clearSettingsCache()
-        await settingStore.load()
-        await accountStore.refresh()
-        await txnStore.loadHome(true)
-        await loadCounts()
-
-        await alertDialog({
-          title: '导入完成',
-          content: [
-            `账户 ${report.accounts} 个`,
-            `交易 ${report.transactions} 笔`,
-            `分类 ${report.categories} 个`,
-            `标签 ${report.tags} 个`
-          ].join('\n')
-        })
-      } catch (e) {
-        uni.hideLoading()
-        await alertDialog({ title: '导入失败', content: e.message })
-      }
-    }
-
     /* ------------------------------------------------------ 备份 */
 
     async function onToggleAutoBackup(e) {
@@ -642,14 +530,6 @@ export default {
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
 
-    /** 可导入文件的修改时间 */
-    function formatImportTime(ts) {
-      if (!ts) return '未知时间'
-      const d = new Date(ts)
-      const pad = (n) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
-
     function goBack() {
       uni.navigateBack()
     }
@@ -680,9 +560,9 @@ export default {
     })
 
     /*
-     * ★ 两个设置页弹层也要能「侧滑返回收起」★
-     *   历史数据管理 / 导入选择都是本页内的 bottom 弹层，
-     *   不加这一步，全面屏右滑会直接把「数据与备份」页退掉。
+     * ★ 设置页弹层也要能「侧滑返回收起」★
+     *   历史数据管理是本页内的 bottom 弹层，
+     *   不加这一步，全面屏右滑会直接把「数据管理」页退掉。
      */
     watch(showDataManager, (open) => {
       if (open) {
@@ -697,25 +577,10 @@ export default {
       }
     })
 
-    watch(showImportPicker, (open) => {
-      if (open) {
-        if (!unregisterImportPicker) {
-          unregisterImportPicker = pushLayer(() => { showImportPicker.value = false }, 'importPicker')
-        }
-        return
-      }
-      if (unregisterImportPicker) {
-        unregisterImportPicker()
-        unregisterImportPicker = null
-      }
-    })
-
     let unregisterDataManager = null
-    let unregisterImportPicker = null
 
     onUnmounted(() => {
       if (unregisterDataManager) unregisterDataManager()
-      if (unregisterImportPicker) unregisterImportPicker()
     })
 
     // 侧滑返回 / 返回键：弹层打开时先收起弹层，不退出本页
@@ -723,15 +588,13 @@ export default {
 
     return {
       counts, autoBackupOn,
-      importFiles, showImportPicker,
       dataFiles, showDataManager,
       primaryColor, pageStyle, scrollTarget,
       onExport,
-      onImport, onPickImportFile,
       onOpenDataManager, onRestoreData, onDeleteData, refreshDataManager, kindLabel,
       onToggleAutoBackup, onManualBackup,
       onRepair, onClearAll,
-      formatDataTime, formatImportTime, goBack, settingStore
+      formatDataTime, goBack, settingStore
     }
   }
 }
@@ -854,17 +717,6 @@ export default {
   gap: 20rpx;
 }
 
-.tip-card {
-  margin-top: 24rpx;
-  padding: 0 12rpx;
-}
-
-.tip-text {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
-}
-
 /* 备份面板 */
 .backup-panel {
   background-color: var(--app-card);
@@ -936,11 +788,6 @@ export default {
 .backup-file {
   font-size: 20rpx;
   color: var(--app-text-3);
-}
-
-.backup-action {
-  font-size: 24rpx;
-  color: var(--app-primary);
 }
 
 /* 导入文件浏览弹层顶部的说明条 */

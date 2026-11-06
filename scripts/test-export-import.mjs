@@ -94,9 +94,15 @@ check('文本分享用 type:text', /type:\s*'text'/.test(code), true)
 
 console.log('=== api/backup.js：导入走应用内文件浏览 ===')
 
-for (const name of ['listImportableFiles', 'importFromFile']) {
-  check(`${name} 已导出`, typeof backup[name], 'function')
-}
+/*
+  ★ 本轮变化（用户要求）★
+    「数据备份里面删除从文件导入这个选项及其背后的逻辑」
+    importFromFile 只服务于那个入口，入口删了它就是死代码，
+    所以一并撤掉。listImportableFiles 保留 ——
+    「历史数据管理」还在用它扫描文件列表。
+*/
+check('listImportableFiles 已导出', typeof backup.listImportableFiles, 'function')
+check('importFromFile 已删除', backup.importFromFile, undefined)
 // ★ 系统选择器（Native.js ACTION_GET_CONTENT + onActivityResult）在用户基座上
 //   回调从不触发（实测日志：startActivityForResult 调起后 90 秒报「系统未回调」）。
 //   所以导入改成 plus.io 扫描 _doc/_downloads/_documents 的应用内浏览。
@@ -140,9 +146,54 @@ console.log('=== 页面：导出 / 导入 / 数据管理 ===')
 const data = stripComments(read('pages/settings/data.vue'))
 
 check('有「导出」区块', /section-export/.test(data), true)
-check('有「导入」区块', /section-import/.test(data), true)
 check('有导出按钮', /onExport/.test(data), true)
-check('有导入按钮', /onImport/.test(data), true)
+
+/*
+  ★ 本轮用户要求删掉的两个入口 ★
+    1. 「从文件导入」区块（原 section-import 里那套扫目录 + 弹层选择）
+    2. 「从其他应用打开」里的「导入刚才打开的文件」（onOpenExternalNow）
+  连同背后的逻辑（onImport / onPickImportFile / importFromFile / showImportPicker）
+  一起删除。
+
+  ★ 注意：section-import 这个 id 现在又有了 ★
+    用户后来要求「导出下方增加一个导入，显示从外部导入直接分享到自由记 App 即可」，
+    所以那个位置换成了一个纯说明格（不是按钮，没有 @click），
+    文案是「在 JSON 中选用其他应用打开，选择自由记即可」。
+    所以这里断言的不能再是「id 不存在」，而是「选文件那套逻辑不存在」。
+*/
+check('没有 onImport', /onImport\b/.test(data), false)
+check('没有 onPickImportFile', /onPickImportFile/.test(data), false)
+check('没有导入浏览弹层', /showImportPicker/.test(data), false)
+check('没有 onOpenExternalNow', /onOpenExternalNow/.test(data), false)
+check('没有「导入刚才打开的文件」文案', /导入刚才打开的文件/.test(data), false)
+check('没有底部数据库路径提示', /数据全部保存在本机|_doc\/books\.db/.test(data), false)
+
+// 新的「导入」区块：说明怎么从外部导入，本身不可点
+check('有「导入」区块', /id="section-import"/.test(data), true)
+check('导入区块文案是用户指定的那句', /在 JSON 中选用其他应用打开，选择自由记即可/.test(data), true)
+check('预览调试按钮已删除', /onPreviewImportDialog/.test(data), false)
+
+/*
+  区块顺序（用户指定）：导出 → 导入 → 备份 → 数据管理 → 维护
+  「数据管理」原来在「备份」上面，用户要求挪到下面。
+*/
+{
+  const order = ['section-export', 'section-import', 'section-backup', 'section-data']
+    .map((id) => data.indexOf(`id="${id}"`))
+  check('四个区块顺序是 导出→导入→备份→数据管理', order.every((i, n) => i > 0 && (n === 0 || i > order[n - 1])), true)
+}
+
+/*
+  「导入」那一格不是按钮 —— 段内不能有 @click。
+  取 section-import 到下一个 section 之间的片段来判。
+*/
+{
+  const start = data.indexOf('id="section-import"')
+  const end = data.indexOf('id="section-backup"')
+  const seg = start >= 0 && end > start ? data.slice(start, end) : ''
+  check('导入区块不可点击（段内没有 @click）', /@click/.test(seg), false)
+  check('导入区块没有箭头（不是可点行的样子）', /row-arrow/.test(seg), false)
+}
 
 // ★ 历史数据管理：扫三个文件夹（_doc/_downloads/_documents），每个 JSON 可恢复 / 删除 ★
 check('有「历史数据管理」区块', /section-data/.test(data), true)
@@ -166,24 +217,16 @@ check('没有 onRestoreBackup', /onRestoreBackup/.test(data), false)
 check('没有 showBackups 弹层', /showBackups/.test(data), false)
 check('没有 showExportFiles 弹层', /showExportFiles/.test(data), false)
 
-// ★ 导入是应用内文件浏览（系统选择器回调不触发，改用 plus.io 扫描）★
-check('有导入文件列表状态', /importFiles/.test(data), true)
-check('有导入浏览弹层状态', /showImportPicker/.test(data), true)
-check('能挑一个文件导入', /onPickImportFile/.test(data), true)
-check('导入前扫描文件', /listImportableFiles/.test(data), true)
-
 console.log('=== 页面：备份的 UI 也还在 ===')
 
 check('有「备份」区块', /section-backup/.test(data), true)
 check('有自动备份开关', /onToggleAutoBackup/.test(data), true)
 check('有立即备份', /onManualBackup/.test(data), true)
 
-console.log('=== 导入是「覆盖」语义，且会先备份 ===')
+console.log('=== 导入仍会先自动备份（由 importPayload 负责）===')
 
-check('导入调用 importFromFile', /importFromFile\s*\(/.test(data), true)
-check('导入前有确认', /用这个文件覆盖当前数据/.test(data), true)
-// api 层：覆盖模式 + 先自动备份
-check('importFromFile 用覆盖模式', /mode:\s*'overwrite'/.test(code), true)
+check('importPayload 用 overwrite 分支清库', /mode === 'overwrite'[\s\S]{0,200}truncateAll\(\)/.test(code), true)
+check('importPayload 导入前 autoBackup', /autoBackup\('before-import'\)/.test(code), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

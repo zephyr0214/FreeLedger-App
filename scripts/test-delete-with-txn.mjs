@@ -401,8 +401,8 @@ console.log('=== 场景 6：删一级分类连带删二级 ===')
   const { fake, db } = makeFakePlus()
   insertAccount(db, { id: 'acc1', name: '微信' })
   insertCategory(db, { id: 'cat1', name: '餐饮食品' })
-  insertCategory(db, { id: 'cat1a', parent_id: 'cat1', name: '正餐' })
-  insertCategory(db, { id: 'cat1b', parent_id: 'cat1', name: '饮品' })
+  insertCategory(db, { id: 'cat1a', parent_id: 'cat1', name: '日常三餐' })
+  insertCategory(db, { id: 'cat1b', parent_id: 'cat1', name: '奶茶饮料' })
   insertTxn(db, { id: 't1', account_id: 'acc1', category_id: 'cat1a' })
   insertTxn(db, { id: 't2', account_id: 'acc1', category_id: 'cat1b' })
   insertTxn(db, { id: 't3', account_id: 'acc1', category_id: 'cat1' })
@@ -411,8 +411,8 @@ console.log('=== 场景 6：删一级分类连带删二级 ===')
   await categoryMod.deleteCategory('cat1')
 
   check('一级被软删除', getCategory(db, 'cat1').deleted_at !== null, true)
-  check('二级「正餐」被连带软删除', getCategory(db, 'cat1a').deleted_at !== null, true)
-  check('二级「饮品」被连带软删除', getCategory(db, 'cat1b').deleted_at !== null, true)
+  check('二级「日常三餐」被连带软删除', getCategory(db, 'cat1a').deleted_at !== null, true)
+  check('二级「奶茶饮料」被连带软删除', getCategory(db, 'cat1b').deleted_at !== null, true)
 
   check('二级下的交易变成无分类', getTxn(db, 't1').category_id, null)
   check('另一个二级的交易也变成无分类', getTxn(db, 't2').category_id, null)
@@ -458,7 +458,7 @@ console.log('=== 场景 9：删分类时它的「分类预算」也要删掉 ===
 {
   const { fake, db } = makeFakePlus()
   insertCategory(db, { id: 'cat1', name: '餐饮食品' })
-  insertCategory(db, { id: 'cat1a', parent_id: 'cat1', name: '正餐' })
+  insertCategory(db, { id: 'cat1a', parent_id: 'cat1', name: '日常三餐' })
   // 给一级和二级各挂一条分类预算
   const now = Date.now()
   db.prepare(

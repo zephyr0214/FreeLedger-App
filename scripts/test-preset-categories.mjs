@@ -179,7 +179,7 @@ console.log('=== 场景 1：老库（对账支出/对账收入是独立一级）
 
   // ---- 固定子类齐了，顺序是用户指定的 ----
   check('支出的固定子类', childrenOf(db, gExp.id).map((c) => c.name), ['借出', '借款归还', '对账支出'])
-  check('收入的固定子类', childrenOf(db, gInc.id).map((c) => c.name), ['借入', '借款收回', '对账收入'])
+  check('收入的固定子类', childrenOf(db, gInc.id).map((c) => c.name), ['借入', '借款收回', '对账收入', '报销收入'])
 
   // ---- ★ 关键：旧行的 id 被保留（历史流水不能变成悬空引用）★ ----
   const recExpNow = childrenOf(db, gExp.id).find((c) => c.name === '对账支出')
@@ -234,7 +234,7 @@ console.log('=== 场景 2：全新库（没有任何对账分类）-> 直接建 
   check('支出组建出来了', !!gExp, true)
   check('收入组建出来了', !!gInc, true)
   check('支出的固定子类', childrenOf(db, gExp.id).map((c) => c.name), ['借出', '借款归还', '对账支出'])
-  check('收入的固定子类', childrenOf(db, gInc.id).map((c) => c.name), ['借入', '借款收回', '对账收入'])
+  check('收入的固定子类', childrenOf(db, gInc.id).map((c) => c.name), ['借入', '借款收回', '对账收入', '报销收入'])
   // 组排最后（sort 999），不抢用户分类的位置
   check('支出组的 sort 排最后', gExp.sort, 999)
 }

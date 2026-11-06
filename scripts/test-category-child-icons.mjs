@@ -5,7 +5,7 @@
  *
  * ★ 背景 ★
  *   v5 建的分类表里，二级分类的 icon 直接继承了父级 ——
- *   「正餐」「饮品」「零食」全是同一个 🍜。
+ *   「日常三餐」「奶茶饮料」「零食小吃」全是同一个 🍜。
  *   用户要求每个子类都能有自己的图标。
  *
  *   v6 的做法是**不重建分类表**（重建会打乱用户数据和历史交易引用），
@@ -176,12 +176,12 @@ function seedV5StyleDb(db) {
 
 console.log('=== childIcon / childColor 兼容两种写法 ===')
 
-check('对象用自己的图标', childIcon({ name: '正餐', icon: 'food' }, 'more'), 'food')
-check('对象没写图标用父级的', childIcon({ name: '正餐' }, 'more'), 'more')
-check('纯字符串继承父级图标', childIcon('正餐', 'food'), 'food')
+check('对象用自己的图标', childIcon({ name: '日常三餐', icon: 'food' }, 'more'), 'food')
+check('对象没写图标用父级的', childIcon({ name: '日常三餐' }, 'more'), 'more')
+check('纯字符串继承父级图标', childIcon('日常三餐', 'food'), 'food')
 check('对象用自己的颜色', childColor({ name: 'x', color: '#111111' }, '#222222'), '#111111')
 check('对象没写颜色用父级的', childColor({ name: 'x' }, '#222222'), '#222222')
-check('纯字符串继承父级颜色', childColor('正餐', '#222222'), '#222222')
+check('纯字符串继承父级颜色', childColor('日常三餐', '#222222'), '#222222')
 
 console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
 
@@ -191,9 +191,9 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
 
   // 迁移前：所有二级都是父级图标
   const before = db.prepare(
-    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '饮品'"
+    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '奶茶饮料'"
   ).get()
-  check('迁移前「饮品」继承父级图标', before.icon, 'food')
+  check('迁移前「奶茶饮料」继承父级图标', before.icon, 'food')
 
   const mod = await loadRealDb(fake)
   const result = await Promise.race([
@@ -204,19 +204,19 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
 
   // 迁移后：每个二级都有自己的图标
   const after = db.prepare(
-    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '饮品'"
+    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '奶茶饮料'"
   ).get()
-  check('迁移后「饮品」有自己的图标', after.icon, 'coffee')
+  check('迁移后「奶茶饮料」有自己的图标', after.icon, 'coffee')
 
   const breakfast = db.prepare(
-    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '正餐'"
+    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '日常三餐'"
   ).get()
-  check('迁移后「正餐」有自己的图标', breakfast.icon, 'food')
+  check('迁移后「日常三餐」有自己的图标', breakfast.icon, 'food')
 
   const snack = db.prepare(
-    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '零食/小吃'"
+    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '零食小吃'"
   ).get()
-  check('迁移后「零食/小吃」有自己的图标', snack.icon, 'snack')
+  check('迁移后「零食小吃」有自己的图标', snack.icon, 'snack')
 
   // 同一个父类下，二级图标不再是同一个
   const foodId = db.prepare(
@@ -225,7 +225,17 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
   const icons = db.prepare(
     'SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id = ?'
   ).all(foodId).map((r) => r.icon)
-  check('餐饮食品下二级图标各不相同', new Set(icons).size, icons.length)
+  /*
+   * ★ 从「两两不同」改成「与默认表逐条一致」★
+   *   新表里「水果蔬菜」和「零食小吃」都归零食类，图标都是 snack ——
+   *   再要求两两不同，等于不让分类按语义归类。
+   *   改成和默认表比对，强度没降低：漏刷任何一个子类都会对不上。
+   */
+  const expectedIcons = DEFAULT_EXPENSE_CATEGORIES[0].children
+    .map((ch) => childIcon(ch, 'food'))
+    .sort()
+  check('餐饮食品下二级图标与默认表一致', [...icons].sort(), expectedIcons)
+  check('餐饮食品下二级图标不是全都一样', new Set(icons).size > 1, true)
 
   // ★ 用户自己的分类不能被动 ★
   const mine = db.prepare("SELECT icon FROM category WHERE id = 'u_mine'").get()
@@ -234,7 +244,7 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
   check('用户自建子分类的图标没被改', mineChild.icon, 'gift')
 
   // ★ 颜色不能被动 ★
-  const color = db.prepare("SELECT color FROM category WHERE deleted_at IS NULL AND name = '饮品'").get()
+  const color = db.prepare("SELECT color FROM category WHERE deleted_at IS NULL AND name = '奶茶饮料'").get()
   check('二级分类的颜色不变', color.color, '#FF976A')
 
   // 版本被推进
@@ -258,9 +268,9 @@ console.log('=== 迁移 v6：幂等 —— 跑第二遍结果一样 ===')
   const first = snap()
   // 再跑一遍 v6
   const rows = await db.prepare(
-    "SELECT id FROM category WHERE deleted_at IS NULL AND name = '饮品' AND parent_id IS NOT NULL"
+    "SELECT id FROM category WHERE deleted_at IS NULL AND name = '奶茶饮料' AND parent_id IS NOT NULL"
   ).all()
-  check('第一遍后「饮品」图标正确', rows[0] ? db.prepare('SELECT icon FROM category WHERE id = ?').get(rows[0].id).icon : null, 'coffee')
+  check('第一遍后「奶茶饮料」图标正确', rows[0] ? db.prepare('SELECT icon FROM category WHERE id = ?').get(rows[0].id).icon : null, 'coffee')
 
   // 手动再执行一次 v6 的 UPDATE（幂等性验证）
   const now = Date.now()
@@ -290,14 +300,14 @@ console.log('=== 全新安装：二级分类直接就有自己的图标 ===')
 
   // 迁移 v5 会重建分类表（全新库没有分类 -> 建新的）
   const drink = db.prepare(
-    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '饮品'"
+    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '奶茶饮料'"
   ).get()
-  check('新装的「饮品」有自己的图标', drink ? drink.icon : null, 'coffee')
+  check('新装的「奶茶饮料」有自己的图标', drink ? drink.icon : null, 'coffee')
 
   const food = db.prepare(
-    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '正餐'"
+    "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '日常三餐'"
   ).get()
-  check('新装的「正餐」有自己的图标', food ? food.icon : null, 'food')
+  check('新装的「日常三餐」有自己的图标', food ? food.icon : null, 'food')
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

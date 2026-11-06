@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================
+  自定义应用清单 —— 只为一件事：让「用其他应用打开」能找到本应用
+  ============================================================
+
+  ★ 为什么要这个文件 ★
+    用户需求：「在微信收到一个 json，用其他应用打开 → 选这个软件 → 自动导入」。
+    第一步是**系统要把本应用列进候选列表**，这只能靠 Android 的
+    intent-filter 声明。
+
+    而 manifest.json 里**没有**能配 intent-filter 的字段 ——
+    官方完整字段表（uniapp.dcloud.net.cn/collocation/manifest-app.html）
+    的 app-plus.distribute.android 里不存在 intentFilters / customManifest，
+    写在别处云打包阶段会被丢弃。
+
+    HBuilderX 3.6.0 起支持项目根目录自定义 AndroidManifest.xml，
+    官方文档：uniapp.dcloud.net.cn/tutorial/app-nativeresource-android.html
+
+  ★ 生效条件（官方原话）★
+    「清单文件配置需提交云端打包后才能生效，
+      真机运行时请使用自定义调试基座」
+    → 改完这个文件必须**云打包**并重装 App 才看得到效果。
+    → 打出来的包可以这样确认合并进去了：
+         node scripts/dump-manifest.mjs [apk路径]
+
+  ★ 规则（照官方文档，别自作主张）★
+    · 根节点必须是 manifest，必须带 android / tools 两个命名空间
+    · 必须写 package，值用云端打包的包名（这里是云打包实际用的
+      uni.app.UNI9AC9784，可用 dump-manifest 复查）
+    · theme / screenOrientation / configChanges / windowSoftInputMode /
+      launchMode **禁止**设置 —— 官方警告会出不可预估的问题，
+      所以我们只加 intent-filter，一个属性都不碰
+    · 内容不要和 manifest.json 冲突（权限、scheme 都已在那边配）
+
+  ★ 为什么挂 PandoraEntry 而不是 PandoraEntryActivity ★
+    io.dcloud.PandoraEntry 才是带 MAIN/LAUNCHER 的入口 Activity
+    （解包现有 APK 可以看到它的 MAIN 与 URL Scheme 的 VIEW filter 都挂在这里），
+    外部 intent 由它接收后转交给 5+ 运行时；
+    PandoraEntryActivity 是页面载体，挂上去收不到启动 intent。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="uni.app.UNI9AC9784">
+
+    <application>
+
+        <activity android:name="io.dcloud.PandoraEntry">
+
+            <!--
+              ──────────────────────────────────────────────────────
+              1) 「用其他应用打开」—— 微信 / 文件管理器发 ACTION_VIEW
+              ──────────────────────────────────────────────────────
+
+              ★ 为什么拆成这么多条 intent-filter ★
+                Android 的 mimeType 匹配是「声明什么就只匹配什么」。
+                微信下发 .json 时 mimeType 并不可靠：
+                实测有 application/octet-stream、text/plain，甚至为空。
+                只声明 application/json 的话，很可能**连候选列表都进不去**
+                （用户看到的就是「列表里没有自由记」）。
+                所以把常见类型都声明一遍，并留一条不带 mimeType 的
+                （文件管理器常常只发 data、不发 type）。
+
+              ★ 为什么没有直接写 */* ★
+                那会让本应用出现在**所有**文件的「打开方式」里
+                （pdf、jpg、apk 全都会列出来），是很脏的体验。
+                这里用「常见类型 + 无类型」覆盖，实在遇到奇葩值再补一条。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/json" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!--
+              file:// 路径：Android 7 起微信不会再用，
+              但本地文件管理器 / 某些 OEM 文件管理仍然会发。
+              真收到了也读得到（ContentResolver 支持 file://）。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" android:mimeType="application/json" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" android:mimeType="application/octet-stream" />
+            </intent-filter>
+
+            <!--
+              不带 mimeType 的兜底：intent 只有 data（或 type 为空）时
+              只有「只声明了 scheme」的 filter 才匹配得上。
+              这也是 uri 里带 .json 后缀最常见的情形。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+            </intent-filter>
+
+            <!--
+              ──────────────────────────────────────────────────────
+              2) 「分享到本应用」—— ACTION_SEND（微信里长按文件→分享）
+              ──────────────────────────────────────────────────────
+
+              文件在 Intent.EXTRA_STREAM 里，由 api/shareIntent.js
+              的 urisFromNativeIntent() 读取（getParcelableExtra）。
+              只声明 JSON 相关类型，避免污染所有分享面板。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+        </activity>
+
+    </application>
+</manifest>

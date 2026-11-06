@@ -50,50 +50,54 @@ console.log('=== 支出默认分类结构 ===')
 check(
   '支出一级分类名字',
   DEFAULT_EXPENSE_CATEGORIES.map((c) => c.name),
-  ['餐饮食品', '交通出行', '居住住房', '购物消费', '医疗健康', '社交娱乐', '学校学习', '人情往来', '其他/杂项']
+  ['餐饮食品', '交通出行', '居住住房', '购物消费', '医疗健康', '社交娱乐', '学校学习', '人情往来', '其他支出']
 )
 
 check(
   '餐饮食品的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[0].children),
-  ['正餐', '饮品', '零食/小吃', '超市/零售']
+  ['日常三餐', '奶茶饮料', '超市零售', '水果蔬菜', '零食小吃']
 )
 check(
   '交通出行的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[1].children),
-  ['公共交通/打车', '火车/飞机', '加油/停车']
+  ['公共交通', '长途交通', '加油充电', '打车租车', '停车过路', '洗车维保', '罚款违章']
 )
 check(
   '居住住房的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[2].children),
-  ['房租/房贷/物业', '水电燃气', '话费/网费']
+  ['房租房贷', '水费电费', '通讯宽带', '家政维修', '燃气取暖', '洗衣洗澡']
 )
 check(
   '购物消费的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[3].children),
-  ['日用品', '服饰', '数码']
+  ['家居日用', '服饰鞋包', '数码电器', '美妆个护']
 )
 check(
   '医疗健康的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[4].children),
-  ['买药/看病', '健身', '医保/社保']
+  ['买药看病', '运动健身', '健康保健', '医保社保']
 )
 check(
   '社交娱乐的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[5].children),
-  ['旅游', '娱乐', '团建']
+  ['度假旅游', '休闲玩乐', '休闲娱乐']
 )
 check(
   '学校学习的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[6].children),
-  ['学费', '书籍/课程/资料', '文具']
+  ['学费学杂费', '书籍文具', '培训考证', '人工智能']
 )
 check(
   '人情往来的二级',
   childNames(DEFAULT_EXPENSE_CATEGORIES[7].children),
   ['随份子', '红包', '送礼']
 )
-check('其他/杂项没有二级', DEFAULT_EXPENSE_CATEGORIES[8].children, [])
+check(
+  '其他支出的二级',
+  childNames(DEFAULT_EXPENSE_CATEGORIES[8].children),
+  ['宠物开销', '快递邮费', '意外损失', '公益捐款', '其他支出']
+)
 
 console.log('=== 收入默认分类结构 ===')
 
@@ -104,9 +108,24 @@ check(
 )
 check('工资没有二级', DEFAULT_INCOME_CATEGORIES[0].children, [])
 check(
-  '其余收入分类没有二级',
-  DEFAULT_INCOME_CATEGORIES.slice(1).map((c) => c.children),
-  [[], [], [], [], [], [], [], []]
+  '奖金补贴的二级',
+  childNames(DEFAULT_INCOME_CATEGORIES[1].children),
+  ['年终/季度奖', '项目奖金', '常规补贴', '奖学金']
+)
+check(
+  '没有二级的收入分类',
+  [2, 3, 4, 5, 8].map((i) => DEFAULT_INCOME_CATEGORIES[i].children),
+  [[], [], [], [], []]
+)
+check(
+  '二手出售的二级',
+  childNames(DEFAULT_INCOME_CATEGORIES[6].children),
+  ['数码家电', '闲置衣物']
+)
+check(
+  '退款返还的二级',
+  childNames(DEFAULT_INCOME_CATEGORIES[7].children),
+  ['购物退款', '退税', '押金返还']
 )
 
 // ★ 「奖金补贴」不能既是「工资」的二级、又是一级 ★
@@ -121,6 +140,19 @@ check(
   DEFAULT_INCOME_CATEGORIES.filter((c) => childNames(c.children).includes('奖金补贴')).length,
   0
 )
+
+// ★ 同一类型下二级名不能重复 ★
+//   两个「其他支出」并排出现时，用户根本分不清该点哪个；
+//   按名字聚合统计的地方也会把两笔合成一条。
+for (const list of [DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES]) {
+  const seen = []
+  for (const c of list) {
+    for (const name of childNames(c.children)) {
+      check(`二级名「${name}」在同类型内唯一`, seen.includes(name), false)
+      seen.push(name)
+    }
+  }
+}
 
 console.log('=== 图标 key 必须真实存在 ===')
 
@@ -159,10 +191,10 @@ for (const c of allCats) {
 }
 
 // 纯字符串写法（兼容旧结构）依然能用
-check('纯字符串子分类继承父级图标', childIcon('正餐', 'food'), 'food')
-check('纯字符串子分类继承父级颜色', childColor('正餐', '#FF976A'), '#FF976A')
-check('对象子分类用自己的图标', childIcon({ name: '正餐', icon: 'food' }, 'more'), 'food')
-check('对象子分类没写图标时用父级的', childIcon({ name: '正餐' }, 'more'), 'more')
+check('纯字符串子分类继承父级图标', childIcon('日常三餐', 'food'), 'food')
+check('纯字符串子分类继承父级颜色', childColor('日常三餐', '#FF976A'), '#FF976A')
+check('对象子分类用自己的图标', childIcon({ name: '日常三餐', icon: 'food' }, 'more'), 'food')
+check('对象子分类没写图标时用父级的', childIcon({ name: '日常三餐' }, 'more'), 'more')
 check('对象子分类写了自己的颜色就用自己的', childColor({ name: 'x', color: '#123456' }, '#FF976A'), '#123456')
 
 console.log('=== 颜色：合法 + 同类型内不重复 ===')
@@ -206,7 +238,7 @@ check('income 的固定分类名', RECONCILE_NAMES.income, '对账收入')
 /*
  * ★ v14 起判定规则变了 ★
  *   以前「对账支出 / 对账收入」是独立的一级分类，判定要求 parent_id 为空。
- *   现在它们是「系统预置分类」下的二级分类，
+ *   现在它们是「系统分类」下的二级分类，
  *   判定只看「名字 + type」，不再看层级 ——
  *   否则这两个分类又会变成可以改名/删除的普通分类。
  */
@@ -226,7 +258,7 @@ check(
   isReconcileCategory({ name: '对账支出', type: 'income', parent_id: null }),
   false
 )
-// 二级也是固定分类（v14 起它们就挂在「系统预置分类」下面）
+// 二级也是固定分类（v14 起它们就挂在「系统分类」下面）
 check(
   '二级的「对账支出」也是固定分类',
   isReconcileCategory({ name: '对账支出', type: 'expense', parent_id: 'cat_x' }),
@@ -301,22 +333,29 @@ check(
 check('「餐饮食品」不是借出类', isLoanCategory({ name: '餐饮食品', type: 'expense' }), false)
 check('null -> false', isLoanCategory(null), false)
 
-console.log('=== 系统预置分类组 ===')
+console.log('=== 系统分类组 ===')
 
-check('支出侧的组名', SYSTEM_PRESET_GROUPS.expense.name, '系统预置分类')
-check('收入侧的组名', SYSTEM_PRESET_GROUPS.income.name, '系统预置分类')
+check('支出侧的组名', SYSTEM_PRESET_GROUPS.expense.name, '系统分类')
+check('收入侧的组名', SYSTEM_PRESET_GROUPS.income.name, '系统分类')
 check('支出侧的 type', SYSTEM_PRESET_GROUPS.expense.type, 'expense')
 check('收入侧的 type', SYSTEM_PRESET_GROUPS.income.type, 'income')
 
 check(
-  '「系统预置分类」一级分类本身是固定分类',
-  isPresetGroupCategory({ name: '系统预置分类', type: 'expense', parent_id: null }),
+  '「系统分类」一级分类本身是固定分类',
+  isPresetGroupCategory({ name: '系统分类', type: 'expense', parent_id: null }),
   true
 )
 check(
-  '二级的「系统预置分类」不是那个组',
-  isPresetGroupCategory({ name: '系统预置分类', type: 'expense', parent_id: 'cat_x' }),
+  '二级的「系统分类」不是那个组',
+  isPresetGroupCategory({ name: '系统分类', type: 'expense', parent_id: 'cat_x' }),
   false
+)
+// ★ 老库里的旧名也要认 ★
+//   不然迁移还没跑到 / 被跳过的库，这一组会突然变成能删能改的普通分类。
+check(
+  '旧名「系统预置分类」也认作那个组',
+  isPresetGroupCategory({ name: '系统预置分类', type: 'expense', parent_id: null }),
+  true
 )
 
 console.log('=== 固定子类的名字与顺序（用户指定）===')
@@ -330,12 +369,13 @@ function fixedChildrenOf(type) {
 }
 
 /*
- * ★ v15 起每个 type 下各三个固定子类 ★
+ * ★ 每个 type 下的固定子类 ★
  *   支出：借出（钱出去）、借款归还（还钱出去）、对账支出
- *   收入：借入（钱进来）、借款收回（收钱回来）、对账收入
+ *   收入：借入（钱进来）、借款收回（收钱回来）、对账收入、报销收入
  *
- *   顺序由 sort 决定：借贷两类在前（900/901），对账固定分类排最后（902）。
- *   对账分类排最后的理由：它是系统自己写进去的调整流水，
+ *   顺序由 sort 决定：借贷两类在前（900/901），对账排 902，
+ *   「报销收入」是 v18 新加的，排 903 接在对账后面。
+ *   对账类排在借贷之后：它是系统自己写进去的调整流水，
  *   用户在分类页里扫一眼时应该先看到「借出 / 借入」这些他能主动记的。
  */
 check(
@@ -344,9 +384,9 @@ check(
   ['借出', '借款归还', '对账支出']
 )
 check(
-  '收入的固定子类：借入、借款收回、对账收入',
+  '收入的固定子类：借入、借款收回、对账收入、报销收入',
   fixedChildrenOf('income'),
-  ['借入', '借款收回', '对账收入']
+  ['借入', '借款收回', '对账收入', '报销收入']
 )
 
 // 固定子类的图标必须是真实存在的 icon key
@@ -357,8 +397,8 @@ for (const def of SYSTEM_PRESET_CHILDREN) {
 console.log('=== isFixedCategory（UI 判定，不查库）===')
 
 check(
-  '「系统预置分类」是固定分类',
-  isFixedCategory({ name: '系统预置分类', type: 'expense', parent_id: null }),
+  '「系统分类」是固定分类',
+  isFixedCategory({ name: '系统分类', type: 'expense', parent_id: null }),
   true
 )
 check(

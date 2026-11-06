@@ -25,7 +25,7 @@
 **记账**
 - 手动记账面板 + 数字键盘（支持四则运算）
 - AI 速记：一句话自动拆成收支 / 转账 / 借还，并归类到**已有分类**（绝不自造分类名）
-- 转账，以及借出 / 借款归还 / 借入 / 借款收回（系统预置分类，账实分离）
+- 转账，以及借出 / 借款归还 / 借入 / 借款收回（系统分类，账实分离）
 
 **账户**
 - 五种真实账户 + 组合账户（一组账户按顺序自动扣款，适合「碰一碰」「自动续费」）
@@ -43,8 +43,9 @@
 
 **数据与外观**
 - 每日自动备份 + JSON 导出 / 导入
+- 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色
-- 数据库结构化迁移（当前 schema v16），升级不丢数据
+- 数据库结构化迁移（当前 schema v17），升级不丢数据
 
 ## 技术栈与工程化
 
@@ -69,19 +70,48 @@ npm run test      # 全部测试（20+ 个测试文件，数百条断言）
 
 ## 版本规则
 
-- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v16 → v1.16.x）
-- 无迁移 → 递增修订号（1.16.2 → 1.16.3）
+- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v17 → v1.17.x）
+- 无迁移 → 递增修订号（1.17.0 → 1.17.1）
 - 每个版本的用户可见变化见 App 内「我的 → 更新日志」
+
+## 从其他应用打开
+
+微信 / 文件管理器里长按一个 JSON → 「用其他应用打开」→ 自由记，应用被拉起后弹一个确认框，点「确定导入」或「我再想想」。
+
+这条链路靠项目根目录的 **`AndroidManifest.xml`** 声明 intent-filter（`manifest.json` 没有这个字段）：
+
+- 只挂 `io.dcloud.PandoraEntry`，且**不设置** theme / launchMode / configChanges 等属性（官方禁止）
+- 「用其他应用打开」= `ACTION_VIEW` + `content://`，覆盖 `application/json` / `application/octet-stream` / `text/plain` 及无 mimeType 的兜底（微信给 `.json` 的 mimeType 并不可靠）
+- 「分享」= `ACTION_SEND` + `EXTRA_STREAM`
+- 生效需**云打包**并重装；打完后可用 `node scripts/dump-manifest.mjs <apk>` 确认 filter 已合并进去
+- 导入一律是**覆盖**：清空现有数据换成文件里的内容，导入前自动备份一次。不做「合并」是因为去重/冲突处理会让账目悄悄变多，用户很难核对多出来什么
+- 数据管理页的「导出」下方有一格「导入」说明，写着「在 JSON 中选用其他应用打开，选择自由记即可」——那是说明不是按钮，导入发起方永远是外部应用
+
+### ⚠️ 打完包发现「用其他应用打开」里仍然没有自由记
+
+先跑 `node scripts/dump-manifest.mjs <新apk>`。如果输出里 `io.dcloud.PandoraEntry` 只有 MAIN/LAUNCHER 和那条没有 data 的 VIEW，说明清单压根没被合并。
+
+最常见的原因是**安心打包（fastmode）复用了本地缓存的母包**：它不重新生成 AndroidManifest.xml，只在缓存母包上替换 H5 资源和版本号，清单改动被整段忽略。
+
+判据：新包的 `AndroidManifest.xml` 与 `unpackage/cache/apk/<appid>_cm.apk` 里的**逐字节相同**（只有 versionName/versionCode 那几个字节不同）。
+
+解法二选一：
+
+1. 删掉 `unpackage/cache/apk/` 再打包 —— 缓存没了必然走完整打包，清单会被重新生成；
+2. 打包时改用**传统打包**（不勾「安心打包」）。
+
+改完清单后第一次打包建议直接按第 1 条做。
 
 ## 目录结构
 
 ```
-api/        数据与业务层（SQLite、AI 解析、统计、备份）
+api/        数据与业务层（SQLite、AI 解析、统计、备份、外部打开）
 components/ 通用组件（记账面板、图表、弹窗…）
 pages/      页面（首页 / 账户 / 统计 / 我的 + 设置与详情页）
 stores/     Pinia 状态
 utils/      纯函数工具（金额 / 日期 / 图标 / 校验）
 scripts/    校验与测试脚本
+AndroidManifest.xml  自定义清单（仅用于外部打开，见上一节）
 ```
 
 ## 数据与隐私
@@ -105,7 +135,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 **Recording**
 - Manual entry panel with a numeric keyboard (supports arithmetic)
 - AI quick capture: one sentence parsed into expenses / transfers / loans, always classified into **existing categories** (never invents one)
-- Transfers, plus lend out / repay / borrow / get paid back (system-preset categories)
+- Transfers, plus lend out / repay / borrow / get paid back (system categories)
 
 **Accounts**
 - Five real account types + combo accounts (ordered auto-deduction, great for tap-to-pay and subscriptions)

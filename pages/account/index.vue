@@ -213,6 +213,9 @@
     />
 
     <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <!-- 弹窗宿主：外部打开 JSON 时可能在任意一页弹出，
+         缺了这一行就退化成原生弹窗，样式与别处不一致 -->
+    <AppDialog />
     <UpdateDialog />
   </view>
 </template>
@@ -227,6 +230,7 @@ import SmoothLineChart from '@/components/SmoothLineChart.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AccountIcon from '@/components/AccountIcon.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -237,7 +241,7 @@ import { formatCents } from '@/utils/money.js'
 import { BASE_SYMBOL } from '@/utils/currency.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar, UpdateDialog },
+  components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -404,6 +408,14 @@ export default {
      * App.vue 补记成功且有新增时 emit 这个事件，这里重新拉一次。
      */
     uni.$on('cycle:caughtup', async () => {
+      if (settingStore.loaded) {
+        await accountStore.refresh()
+        await loadTrend()
+      }
+    })
+
+    /* 外部文件导入完成 → 账户与资产趋势全部换了一遍，重新拉 */
+    uni.$on('data:imported', async () => {
       if (settingStore.loaded) {
         await accountStore.refresh()
         await loadTrend()

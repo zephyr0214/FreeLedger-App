@@ -319,6 +319,9 @@
         首次使用（还没账户）那个分支上弹窗根本不存在 ——
         而开屏检查恰恰就是那时候跑的。
     -->
+    <!-- 弹窗宿主：外部打开 JSON 时可能在任意一页弹出，
+         缺了这一行就退化成原生弹窗，样式与别处不一致 -->
+    <AppDialog />
     <UpdateDialog />
   </view>
 </template>
@@ -334,6 +337,7 @@ import TxnPanel from '@/components/TxnPanel.vue'
 import QuickAddBar from '@/components/QuickAddBar.vue'
 import CalendarGrid from '@/components/CalendarGrid.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -347,7 +351,7 @@ import { handleBackPress } from '@/utils/layerStack.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, UpdateDialog },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -620,8 +624,13 @@ export default {
 
     function txnSub(txn) {
       const parts = []
-      if (txn.note) parts.push(txn.note)
+      /*
+       * ★ 账户在前、备注在后（用户指定）★
+       *   账户名是「这笔钱从哪出」的定位信息，比备注更该先被看到；
+       *   备注长短不一，放前面会把账户名挤到省略号里。
+       */
       if (txn.type !== 'transfer') parts.push(txn.account_name || '')
+      if (txn.note) parts.push(txn.note)
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
@@ -729,6 +738,11 @@ export default {
      *   没补账的日子不会有任何多余查询。
      */
     uni.$on('cycle:caughtup', () => {
+      if (settingStore.loaded) loadAll(true)
+    })
+
+    /* 外部文件导入完成 → 整库换掉，首页概览 / 日历 / 今日列表全部重查 */
+    uni.$on('data:imported', () => {
       if (settingStore.loaded) loadAll(true)
     })
 

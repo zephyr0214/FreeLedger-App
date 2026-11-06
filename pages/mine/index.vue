@@ -148,6 +148,9 @@
     />
 
     <!-- 更新弹窗（检查更新入口 / 开屏静默检查共用同一份 store 状态） -->
+    <!-- 弹窗宿主：外部打开 JSON 时可能在任意一页弹出，
+         缺了这一行就退化成原生弹窗，样式与别处不一致 -->
+    <AppDialog />
     <UpdateDialog />
   </view>
 </template>
@@ -167,10 +170,11 @@ import { daysSinceLastBackup } from '@/api/backup.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { APP_VERSION } from '@/utils/version.js'
 import { useUpdateStore } from '@/stores/update.js'
+import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 export default {
-  components: { AppHeader, HeaderAction, LineIcon, AppTabBar, UpdateDialog },
+  components: { AppHeader, HeaderAction, LineIcon, AppTabBar, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()

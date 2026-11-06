@@ -213,7 +213,7 @@ console.log('=== 场景 1：老库（旧默认分类）→ 迁移后应该是新
   ])
   check('迁移没有死锁', result, 'OPENED')
 
-  // ---- 支出一级分类应该是新的 9 个（+ 「系统预置分类」这一条固定父级） ----
+  // ---- 支出一级分类应该是新的 9 个（+ 「系统分类」这一条固定父级） ----
   check(
     '支出一级分类已换成新的',
     topNames(db, 'expense'),
@@ -340,12 +340,19 @@ console.log('=== 场景 2：幂等 —— 跑第二遍结果一样 ===')
     firstIds
   )
 
-  // 活着的分类不该翻倍
+  /*
+   * 活着的分类不该翻倍。
+   *
+   * ★ 按「同名 + 同 type + 同父级」判重，不是只按名字 ★
+   *   新默认表里「其他支出」既是第 9 个一级分类，又挂在它自己下面的
+   *   一个同名二级分类（用户明确要这个结构）。只按名字判重会把这种
+   *   正常结构误报成重复。真正要去掉的是「同一层里出现两条一样的」。
+   */
   const dup = db.prepare(
-    `SELECT name, type, COUNT(*) AS c FROM category
-     WHERE deleted_at IS NULL GROUP BY name, type HAVING c > 1`
+    `SELECT name, type, parent_id, COUNT(*) AS c FROM category
+     WHERE deleted_at IS NULL GROUP BY name, type, parent_id HAVING c > 1`
   ).all()
-  check('没有重复的分类', dup.length, 0)
+  check('没有重复的分类', dup.map((r) => `${r.name}@${r.parent_id || 'root'}`), [])
 
   console.log(`  软删除数 ${firstDeleted} -> ${deletedCount(db)}`)
 }

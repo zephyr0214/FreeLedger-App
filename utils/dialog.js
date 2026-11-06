@@ -47,6 +47,55 @@ const hosts = []
 /** @type {Array<{run: Function}>} 等待宿主的请求队列 */
 const waiting = []
 
+/** @type {Array<{resolve: Function, settled: boolean}>} 等「宿主出现」的等待者 */
+const hostWaiters = []
+
+/**
+ * 叫醒所有在等宿主的人。
+ *
+ * ★ 为什么需要「等宿主」★
+ *   冷启动时 App.vue 的 onLaunch 先跑，那时**一个页面都还没挂载**，
+ *   也就没有任何 <AppDialog /> 宿主。
+ *   「外部打开 → 问用户要不要导入」这个弹窗如果这时就发，
+ *   只会走 1 秒兜底、退化成原生 showModal，
+ *   样式和 App 里其它弹窗对不上。
+ *   （下面 waitForDialogHost 就是给这种场景用的。）
+ */
+function flushHostWaiters() {
+  if (!hosts.length) return
+  while (hostWaiters.length) {
+    const w = hostWaiters.shift()
+    if (w && typeof w.resolve === 'function') w.resolve(true)
+  }
+}
+
+/**
+ * 等一个弹窗宿主就绪。
+ *
+ * @param {number} [timeout=3000] 最长等多久
+ * @returns {Promise<boolean>} true = 有宿主可用；false = 超时，只能走原生兜底
+ */
+export function waitForDialogHost(timeout = 3000) {
+  if (hosts.length) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const waiter = { resolve: null, settled: false }
+    let timer = null
+
+    const done = (v) => {
+      if (waiter.settled) return
+      waiter.settled = true
+      if (timer) clearTimeout(timer)
+      const i = hostWaiters.indexOf(waiter)
+      if (i !== -1) hostWaiters.splice(i, 1)
+      resolve(v)
+    }
+
+    waiter.resolve = done
+    hostWaiters.push(waiter)
+    timer = setTimeout(() => done(false), timeout)
+  })
+}
+
 /**
  * 宿主都没挂上时的兜底超时（毫秒）。
  *
@@ -145,6 +194,7 @@ export function registerDialogHost(host, route) {
   const normalized = normalizeRoute(route || currentRoute())
   hosts.push({ host, route: normalized })
   drainWaiting()
+  flushHostWaiters()
 }
 
 /**
@@ -252,7 +302,6 @@ function request(executor, fallback) {
     }, FALLBACK_TIMEOUT)
   })
 }
-
 /* ------------------------------------------------------------------ *
  * 兜底：原生弹窗
  * ------------------------------------------------------------------ */

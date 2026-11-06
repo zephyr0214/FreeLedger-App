@@ -65,15 +65,15 @@ const insCat = db.prepare(
 )
 // 一级「餐饮食品」下面挂两个二级
 insCat.run('c_food', null, '餐饮食品', now, now)
-insCat.run('c_meal', 'c_food', '正餐', now, now)
-insCat.run('c_drink', 'c_food', '饮品', now, now)
+insCat.run('c_meal', 'c_food', '日常三餐', now, now)
+insCat.run('c_drink', 'c_food', '奶茶饮料', now, now)
 
 const insTxn = db.prepare(
   `INSERT INTO txn (id,type,amount_cents,account_id,category_id,occurred_at,
     occurred_day,month_key,year_key,created_at,updated_at,deleted_at,exclude_from_budget)
    VALUES ('t'||?, 'expense', ?, 'acc1', ?, ?, '2026-10-05','2026-10','2026',?,?,NULL,?)`
 )
-// 正餐 3 笔共 100.00，饮品 2 笔共 50.00
+// 日常三餐 3 笔共 100.00，奶茶饮料 2 笔共 50.00
 insTxn.run(1, 3000, 'c_meal', now, now, now, 0)
 insTxn.run(2, 4000, 'c_meal', now, now, now, 0)
 insTxn.run(3, 3000, 'c_meal', now, now, now, 0)
@@ -110,7 +110,7 @@ rows.forEach((r) => {
  * 判断一个 id 是不是父分类。
  *
  * ★ 为什么不能「有 leaf 就用 leaf」★
- *   一级分类也可能直接挂交易（「其他/杂项」这类没有二级的），
+ *   一级分类也可能直接挂交易（「其他支出」这类没有二级的），
  *   于是 leaf 里也会有它的 key。优先取 leaf 会把整棵子树漏掉 ——
  *   写这个测试时正是先写错了一版，才把 api/stats.js 的实现也一起纠正过来。
  *
@@ -127,10 +127,10 @@ const usedOf = (id) => {
   return catMapLeaf[id] !== undefined ? catMapLeaf[id] : (catMapRoot[id] || 0)
 }
 
-// 正餐：3 笔 3000+4000+3000 = 10000（不含那笔 9999）
-check('二级「正餐」只算自己', usedOf('c_meal'), 10000)
-check('二级「饮品」只算自己', usedOf('c_drink'), 5000)
-// 一级：正餐 10000 + 饮品 5000 + 直接挂一级的 700 = 15700
+// 日常三餐：3 笔 3000+4000+3000 = 10000（不含那笔 9999）
+check('二级「日常三餐」只算自己', usedOf('c_meal'), 10000)
+check('二级「奶茶饮料」只算自己', usedOf('c_drink'), 5000)
+// 一级：日常三餐 10000 + 奶茶饮料 5000 + 直接挂一级的 700 = 15700
 check('一级「餐饮食品」含所有二级 + 自身', usedOf('c_food'), 15700)
 
 console.log('=== 排除标记生效 ===')
@@ -149,8 +149,8 @@ console.log('=== 旧实现会算错（回归对照）===')
 {
   // 旧实现只用 root 口径，然后拿二级 id 去查 -> 恒为 0
   const oldUsed = (id) => catMapRoot[id] || 0
-  check('旧实现：二级「正餐」查到 0（就是这个 bug）', oldUsed('c_meal'), 0)
-  check('旧实现：二级「饮品」查到 0', oldUsed('c_drink'), 0)
+  check('旧实现：二级「日常三餐」查到 0（就是这个 bug）', oldUsed('c_meal'), 0)
+  check('旧实现：二级「奶茶饮料」查到 0', oldUsed('c_drink'), 0)
   // 说明：这正是「分类预算统计有误，交易未统计在内」的原因
 }
 

@@ -12,7 +12,7 @@
 
 import {
   selectionToRange, defaultSelection, selectionFromDayKey, selectionLabel,
-  cascadeSelection
+  cascadeSelection, customToRange, customRangeLabel, defaultCustomRange, toDayKey
 } from '../utils/date.js'
 
 let pass = 0
@@ -152,6 +152,67 @@ check('文案 全部年', selectionLabel({ year: 0, month: 0, day: 0 }), '全部
 check('文案 全部月', selectionLabel({ year: 2026, month: 0, day: 0 }), '2026年')
 check('文案 全部日', selectionLabel({ year: 2026, month: 3, day: 0 }), '2026年3月')
 check('文案 具体日', selectionLabel({ year: 2026, month: 3, day: 15 }), '2026年3月15日')
+
+console.log('=== 自定义区间（开始日 ~ 结束日） ===')
+
+/*
+ * ★ 自定义区间最关键的两条 ★
+ *   1. 跨月时**不能**给 monthKey —— 给了就会按 month_key 等值过滤，只查到一个月的账
+ *   2. 起止颠倒要自动纠正 —— 否则查出来永远是空，用户以为是「这段没记账」
+ */
+/*
+ * ★ 同一天为什么不给 monthKey ★
+ *   单日的查询条件是 occurred_day = '2026-03-15'，
+ *   给 monthKey 反而会让 api/stats.js 把口径判成 month（整月），
+ *   变成「查了整整一个月」。所以只有「正好整月」才补 monthKey。
+ */
+check('同一天', customToRange('2026-03-15', '2026-03-15'), {
+  startDay: '2026-03-15', endDay: '2026-03-15', monthKey: ''
+})
+check('跨月不给 monthKey', customToRange('2026-03-15', '2026-05-20'), {
+  startDay: '2026-03-15', endDay: '2026-05-20', monthKey: ''
+})
+check('跨年不给 monthKey', customToRange('2025-12-20', '2026-01-10'), {
+  startDay: '2025-12-20', endDay: '2026-01-10', monthKey: ''
+})
+// 正好选满一整月，顺手补 monthKey（能走索引）
+check('整月补 monthKey', customToRange('2026-03-01', '2026-03-31'), {
+  startDay: '2026-03-01', endDay: '2026-03-31', monthKey: '2026-03'
+})
+check('2 月整月补 monthKey', customToRange('2026-02-01', '2026-02-28'), {
+  startDay: '2026-02-01', endDay: '2026-02-28', monthKey: '2026-02'
+})
+// 同月但不是整月 -> 不给 monthKey
+check('同月非整月不给 monthKey', customToRange('2026-03-01', '2026-03-15'), {
+  startDay: '2026-03-01', endDay: '2026-03-15', monthKey: ''
+})
+
+// 起止颠倒自动交换
+check('起止颠倒自动纠正', customToRange('2026-05-20', '2026-03-15'), {
+  startDay: '2026-03-15', endDay: '2026-05-20', monthKey: ''
+})
+// 只给一头
+check('只给开始 -> 补结束', customToRange('2026-03-15', ''), {
+  startDay: '2026-03-15', endDay: '2026-03-15', monthKey: ''
+})
+check('只给结束 -> 补开始', customToRange('', '2026-03-15'), {
+  startDay: '2026-03-15', endDay: '2026-03-15', monthKey: ''
+})
+check('两头都空 -> 不限', customToRange('', ''), {
+  startDay: '', endDay: '', monthKey: ''
+})
+
+console.log('=== 自定义区间的默认值与文案 ===')
+
+const dcr = defaultCustomRange()
+check('默认开始是本月 1 号', dcr.startDay, `${toDayKey().slice(0, 7)}-01`)
+check('默认结束是今天', dcr.endDay, toDayKey())
+check('默认区间能换算出 startDay', customToRange(dcr.startDay, dcr.endDay).startDay, dcr.startDay)
+
+check('文案 单日', customRangeLabel('2026-03-15', '2026-03-15'), '2026-03-15')
+check('文案 区间', customRangeLabel('2026-03-15', '2026-05-20'), '2026-03-15 ~ 2026-05-20')
+check('文案 空 -> 全部时间', customRangeLabel('', ''), '全部时间')
+check('文案 颠倒也正常', customRangeLabel('2026-05-20', '2026-03-15'), '2026-03-15 ~ 2026-05-20')
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

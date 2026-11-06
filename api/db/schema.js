@@ -37,19 +37,25 @@ export const RECONCILE_CATEGORIES = [
 export const RECONCILE_LEGACY_NAME = '对账调整'
 
 /**
- * 「系统预置分类」—— 固定分类组（v14 起）
+ * 「系统分类」—— 固定分类组（v14 起，v18 起改名）
  *
  * ★ 为什么要有这个父级 ★
  *   用户要求分类页里把这几个「系统自己用的、用户不能改」的分类收进
- *   一个固定的一级分类里，叫「系统预置分类」：
- *     支出：借出、对账支出
- *     收入：借入、对账收入
+ *   一个固定的一级分类里：
+ *     支出：借出、借款归还、对账支出
+ *     收入：借入、借款收回、对账收入、报销收入
  *   之前「对账支出 / 对账收入」是各自独立的一级分类，
  *   和用户自己的分类混排在一起，看着像可以随便改的普通分类。
  *
+ * ★ 名字从「系统预置分类」改成「系统分类」（v18 起）★
+ *   名字更短、也更准确（这一组不只是「预置」，而是系统占用的）。
+ *   老库里已有的旧名字由 syncDefaultCategories() 改名迁过去；
+ *   api/db/index.js 里 v14 / v15 / v16 三条历史迁移仍然按**旧名**查库 ——
+ *   它们面对的是还没改名老数据，改了就查不到了。
+ *
  * ★ 两种 type 各有一组 ★
  *   category 表用 type 区分收支，同一个父级不能同时挂两种 type 的子类，
- *   所以「系统预置分类」在 expense 和 income 下各是一条独立的一级分类
+ *   所以「系统分类」在 expense 和 income 下各是一条独立的一级分类
  *   （名字相同、type 不同），它们下面的固定子类各自归位。
  *
  * ★ 固定子类不可删改 ★
@@ -57,19 +63,27 @@ export const RECONCILE_LEGACY_NAME = '对账调整'
  *   「借出 / 借入」是借入借出管理的记账口径，
  *   都被 api/category.js 的 isFixedCategory() 拦住，分类管理里不能改名/删除。
  *
- * 放在 schema.js 是为了让 api/category.js（运行时兜底创建）
+ * 放在 schema.js 是为了让 api/category.js（运行时兜底创建 / 名字同步）
  * 和 api/db/index.js（迁移 v14）共用同一份定义，避免两处不同步。
  */
-export const SYSTEM_PRESET_GROUP_NAME = '系统预置分类'
+export const SYSTEM_PRESET_GROUP_NAME = '系统分类'
 
-/** 「系统预置分类」父级（按 type 各一条） */
+/**
+ * 这一组分类的**旧名字**（v14 ~ v17 用过）
+ *
+ * 只给「迁移 / 同步」用：老库里存的是旧名，改代码里的常量不影响已存在的数据，
+ * 要靠一次 UPDATE 把旧名改成新名。
+ */
+export const SYSTEM_PRESET_LEGACY_NAME = '系统预置分类'
+
+/** 「系统分类」父级（按 type 各一条） */
 export const SYSTEM_PRESET_GROUPS = {
   expense: { name: SYSTEM_PRESET_GROUP_NAME, type: 'expense', icon: 'more', color: '#969799' },
   income: { name: SYSTEM_PRESET_GROUP_NAME, type: 'income', icon: 'more', color: '#969799' }
 }
 
 /**
- * 「系统预置分类」下的固定子类
+ * 「系统分类」下的固定子类
  *
  * icon 必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键。
  *
@@ -86,17 +100,25 @@ export const SYSTEM_PRESET_GROUPS = {
  *   所以固定子类统一用 900+ 的大 sort：
  *   在各自父级下它们仍然按 900、901 的顺序显示（顺序不变），
  *   但在整张扁平表里永远排在用户分类后面。
- *   父级「系统预置分类」用 999，比子类更靠后（见 SYSTEM_PRESET_GROUPS 的用法）。
+ *   父级「系统分类」用 999，比子类更靠后（见 SYSTEM_PRESET_GROUPS 的用法）。
  */
 export const SYSTEM_PRESET_CHILDREN = [
   // 支出方向：借出（钱借出去）、借款归还（把借来的还回去）
   { type: 'expense', name: '借出', icon: 'lend', color: '#FF8F1F', sort: 900 },
   { type: 'expense', name: '借款归还', icon: 'borrow', color: '#07C160', sort: 901 },
   { type: 'expense', name: '对账支出', icon: 'more', color: '#969799', sort: 902 },
-  // 收入方向：借入（钱借进来）、借款收回（借出去的收回来）
+  // 收入方向：借入（钱借进来）、借款收回（借出去的收回来）、报销收入（公司报销到账）
   { type: 'income', name: '借入', icon: 'borrow', color: '#07C160', sort: 900 },
   { type: 'income', name: '借款收回', icon: 'lend', color: '#FF8F1F', sort: 901 },
-  { type: 'income', name: '对账收入', icon: 'more', color: '#969799', sort: 902 }
+  { type: 'income', name: '对账收入', icon: 'more', color: '#969799', sort: 902 },
+  /*
+   * ★ 报销收入（v18 起）★
+   *   垫付后公司打回来的钱，既不是工资也不是二手出售，
+   *   混进普通收入分类里会污染「工资 / 副业」的统计口径。
+   *   它是系统给的一笔固定收入口径，所以放进这一组。
+   *   sort 排在对账收入之后，不影响前两条的顺序。
+   */
+  { type: 'income', name: '报销收入', icon: 'refund', color: '#26A69A', sort: 903 }
 ]
 
 /**
@@ -138,10 +160,10 @@ export const LOAN_CATEGORY_NAMES = {
  *
  * ★ 结构是一级 + 二级 ★
  *   一级是「统计口径」（餐饮食品、交通出行…），二级是用户真正记的那一项
- *   （正餐、饮品、零食/小吃…）。
+ *   （日常三餐、奶茶饮料、零食小吃…）。
  *
  * ★ 二级分类有自己的图标（v6 起）★
- *   以前二级分类直接继承父级的 icon，用户没法给「早餐」单独配图标。
+ *   以前二级分类直接继承父级的 icon，用户没法给「日常三餐」单独配图标。
  *   现在 children 里每一项都是 { name, icon } 对象：
  *     - icon   独立图标
  *     - color  省略时继承父级颜色
@@ -152,58 +174,69 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
   {
     name: '餐饮食品', icon: 'food', color: '#FF976A',
     children: [
-      { name: '正餐', icon: 'food' },
-      { name: '饮品', icon: 'coffee' },
-      { name: '零食/小吃', icon: 'snack' },
-      { name: '超市/零售', icon: 'shop' }
+      { name: '日常三餐', icon: 'food' },
+      { name: '奶茶饮料', icon: 'coffee' },
+      { name: '超市零售', icon: 'shop' },
+      { name: '水果蔬菜', icon: 'snack' },
+      { name: '零食小吃', icon: 'snack' }
     ]
   },
   {
     name: '交通出行', icon: 'car', color: '#1989FA',
     children: [
-      { name: '公共交通/打车', icon: 'carfare' },
-      { name: '火车/飞机', icon: 'travel' },
-      { name: '加油/停车', icon: 'fuel' }
+      { name: '公共交通', icon: 'carfare' },
+      { name: '长途交通', icon: 'travel' },
+      { name: '加油充电', icon: 'fuel' },
+      { name: '打车租车', icon: 'car' },
+      { name: '停车过路', icon: 'car' },
+      { name: '洗车维保', icon: 'car' },
+      { name: '罚款违章', icon: 'tax' }
     ]
   },
   {
     name: '居住住房', icon: 'home', color: '#7D5FFF',
     children: [
-      { name: '房租/房贷/物业', icon: 'rent' },
-      { name: '水电燃气', icon: 'water' },
-      { name: '话费/网费', icon: 'phone' }
+      { name: '房租房贷', icon: 'rent' },
+      { name: '水费电费', icon: 'water' },
+      { name: '通讯宽带', icon: 'net' },
+      { name: '家政维修', icon: 'home' },
+      { name: '燃气取暖', icon: 'water' },
+      { name: '洗衣洗澡', icon: 'water' }
     ]
   },
   {
     name: '购物消费', icon: 'shop', color: '#EE0A24',
     children: [
-      { name: '日用品', icon: 'daily' },
-      { name: '服饰', icon: 'clothes' },
-      { name: '数码', icon: 'digital' }
+      { name: '家居日用', icon: 'daily' },
+      { name: '服饰鞋包', icon: 'clothes' },
+      { name: '数码电器', icon: 'digital' },
+      { name: '美妆个护', icon: 'beauty' }
     ]
   },
   {
     name: '医疗健康', icon: 'medical', color: '#FF8F1F',
     children: [
-      { name: '买药/看病', icon: 'medical' },
-      { name: '健身', icon: 'fitness' },
-      { name: '医保/社保', icon: 'socialsec' }
+      { name: '买药看病', icon: 'medical' },
+      { name: '运动健身', icon: 'fitness' },
+      { name: '健康保健', icon: 'socialsec' },
+      { name: '医保社保', icon: 'socialsec' }
     ]
   },
   {
     name: '社交娱乐', icon: 'game', color: '#07C160',
     children: [
-      { name: '旅游', icon: 'travel' },
-      { name: '娱乐', icon: 'game' },
-      { name: '团建', icon: 'social' }
+      { name: '度假旅游', icon: 'travel' },
+      { name: '休闲玩乐', icon: 'game' },
+      { name: '休闲娱乐', icon: 'social' }
     ]
   },
   {
     name: '学校学习', icon: 'book', color: '#0A8F4A',
     children: [
-      { name: '学费', icon: 'tuition' },
-      { name: '书籍/课程/资料', icon: 'book' },
-      { name: '文具', icon: 'stationery' }
+      { name: '学费学杂费', icon: 'tuition' },
+      { name: '书籍文具', icon: 'book' },
+      { name: '培训考证', icon: 'stationery' },
+      { name: '人工智能', icon: 'book' }
     ]
   },
   {
@@ -214,18 +247,48 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
       { name: '送礼', icon: 'gift' }
     ]
   },
-  { name: '其他/杂项', icon: 'more', color: '#969799', children: [] }
+  {
+    name: '其他支出', icon: 'more', color: '#969799',
+    children: [
+      { name: '宠物开销', icon: 'pet' },
+      { name: '快递邮费', icon: 'shop' },
+      { name: '意外损失', icon: 'insurance' },
+      { name: '公益捐款', icon: 'gift' },
+      { name: '其他支出', icon: 'more' }
+    ]
+  }
 ]
 
 export const DEFAULT_INCOME_CATEGORIES = [
   { name: '工资',     icon: 'money',  color: '#07C160', children: [] },
-  { name: '奖金补贴', icon: 'bonus',  color: '#FF8F1F', children: [] },
+  {
+    name: '奖金补贴', icon: 'bonus',  color: '#FF8F1F',
+    children: [
+      { name: '年终/季度奖', icon: 'bonus' },
+      { name: '项目奖金', icon: 'bonus' },
+      { name: '常规补贴', icon: 'money' },
+      { name: '奖学金', icon: 'money' }
+    ]
+  },
   { name: '副业劳务', icon: 'work',   color: '#7D5FFF', children: [] },
   { name: '租金收入', icon: 'rent',   color: '#1989FA', children: [] },
   { name: '投资收益', icon: 'chart',  color: '#0A8F4A', children: [] },
   { name: '红包礼金', icon: 'gift',   color: '#FF6B9D', children: [] },
-  { name: '二手出售', icon: 'more',   color: '#EE0A24', children: [] },
-  { name: '退款返还', icon: 'refund', color: '#26A69A', children: [] },
+  {
+    name: '二手出售', icon: 'more',   color: '#EE0A24',
+    children: [
+      { name: '数码家电', icon: 'digital' },
+      { name: '闲置衣物', icon: 'clothes' }
+    ]
+  },
+  {
+    name: '退款返还', icon: 'refund', color: '#26A69A',
+    children: [
+      { name: '购物退款', icon: 'refund' },
+      { name: '退税', icon: 'tax' },
+      { name: '押金返还', icon: 'refund' }
+    ]
+  },
   { name: '父母补贴', icon: 'money',  color: '#FFD60A', children: [] }
 ]
 
@@ -233,8 +296,8 @@ export const DEFAULT_INCOME_CATEGORIES = [
  * 取二级分类的图标
  *
  * 兼容两种写法：
- *   { name: '正餐', icon: 'food' }   -> 'food'
- *   '正餐'（旧写法，继承父级）      -> parentIcon
+ *   { name: '日常三餐', icon: 'food' }   -> 'food'
+ *   '日常三餐'（旧写法，继承父级）       -> parentIcon
  *
  * @param {object|string} child 二级分类定义
  * @param {string} parentIcon 父级图标（兜底）
@@ -279,7 +342,7 @@ export const DEFAULT_ALIAS = {
   社交娱乐: ['电影', '游戏', '会员', '续费', '旅游', '唱歌', '团建', '聚会'],
   学校学习: ['书', '课程', '培训', '考试', '学费', '文具', '资料'],
   人情往来: ['红包', '礼物', '请客', '份子', '随份子', '送礼'],
-  '其他/杂项': ['其他', '杂项', '别的'],
+  其他支出: ['其他', '杂项', '别的'],
   工资: ['工资', '发工资', '月薪', '薪水', '底薪'],
   奖金补贴: ['奖金', '年终奖', '补贴', '津贴', '加班费'],
   副业劳务: ['稿费', '项目款', '外快', '兼职', '劳务'],

@@ -39,7 +39,7 @@ function check(name, actual, expected) {
 
 /* ------------------------------------------------------------ 测试夹具 */
 
-/** 分类表：系统预置分类 + 一个普通分类，模拟真实库 */
+/** 分类表：系统分类 + 一个普通分类，模拟真实库 */
 const CATEGORIES = [
   { id: 'g_exp', parent_id: null, name: SYSTEM_PRESET_GROUP_NAME, type: 'expense' },
   { id: 'g_inc', parent_id: null, name: SYSTEM_PRESET_GROUP_NAME, type: 'income' },
@@ -53,8 +53,8 @@ const CATEGORIES = [
   { id: 'p_gift', parent_id: null, name: '人情往来', type: 'expense' },
   { id: 'c_gift', parent_id: 'p_gift', name: '送礼', type: 'expense' },
   { id: 'p_food', parent_id: null, name: '餐饮食品', type: 'expense' },
-  { id: 'c_food', parent_id: 'p_food', name: '正餐', type: 'expense' },
-  { id: 'p_other', parent_id: null, name: '其他/杂项', type: 'expense' }
+  { id: 'c_food', parent_id: 'p_food', name: '日常三餐', type: 'expense' },
+  { id: 'p_other', parent_id: null, name: '其他支出', type: 'expense' }
 ]
 
 const ACCOUNTS = [
@@ -255,7 +255,7 @@ console.log('=== 分类不存在时不能塞假 id ===')
   /*
    * 老库还没跑迁移 / 用户删掉了「借款归还」。
    * 这时应该：类型纠正正确（支出），但分类留空 ——
-   * 交给上层兜底流程挂「其他/杂项」，而不是塞一个不存在的 id。
+   * 交给上层兜底流程挂「其他支出」，而不是塞一个不存在的 id。
    */
   const cats = CATEGORIES.filter((c) => c.name !== '借款归还')
   const res = validateItem(

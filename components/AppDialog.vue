@@ -164,7 +164,9 @@ export default {
     /** 本次是否已经结算过（防止重复 resolve） */
     let settled = false
 
-    const hasCancel = computed(() => mode.value === 'confirm' || mode.value === 'prompt')
+    const hasCancel = computed(
+      () => mode.value === 'confirm' || mode.value === 'prompt'
+    )
 
     const confirmStyle = computed(() => {
       // 危险操作（删除、清空、覆盖）用红色确定按钮

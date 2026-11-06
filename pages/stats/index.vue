@@ -7,9 +7,47 @@
       </template>
     </AppHeader>
 
-    <!-- 时间范围选择：年 / 月 / 日 三级联动下拉 -->
+    <!-- 时间范围选择：日/月/年 三级联动下拉，或自定义起止日 -->
     <view class="range-picker-bar">
-      <DateRangePicker v-model="dateRange" @range-change="onRangeChange" />
+      <!--
+        ★ 筛选方式切换（用户指定）★
+          和「全部交易」页同一组样式（type-toggle），
+          两个页面切来切去时观感一致。
+      -->
+      <view class="mode-toggle">
+        <text
+          class="mode-tag"
+          :class="{ active: dateMode === 'period' }"
+          @click="switchDateMode('period')"
+        >日/月/年</text>
+        <text
+          class="mode-tag"
+          :class="{ active: dateMode === 'custom' }"
+          @click="switchDateMode('custom')"
+        >自定义</text>
+      </view>
+
+      <DateRangePicker
+        v-if="dateMode === 'period'"
+        v-model="dateRange"
+        @range-change="onRangeChange"
+      />
+
+      <view v-else class="custom-bar">
+        <picker mode="date" :value="customStart" :end="customEnd || todayKey" @change="onCustomStart">
+          <view class="custom-cell">
+            <text class="custom-label">开始</text>
+            <text class="custom-value">{{ customStart || '选择' }}</text>
+          </view>
+        </picker>
+        <text class="custom-sep">—</text>
+        <picker mode="date" :value="customEnd" :start="customStart || ''" :end="todayKey" @change="onCustomEnd">
+          <view class="custom-cell">
+            <text class="custom-label">结束</text>
+            <text class="custom-value">{{ customEnd || '选择' }}</text>
+          </view>
+        </picker>
+      </view>
     </view>
 
     <scroll-view class="page-scroll" scroll-y>
@@ -316,9 +354,11 @@
             <text class="top-rank" :class="{ 'top-3': i < 3 }">{{ i + 1 }}</text>
             <view class="top-info">
               <text class="top-name">{{ t.category_name || '未分类' }}</text>
-              <!-- ★ 账户被删除后 account_name 为空 —— 显示「无账户」而不是「无备注」 ★
-                   （无备注是另一回事，两者别混） -->
-              <text class="top-sub ellipsis">{{ t.note || t.account_name || '无账户' }}</text>
+              <!-- ★ 账户在前、备注在后（用户指定）★
+                   账户名是「这笔钱从哪出」的定位信息，比备注更该先被看到；
+                   备注长短不一，放前面会把账户名挤进省略号里。
+                   ★ 账户被删除后 account_name 为空 —— 显示「无账户」而不是「无备注」 ★ -->
+              <text class="top-sub ellipsis">{{ t.account_name || t.note || '无账户' }}</text>
             </view>
             <view class="top-right">
               <MoneyText :cents="t.amount_cents" type="expense" :size="28" :weight="500" />
@@ -340,6 +380,9 @@
     />
 
     <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
+    <!-- 弹窗宿主：外部打开 JSON 时可能在任意一页弹出，
+         缺了这一行就退化成原生弹窗，样式与别处不一致 -->
+    <AppDialog />
     <UpdateDialog />
   </view>
 </template>
@@ -352,6 +395,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
@@ -365,17 +409,31 @@ import {
   PIE_PALETTE
 } from '@/api/stats.js'
 import {
-  selectionToRange, defaultSelection, selectionLabel
+  selectionToRange, defaultSelection, selectionLabel,
+  customToRange, customRangeLabel, defaultCustomRange, toDayKey
 } from '@/utils/date.js'
 
 export default {
-  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction, AppTabBar, UpdateDialog },
+  components: { AppHeader, MoneyText, DateRangePicker, HeaderAction, AppTabBar, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const uiStore = useUiStore()
 
     /** 三级联动选择：year / month / day，0 表示「全部」 */
     const dateRange = ref(defaultSelection())
+
+    /**
+     * 时间筛选方式：'period'（日/月/年三级联动）| 'custom'（自定义起止日）
+     *
+     * ★ 与「全部交易」页同一套 ★
+     *   两个页面都从 utils/date.js 拿 customToRange，
+     *   查询口径才不会一边一个样。
+     */
+    const dateMode = ref('period')
+    const customStart = ref(defaultCustomRange().startDay)
+    const customEnd = ref(defaultCustomRange().endDay)
+    /** 原生 picker 的上限：未来的账还没发生，不让选 */
+    const todayKey = toDayKey()
     /**
      * 每张卡片的「支出/收入」各自独立控制。
      *
@@ -416,11 +474,25 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
-    /** 当前选择对应的查询区间 */
-    const range = computed(() => selectionToRange(dateRange.value))
+    /**
+     * 当前选择对应的查询区间
+     *
+     * ★ 自定义区间不写 monthKey ★
+     *   给了 monthKey，api/stats.js 就会按 `t.month_key = ?` 走等值过滤，
+     *   跨月区间会被掐成一个月。customToRange 只在「正好整月」时才回填 monthKey。
+     */
+    const range = computed(() =>
+      dateMode.value === 'custom'
+        ? customToRange(customStart.value, customEnd.value)
+        : selectionToRange(dateRange.value)
+    )
 
     /** 当前选择的展示文案 */
-    const rangeLabel = computed(() => selectionLabel(dateRange.value))
+    const rangeLabel = computed(() =>
+      dateMode.value === 'custom'
+        ? customRangeLabel(customStart.value, customEnd.value)
+        : selectionLabel(dateRange.value)
+    )
 
     /** 趋势图标题：按天还是按月 */
     const trendTitle = computed(() => {
@@ -603,6 +675,38 @@ export default {
       loadAll()
     }
 
+    /**
+     * 切换时间筛选方式。
+     *
+     * ★ 切过去立刻重拉 ★
+     *   两套状态各存各的，不重拉的话页面还停在上一种方式的数据上，
+     *   用户会以为切换没生效（统计页所有卡片都要重算，代价比列表大，
+     *   所以这里不接受「等下次操作再刷新」的偷懒做法）。
+     */
+    function switchDateMode(mode) {
+      if (dateMode.value === mode) return
+      dateMode.value = mode
+      loadAll()
+    }
+
+    /** 自定义：改开始日 */
+    function onCustomStart(e) {
+      customStart.value = e.detail.value
+      if (customEnd.value && customStart.value > customEnd.value) {
+        customEnd.value = customStart.value
+      }
+      loadAll()
+    }
+
+    /** 自定义：改结束日 */
+    function onCustomEnd(e) {
+      customEnd.value = e.detail.value
+      if (customStart.value && customEnd.value < customStart.value) {
+        customStart.value = customEnd.value
+      }
+      loadAll()
+    }
+
     function goTxnDetail(id) {
       uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
     }
@@ -649,6 +753,17 @@ export default {
      * App.vue 补记成功且有新增时 emit 这个事件，这里重查一次。
      */
     uni.$on('cycle:caughtup', () => {
+      if (settingStore.loaded) loadAll()
+    })
+
+    /*
+     * 外部文件导入完成 → 整库换了，本页所有数字都要重查
+     *
+     * 一般情况下 App.vue 导入后会 reLaunch 回首页，本页会重建；
+     * 但这条监听留着，覆盖「已经在首页、没有 reLaunch」以及
+     * 以后可能改成不跳转的情况。多一次查询的代价可以忽略。
+     */
+    uni.$on('data:imported', () => {
       if (settingStore.loaded) loadAll()
     })
 
@@ -759,6 +874,9 @@ export default {
     return {
       settingStore,
       dateRange,
+      // 时间筛选方式（日/月/年 或 自定义起止日）
+      dateMode, customStart, customEnd, todayKey,
+      switchDateMode, onCustomStart, onCustomEnd,
       categoryStatType, accountStatType, averageStatType,
       categoryLevel, averageLevel, accountViewMode,
       categoryStats, categoryAverages,
@@ -794,6 +912,68 @@ export default {
    */
   z-index: 5;
   padding: 8rpx 32rpx 20rpx;
+}
+
+/* 时间筛选方式切换（日/月/年 ｜ 自定义）
+   与「全部交易」页同一套样式，两处观感一致 */
+.mode-toggle {
+  display: flex;
+  gap: 8rpx;
+  background-color: var(--app-card-2);
+  border-radius: 16rpx;
+  padding: 4rpx;
+  margin-bottom: 12rpx;
+}
+
+.mode-tag {
+  flex: 1;
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  padding: 12rpx 0;
+  border-radius: 12rpx;
+}
+
+.mode-tag.active {
+  background-color: var(--app-card);
+  color: var(--app-text);
+  font-weight: 500;
+}
+
+/* 自定义区间的两个日期格 */
+.custom-bar {
+  display: flex;
+  align-items: center;
+  background-color: var(--app-card);
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.custom-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 72rpx;
+  padding: 0 16rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-label {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
+.custom-value {
+  font-size: 26rpx;
+  color: var(--app-text);
+}
+
+.custom-sep {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
 /* 收支摘要 */

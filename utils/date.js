@@ -147,6 +147,76 @@ export function cascadeSelection(sel = {}, changed = 'day') {
   return { year, month, day }
 }
 
+/**
+ * 自定义区间（开始日 ~ 结束日）-> 查询区间
+ *
+ * ★ 为什么 monthKey 只在「整月」时才给 ★
+ *   monthKey 是个查询加速开关：给了它，SQL 就会走
+ *   `t.month_key = ?` 的索引（见 api/transaction.js 的 buildQuery）。
+ *   自定义区间大多是跨月的，硬塞一个 monthKey 会漏数据。
+ *   只有用户正好选满一整月（1 号 ~ 月末）时才顺手补上，
+ *   其余情况一律走 occurred_day 的区间比较。
+ *
+ * ★ 起止颠倒要自动纠正 ★
+ *   用户先点结束日再改开始日时很容易选出「开始 > 结束」，
+ *   这时候如果不交换，查询结果永远是空的，看着像「这个区间没数据」。
+ *
+ * @param {string} startDay YYYY-MM-DD
+ * @param {string} endDay YYYY-MM-DD
+ * @returns {{startDay:string, endDay:string, monthKey:string}}
+ */
+export function customToRange(startDay, endDay) {
+  let a = String(startDay || '')
+  let b = String(endDay || '')
+  if (!a && !b) return { startDay: '', endDay: '', monthKey: '' }
+  if (!a) a = b
+  if (!b) b = a
+  if (a > b) {
+    const t = a
+    a = b
+    b = t
+  }
+
+  // 整月才给 monthKey（提升走索引的几率）
+  let monthKey = ''
+  if (a.slice(0, 7) === b.slice(0, 7)) {
+    const ym = a.slice(0, 7)
+    const [y, m] = ym.split('-').map(Number)
+    const last = new Date(y, m, 0).getDate()
+    if (a === `${ym}-01` && b === `${ym}-${String(last).padStart(2, '0')}`) {
+      monthKey = ym
+    }
+  }
+  return { startDay: a, endDay: b, monthKey }
+}
+
+/**
+ * 自定义区间的默认态：本月 1 号 ~ 今天
+ *
+ * ★ 为什么不是「本月 1 号 ~ 月末」★
+ *   月末是未来日期，选上来会让人以为「后面还有数据」；
+ *   默认给到今天就够看当前进度了。
+ */
+export function defaultCustomRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  return { startDay: `${y}-${m}-01`, endDay: toDayKey(now) }
+}
+
+/**
+ * 自定义区间的展示文案
+ * @param {string} startDay
+ * @param {string} endDay
+ * @returns {string}
+ */
+export function customRangeLabel(startDay, endDay) {
+  const r = customToRange(startDay, endDay)
+  if (!r.startDay) return '全部时间'
+  if (r.startDay === r.endDay) return r.startDay
+  return `${r.startDay} ~ ${r.endDay}`
+}
+
 /** 某月的第一天与最后一天 */
 export function monthRange(monthKey) {
   const [y, m] = String(monthKey).split('-').map(Number)

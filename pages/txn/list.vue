@@ -23,10 +23,55 @@
       </view>
     </view>
 
-    <!-- 时间范围选择：年 / 月 / 日 三级联动下拉
+    <!-- 时间范围选择：日/月/年 三级联动下拉，或自定义起止日
          放在汇总条下面，下拉面板展开时不会被汇总条压住 -->
     <view class="month-bar">
-      <DateRangePicker ref="datePickerRef" v-model="dateRange" @range-change="onDateChange" />
+      <!--
+        ★ 筛选方式切换（用户指定）★
+          「日/月/年」= 原来那套三级联动，一行不差；
+          「自定义」= 自己挑开始日与结束日，跨月跨年都行。
+          样式复用统计页「一级/二级」那组 type-toggle，两个页面观感一致。
+      -->
+      <view class="mode-toggle">
+        <text
+          class="mode-tag"
+          :class="{ active: dateMode === 'period' }"
+          @click="switchDateMode('period')"
+        >日/月/年</text>
+        <text
+          class="mode-tag"
+          :class="{ active: dateMode === 'custom' }"
+          @click="switchDateMode('custom')"
+        >自定义</text>
+      </view>
+
+      <DateRangePicker
+        v-if="dateMode === 'period'"
+        ref="datePickerRef"
+        v-model="dateRange"
+        @range-change="onDateChange"
+      />
+
+      <!--
+        ★ 为什么用原生 picker 而不是 wd-calendar ★
+          这里只挑「某一天」，原生 picker 是系统级日期轮，最省事也最稳；
+          wd-calendar 是区间选择器，画出来是两个日历，在这个位置太高了。
+      -->
+      <view v-else class="custom-bar">
+        <picker mode="date" :value="customStart" :end="customEnd || todayKey" @change="onCustomStart">
+          <view class="custom-cell">
+            <text class="custom-label">开始</text>
+            <text class="custom-value">{{ customStart || '选择' }}</text>
+          </view>
+        </picker>
+        <text class="custom-sep">—</text>
+        <picker mode="date" :value="customEnd" :start="customStart || ''" :end="todayKey" @change="onCustomEnd">
+          <view class="custom-cell">
+            <text class="custom-label">结束</text>
+            <text class="custom-value">{{ customEnd || '选择' }}</text>
+          </view>
+        </picker>
+      </view>
     </view>
 
     <scroll-view
@@ -316,7 +361,10 @@ import { listTransactions, sumTransactions, parseTxnQueryOptions } from '@/api/t
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { listCycles, recurrenceLabel } from '@/api/cycle.js'
-import { formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey } from '@/utils/date.js'
+import {
+  formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey,
+  customToRange, customRangeLabel, defaultCustomRange, toDayKey
+} from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { parseAmountInput } from '@/utils/money.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
@@ -334,6 +382,20 @@ export default {
 
     /** 三级联动选择：year / month / day，0 表示「全部」 */
     const dateRange = ref(defaultSelection())
+
+    /**
+     * 时间筛选方式：'period'（日/月/年三级联动）| 'custom'（自定义起止日）
+     *
+     * ★ 两套状态各存各的，互不覆盖 ★
+     *   用户切回「日/月/年」时应该看到他上次选的那个月，
+     *   而不是被自定义区间重置掉。
+     */
+    const dateMode = ref('period')
+    const customStart = ref(defaultCustomRange().startDay)
+    const customEnd = ref(defaultCustomRange().endDay)
+    /** 原生 picker 的结束日上限：不允许选未来（未来的账还没发生） */
+    const todayKey = toDayKey()
+
     const list = ref([])
     const summary = ref({ count: 0, expense: 0, income: 0, transfer: 0 })
     const offset = ref(0)
@@ -491,6 +553,9 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     const rangeLabel = computed(() => {
+      if (dateMode.value === 'custom') {
+        return customRangeLabel(customStart.value, customEnd.value)
+      }
       const sel = dateRange.value
       if (!sel.year) return '全部年'
       if (!sel.month) return `${sel.year}年`
@@ -675,18 +740,33 @@ export default {
     /* ------------------------------------------------------ 查询 */
 
     function buildQuery() {
-      const sel = dateRange.value
-      const r = selectionToRange(sel)
       const q = {
         limit: PAGE_SIZE,
         offset: offset.value
       }
-      // 整月用 month_key（走 idx_txn_month_type），其余用 occurred_day 区间
-      if (sel.year && sel.month && !sel.day) {
-        q.monthKey = r.monthKey
+
+      /*
+       * ★ 两套筛选方式只走其中一条 ★
+       *   自定义区间不写 monthKey（理由见 utils/date.js 的 customToRange），
+       *   否则跨月查询会被 month_key 的等值条件掐死，只能查到一个月。
+       */
+      if (dateMode.value === 'custom') {
+        const r = customToRange(customStart.value, customEnd.value)
+        if (r.monthKey) q.monthKey = r.monthKey
+        else {
+          if (r.startDay) q.startDay = r.startDay
+          if (r.endDay) q.endDay = r.endDay
+        }
       } else {
-        if (r.startDay) q.startDay = r.startDay
-        if (r.endDay) q.endDay = r.endDay
+        const sel = dateRange.value
+        const r = selectionToRange(sel)
+        // 整月用 month_key（走 idx_txn_month_type），其余用 occurred_day 区间
+        if (sel.year && sel.month && !sel.day) {
+          q.monthKey = r.monthKey
+        } else {
+          if (r.startDay) q.startDay = r.startDay
+          if (r.endDay) q.endDay = r.endDay
+        }
       }
       if (appliedFilter.type !== 'all') q.type = appliedFilter.type
       if (appliedFilter.accountId) q.accountId = appliedFilter.accountId
@@ -777,6 +857,38 @@ export default {
     }
 
     /**
+     * 切换时间筛选方式。
+     *
+     * ★ 切过去就立刻查一次 ★
+     *   两套状态各存各的，切过去如果不查，列表还停在上一种方式的结果上，
+     *   用户会以为切换没生效。
+     */
+    function switchDateMode(mode) {
+      if (dateMode.value === mode) return
+      dateMode.value = mode
+      loadFirstPage()
+    }
+
+    /** 自定义：改开始日 */
+    function onCustomStart(e) {
+      customStart.value = e.detail.value
+      // 起止颠倒时自动纠正，避免查出空结果
+      if (customEnd.value && customStart.value > customEnd.value) {
+        customEnd.value = customStart.value
+      }
+      loadFirstPage()
+    }
+
+    /** 自定义：改结束日 */
+    function onCustomEnd(e) {
+      customEnd.value = e.detail.value
+      if (customStart.value && customEnd.value < customStart.value) {
+        customStart.value = customEnd.value
+      }
+      loadFirstPage()
+    }
+
+    /**
      * 打开筛选面板
      *
      * 先把日期选择器的下拉收起来：
@@ -809,9 +921,14 @@ export default {
 
     function txnSub(txn) {
       const parts = []
-      if (txn.note) parts.push(txn.note)
+      /*
+       * ★ 账户在前、备注在后（用户指定）★
+       *   和首页、账户详情页保持同一顺序，
+       *   否则同一笔交易在不同页面看起来像两条不同的记录。
+       */
       // ★ 账户被删除后 account_name 为空 —— 显示「无账户」 ★
       if (txn.type !== 'transfer') parts.push(txn.account_name || '无账户')
+      if (txn.note) parts.push(txn.note)
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
@@ -1102,6 +1219,9 @@ export default {
     return {
       settingStore, accountStore, statusBarHeight,
       dateRange, datePickerRef, list, summary, hasMore, loading, showFilter,
+      // 时间筛选方式（日/月/年 或 自定义起止日）
+      dateMode, customStart, customEnd, todayKey,
+      switchDateMode, onCustomStart, onCustomEnd,
       filter, appliedFilter, typeOptions, categories, tags,
       primaryColor, pageStyle, rangeLabel, parentCategories, subCategories, filterCount, groups,
       // 下拉选择器
@@ -1173,6 +1293,68 @@ export default {
    */
   z-index: 5;
   padding: 0 32rpx 12rpx;
+}
+
+/* 时间筛选方式切换（日/月/年 ｜ 自定义）
+   样式照抄统计页「一级/二级」那组 type-toggle，两页观感一致 */
+.mode-toggle {
+  display: flex;
+  gap: 8rpx;
+  background-color: var(--app-card-2);
+  border-radius: 16rpx;
+  padding: 4rpx;
+  margin-bottom: 12rpx;
+}
+
+.mode-tag {
+  flex: 1;
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  padding: 12rpx 0;
+  border-radius: 12rpx;
+}
+
+.mode-tag.active {
+  background-color: var(--app-card);
+  color: var(--app-text);
+  font-weight: 500;
+}
+
+/* 自定义区间的两个日期格 */
+.custom-bar {
+  display: flex;
+  align-items: center;
+  background-color: var(--app-card);
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.custom-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 72rpx;
+  padding: 0 16rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-label {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
+.custom-value {
+  font-size: 26rpx;
+  color: var(--app-text);
+}
+
+.custom-sep {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
 /* 汇总 */

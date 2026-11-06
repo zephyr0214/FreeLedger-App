@@ -624,20 +624,6 @@ export function listImportableFiles() {
   )
 }
 
-export async function importFromFile(relPath) {
-  const text = await readTextFile(relPath)
-  let payload
-  try {
-    payload = parseJsonLoose(text)
-  } catch (e) {
-    throw new Error(
-      `文件解析失败（读到 ${typeof text === 'string' ? text.length : 0} 个字符）。` +
-      '可能是文件不完整，或这个文件不是本应用导出的备份。'
-    )
-  }
-  return importPayload(payload, { mode: 'overwrite' })
-}
-
 /* ------------------------------------------------------------------ 恢复 */
 
  /** 校验备份数据 */

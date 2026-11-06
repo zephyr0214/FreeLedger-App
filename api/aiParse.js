@@ -269,7 +269,7 @@ export function toTimeText(v) {
  * @param {string} text 用户原句（或备注 + 原句）
  * @returns {{type:string, categoryName:string, key:string}|null}
  *   type: 'expense' | 'income'
- *   categoryName: 要挂的分类名（与「系统预置分类」下的固定子类一致）
+ *   categoryName: 要挂的分类名（与「系统分类」下的固定子类一致）
  */
 export function detectLoanIntent(text) {
   const t = String(text || '')
@@ -438,7 +438,7 @@ export function validateItem(raw, ctx) {
    * 模型可能给了个别的分类（把「还给姐姐」记成「人情往来/送礼」），
    * 也可能因为原本判成 transfer 而根本没给分类。
    * 既然我们已经从句子里认出了借还意图，这里就把它钉到
-   * 「系统预置分类」下对应的固定子类上 ——
+   * 「系统分类」下对应的固定子类上 ——
    * 否则借入借出页面按分类统计时抓不到这一笔。
    */
   if (loanIntent) {
@@ -660,10 +660,10 @@ function findAccountInText(text, accounts = []) {
 /**
  * 构造给模型看的分类候选
  *
- * ★ 「系统预置分类」下的固定子类用短名，不加路径前缀 ★
+ * ★ 「系统分类」下的固定子类用短名，不加路径前缀 ★
  *   那一组是「借出 / 借款归还 / 借入 / 借款收回 / 对账支出 / 对账收入」，
- *   用户说的是「还给姐姐200」而不是「系统预置分类/借款归还」。
- *   如果给模型的标签是「系统预置分类/借款归还」，
+ *   用户说的是「还给姐姐200」而不是「系统分类/借款归还」。
+ *   如果给模型的标签是「系统分类/借款归还」，
  *   它很容易觉得不贴切而去选「人情往来/送礼」——
  *   这正是「还给姐姐」记错分类的原因之一。
  *   所以这几个直接给短名（「借款归还」），模型一眼就能对上。
@@ -680,7 +680,7 @@ export function buildCategoryOptions(categories = []) {
 
   for (const p of parents) {
     const children = list.filter((c) => c.parent_id === p.id)
-    // 系统预置分类：子类直接给短名
+    // 系统分类：子类直接给短名
     const isPreset = p.name === SYSTEM_PRESET_GROUP_NAME
 
     if (children.length === 0) {
@@ -866,7 +866,7 @@ export async function parseMessageToTransactions(text, ctx) {
    *     · parentNames —— 有二级的一级分类名（「餐饮食品」「购物消费」…）
    *       给模型当「上位概念」，帮它把「买猫粮」这种说法
    *       映射到已有的二级分类上，而不是自己造一个「宠物食品」。
-   *     · fallbackNames —— 兜底类（「其他/杂项」）
+   *     · fallbackNames —— 兜底类（「其他支出」）
    *       跟下面的兜底逻辑保持一致：找不到别的分类时，用它总比空着强。
    */
   const allCats = ctx.categories || []
@@ -898,7 +898,7 @@ export async function parseMessageToTransactions(text, ctx) {
    - **绝对不要输出汇率** —— 汇率由程序从接口取，你给了也是错的。
    - 例：「在东京花了 2000 日元」→ {"amount": 2000, "currency": "JPY"}
    - 例：「午饭 45」→ {"amount": 45, "currency": "CNY"}
-6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮食品/正餐」）。
+6. category 必须从给定的分类列表里选，且**必须选最具体的那一级**（形如「餐饮食品/日常三餐」）。
    - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段；
      少数几项是短名（如「借款归还」「借出」），也原样填。
    - 不要只填一级（如「餐饮食品」）。若列表里只有一级分类没有二级，才填一级。
@@ -908,7 +908,7 @@ export async function parseMessageToTransactions(text, ctx) {
    - **优先归到已有的、语义最接近的那一项**，按这个顺序判断：
      a) 先找语义**完全一致**的：例「买咖啡」→ 列表里表示咖啡/饮品的那一项；
      b) 再找**上位概念里语义最近**的：例「买猫粮」，列表里没有「宠物食品」，
-        就归到列表里最接近的日用品那一项（如「购物消费/日用品」这种已经存在的）；
+        就归到列表里最接近的日用品那一项（如「购物消费/家居日用」这种已经存在的）；
      c) 实在找不到能沾边的，才用**兜底类**。
    - **不要新建列表里没有的分类名**。哪怕用户原句里出现了某个词
      （「猫粮」「宠物」「健身卡」……），只要那个词不在列表里，
@@ -930,7 +930,7 @@ export async function parseMessageToTransactions(text, ctx) {
 
    借钱/还钱的对象是「人」（姐姐、同事、朋友、爸妈…），
    **不是账户** —— 所以这四种情况**一律不是 transfer**，
-   而是普通收支，分类从「系统预置分类」下选：
+   而是普通收支，分类从「系统分类」下选：
 
    | 用户怎么说 | type | category |
    |---|---|---|
@@ -976,10 +976,10 @@ ${fallbackNames.map((n) => `- ${n}`).join('\n')}
 用户消息：${message}
 
 请输出 JSON 数组，每个元素格式：
-{"amount": 45.5, "type": "expense", "currency": "CNY", "category": "餐饮食品/正餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
+{"amount": 45.5, "type": "expense", "currency": "CNY", "category": "餐饮食品/日常三餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "午饭"}
 
 外币的格式（amount 是原币金额，currency 是币种代码；不要给汇率）：
-{"amount": 2000, "type": "expense", "currency": "JPY", "category": "餐饮食品/正餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "东京晚饭"}
+{"amount": 2000, "type": "expense", "currency": "JPY", "category": "餐饮食品/日常三餐", "account": "微信", "toAccount": null, "date": "2026-10-27", "time": null, "note": "东京晚饭"}
 
 转账的格式（两个账户都在上面的账户列表里）：
 {"amount": 200, "type": "transfer", "category": null, "account": "微信", "toAccount": "支付宝", "date": "2026-10-27", "time": null, "note": "转给支付宝"}
@@ -1074,11 +1074,11 @@ ${fallbackNames.map((n) => `- ${n}`).join('\n')}
       item.accountFromAi = false
     }
 
-    // 分类兜底：支出/收入没给分类 → 用「其他/杂项」这类兜底分类
+    // 分类兜底：支出/收入没给分类 → 用「其他支出」这类兜底分类
     //   ★ 不能只认「其他」一个名字 ★
-    //     默认分类改版后一级叫「其他/杂项」，
+    //     默认分类改版后一级叫「其他支出」，
     //     而用户自己建的也可能叫「其它」「未分类」。
-    //     这里按「名字含其他/杂项」来找，找不到再退到任意一个无二级的兜底分类。
+    //     这里按「名字含其他/杂项或未分类」来找，找不到再退到任意一个无二级的兜底分类。
     if (item.type !== 'transfer' && !item.category_id) {
       const sameType = ctx.categories.filter((c) => c.type === item.type && !c.parent_id)
       const other =
