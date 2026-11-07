@@ -12,8 +12,6 @@
         <text class="multi-clear" @click="clearAll">清空</text>
       </view>
 
-      <text class="multi-hint">{{ hint }}</text>
-
       <scroll-view class="multi-scroll" scroll-y>
         <view v-for="g in groups" :key="g.key" class="multi-group">
           <!--
@@ -106,7 +104,6 @@ export default {
     /** 禁用类别 id 数组（已在别处被占用） */
     disabledIds: { type: Array, default: () => [] },
     title: { type: String, default: '选择类别' },
-    hint: { type: String, default: '可以选多个类别，同一笔支出只会算进一条预算' },
     /**
      * 弹层层级
      *
@@ -270,7 +267,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 28rpx 32rpx 8rpx;
+  padding: 28rpx 32rpx 16rpx;
 }
 
 .multi-title {
@@ -282,13 +279,6 @@ export default {
 .multi-clear {
   font-size: 26rpx;
   color: var(--app-text-3);
-}
-
-.multi-hint {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.5;
-  padding: 0 32rpx 16rpx;
 }
 
 .multi-scroll {

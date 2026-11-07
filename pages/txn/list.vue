@@ -213,9 +213,6 @@
                 <text class="filter-row-arrow">›</text>
               </view>
             </view>
-            <text v-if="filter.categoryIds.length > 1" class="filter-hint">
-              已选 {{ filter.categoryIds.length }} 个分类，命中任一即可
-            </text>
           </view>
 
           <!-- 标签 -->
@@ -314,7 +311,6 @@
       :categories="multiCatSource"
       :selected-ids="filter.categoryIds"
       title="选择分类"
-      hint="可以选多个分类，命中其中任意一个的流水都会被列出来"
       @picked="onMultiCatConfirm"
     />
 
@@ -571,8 +567,14 @@ export default {
         })
         .filter(Boolean)
       if (names.length === 0) return `${ids.length} 个分类`
-      if (names.length <= 2) return names.join('、')
-      return `${names[0]}、${names[1]} 等${names.length}项`
+      /*
+       * ★ 只给第一个名字 + 等N项 ★
+       *   用户要求「分类如果多选的话，显示一个分类名加等X项」。
+       *   两个名字并排在小屏上就会换行，把筛选项的行高顶高一倍；
+       *   而这一格只是让人确认「按哪一类筛的」。
+       */
+      if (names.length === 1) return names[0]
+      return `${names[0]} 等${names.length}项`
     })
 
     /**

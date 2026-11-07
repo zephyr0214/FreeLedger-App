@@ -451,9 +451,19 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
     true
   )
   check('有打开弹层的入口', /openCatPickerSheet/.test(budgetPage), true)
+  /*
+   * ★ 已选类别不再罗列（用户要求「右侧显示已选择1分类名，后面加等X项」）★
+   *   以前是一排 chip 全部铺出来，挂 5 个类别就占三四行、把弹层顶高。
+   */
   check(
-    '已选类别按 chip 展示',
-    /v-for="c in selectedCats"/.test(budgetPage),
+    '已选类别只给摘要（catPickLabel）',
+    /\{\{ catPickLabel \}\}/.test(budgetPage),
+    true
+  )
+  check('不再罗列已选类别 chip', /picked-chip|picked-wrap/.test(budgetPage), false)
+  check(
+    '摘要格式是「已选择 名字 等N项」',
+    /`已选择 \$\{names\[0\]\} 等\$\{names\.length\}项`/.test(budgetPage),
     true
   )
   // 内联长列表应当已经撤掉（否则又会把弹层顶高）
@@ -461,6 +471,9 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
 
   const sheet = read('components/CategoryMultiPickerSheet.vue')
   check('弹层组件按一级分组', /const roots = list\.filter\(\(c\) => !c\.parent_id\)/.test(sheet), true)
+  // 用户要求删掉「选择类别」下面那句说明
+  check('弹层不再有说明小字', /multi-hint/.test(sheet), false)
+  check('弹层不接受 hint 参数', /hint: \{/.test(sheet), false)
   check(
     '弹层标签是「一级-二级」',
     /label: `\$\{root\.name\}-\$\{k\.name\}`/.test(sheet),

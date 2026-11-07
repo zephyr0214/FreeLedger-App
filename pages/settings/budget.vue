@@ -19,7 +19,6 @@
         <view class="card-head">
           <view class="card-title-row">
             <text class="card-title">月预算</text>
-            <text class="card-sub">每月总支出上限</text>
           </view>
           <text
             class="card-action"
@@ -88,7 +87,6 @@
           </view>
           <view class="check-text-wrap">
             <text class="check-text">未用完的预算结转到下一月</text>
-            <text class="check-sub">没花完的额度累加到下月，超支不透支下月</text>
           </view>
         </view>
       </view>
@@ -98,7 +96,6 @@
         <view class="card-head">
           <view class="card-title-row">
             <text class="card-title">已分配子预算</text>
-            <text class="card-sub">从月预算里分给各子预算的额度</text>
           </view>
         </view>
 
@@ -121,11 +118,14 @@
             />
           </view>
 
+          <!--
+            ★ 正常的「未分配额度」不再显示 ★
+              用户要求删掉：这一行每天都能看到，但「还剩多少没分」只在
+              添加子预算那一刻有用，平时是纯噪音。
+              超额警告保留 —— 那是异常状态，老数据里可能有。
+          -->
           <text v-if="allocation.overAllocated" class="alloc-warn">
             子预算合计已超出月预算 ¥{{ (Math.abs(allocation.unallocated) / 100).toFixed(2) }}
-          </text>
-          <text v-else class="alloc-tip">
-            未分配额度 <text class="alloc-unallocated">¥{{ (allocation.unallocated / 100).toFixed(2) }}</text>
           </text>
         </view>
       </view>
@@ -141,7 +141,6 @@
         <view class="card-head">
           <view class="card-title-row">
             <text class="card-title">子预算</text>
-            <text class="card-sub">{{ categorySubTitle }}</text>
           </view>
           <text class="card-action" @click="openCategoryPicker">+ 添加</text>
         </view>
@@ -163,14 +162,22 @@
             class="budget-swipe"
           >
             <view class="cat-budget" @click="goBudgetDetail(b)">
+              <!--
+                标题行：左边名字，右边「管的类别」
+
+                ★ 为什么类别挪到名字右边 ★
+                  以前类别单独占一行放在名字下面，一条子预算是三行高度
+                  （名字 / 类别 / 金额），列表一长就得滚很久。
+                  挪到右侧以后行高少了一行，而且「这条预算管什么」和
+                  「它叫什么」在同一视线里，扫一眼就对上。
+              -->
               <view class="cat-budget-head">
                 <view class="cat-budget-title">
                   <view class="cat-budget-dot" :style="{ backgroundColor: primaryColor }" />
                   <text class="cat-budget-name">{{ b.name }}</text>
                 </view>
+                <text class="cat-budget-cats">{{ catsLabel(b) }}</text>
               </view>
-              <!-- 挂在哪些类别：一眼看出这条子预算管什么 -->
-              <text class="cat-budget-cats">{{ catsLabel(b) }}</text>
               <view class="usage-head">
                 <MoneyText :cents="b.used" :size="30" :weight="500" color="var(--app-text)" />
                 <text class="usage-limit">/ {{ (b.limit / 100).toFixed(0) }}</text>
@@ -247,7 +254,7 @@
               class="name-input"
               type="text"
               :maxlength="20"
-              placeholder="不填则按类别自动命名"
+              :placeholder="defaultSubBudgetName"
               placeholder-class="name-placeholder"
             />
           </view>
@@ -280,14 +287,14 @@
           <view v-if="editorMode === 'category'" class="editor-row editor-row-column">
             <view class="pick-head">
               <text class="editor-label">选择类别</text>
-              <text class="pick-count">已选 {{ editorCatIds.length }} 个</text>
-            </view>
-
-            <!-- 已选的类别：一眼看出这条子预算管什么 -->
-            <view v-if="selectedCats.length > 0" class="picked-wrap">
-              <view v-for="c in selectedCats" :key="c.id" class="picked-chip">
-                <text class="picked-text">{{ c.label }}</text>
-              </view>
+              <!--
+                ★ 右侧只给摘要，不罗列 ★
+                  以前是把选中的类别做成一片一片的胶囊全部铺出来：
+                  挂 5 个类别就占掉三四行，弹层被顶高、下面的金额和
+                  「保存」都要滚出去。现在只显示「已选择 分类名 等N项」，
+                  具体是哪几个点开弹层就能看，这里只需要确认「选过了」。
+              -->
+              <text class="pick-count">{{ catPickLabel }}</text>
             </view>
 
             <view class="pick-open" @click="openCatPickerSheet">
@@ -322,7 +329,6 @@
       :selected-ids="editorCatIds"
       :disabled-ids="disabledCatIds"
       title="选择类别"
-      hint="可以选多个类别，同一笔支出只会算进一条子预算"
       @picked="onCatConfirm"
     />
 
@@ -487,17 +493,76 @@ export default {
       editorCatIds.value.map((id) => ({ id, label: catLabelMap.value[id] || '已删除分类' }))
     )
 
-    /** 子预算行里的「管哪些类别」文案 */
+    /**
+     * 子预算行右侧的「管哪些类别」文案
+     *
+     * ★ 只给第一个名字 + 等N项 ★
+     *   全列出来在窄屏上会把这一行挤成两行甚至三行，
+     *   而这一格只是让人确认「它管的是哪一类」，不是给用户核对清单用的。
+     *   要核对就点进详情页，那里有完整列表。
+     *
+     * ★ 名字用「一级-二级」而不是只有二级名 ★
+     *   用户要求与编辑器里的选择面板保持同一套写法。
+     *   只写「日常三餐」看不出它属于餐饮食品还是别的分支，
+     *   带上父级名一眼就知道归属；一级分类本身就没有父级，写自己即可。
+     *
+     * ★ 为什么不用后端返回的 categoryNames ★
+     *   那个字段只有分类自己的名字（「日常三餐」），
+     *   拿不到父级名。这里用 categoryIds 走前端已有的 catLabelMap，
+     *   顺带还能处理「分类已被删除」的兜底。
+     */
     function catsLabel(b) {
-      const names = b.categoryNames || []
+      const ids = b.categoryIds || []
+      if (ids.length === 0) return '未关联类别'
+      const names = ids.map((id) => catLabelMap.value[id]).filter(Boolean)
       if (names.length === 0) return '未关联类别'
-      if (names.length <= 3) return names.join('、')
-      return `${names.slice(0, 3).join('、')} 等${names.length}项`
+      if (names.length === 1) return names[0]
+      return `${names[0]} 等${names.length}项`
     }
 
+    /**
+     * 编辑器标题
+     *
+     * ★ 子预算按「子预算1、子预算2…」编号 ★
+     *   用户要求。这样加第三条时标题就是「子预算3」，
+     *   和列表里的顺序一一对应；只写「添加子预算」看不出这是第几条。
+     *
+     * 编辑已有那条时用它在列表里的序号；新增时用「现有条数 + 1」。
+     */
     const editorTitle = computed(() => {
       if (editorMode.value === 'total') return '设置月预算'
-      return editorBudgetId.value ? '修改子预算' : '添加子预算'
+      const list = subBudgets.value
+      if (editorBudgetId.value) {
+        const i = list.findIndex((b) => b.id === editorBudgetId.value)
+        if (i >= 0) return `子预算${i + 1}`
+      }
+      return `子预算${list.length + 1}`
+    })
+
+    /**
+     * 新建子预算时的默认名称（输入框留空时才用）
+     *
+     * ★ 按「子预算1、子预算2…」编号 ★
+     *   用户要求「不填的话默认是这个」—— 也就是说输入框还是空的，
+     *   placeholder 显示这个默认值；用户不填，保存时就用它。
+     *   以前留空由后端按类别名自动命名，结果是「餐饮食品」这种，
+     *   和「子预算」这个概念对不上，也看不出这是第几条。
+     */
+    const defaultSubBudgetName = computed(() => `子预算${subBudgets.value.length + 1}`)
+
+    /**
+     * 「选择类别」右侧的摘要
+     *
+     * ★ 不罗列已选的每个类别 ★
+     *   用户要求「右侧显示已选择1分类名，后面加等X项」。
+     *   罗列会随类别数量增加把弹层顶高，而这里只需要让用户确认
+     *   「选过了、大概选了哪些」，点开弹层才是核对细节的地方。
+     */
+    const catPickLabel = computed(() => {
+      const names = selectedCats.value.map((c) => c.label)
+      if (names.length === 0) return '未选择'
+      if (names.length === 1) return `已选择 ${names[0]}`
+      return `已选择 ${names[0]} 等${names.length}项`
     })
 
     async function load() {
@@ -559,6 +624,7 @@ export default {
       }
       editorMode.value = 'category'
       editorBudgetId.value = ''
+      // 名称留空，placeholder 给「子预算N」；保存时留空就用这个默认名
       editorName.value = ''
       editorAmount.value = ''
       editorCatIds.value = []
@@ -652,18 +718,26 @@ export default {
         return
       }
 
+      /*
+       * 名字兜底：用户没填名称时用「子预算N」
+       *   N = 当前条数 + 1（新增时的序号）。
+       *   编辑已有子预算时如果用户把名字删空，也回落到同一个默认名 ——
+       *   库里 name 为空会让列表显示成空白，比回落到默认名更难看。
+       */
+      const finalName = (editorName.value || '').trim() || defaultSubBudgetName.value
+
       try {
         if (editorBudgetId.value) {
           await updateBudget(editorBudgetId.value, {
             amount_cents: cents,
-            name: editorName.value,
+            name: finalName,
             category_ids: editorCatIds.value
           })
         } else {
           await createBudget({
             scope: 'category',
             amount_cents: cents,
-            name: editorName.value,
+            name: finalName,
             category_ids: editorCatIds.value,
             period: 'month',
             start_month: toMonthKey()
@@ -795,10 +869,10 @@ export default {
 
     return {
       usages, categories, showEditor, editorMode, editorAmount,
-      editorBudgetId, editorName, editorCatIds, showCatPicker,
+      editorBudgetId, editorName, editorCatIds, showCatPicker, defaultSubBudgetName,
       primaryColor, pageStyle, swipeStates,
       totalBudget, subBudgets, allocation, categorySubTitle,
-      usedCatIds, disabledCatIds, expenseCategories, selectedCats, catsLabel, editorTitle,
+      usedCatIds, disabledCatIds, expenseCategories, selectedCats, catsLabel, editorTitle, catPickLabel,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
       goBudgetDetail, openCatPickerSheet, onCatConfirm, toggleRollover,
       saveBudget, removeBudget, onDeleteFromEditor,
@@ -1082,6 +1156,7 @@ export default {
   align-items: center;
   gap: 12rpx;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .cat-budget-dot {
@@ -1095,13 +1170,35 @@ export default {
   font-size: 27rpx;
   color: var(--app-text);
   font-weight: 500;
+  /*
+   * 名字允许被省略，但不能被压成 0
+   * （右边还有「等N项」，主标题必须优先可读）
+   */
+  max-width: 300rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 这条子预算管的类别：小字、次要色，不抢已用/额度的视觉重点 */
+/*
+ * 这条子预算管的类别：贴在名字右边、靠右对齐
+ *
+ * ★ 必须能省略 ★
+ *   它和名字抢同一行，类别名一长（「餐饮食品-日常三餐 等5项」）
+ *   就会把名字挤出去。所以名字 flex-shrink:0 保底，
+ *   这一格 flex:1 + text-align:right + 单行省略。
+ */
 .cat-budget-cats {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
   font-size: 22rpx;
   color: var(--app-text-3);
   line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 16rpx;
 }
 
 .cat-budget-remaining {
@@ -1246,26 +1343,6 @@ export default {
   font-size: 21rpx;
   color: var(--app-text-3);
   line-height: 1.5;
-}
-
-/* 已选类别：一排小胶囊，让人一眼看出这条子预算管哪些分类 */
-.picked-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-  width: 100%;
-}
-
-.picked-chip {
-  padding: 8rpx 18rpx;
-  border-radius: 12rpx;
-  background-color: var(--app-card-2);
-  border: 1rpx solid var(--app-line);
-}
-
-.picked-text {
-  font-size: 22rpx;
-  color: var(--app-text-2);
 }
 
 /* 「选择类别」入口：一行下拉样式，点开弹层 */
