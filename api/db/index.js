@@ -13,6 +13,7 @@ import {
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
   SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
   SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME,
+  REIMBURSE_CATEGORY_NAMES,
   childIcon, childColor
 } from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
@@ -422,6 +423,29 @@ const MIGRATIONS = [
      */
     version: 20,
     up: migrateUnhideSystemCategories
+  },
+  {
+    /*
+     * ★ v21 —— 报销台账 ★
+     *
+     *   1. txn 加四列：reimburse_status / reimburse_day /
+     *      reimburse_amount_cents / reimburse_account_id
+     *   2. 建三个报销派生分类：报销到账(income) / 报销坏账(expense) /
+     *      报销盈余(income)
+     *   3. 删除「报销收入」系统分类（用户要求）
+     *
+     * ★ 为什么删「报销收入」用软删而不是硬删 ★
+     *   历史流水可能挂在它下面。软删之后：
+     *     · 分类页不再显示（listCategories 过滤 deleted_at）
+     *     · 历史流水的 category_name 仍然能查到（LEFT JOIN 不带 deleted_at 过滤的那几处）
+     *   硬删会让那批流水的分类变成 NULL，用户会以为账丢了。
+     *   把「挂在它下面的支出流水」statistics 口径保持不变 —— 它原本就是收入分类，
+     *   报销台账上线后新数据不再往它里面写。
+     *
+     * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁）★
+     */
+    version: 21,
+    up: migrateReimburse
   }
 ]
 
@@ -2086,6 +2110,117 @@ async function migrateUnhideSystemCategories() {
       [now, def.name, def.type, SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME]
     )
   }
+}
+
+/**
+ * 迁移 v21 —— 报销台账
+ *
+ * 三件事：
+ *   1. txn 加四列（全部可空/带默认，老数据行为零变化）
+ *   2. 建三个报销派生分类
+ *   3. 软删「报销收入」（用户要求删除这个系统分类）
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateReimburse() {
+  const now = Date.now()
+
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v21 select failed:', e && e.message)
+      return null
+    }
+  }
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v21 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  // ---------- 1) txn 四列 ----------
+  const columns = [
+    'reimburse_status INTEGER NOT NULL DEFAULT 0',
+    'reimburse_day TEXT',
+    'reimburse_amount_cents INTEGER',
+    'reimburse_account_id TEXT'
+  ]
+  for (const col of columns) {
+    try {
+      await call('executeSql', {
+        name: DB_NAME,
+        sql: `ALTER TABLE txn ADD COLUMN ${col}`
+      })
+      console.log(`[db] migration v21: txn.${col.split(' ')[0]} 已添加`)
+    } catch (e) {
+      // 字段已存在（重复执行 / 新装库由 SCHEMA_V1 建出来），忽略
+      console.log(`[db] migration v21: txn.${col.split(' ')[0]} 已存在，跳过`)
+    }
+  }
+
+  // ---------- 2) 三个报销派生分类 ----------
+  /*
+   * 与 api/category.js 的 ensurePresetCategories() 结构等价，
+   * 但那里用 query()/execute()，在迁移里会死锁，所以抄一份最小实现。
+   */
+  for (const type of ['expense', 'income']) {
+    const groupDef = SYSTEM_PRESET_GROUPS[type]
+
+    let groupRows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [groupDef.name, type]
+    )
+    if (groupRows !== null && groupRows.length === 0) {
+      groupRows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [SYSTEM_PRESET_LEGACY_NAME, type]
+      )
+    }
+    if (groupRows === null || groupRows.length === 0) continue
+    const groupId = groupRows[0].id
+
+    const wanted = Object.values(REIMBURSE_CATEGORY_NAMES).filter((d) => d.type === type)
+    for (const def of wanted) {
+      const existing = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+        [def.name, type, groupId]
+      )
+      if (existing === null) continue
+      if (existing.length > 0) continue // 已存在，不用动
+
+      const preset = SYSTEM_PRESET_CHILDREN.find((d) => d.type === type && d.name === def.name)
+      if (!preset) continue
+      await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
+        [prefixedId('cat'), groupId, preset.name, type, preset.icon, preset.color, preset.sort, now, now]
+      )
+    }
+  }
+
+  // ---------- 3) 软删「报销收入」 ----------
+  /*
+   * ★ 只删「系统分类」组下的那一条 ★
+   *   用户在别处自建的「报销收入」不动（那是他自己的分类，删了会挨骂）。
+   * ★ 已经软删过的不重复更新 ★
+   *   迁移可能因上次失败而重跑，加 `deleted_at IS NULL` 保证幂等。
+   */
+  await run(
+    `UPDATE category SET deleted_at = ?, updated_at = ?
+     WHERE deleted_at IS NULL AND name = '报销收入' AND type = 'income'
+       AND parent_id IN (
+         SELECT g.id FROM category g
+         WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+           AND g.name IN (?, ?)
+       )`,
+    [now, now, SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME]
+  )
 }
 
 async function migrate() {

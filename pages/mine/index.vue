@@ -63,7 +63,7 @@
              不是每个账本都会碰。
 
         ★ 记账设置（列表）★
-          记账按钮设置、AI 智能配置、统计板块设置
+          记账按钮设置、AI 智能配置
           —— 「怎么记账」的行为配置，带副标题说明当前状态。
 
         ★ 系统设置（列表）★
@@ -245,7 +245,7 @@ export default {
      * 列表形式的设置项，分两组。
      *
      * ★ 记账设置 ★
-     *   记账按钮设置、AI 智能配置、统计板块设置
+     *   记账按钮设置、AI 智能配置
      *   —— 「怎么记账 / 记完看什么」的行为配置，带副标题说明当前状态。
      *
      * ★ 系统设置 ★
@@ -271,23 +271,6 @@ export default {
             route: '/pages/settings/quick-add'
           },
           { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' },
-          /*
-           * ★ 统计板块设置（占位）★
-           *   用户要求「记账设置添加统计板块设置的占位符」——
-           *   先把入口立起来、亮明「这块要做」，页面还没写。
-           *
-           *   placeholder: true 让 onMenuClick 走「开发中」提示，
-           *   而不是硬跳一个不存在的路由（那样会白屏或者报错）。
-           *   副标题写「开发中」，和上面两行的「已配置 / 短按…」对齐，
-           *   一眼能看出这是状态说明、不是一个能进去的设置页。
-           */
-          {
-            key: 'statsSection',
-            icon: 'stats',
-            name: '统计板块设置',
-            value: '开发中',
-            placeholder: true
-          }
         ]
       },
       {
@@ -358,11 +341,6 @@ export default {
       if (item.key === 'update') {
         // 检查更新：手动检查，无新版/失败都有提示
         useUpdateStore().checkForUpdate(false)
-        return
-      }
-      if (item.placeholder) {
-        // 占位项（统计板块设置）：还没有页面，只说明「在做」
-        uni.showToast({ title: '统计板块设置还在开发中', icon: 'none' })
         return
       }
       if (item.route) {

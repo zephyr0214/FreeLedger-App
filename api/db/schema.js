@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 20
+export const SCHEMA_VERSION = 21
 
 /**
  * 「对账」固定分类（v4 起）
@@ -43,7 +43,7 @@ export const RECONCILE_LEGACY_NAME = '对账调整'
  *   用户要求分类页里把这几个「系统自己用的、用户不能改」的分类收进
  *   一个固定的一级分类里：
  *     支出：借出、借款归还、对账支出
- *     收入：借入、借款收回、对账收入、报销收入
+ *     收入：借入、借款收回、对账收入
  *   之前「对账支出 / 对账收入」是各自独立的一级分类，
  *   和用户自己的分类混排在一起，看着像可以随便改的普通分类。
  *
@@ -108,18 +108,10 @@ export const SYSTEM_PRESET_CHILDREN = [
   { type: 'expense', name: '借出', icon: 'lend', color: '#FF8F1F', sort: 900 },
   { type: 'expense', name: '借款归还', icon: 'borrow', color: '#07C160', sort: 901 },
   { type: 'expense', name: '对账支出', icon: 'more', color: '#969799', sort: 902 },
-  // 收入方向：借入（钱借进来）、借款收回（借出去的收回来）、报销收入（公司报销到账）
+  // 收入方向：借入（钱借进来）、借款收回（借出去的收回来）
   { type: 'income', name: '借入', icon: 'borrow', color: '#07C160', sort: 900 },
   { type: 'income', name: '借款收回', icon: 'lend', color: '#FF8F1F', sort: 901 },
   { type: 'income', name: '对账收入', icon: 'more', color: '#969799', sort: 902 },
-  /*
-   * ★ 报销收入（v18 起）★
-   *   垫付后公司打回来的钱，既不是工资也不是二手出售，
-   *   混进普通收入分类里会污染「工资 / 副业」的统计口径。
-   *   它是系统给的一笔固定收入口径，所以放进这一组。
-   *   sort 排在对账收入之后，不影响前两条的顺序。
-   */
-  { type: 'income', name: '报销收入', icon: 'refund', color: '#26A69A', sort: 903 },
 
   /*
    * ★ 借出结清的两个派生分类（v19 起）★
@@ -162,7 +154,20 @@ export const SYSTEM_PRESET_CHILDREN = [
    *   但保持固定（不可改名/删除）+ 人员语义（备注即人员、必填）。
    */
   { type: 'income', name: '借入未还', icon: 'more', color: '#FA5151', sort: 905 },
-  { type: 'expense', name: '借入利息', icon: 'chart', color: '#FF8F1F', sort: 905 }
+  { type: 'expense', name: '借入利息', icon: 'chart', color: '#FF8F1F', sort: 905 },
+
+  /*
+   * ★ 报销的三个派生分类（v21 起）★
+   *   报销管理页点「报销」时自动写入，用户/ AI 都不能手动选
+   *   （见 api/reimburse.js 的 isReimburseInternalCategory）。
+   *
+   *   到账     收入  实报金额进报销账户（exclude_from_stats=1，不重复计收支）
+   *   坏账     支出  实报 < 垫付的差额（我的损失，计入收支）
+   *   盈余     收入  实报 > 垫付的差额（多拿到的，计入收支）
+   */
+  { type: 'income', name: '报销到账', icon: 'refund', color: '#26A69A', sort: 906 },
+  { type: 'expense', name: '报销坏账', icon: 'more', color: '#FA5151', sort: 907 },
+  { type: 'income', name: '报销盈余', icon: 'chart', color: '#26A69A', sort: 908 }
 ]
 
 /**
@@ -203,6 +208,48 @@ export const LOAN_CATEGORY_NAMES = {
  *   坏账要从当初借出的那个账户「核销」，利息要回到收钱的那个账户，
  *   否则账户余额会和现实的现金/银行卡对不上。
  */
+/**
+ * 「只由系统写入」的分类名（v21 起）
+ *
+ * 借入借出/报销的结清与差额分类：它们的金额、账户、备注都是
+ * 结算逻辑算出来的，用户手动记或让 AI 记都会把那套自动计算搞乱。
+ * 所以记账面板与 AI 侧统一用这个清单过滤掉它们（用户要求第 9 条）。
+ *
+ * ★ 为什么定义在 schema.js ★
+ *   api/reimburse.js 与 api/aiParse.js 都要用；放这里两边都只依赖
+ *   一个不 import 任何业务模块的文件，不会造出循环依赖。
+ */
+export const INTERNAL_ONLY_CATEGORY_NAMES = [
+  '借入利息', '借出坏账', '借出利息', '借入未还',
+  '报销坏账', '报销盈余', '报销到账'
+]
+
+/**
+ * 报销相关的两个固定分类（v21 起）
+ *
+ * ★ 什么时候用 ★
+ *   报销管理页点「报销」时：
+ *     · 实报 < 原支出 → 差额是「报销坏账」（expense，我的损失）
+ *     · 实报 > 原支出 → 差额是「报销盈余」（income，多拿到的）
+ *   另外还会记一笔「报销到账」（income，金额 = 实报额）进报销账户 ——
+ *   钱确实到账了，账户余额必须对得上；这笔同样不计收支
+ *   （真正的损益已经由坏账/盈余表达，再到账一次会重复计算）。
+ *
+ * ★ 三个都是 hidden？不是 ★
+ *   用户要求「所有系统分类都能手动记账 / AI 记账」，
+ *   但这三个是**系统自动生成**的报销口径，手动记会把账搅乱；
+ *   所以它们在 FIXED_CHILD_NAMES 里锁死，且从 v21 起
+ *   由 `isReimburseInternalCategory()` 在记账面板与 AI 侧排除。
+ */
+export const REIMBURSE_CATEGORY_NAMES = {
+  /** 报销到账：收入，实报金额进报销账户（不计收支） */
+  income: { name: '报销到账', type: 'income' },
+  /** 报销坏账：支出，实报少于垫付的差额（计入收支） */
+  badDebt: { name: '报销坏账', type: 'expense' },
+  /** 报销盈余：收入，实报多于垫付的差额（计入收支） */
+  surplus: { name: '报销盈余', type: 'income' }
+}
+
 export const LOAN_SETTLE_CATEGORY_NAMES = {
   /** 借出坏账：支出一笔，冲掉收不回来的那部分（我的损失） */
   badDebt: { name: '借出坏账', type: 'expense' },
@@ -529,7 +576,28 @@ export const SCHEMA_V1 = [
      *   默认 0 = 老数据全部照老口径计算，升级后历史统计一分不变。
      */
     exclude_from_stats INTEGER NOT NULL DEFAULT 0,
-    via_combo_id  TEXT
+    via_combo_id  TEXT,
+    /*
+     * ★ 报销状态（v21）★
+     *   0 = 不报销（默认，行为与老版本完全一致）
+     *   1 = 待报销 —— 这笔支出还没拿到钱，
+     *       既不计入收支、也不占预算（两个 exclude 标记都会被置 1），
+     *       等公司打钱回来才算完。
+     *   2 = 已报销 —— 钱已经到账，报销管理页把它归到「已报销」。
+     *
+     * ★ 为什么不复用 exclude_from_stats 表达「待报销」★
+     *   两个标记只能表达「排不排除」，表达不了「为什么排除、后续还要做什么」。
+     *   报销是一个有生命周期（待报销 → 已报销）的状态，必须单独一列。
+     *   而 exclude_* 仍然是实际生效的统计开关 —— 待报销时两者同时为 1，
+     *   统计层一行都不用改，这是刻意的。
+     */
+    reimburse_status INTEGER NOT NULL DEFAULT 0,
+    /** 报销日期 YYYY-MM-DD（仅 reimburse_status=2 有值，用于「按报销日期分组」） */
+    reimburse_day TEXT,
+    /** 实际报销到账金额（分，仅 status=2）；与原支出金额的差额就是坏账/盈余 */
+    reimburse_amount_cents INTEGER,
+    /** 报销到账账户（仅 status=2）；钱打回了哪张卡 */
+    reimburse_account_id TEXT
   )`,
 
   // ------------------------------------------------------------ 交易-标签

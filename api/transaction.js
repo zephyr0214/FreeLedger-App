@@ -43,6 +43,23 @@ function normalizeTxn(row) {
      *   但账户余额照常按资金流动计算 —— 钱确实动了。
      */
     exclude_from_stats: Number(row.exclude_from_stats) === 1,
+    /**
+     * 报销状态（v21）：0 不报销 / 1 待报销 / 2 已报销
+     *
+     * ★ 为什么归一成数字而不是布尔 ★
+     *   它不是「有/没有」两态，而是三态流程；
+     *   页面要按值分「待报销」「已报销」两个 tab，
+     *   用布尔的化就没法区分。
+     */
+    reimburse_status: Number(row.reimburse_status) || 0,
+    /** 报销日期 YYYY-MM-DD（仅已报销） */
+    reimburse_day: row.reimburse_day || '',
+    /** 实报金额（分，仅已报销；null 表示还没报） */
+    reimburse_amount_cents: row.reimburse_amount_cents === null || row.reimburse_amount_cents === undefined
+      ? null
+      : Number(row.reimburse_amount_cents),
+    /** 报销到账账户（仅已报销） */
+    reimburse_account_id: row.reimburse_account_id || '',
     tag_ids: row.tag_ids ? String(row.tag_ids).split(',').filter(Boolean) : []
   }
 }
@@ -589,8 +606,8 @@ export async function createTransaction(input) {
         occurred_at, occurred_day, month_key, year_key, tz_offset,
         created_at, updated_at, deleted_at, cycle_id, via_combo_id,
         original_currency, original_amount_cents, exchange_rate,
-        exclude_from_budget, exclude_from_stats
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?)`,
+        exclude_from_budget, exclude_from_stats, reimburse_status
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?)`,
       [
         id,
         input.type,
@@ -612,7 +629,8 @@ export async function createTransaction(input) {
         input.original_amount_cents || null,
         input.exchange_rate || null,
         input.exclude_from_budget ? 1 : 0,
-        input.exclude_from_stats ? 1 : 0
+        input.exclude_from_stats ? 1 : 0,
+        Number(input.reimburse_status) || 0
       ]
     )
 
@@ -771,6 +789,27 @@ export async function setExcludeFromStats(id, exclude) {
   await execute(
     'UPDATE txn SET exclude_from_stats = ?, updated_at = ? WHERE id = ?',
     [exclude ? 1 : 0, Date.now(), id]
+  )
+  return getTransaction(id)
+}
+
+/**
+ * 设置报销状态（v21）
+ *
+ * ★ 只改状态列，不动两个 exclude 标记 ★
+ *   「待报销」那两个标记由 api/reimburse.js 的 setTxnPendingReimburse
+ *   一起改（它还要校验类型和分类）；这里只给「取消报销」这类场景用。
+ *
+ * @param {string} id
+ * @param {number} status 0 / 1 / 2
+ */
+export async function setReimburseStatus(id, status) {
+  const existing = await getTransaction(id)
+  if (!existing) throw new Error('交易不存在')
+
+  await execute(
+    'UPDATE txn SET reimburse_status = ?, updated_at = ? WHERE id = ?',
+    [Number(status) || 0, Date.now(), id]
   )
   return getTransaction(id)
 }

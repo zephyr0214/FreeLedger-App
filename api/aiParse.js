@@ -10,7 +10,20 @@
  */
 
 import { chat } from './ai.js'
-import { SYSTEM_PRESET_GROUP_NAME } from './db/schema.js'
+import { SYSTEM_PRESET_GROUP_NAME, INTERNAL_ONLY_CATEGORY_NAMES } from './db/schema.js'
+
+/**
+ * 这个分类是不是「只由系统写入」的内部口径
+ *
+ * ★ 为什么不从 api/reimburse.js import ★
+ *   reimburse.js 会 import api/category.js → api/db/index.js，
+ *   而 aiParse.js 又被 QuickAddBar 引入，链条一长在测试环境里
+ *   很容易撞上循环依赖（表现为函数未定义）。清单本身放在
+ *   schema.js（不依赖任何业务模块），这里只是一个本地判断。
+ */
+function isInternalOnlyCategory(name) {
+  return INTERNAL_ONLY_CATEGORY_NAMES.includes(String(name || ''))
+}
 import { SUPPORTED_CURRENCIES } from '../utils/currency.js'
 
 /* ------------------------------------------------------------------ 常量 */
@@ -685,9 +698,18 @@ export function buildCategoryOptions(categories = []) {
 
     if (children.length === 0) {
       // 没有二级，一级本身就是最细的粒度
-      out.push({ id: p.id, label: p.name, type: p.type, isLeaf: true })
+      if (!isInternalOnlyCategory(p.name)) {
+        out.push({ id: p.id, label: p.name, type: p.type, isLeaf: true })
+      }
     } else {
       for (const c of children) {
+        /*
+         * ★ 内部专用分类不给模型看（用户第 9 条）★
+         *   借入利息 / 借出坏账 / 借出利息 / 借入未还 / 报销坏账 / 报销盈余
+         *   是系统自己写的口径，让模型选到会污染那套自动计算：
+         *   比如「报销坏账」被当成普通支出记一笔，报销台账就对不上了。
+         */
+        if (isInternalOnlyCategory(c.name)) continue
         out.push({
           id: c.id,
           label: isPreset ? c.name : `${p.name}/${c.name}`,
@@ -850,6 +872,26 @@ function matchByNameOrId(rawValue, list) {
 export async function parseMessageToTransactions(text, ctx) {
   const message = String(text || '').trim()
   if (!message) throw new Error('消息为空')
+
+  /*
+   * ★ 「报销」类话语不入流水（用户第 9 条）★
+   *
+   *   报销是一件需要走到「我的 → 报销管理」里点确认的事：
+   *   要填实报金额、选到账账户、算坏账/盈余。
+   *   AI 记账一句话就把它记成普通收支，等于凭空造了一笔
+   *   没有台账的记录 —— 用户以为报完了，其实台账里什么都没有。
+   *
+   *   所以这里直接拦下，给一个能指路的错误。
+   *   调用方（QuickAddBar）会把 message 原样弹给用户看。
+   */
+  if (/报销/.test(message)) {
+    const err = new Error(
+      '报销相关请到「我的 → 报销管理」操作：' +
+      '先把那笔支出设为「待报销」，收到钱后再在报销管理里点报销。'
+    )
+    err.isReimburseHint = true
+    throw err
+  }
 
   const baseDate = ctx.baseDate || new Date()
 

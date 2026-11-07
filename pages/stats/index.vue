@@ -234,6 +234,131 @@
         </view>
       </view>
 
+      <!--
+        ③b 同比变化（用户要求：比较所选时间相对于前同一段时间的变化）
+
+        ★ 「前一段」不是去年同期，是紧挨着的上一个等长区间 ★
+          用户原话「相对于前同一段时间」，指的是时间轴上前一段。
+          选了 11/1~11/7 就对比 10/25~10/31，由 api/stats.js 的
+          getPeriodComparison() 算好直接给。
+
+        ★ 数字只显示「总收支结余的变化」★
+          支出/收入各自的变化容易把人绕晕，结余（收入-支出）才是
+          「这段时间我到底是更宽松了还是更紧了」的唯一答案。
+
+        ★ 双向柱状图 ★
+          每个分类一根柱子，向右 = 比上期多花，向左 = 比上期少花。
+          这样「哪一类涨得最凶」不用看数字，看一眼长度就知道。
+      -->
+      <view v-if="comparison" class="card">
+        <view class="card-head">
+          <text class="card-title">同比变化</text>
+          <text class="card-sub">{{ comparisonSub }}</text>
+        </view>
+
+        <!-- 结余变化大数字 -->
+        <view class="cmp-summary">
+          <text class="cmp-label">结余变化</text>
+          <view class="cmp-value-row">
+            <text
+              class="cmp-arrow"
+              :style="{ color: balanceDiff >= 0 ? 'var(--app-success)' : 'var(--app-danger)' }"
+            >{{ balanceDiff >= 0 ? '↑' : '↓' }}</text>
+            <!--
+              ★ 颜色交给 MoneyText 的 variant="balance" 规则 ★
+                正数绿、负数红、0 无色，这是全 App 统一的一套；
+                以前这里手写三元表达式，同一个数在别的页面就是另一个色。
+            -->
+            <MoneyText
+              :cents="balanceDiff"
+              variant="balance"
+              :size="48"
+              :weight="600"
+            />
+          </view>
+          <text class="cmp-hint">{{ balanceDiffHint }}</text>
+        </view>
+
+        <!-- 双向柱状图：各分类增减 -->
+        <view v-if="comparison.categories.length === 0" class="card-empty">
+          <text class="empty-text">这两段时间都没有可比的支出</text>
+        </view>
+        <view v-else class="cmp-chart">
+          <view
+            v-for="c in comparison.categories"
+            :key="c.id"
+            class="cmp-row"
+          >
+            <view class="cmp-row-left">
+              <text class="cmp-row-name ellipsis">{{ c.name }}</text>
+              <text class="cmp-row-diff" :style="{ color: c.diff >= 0 ? 'var(--app-danger)' : 'var(--app-success)' }">
+                {{ c.diff >= 0 ? '+' : '-' }}{{ (Math.abs(c.diff) / 100).toFixed(2) }}
+              </text>
+            </view>
+            <view class="cmp-row-bar">
+              <view class="cmp-axis" />
+              <view
+                v-if="c.diff !== 0"
+                class="cmp-bar"
+                :style="{
+                  width: cmpBarWidth(c.diff) + '%',
+                  backgroundColor: c.diff > 0 ? 'var(--app-danger)' : 'var(--app-success)',
+                  left: c.diff > 0 ? '50%' : (50 - cmpBarWidth(c.diff)) + '%'
+                }"
+              />
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!--
+        ③c 恩格尔系数（用户要求：AI 判断哪些是「吃掉的分类」）
+
+        ★ 为什么要在页面上解释这个数 ★
+          恩格尔系数是个学术名词，绝大多数用户没见过。
+          只给一个 32.5% 等于什么都没说 —— 必须配一句人话。
+
+        ★ 拿不到分类缓存时怎么办 ★
+          显示「还没算出来」而不是 0%。0% 会被误读成「我没在吃饭上花钱」。
+      -->
+      <view v-if="engel" class="card">
+        <view class="card-head">
+          <text class="card-title">恩格尔系数</text>
+          <text class="card-sub">食品支出占总支出的比例</text>
+        </view>
+
+        <view v-if="engel.total === 0" class="card-empty">
+          <text class="empty-text">这段时间没有支出</text>
+        </view>
+        <view v-else-if="engel.ratio === 0 && engel.foodIds.length === 0" class="card-empty">
+          <text class="empty-text">食品分类还没识别出来，记一笔账后再来看</text>
+        </view>
+        <view v-else class="engel-body">
+          <view class="engel-main">
+            <text class="engel-value">{{ engel.ratio }}<text class="engel-unit">%</text></text>
+            <text class="engel-level" :style="{ color: engelColor }">{{ engelLevel }}</text>
+          </view>
+          <view class="engel-rows">
+            <view class="engel-row">
+              <text class="engel-row-label">食品支出</text>
+              <text class="engel-row-value">¥{{ (engel.food / 100).toFixed(2) }}</text>
+            </view>
+            <view class="engel-row">
+              <text class="engel-row-label">总支出</text>
+              <text class="engel-row-value">¥{{ (engel.total / 100).toFixed(2) }}</text>
+            </view>
+          </view>
+          <!-- 判定为「吃」的分类名，让人知道这个数是怎么来的 -->
+          <view v-if="engelFoodNames.length" class="engel-tags">
+            <text
+              v-for="n in engelFoodNames"
+              :key="n"
+              class="engel-tag"
+            >{{ n }}</text>
+          </view>
+        </view>
+      </view>
+
       <!-- ④ 平均值：总体 + 各分类 -->
       <view class="card">
         <view class="card-head">
@@ -382,8 +507,11 @@ import {
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
   getSubCategoryAveragesRange,
   getDailyTrendRange, getAveragesRange, getTopExpensesRange,
+  getPeriodComparison, getEngelCoefficient,
   PIE_PALETTE
 } from '@/api/stats.js'
+import { ensureEngelFoodCategories, getCachedEngelFoodIds } from '@/api/engel.js'
+import { listCategories } from '@/api/category.js'
 import {
   selectionToRange, defaultSelection, selectionLabel,
   customToRange, customRangeLabel, defaultCustomRange, toDayKey,
@@ -446,6 +574,16 @@ export default {
     const dailyTrend = ref([])
     const averages = ref({ avgPerDay: 0, avgPerTxn: 0, count: 0, daysPassed: 0, maxDay: null })
     const topExpenses = ref([])
+
+    /* -------------------------------------------------- 同比 / 恩格尔 */
+
+    /** 同比对比结果（null = 还没加载完 / 该区间算不出对比） */
+    const comparison = ref(null)
+    /** 恩格尔系数结果 */
+    const engel = ref(null)
+    /** 被判定为「吃」的一级分类 id 与名字（名字用于下面那排标签） */
+    const engelFoodIds = ref([])
+    const engelFoodNames = ref([])
     const overview = ref({ expense: 0, income: 0, balance: 0 })
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -470,6 +608,80 @@ export default {
         ? customRangeLabel(customStart.value, customEnd.value)
         : selectionLabel(dateRange.value)
     )
+
+    /* -------------------------------------------------- 同比面板 */
+
+    /** 对比区间的说明文字：「对比 10/25~10/31」 */
+    const comparisonSub = computed(() => {
+      const c = comparison.value
+      if (!c || !c.range || !c.range.prevStart) return '所选区间与上一段等长区间比'
+      const f = (d) => String(d || '').slice(5).replace('-', '/')
+      return `对比 ${f(c.range.prevStart)}~${f(c.range.prevEnd)}`
+    })
+
+    /**
+     * 结余变化（正 = 比上一段更宽松）
+     *
+     * ★ 用「结余」而不是「支出」★
+     *   支出涨了不代表日子更紧（收入涨得更多），
+     *   结余（收入 - 支出）的变化才是用户能直接感受到的那件事。
+     */
+    const balanceDiff = computed(() => {
+      const c = comparison.value
+      if (!c) return 0
+      return (c.current.balance || 0) - (c.previous.balance || 0)
+    })
+
+    const balanceDiffHint = computed(() => {
+      if (balanceDiff.value > 0) return '这段比上一段存下的更多'
+      if (balanceDiff.value < 0) return '这段比上一段花得更凶'
+      return '和上一段基本持平'
+    })
+
+    /**
+     * 双向柱子的长度（百分比）
+     *
+     * ★ 为什么要除以最大值 ★
+     *   各分类的金额差可能相差两个数量级（房租涨 500、奶茶涨 5），
+     *   直接按金额画，小的那几根全是看不见的细线。
+     *   除以最大绝对值后，长短只表达「相对变化强弱」——
+     *   绝对金额已经写在每行左边了。
+     */
+    const cmpMaxAbs = computed(() => {
+      const c = comparison.value
+      if (!c || !c.categories.length) return 1
+      return Math.max(1, ...c.categories.map((x) => Math.abs(x.diff)))
+    })
+
+    function cmpBarWidth(diff) {
+      // 半幅最多 48%，留一点边距不让柱子顶到框
+      return Math.min(48, Math.round((Math.abs(diff) / cmpMaxAbs.value) * 48))
+    }
+
+    /* -------------------------------------------------- 恩格尔系数 */
+
+    /**
+     * 恩格尔等级说明
+     *
+     * ★ 分级用的是国内常用的几个档 ★
+     *   <30% 富裕、30~40% 小康、40~50% 温饱、>50% 贫困。
+     *   这套分法在学术上有争议，但对普通用户足够说明「你在食物上
+     *   花的钱占比偏高还是偏低」，比只给一个百分数有用得多。
+     */
+    const engelLevel = computed(() => {
+      const r = engel.value ? engel.value.ratio : 0
+      if (r < 30) return '富裕水平'
+      if (r < 40) return '小康水平'
+      if (r < 50) return '温饱水平'
+      return '偏高'
+    })
+
+    const engelColor = computed(() => {
+      const r = engel.value ? engel.value.ratio : 0
+      if (r < 40) return 'var(--app-success)'
+      if (r < 50) return 'var(--app-text-2)'
+      return 'var(--app-danger)'
+    })
 
     /**
      * 趋势图该按「日」还是「月」分桶
@@ -633,6 +845,13 @@ export default {
     async function loadAll() {
       const r = range.value
       try {
+        /*
+         * ★ 同比 / 恩格尔：单独一条 Promise.all，失败不影响主统计 ★
+         *   它们一个依赖区间换算、一个依赖 AI 分类缓存，
+         *   任何一边出问题都不该把整页统计拖垮。
+         */
+        loadExtras(r)
+
         const [ov, cats, accs, accTypes, catAvgs, daily, avg, top] = await Promise.all([
           getOverviewRange(r),
           // 分类统计：按面板的层级（一级/二级）查询
@@ -658,9 +877,91 @@ export default {
         dailyTrend.value = daily
         averages.value = avg
         topExpenses.value = top
+        // 分类名映射（恩格尔标签用）：区间/层级变化都要更新
+        await refreshEngelFoodNames()
       } catch (e) {
         console.error('[stats] load failed', e)
         uni.showToast({ title: e.message, icon: 'none' })
+      }
+    }
+
+    /**
+     * 加载「同比变化」与「恩格尔系数」两块
+     *
+     * ★ 为什么不并进上面那个 Promise.all ★
+     *   同比较依赖区间换算、恩格尔要读 AI 分类缓存，
+     *   两者都可能失败；合进主链会因为一个失败把整页统计都清空。
+     *   这里各自 catch，坏了就保持上一次的值。
+     */
+    async function loadExtras(r) {
+      // 1) 同比
+      try {
+        comparison.value = await getPeriodComparison(r)
+      } catch (e) {
+        console.warn('[stats] 同比计算失败:', e && e.message)
+        comparison.value = null
+      }
+
+      // 2) 恩格尔：先读缓存，没有再让 AI 判一次（后台进行，不阻塞）
+      try {
+        let ids = await getCachedEngelFoodIds()
+        if (ids.length === 0) {
+          // 没缓存就后台补一次，补完再刷新这一块（不 await 整体的渲染）
+          ensureEngelFoodCategories()
+            .then(async (fresh) => {
+              if (!fresh || fresh.length === 0) return
+              engelFoodIds.value = fresh
+              await refreshEngel()
+            })
+            .catch(() => {})
+        }
+        engelFoodIds.value = ids
+        await refreshEngel()
+      } catch (e) {
+        console.warn('[stats] 恩格尔系数计算失败:', e && e.message)
+        engel.value = null
+      }
+    }
+
+    /** 用当前区间 + 已判定的食品分类重算恩格尔系数 */
+    async function refreshEngel() {
+      if (!engelFoodIds.value.length) {
+        engel.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
+        return
+      }
+      /*
+       * ★ 还需要分类名才能显示下面那排标签 ★
+       *   直接复用页面已有的 categoryStats？不行 —— 那是当前区间的，
+       *   而且层级可能是一级/二级不确定。这里单独取一次分类表，
+       *   从缓存 id 反查名字，代价很小（分类是小表）。
+       */
+      const r = await getEngelCoefficient(range.value, engelFoodIds.value)
+      engel.value = r
+    }
+
+    /**
+     * 把「吃」的分类 id 换成名字（页面下方那排标签用）
+     *
+     * ★ 为什么独立一个函数 ★
+     *   分类名只在「分类列表」里有，而恩格尔系数接口只回 id 和金额 ——
+     *   一次 listCategories 拿全表（几十条，很便宜），
+     *   建个 id→name 的映射反查即可。
+     *   ★ 取不到就当没有 ★
+     *   标签只是「这个数是怎么来的」的辅助说明，
+     *   分类表读失败不该让系数块整块消失。
+     */
+    async function refreshEngelFoodNames() {
+      if (!engelFoodIds.value.length) {
+        engelFoodNames.value = []
+        return
+      }
+      try {
+        const list = await listCategories()
+        const map = {}
+        list.forEach((c) => { map[c.id] = c.name })
+        engelFoodNames.value = engelFoodIds.value.map((id) => map[id]).filter(Boolean)
+      } catch (e) {
+        engelFoodNames.value = []
       }
     }
 
@@ -876,6 +1177,10 @@ export default {
       accountViewList, accountViewDonutUri,
       dailyExtremes,
       barHeight, shortDay,
+      // 同比变化
+      comparison, comparisonSub, balanceDiff, balanceDiffHint, cmpBarWidth,
+      // 恩格尔系数
+      engel, engelLevel, engelColor, engelFoodNames,
       onRangeChange,
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
@@ -889,6 +1194,174 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
+}
+
+/* ------------------------------------------------ 同比变化 */
+
+.cmp-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding: 8rpx 0 20rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.cmp-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.cmp-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+}
+
+/* 升降箭头：和数字同色，一眼看出方向 */
+.cmp-arrow {
+  font-size: 40rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.cmp-hint {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+/* 双向柱：每行左名称右金额，中间一根以 50% 为原点的横柱 */
+.cmp-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.cmp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.cmp-row-left {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.cmp-row-name {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.cmp-row-diff {
+  font-size: 24rpx;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/*
+ * 柱状槽：高 14rpx，中线在 50%
+ * 柱子用绝对定位往左/往右长，正数向右（多花）、负数向左（少花）。
+ */
+.cmp-row-bar {
+  position: relative;
+  height: 14rpx;
+  background-color: var(--app-card-2);
+  border-radius: 7rpx;
+  overflow: hidden;
+}
+
+.cmp-axis {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1rpx;
+  background-color: var(--app-line);
+}
+
+.cmp-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 7rpx;
+}
+
+/* ------------------------------------------------ 恩格尔系数 */
+
+.engel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  margin-top: 8rpx;
+}
+
+.engel-main {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+
+.engel-value {
+  font-size: 64rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.engel-unit {
+  font-size: 28rpx;
+  font-weight: 400;
+  color: var(--app-text-3);
+  margin-left: 4rpx;
+}
+
+.engel-level {
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.engel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.engel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.engel-row-label {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
+.engel-row-value {
+  font-size: 26rpx;
+  color: var(--app-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 被判为「吃」的分类标签：说明这个数是怎么来的 */
+.engel-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.engel-tag {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+  background-color: var(--app-card-2);
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
 }
 
 /* 时间范围选择 */

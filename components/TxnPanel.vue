@@ -263,6 +263,26 @@
             confirm-type="done"
           />
         </view>
+
+        <!--
+          ★ 不计预算 / 待报销（用户第 5 条要求）★
+            位置：备注下方并排一行。
+          规则全在 ExcludeFlags 组件里（勾待报销 → 自动勾不计预算并锁死），
+          三处调用点（详情页 / 记账面板 / AI 速记条）行为才会一致。
+
+          ★ 只有支出才显示 ★
+            收入/转账既没有预算额度概念，也不可能「报销」。
+        -->
+        <view v-if="form.type === 'expense' && !isPersonCategory" class="form-row form-row-flags">
+          <view class="flags-wrap">
+            <ExcludeFlags
+              :exclude-budget="form.excludeBudget"
+              :reimburse-status="form.reimburseStatus"
+              :can-reimburse="form.type === 'expense'"
+              @update="onFlagsUpdate"
+            />
+          </view>
+        </view>
       </view>
 
       <!-- 数字键盘：4x5，支持 + - × ÷ 和括号
@@ -366,6 +386,7 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import ExcludeFlags from '@/components/ExcludeFlags.vue'
 import CategoryPickerSheet from '@/components/CategoryPickerSheet.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -389,7 +410,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon },
+  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -437,6 +458,14 @@ export default {
       occurred_time: currentTimeText(),
       note: '',
       tag_ids: [],
+      /*
+       * 报销与预算标记（v21）
+       *   excludeBudget    是否不计入预算
+       *   reimburseStatus  0 不报销 / 1 待报销 / 2 已报销
+       * 两者由 ExcludeFlags 组件联动：勾待报销会自动勾上不计预算。
+       */
+      excludeBudget: false,
+      reimburseStatus: 0,
       /** 外币：币种代码（'CNY' = 本位币）与用户可改的汇率 */
       currency: 'CNY',
     })
@@ -896,6 +925,19 @@ export default {
     }
 
     /** 打开人员选择（历史人员列表） */
+    /**
+     * 双选框变化（不计预算 / 待报销）
+     *
+     * ★ 规则已经在 ExcludeFlags 里实现了 ★
+     *   组件发出来的载荷已经算好「勾待报销要自动勾不计预算」，
+     *   面板这边只负责把值写回 form，不再重复判断一遍 ——
+     *   两处都判断，迟早会出现两边结论不一致的诡异状态。
+     */
+    function onFlagsUpdate(next) {
+      form.excludeBudget = !!next.excludeBudget
+      form.reimburseStatus = Number(next.reimburseStatus) || 0
+    }
+
     function openPersonPicker() {
       if (loanPeople.value.length === 0) {
         uni.showToast({ title: '还没有记过人员，直接输入名字即可', icon: 'none' })
@@ -990,6 +1032,14 @@ export default {
        *   用户不会每次注意金额旁边的小币种标签。
        */
       form.currency = 'CNY'
+      /*
+       * ★ 报销/预算标记每次重置 ★
+       *   这是「这一笔」的属性，粘到下一笔会让人误记 ——
+       *   上一笔记了待报销，下一笔日常支出还带着待报销标记，
+       *   这笔账就永远不会进收支统计。
+       */
+      form.excludeBudget = false
+      form.reimburseStatus = 0
       form.occurred_day = toDayKey()
       // 新记录默认是「此刻」
       form.occurred_time = currentTimeText()
@@ -1052,6 +1102,9 @@ export default {
       form.account_id = txn.account_id
       form.to_account_id = txn.to_account_id || ''
       form.category_id = txn.category_id || ''
+      // 报销/预算标记随交易回显（编辑时不该把它们清掉）
+      form.excludeBudget = txn.exclude_from_budget === true
+      form.reimburseStatus = Number(txn.reimburse_status) || 0
       form.occurred_day = txn.occurred_day
       // 编辑时保留原来的时刻
       form.occurred_time = formatTime(txn.occurred_at)
@@ -1080,6 +1133,9 @@ export default {
       form.to_account_id = p.to_account_id || ''
       // 预置没给分类时用默认分类，保证「完成」键能直接用
       form.category_id = p.category_id || defaultCategoryId.value || ''
+      // 速记面板可能在预置里带「待报销」（用户输入里提到报销）
+      form.excludeBudget = p.exclude_budget === true || p.reimburse_status === 1
+      form.reimburseStatus = Number(p.reimburse_status) || 0
       form.occurred_day = p.occurred_day || toDayKey()
       form.occurred_time = p.occurred_time || currentTimeText()
       form.note = p.note || ''
@@ -1222,7 +1278,13 @@ export default {
          * ★ 预算：八类借款语义分类都不占预算 ★
          *   资金往来不占；坏账/利息也不是消费，同样不占。
          */
-        exclude_from_budget: (isPersonCategory.value || isSettleCategory.value)
+        /*
+         * ★ 预算排除的三条来源 ★
+         *   1) 借款类 / 结清类语义 → 一定排除
+         *   2) 用户在本面板勾了「不计预算」或「待报销」→ 排除
+         *   3) 编辑老数据时保留它原有的标记
+         */
+        exclude_from_budget: (isPersonCategory.value || isSettleCategory.value || form.excludeBudget)
           ? true
           : !!(props.editing && props.editing.exclude_from_budget),
         /*
@@ -1230,9 +1292,20 @@ export default {
          *   坏账是实实在在的损失、利息是实实在在的收益，
          *   把它们也排除掉，用户统计页就看不到「这笔钱亏了/赚了」。
          */
+        /*
+         * ★ 收支排除 ★
+         *   结清类必须计入（false）；借款类不计入（true）；
+         *   其余看「待报销」—— 待报销的钱还没回来，先别算收支。
+         */
         exclude_from_stats: isSettleCategory.value
           ? false
-          : (isPersonCategory.value ? true : !!(props.editing && props.editing.exclude_from_stats))
+          : (isPersonCategory.value
+            ? true
+            : (form.reimburseStatus === 1
+              ? true
+              : !!(props.editing && props.editing.exclude_from_stats))),
+        /* 报销状态：只有支出才可能是待报销 */
+        reimburse_status: form.type === 'expense' ? (Number(form.reimburseStatus) || 0) : 0
       }
 
       try {
@@ -1377,7 +1450,7 @@ export default {
       /* 外币记账 */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
-      currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions,
+      currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions, onFlagsUpdate,
       showPersonPicker, openPersonPicker, onPersonSelect,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
@@ -1799,6 +1872,18 @@ export default {
 .person-input {
   text-align: right;
   min-width: 0;
+}
+
+/* 双选框那一行：不占整行高度，靠左对齐 */
+.form-row-flags {
+  justify-content: flex-start;
+  min-height: 84rpx;
+}
+
+.flags-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
 }
 
 .person-pick {

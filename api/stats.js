@@ -1139,6 +1139,173 @@ async function topExpensesByScope(scope, limit) {
   }))
 }
 
+/**
+ * 同比变化：所选区间 vs 前一个同长度区间
+ *
+ * ★ 「前一段」怎么算 ★
+ *   不是「去年同期」，而是**紧挨着的上一个等长区间**
+ *   （用户说的是「前同一段时间」，也就是时间轴上前一段，不是去年）。
+ *   例：选了 11/1~11/7（7 天）→ 对比 10/25~10/31。
+ *
+ * ★ 为什么返回分类维度的数组 ★
+ *   面板上除了数字，还要画「双向柱状图表示各分类变化」，
+ *   那就必须给出每个一级分类在两段时间里的金额，
+ *   前端才能算出每个分类的增减并画一根向左/向右的柱子。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @returns {Promise<{current:{expense,income,balance,count},
+ *   previous:{expense,income,balance,count},
+ *   categories:Array<{id,name,color,current,previous,diff}>}>}
+ */
+export async function getPeriodComparison(range) {
+  const e = expandRange(range)
+  const scope = rangeScope(range)
+
+  // 当前区间
+  const curRow = await queryOne(
+    `SELECT COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
+            COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
+            COUNT(*) AS cnt
+     FROM txn t
+     WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
+    scope.params
+  )
+
+  /*
+   * 前一个等长区间
+   *
+   * ★ 没有起止日就没法算「上一段」★
+   *   用户选「全部时间」时往前推没有意义，直接返回空对比，
+   *   不编一个假区间出来。
+   */
+  let prevStart = ''
+  let prevEnd = ''
+  if (e.startDay && e.endDay) {
+    const span = dayDiffInclusive(e.startDay, e.endDay)
+    prevEnd = shiftDay(e.startDay, -1)
+    prevStart = shiftDay(prevEnd, -(span - 1))
+  }
+
+  let prevRow = { exp: 0, inc: 0, cnt: 0 }
+  if (prevStart && prevEnd) {
+    prevRow = await queryOne(
+      `SELECT COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
+              COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
+              COUNT(*) AS cnt
+       FROM txn t
+       WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}
+         AND t.occurred_day >= ? AND t.occurred_day <= ?`,
+      [prevStart, prevEnd]
+    ) || { exp: 0, inc: 0, cnt: 0 }
+  }
+
+  // 分类维度：两段各查一次（按一级分类归并）
+  const catOf = async (whereSql, params) => {
+    const rows = await query(
+      `SELECT COALESCE(c.parent_id, c.id) AS root_id,
+              COALESCE(p.name, c.name, '未分类') AS name,
+              COALESCE(p.color, c.color, '#969799') AS color,
+              SUM(t.amount_cents) AS amt
+       FROM txn t
+       LEFT JOIN category c ON c.id = t.category_id
+       LEFT JOIN category p ON p.id = c.parent_id
+       WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}
+         ${whereSql}
+       GROUP BY root_id`,
+      params
+    )
+    const map = {}
+    for (const r of rows) {
+      const key = r.root_id || 'none'
+      map[key] = { id: key, name: r.name || '未分类', color: r.color || '#969799', amount: Number(r.amt) || 0 }
+    }
+    return map
+  }
+
+  const curCats = await catOf(`${withScope('', scope)}`, scope.params)
+  const prevCats = prevStart
+    ? await catOf('AND t.occurred_day >= ? AND t.occurred_day <= ?', [prevStart, prevEnd])
+    : {}
+
+  // 合并两段的分类 key
+  const allKeys = new Set([...Object.keys(curCats), ...Object.keys(prevCats)])
+  const categories = Array.from(allKeys).map((key) => {
+    const c = curCats[key] || prevCats[key]
+    const current = (curCats[key] || {}).amount || 0
+    const previous = (prevCats[key] || {}).amount || 0
+    return {
+      id: key,
+      name: c.name,
+      color: c.color,
+      current,
+      previous,
+      diff: current - previous
+    }
+  })
+  // 按「变化绝对值」降序：变化最大的排前面，图上一眼看到重点
+  categories.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+
+  const curExp = Number(curRow ? curRow.exp : 0)
+  const curInc = Number(curRow ? curRow.inc : 0)
+  const prevExp = Number(prevRow ? prevRow.exp : 0)
+  const prevInc = Number(prevRow ? prevRow.inc : 0)
+
+  return {
+    current: { expense: curExp, income: curInc, balance: curInc - curExp, count: Number(curRow ? curRow.cnt : 0) },
+    previous: { expense: prevExp, income: prevInc, balance: prevInc - prevExp, count: Number(prevRow ? prevRow.cnt : 0) },
+    range: { startDay: e.startDay, endDay: e.endDay, prevStart, prevEnd },
+    categories: categories.slice(0, 20)
+  }
+}
+
+/**
+ * 恩格尔系数（食品支出 / 总支出）
+ *
+ * ★ 吃什么由 AI 判断，不写死 ★
+ *   分类名千差万别（「餐饮食品」「吃饭」「早餐」…），
+ *   写死一张表覆盖不全；用户明确要求「使用 ai 来判断哪些属于吃掉的分类」。
+ *   判定结果缓存到 setting 表的 `engelFoodCategories`，
+ *   每次 AI 记账结束后检查一次（见 components/QuickAddBar.vue），
+ *   没有就补一次 —— 这样不会每次打开统计页都请求 AI。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @param {string[]} foodCategoryIds 被认为是「吃」的一级分类 id
+ */
+export async function getEngelCoefficient(range, foodCategoryIds = []) {
+  const scope = rangeScope(range)
+
+  const row = await queryOne(
+    `SELECT COALESCE(SUM(t.amount_cents),0) AS total
+     FROM txn t
+     WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
+    scope.params
+  )
+  const total = Number(row ? row.total : 0) || 0
+
+  if (total === 0) return { total: 0, food: 0, ratio: 0, foodIds: foodCategoryIds }
+
+  const ids = Array.isArray(foodCategoryIds) ? foodCategoryIds.filter(Boolean) : []
+  if (ids.length === 0) return { total, food: 0, ratio: 0, foodIds: [] }
+
+  const placeholders = ids.map(() => '?').join(',')
+  const foodRow = await queryOne(
+    `SELECT COALESCE(SUM(t.amount_cents),0) AS food
+     FROM txn t
+     LEFT JOIN category c ON c.id = t.category_id
+     WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
+       AND COALESCE(c.parent_id, c.id) IN (${placeholders})`,
+    scope.params.concat(ids)
+  )
+  const food = Number(foodRow ? foodRow.food : 0) || 0
+  return {
+    total,
+    food,
+    // 百分比保留 1 位小数（恩格尔系数习惯用百分数）
+    ratio: Math.round((food / total) * 1000) / 10,
+    foodIds: ids
+  }
+}
+
 export async function getTopExpenses(monthKey, limit = 10) {
   return topExpensesByScope(monthScope(monthKey), limit)
 }

@@ -848,15 +848,28 @@ export async function importPayload(payload, opt = {}) {
           `INSERT INTO txn (id, type, amount_cents, account_id, to_account_id, category_id, note,
             occurred_at, occurred_day, month_key, year_key, tz_offset,
             cycle_id, created_at, updated_at, deleted_at,
-            exclude_from_budget, exclude_from_stats)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            exclude_from_budget, exclude_from_stats,
+            reimburse_status, reimburse_day, reimburse_amount_cents, reimburse_account_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             t.id, t.type, t.amount_cents, t.account_id, t.to_account_id || null,
             t.category_id || null, t.note || '',
             t.occurred_at, t.occurred_day, t.month_key, t.year_key, t.tz_offset || 480,
             t.cycle_id || null,
             t.created_at || Date.now(), t.updated_at || Date.now(), t.deleted_at || null,
-            t.exclude_from_budget ? 1 : 0, t.exclude_from_stats ? 1 : 0
+            t.exclude_from_budget ? 1 : 0, t.exclude_from_stats ? 1 : 0,
+            /*
+             * ★ 报销四列：老备份里没有，全部兜成「不报销」★
+             *   不兜的话 INSERT 会缺参数直接报错，整个导入失败；
+             *   兜成 0/NULL 后老备份导回来 = 那批流水都不带报销标记，
+             *   与备份时的行为完全一致。
+             */
+            Number(t.reimburse_status) || 0,
+            t.reimburse_day || null,
+            t.reimburse_amount_cents === null || t.reimburse_amount_cents === undefined
+              ? null
+              : Number(t.reimburse_amount_cents),
+            t.reimburse_account_id || null
           ]
         )
         report.transactions++

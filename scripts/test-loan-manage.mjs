@@ -261,7 +261,13 @@ check(
 )
 check(
   '四个非结清分类默认不计入收支（结清分类除外）',
-  /exclude_from_stats:\s*isSettleCategory\.value\s*\?\s*false\s*:\s*\(isPersonCategory\.value \? true/.test(PANEL),
+  /*
+   * ★ 匹配「结清类 → false，借款类 → true」这条主干 ★
+   *   中间多了「待报销时也排除」一层嵌套，顺序仍是
+   *   isSettleCategory ? false : (isPersonCategory ? true : ...)。
+   *   所以正则只钉前半段，不再要求末尾紧跟 ` ? true`。
+   */
+  /exclude_from_stats:\s*isSettleCategory\.value[\s\S]{0,20}?\?\s*false[\s\S]{0,60}?isPersonCategory\.value[\s\S]{0,20}?\?\s*true/.test(PANEL),
   true
 )
 check('账户与标签同一行（form-row-split）', /form-row-split/.test(PANEL), true)

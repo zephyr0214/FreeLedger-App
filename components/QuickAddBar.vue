@@ -21,6 +21,38 @@
     />
 
     <!--
+      ★ 输入框上方靠左的两个胶囊（用户第 4 条要求）★
+        勾选状态在下面那一行里，最终识别为支出才生效
+        （收入/转账既没有预算也没法报销）。
+      ★ 输入内容里有「报销」二字时，待报销自动勾选 ★
+        在 watch(draft) 里做 —— 用户一边打字一边就把标记带上了，
+        不用打完了再回头勾。
+    -->
+    <view class="quick-add-flags" :style="flagsStyle" @click.stop @touchmove.stop>
+      <view
+        class="qa-chip"
+        :class="{ on: pendingReimburse }"
+        @click.stop="togglePendingReimburse"
+      >
+        <view class="qa-chip-box" :class="{ on: pendingReimburse }">
+          <text v-if="pendingReimburse" class="qa-chip-tick">✓</text>
+        </view>
+        <text class="qa-chip-text">{{ pendingReimburse ? '待报销' : '待报销' }}</text>
+      </view>
+
+      <view
+        class="qa-chip"
+        :class="{ on: excludeBudget || pendingReimburse, locked: pendingReimburse }"
+        @click.stop="toggleExcludeBudget"
+      >
+        <view class="qa-chip-box" :class="{ on: excludeBudget || pendingReimburse }">
+          <text v-if="excludeBudget || pendingReimburse" class="qa-chip-tick">✓</text>
+        </view>
+        <text class="qa-chip-text">不计预算</text>
+      </view>
+    </view>
+
+    <!--
       输入条：只保留 click 拦截（点条内不关闭）。
       @touchmove 只用 .stop 拦住「页面穿透滚动」，绝不能加 .prevent ——
       那会把输入框自己的横向滚动/选区一起废掉。
@@ -134,6 +166,54 @@ export default {
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const canSend = computed(() => draft.value.trim().length > 0 && !submitting.value)
+
+    /* ------------------------------------------- 不计预算 / 待报销（第 4 条） */
+
+    /**
+     * 「待报销」勾选状态
+     *
+     * ★ 只在最终识别为支出时生效 ★
+     *   AI 解析出来的 item 可能是收入或转账，那两类既没有预算
+     *   也没法报销，落库时会直接忽略这两个标记（见下面的 create 调用）。
+     */
+    const pendingReimburse = ref(false)
+    /** 「不计预算」勾选状态（待报销时被视为已勾选且锁死） */
+    const excludeBudget = ref(false)
+
+    /** 胶囊行的位置：跟输入条一样贴底，但要往上挪一个输入条高度 + 间距 */
+    const flagsStyle = computed(() => ({
+      bottom: 'calc(env(safe-area-inset-bottom) + 20rpx + 104rpx)'
+    }))
+
+    function togglePendingReimburse() {
+      pendingReimburse.value = !pendingReimburse.value
+      /* 第 6 条：勾上待报销 → 自动勾上不计预算 */
+      if (pendingReimburse.value) excludeBudget.value = true
+    }
+
+    function toggleExcludeBudget() {
+      if (pendingReimburse.value) {
+        uni.showToast({ title: '待报销的账本来就不计预算', icon: 'none' })
+        return
+      }
+      excludeBudget.value = !excludeBudget.value
+    }
+
+    /**
+     * 输入里提到「报销」就自动勾上待报销
+     *
+     * ★ 用户第 4 条原话 ★
+     *   「当用户输入内容中有报销二字，待报销直接勾选」。
+     * ★ 为什么只自动勾、不自动取消 ★
+     *   用户手动勾上之后又把那句话删掉，如果这里跟着取消，
+     *   他勾的意图就丢了；取消由他自己点一下即可。
+     */
+    watch(draft, (text) => {
+      if (String(text || '').includes('报销')) {
+        pendingReimburse.value = true
+        excludeBudget.value = true
+      }
+    })
 
     /**
      * 输入条位置：贴在 webview 底部。
@@ -261,6 +341,17 @@ export default {
          */
         const people = await listLoanPeople().catch(() => [])
 
+        /*
+         * 胶囊状态快照
+         *
+         * ★ 为什么要拍照 ★
+         *   解析要等网络，等待期间用户还能继续勾/取消；
+         *   用解析完那一刻的值会让「点了确定又去改」的时序变得诡异。
+         *   取「点发送那一刻」的意图最符合直觉。
+         */
+        const wantPendingReimburse = pendingReimburse.value
+        const wantExcludeBudget = excludeBudget.value || wantPendingReimburse
+
         const result = await parseMessageToTransactions(pendingText, {
           categories,
           accounts: accountStore.list,
@@ -341,6 +432,16 @@ export default {
             const isLoanMove = isLoanPersonCategory(catName) && !isLoanSettleCategory(catName)
             const isSettleCat = isLoanSettleCategory(catName)
 
+            /*
+             * ★ 报销标记只在支出上生效（用户第 4 条）★
+             *   收入/转账既没有预算也没法报销，硬套上会让「本月支出」
+             *   莫名其妙少一笔、或者支出统计里出现一条收入。
+             *   所以这里按 item.type 判一次，不是支出的直接当没勾。
+             */
+            const isExpenseItem = item.type === 'expense'
+            const itemPendingReimburse = isExpenseItem && wantPendingReimburse
+            const itemExcludeBudget = isExpenseItem && wantExcludeBudget
+
             await txnStore.create({
               type: item.type,
               amount_cents: amountCents,
@@ -348,8 +449,15 @@ export default {
               to_account_id: item.to_account_id,
               category_id: item.category_id,
               occurred_day: item.occurred_day,
-              exclude_from_budget: isLoanMove || isSettleCat,
-              exclude_from_stats: isLoanMove,
+              /*
+               * 预算排除的三个来源：借款语义 / 结清语义 / 用户勾了不计预算
+               * 收支排除：借款语义排除；结清语义必须计入；
+               *           待报销的钱还没回来，也先排除。
+               */
+              exclude_from_budget: isLoanMove || isSettleCat || itemExcludeBudget,
+              exclude_from_stats: isSettleCat ? false : (isLoanMove || itemPendingReimburse),
+              /* 报销状态（只有支出才有意义） */
+              reimburse_status: itemPendingReimburse ? 1 : 0,
               // ★ 模型识别出时刻就用它，否则由 store 按「此刻」处理
               occurred_at: item.occurred_time
                 ? combineDayTime(item.occurred_day, item.occurred_time)
@@ -401,6 +509,15 @@ export default {
           })
 
           emit('saved')
+
+          /*
+           * ★ 每次 AI 记账结束后检查恩格尔系数的分类缓存（用户第 11 条）★
+           *   没有缓存就顺手让 AI 判一次，下次打开统计页直接有数。
+           *   ★ 不 await、不报错 ★
+           *     用户此刻只关心「记上了没有」，不能让一个展示型指标
+           *     拖住 toast 或者弹一个「AI 判定失败」的框。
+           */
+          ensureEngelFoodCategories().catch(() => {})
         }
 
         // 部分失败或校验警告要告知用户
@@ -562,6 +679,8 @@ export default {
     return {
       visible, draft, submitting, autoFocus, inputRef,
       primaryColor, canSend, barStyle,
+      pendingReimburse, excludeBudget, flagsStyle,
+      togglePendingReimburse, toggleExcludeBudget,
       submit, close, onMaskClick, noop
     }
   }
@@ -605,6 +724,75 @@ export default {
  *   圆角保持 48rpx 胶囊，描边用玻璃内高光而不是实线，
  *   这样浮在页面内容上时边界是「折射感」而不是「画了个框」。
  */
+/*
+ * 输入框上方的两个胶囊（待报销 / 不计预算）
+ *
+ * ★ 为什么浮在输入条上方而不是塞进输入条 ★
+ *   输入条高度已经被输入框 + 发送按钮占满，再塞两个胶囊会把
+ *   输入框压得很窄；而这一行只在需要时看一眼，浮在上面更清爽。
+ *   bottom 由 flagsStyle 计算（输入条高度 + 间距），
+ *   和 barStyle 的 bottom 保持同一个基准，键盘弹起时两者一起抬。
+ */
+.quick-add-flags {
+  position: fixed;
+  left: 32rpx;
+  z-index: 601;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.qa-chip {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 10rpx 22rpx;
+  border-radius: 999rpx;
+  background-color: var(--app-card);
+  border: 1rpx solid var(--app-line);
+}
+
+/* 选中态：主题色描边 + 浅底，和 .flag-box 是同一套语义 */
+.qa-chip.on {
+  border-color: var(--app-primary);
+  background-color: var(--app-primary-light);
+}
+
+.qa-chip.locked {
+  opacity: 0.9;
+}
+
+.qa-chip-box {
+  width: 28rpx;
+  height: 28rpx;
+  border-radius: 6rpx;
+  border: 2rpx solid var(--app-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.qa-chip-box.on {
+  background-color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+.qa-chip-tick {
+  font-size: 18rpx;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.qa-chip-text {
+  font-size: 22rpx;
+  color: var(--app-text-2);
+}
+
+.qa-chip.on .qa-chip-text {
+  color: var(--app-text);
+}
+
 .quick-add-bar {
   position: fixed;
   left: 32rpx;

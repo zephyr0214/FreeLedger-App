@@ -8,7 +8,7 @@ import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
   SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME, SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
-  LOAN_SETTLE_CATEGORY_NAMES,
+  LOAN_SETTLE_CATEGORY_NAMES, REIMBURSE_CATEGORY_NAMES,
   childIcon, childColor
 } from './db/schema.js'
 
@@ -312,20 +312,18 @@ const FIXED_CHILD_NAMES = {
     '借出', '借款归还', RECONCILE_NAMES.expense,
     LOAN_SETTLE_CATEGORY_NAMES.badDebt.name,
     // 借入侧「还多了」= 我的损失（支出）
-    LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name
+    LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name,
+    // 报销：实报少于垫付的差额（我的损失）
+    REIMBURSE_CATEGORY_NAMES.badDebt.name
   ],
-  /*
-   * ★ 收入侧多一个「报销收入」（v18 起）★
-   *   它和「对账收入」一样是系统自己给的记账口径，
-   *   必须一起锁住 —— 否则用户删掉它之后，
-   *   syncDefaultCategories() 下次启动又会把它补回来，
-   *   变成「删了又出现」的僵尸分类。
-   */
   income: [
-    '借入', '借款收回', RECONCILE_NAMES.income, '报销收入',
+    '借入', '借款收回', RECONCILE_NAMES.income,
     LOAN_SETTLE_CATEGORY_NAMES.interest.name,
     // 借入侧「还不齐但不用还了」= 我的收益（收入）
-    LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name
+    LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name,
+    // 报销：到账本金（进报销账户）与实报多于垫付的差额
+    REIMBURSE_CATEGORY_NAMES.income.name,
+    REIMBURSE_CATEGORY_NAMES.surplus.name
   ]
 }
 
@@ -589,6 +587,15 @@ export async function ensurePresetCategories() {
   const borrowWaivedId = await ensurePresetChildRow('income', LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name)
   const borrowInterestId = await ensurePresetChildRow('expense', LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name)
 
+  /*
+   * ★ 报销的三个派生分类（v21）★
+   *   报销到账（income，进报销账户）/ 报销坏账（expense）/ 报销盈余（income）
+   *   都由报销台账自动写入，面板和 AI 侧由 isReimburseInternalCategory 挡住。
+   */
+  const reimburseIncomeId = await ensurePresetChildRow('income', REIMBURSE_CATEGORY_NAMES.income.name)
+  const reimburseBadDebtId = await ensurePresetChildRow('expense', REIMBURSE_CATEGORY_NAMES.badDebt.name)
+  const reimburseSurplusId = await ensurePresetChildRow('income', REIMBURSE_CATEGORY_NAMES.surplus.name)
+
   return {
     expenseGroupId,
     incomeGroupId,
@@ -602,6 +609,9 @@ export async function ensurePresetCategories() {
     interestId,
     borrowWaivedId,
     borrowInterestId,
+    reimburseIncomeId,
+    reimburseBadDebtId,
+    reimburseSurplusId,
     // 旧字段名，等价的别名
     loanExpenseId: lendOutId,
     loanIncomeId: borrowInId
@@ -759,7 +769,7 @@ export async function seedDefaultCategories() {
  *   所以这里只处理两类东西：
  *     1. 固定分类组的改名（系统预置分类 → 系统分类）；
  *     2. 固定子类的补齐（借出 / 借款归还 / 对账支出、借入 / 借款收回 /
- *        对账收入 / 报销收入）—— 这些是程序算账要用的口径，
+ *        对账收入、借款与报销的各个派生分类）—— 这些是程序算账要用的口径，
  *        少了页面就算不出「还欠多少」，不属于用户可以自定义的部分。
  *
  * ★ 为什么要它，而不是再写一条迁移 ★
@@ -776,7 +786,7 @@ export async function seedDefaultCategories() {
  *
  * @returns {Promise<{parents:number, children:number, renamed:number}>}
  *   parents  新建的「系统分类」组条数（老库几乎总是 0）
- *   children 新补的固定子类条数（典型场景就是「报销收入」那一条）
+ *   children 新补的固定子类条数（典型场景是补上某个派生分类）
  *   renamed  从「系统预置分类」改名成「系统分类」的条数（0 或 1~2）
  */
 export async function syncDefaultCategories() {

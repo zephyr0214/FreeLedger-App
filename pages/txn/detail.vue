@@ -81,17 +81,33 @@
         </view>
       </view>
 
-      <!-- 不计入预算（只有支出才有意义） -->
+      <!--
+        不计预算 / 待报销（只有支出才有意义）
+
+        ★ 用户第 1 条要求 ★
+          删掉原来那个「不计入预算」滑块，改成同一行左右两个选框，
+          两个都能勾选/取消。
+        ★ 用户第 3 条要求 ★
+          已报销时「待报销」显示成「已报销」并锁死，不能取消勾选 ——
+          那段逻辑在 ExcludeFlags 组件里（doneLocked / reimburseStatus===2）。
+        ★ 用户第 6 条要求 ★
+          勾上待报销 → 自动勾上「不计预算」并锁死；
+          这条规则也只在组件里写一次，三处调用点行为才会一致。
+      -->
       <view v-if="txn.type === 'expense'" class="detail-card">
         <view class="row">
           <view class="row-label-col">
-            <text class="row-label">不计入预算</text>
-            <text class="row-hint">不占预算额度，余额照常计算</text>
+            <text class="row-label">报销与预算</text>
+            <text class="row-hint">{{ flagsHint }}</text>
           </view>
-          <switch
-            :checked="excludeFromBudget"
-            :color="primaryColor"
-            @change="onToggleExclude"
+        </view>
+        <view class="flags-row">
+          <ExcludeFlags
+            :exclude-budget="excludeFromBudget"
+            :reimburse-status="reimburseStatus"
+            :can-reimburse="txn.type === 'expense'"
+            :done-locked="reimburseStatus === 2"
+            @update="onFlagsUpdate"
           />
         </view>
       </view>
@@ -128,6 +144,7 @@
 import { ref, computed } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
+import ExcludeFlags from '@/components/ExcludeFlags.vue'
 import { handleBackPress } from '@/utils/layerStack.js'
 import TxnPanel from '@/components/TxnPanel.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -135,12 +152,13 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } from '@/api/transaction.js'
+import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { MoneyText, TxnPanel, AppDialog, UpdateDialog },
+  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const txnStore = useTransactionStore()
@@ -186,6 +204,22 @@ export default {
     /** 这笔是否不计入预算 */
     const excludeFromBudget = computed(() => !!txn.value && txn.value.exclude_from_budget === true)
 
+    /**
+     * 报销状态：0 不报销 / 1 待报销 / 2 已报销
+     *
+     * ★ 已报销要锁死 ★
+     *   钱已经到账、坏账/盈余也记好了，这时再取消「待报销」
+     *   会让台账和账户余额对不上，所以只读。
+     */
+    const reimburseStatus = computed(() => Number(txn.value && txn.value.reimburse_status) || 0)
+
+    /** 下面那行小字：说清楚这两个标记当前意味着什么 */
+    const flagsHint = computed(() => {
+      if (reimburseStatus.value === 2) return '已报销，状态不能修改'
+      if (reimburseStatus.value === 1) return '等公司打钱，暂不计入收支和预算'
+      return '不计预算 = 不占额度；待报销 = 等报销后再算'
+    })
+
     async function load() {
       try {
         const t = await getTransaction(txnId.value)
@@ -227,6 +261,42 @@ export default {
      * 只改标记，账户余额不受影响（这笔钱确实花出去了，
      * 只是不占预算额度）。
      */
+    /**
+     * 双选框变化
+     *
+     * ★ 为什么要分两次调用 ★
+     *   「待报销」要用 api/reimburse.js 的 setTxnPendingReimburse
+     *   （它要连两个 exclude 标记一起改、还要校验类型和分类）；
+     *   只改「不计预算」用 transaction.js 的 setExcludeFromBudget。
+     *   合成一把接口反而会让两边的校验互相打架。
+     */
+    async function onFlagsUpdate(next) {
+      const t = txn.value
+      if (!t) return
+      try {
+        if (next.reimburseStatus !== reimburseStatus.value) {
+          if (next.reimburseStatus === 1) {
+            await setTxnPendingReimburse(t.id, true)
+            uni.showToast({ title: '已标记待报销', icon: 'none' })
+          } else {
+            await setTxnPendingReimburse(t.id, false)
+            uni.showToast({ title: '已取消待报销', icon: 'none' })
+          }
+        } else if (next.excludeBudget !== excludeFromBudget.value) {
+          await setExcludeFromBudget(t.id, next.excludeBudget)
+          uni.showToast({
+            title: next.excludeBudget ? '已不计入预算' : '已恢复计入预算',
+            icon: 'none'
+          })
+        }
+        await load()
+        txnStore.loadHome(true)
+      } catch (err) {
+        await alertDialog({ title: '设置失败', content: err.message })
+        await load()
+      }
+    }
+
     async function onToggleExclude(e) {
       const next = !!e.detail.value
       try {
@@ -305,7 +375,8 @@ export default {
       settingStore, statusBarHeight, txn, tags, badges, showPanel, loadingText,
       primaryColor, pageStyle, typeLabel, iconChar,
       dayLabel, timeLabel, excludeFromBudget,
-      onEdit, onSaved, onDelete, onToggleExclude, goBack
+      onEdit, onSaved, onDelete, onToggleExclude, goBack,
+      reimburseStatus, flagsHint, onFlagsUpdate
     }
   }
 }
@@ -417,6 +488,17 @@ export default {
 .row-hint {
   font-size: 22rpx;
   color: var(--app-text-3);
+}
+
+/*
+ * 双选框那一行
+ *
+ * ★ 为什么单独一行而不是塞进 .row 右侧 ★
+ *   两个选项 + 勾选框在 375px 宽屏上右侧塞不下（会被挤成两行），
+ *   而这一行没有别的值要显示，独占一行最稳。
+ */
+.flags-row {
+  padding: 0 0 24rpx;
 }
 
 .row-label {

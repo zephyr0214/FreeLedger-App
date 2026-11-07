@@ -259,10 +259,17 @@ if (extGroup) {
 check('分组标题不含「管理」二字', /title: '基础功能管理'|title: '拓展功能管理'/.test(mine), false)
 check('每个分组各 4 项（2×2）', (mine.match(/key: '(category|tag|budget|rate|loanIn|loanOut|cycle|reimburse)'/g) || []).length, 8)
 
-console.log('=== 占位页 ===')
+console.log('=== 报销页（v21 起已是真页面，不再是占位）===')
 const reimburse = read('pages/loan/reimburse.vue')
 check('报销页有标题', /title="报销管理"/.test(reimburse), true)
-check('报销页说明是占位', /占位|还在路上/.test(reimburse), true)
+/*
+ * ★ v21 起报销页是真功能，不再是占位 ★
+ *   以前这里断言「页面里有『占位 / 还在路上』字样」，
+ *   现在页面有完整的待报销/已报销列表与报销弹层，
+ *   再断言占位文案就会 fail。改成钉住它的核心能力。
+ */
+check('报销页有「待报销 / 已报销」切换', /待报销/.test(reimburse) && /已报销/.test(reimburse), true)
+check('报销页会调报销接口', /reimburseTxns/.test(reimburse), true)
 check('报销页没有假按钮', /<button/.test(reimburse), false)
 check('报销页也挂了 UpdateDialog', /<UpdateDialog \/>/.test(reimburse), true)
 
