@@ -321,13 +321,24 @@
         ★ 拿不到分类缓存时怎么办 ★
           显示「还没算出来」而不是 0%。0% 会被误读成「我没在吃饭上花钱」。
       -->
-      <view v-if="engel" class="card">
+      <view v-if="engel || engelLoading" class="card">
         <view class="card-head">
           <text class="card-title">恩格尔系数</text>
           <text class="card-sub">食品支出占总支出的比例</text>
         </view>
 
-        <view v-if="engel.total === 0" class="card-empty">
+        <!--
+          ★ 本轮用户第 7 条：进页面就检查，没有记录立即调 AI ★
+            判定期间卡片不能空着（用户会以为坏了），
+            这里给一行「正在识别」的占位文案。
+        -->
+        <view v-if="engelLoading" class="card-empty">
+          <text class="empty-text">正在识别食品分类…</text>
+        </view>
+        <view v-else-if="!engel" class="card-empty">
+          <text class="empty-text">暂时算不出来，稍后再试</text>
+        </view>
+        <view v-else-if="engel.total === 0" class="card-empty">
           <text class="empty-text">这段时间没有支出</text>
         </view>
         <view v-else-if="engel.ratio === 0 && engel.foodIds.length === 0" class="card-empty">
@@ -510,7 +521,7 @@ import {
   getPeriodComparison, getEngelCoefficient,
   PIE_PALETTE
 } from '@/api/stats.js'
-import { ensureEngelFoodCategories, getCachedEngelFoodIds } from '@/api/engel.js'
+import { ensureEngelFoodCategories, getEngelCacheState } from '@/api/engel.js'
 import { listCategories } from '@/api/category.js'
 import {
   selectionToRange, defaultSelection, selectionLabel,
@@ -581,6 +592,18 @@ export default {
     const comparison = ref(null)
     /** 恩格尔系数结果 */
     const engel = ref(null)
+    /** 正在让 AI 判定食品分类（卡片上显示「识别中」） */
+    const engelLoading = ref(false)
+    /**
+     * 本次进入页面已经自动判过一轮了吗
+     *
+     * ★ 为什么需要它 ★
+     *   「没有判定记录就立即调 AI」只在**每次点进统计页**时做一次；
+     *   页面里切换日期区间会反复走 loadAll()，若不设这个标记，
+     *   判定失败（AI 挂了）时用户每切一次区间就再烧一次请求。
+     *   每次 onShow 会把它清零，所以下次进页面仍会重试。
+     */
+    const engelAutoTried = ref(false)
     /** 被判定为「吃」的一级分类 id 与名字（名字用于下面那排标签） */
     const engelFoodIds = ref([])
     const engelFoodNames = ref([])
@@ -845,13 +868,6 @@ export default {
     async function loadAll() {
       const r = range.value
       try {
-        /*
-         * ★ 同比 / 恩格尔：单独一条 Promise.all，失败不影响主统计 ★
-         *   它们一个依赖区间换算、一个依赖 AI 分类缓存，
-         *   任何一边出问题都不该把整页统计拖垮。
-         */
-        loadExtras(r)
-
         const [ov, cats, accs, accTypes, catAvgs, daily, avg, top] = await Promise.all([
           getOverviewRange(r),
           // 分类统计：按面板的层级（一级/二级）查询
@@ -879,6 +895,15 @@ export default {
         topExpenses.value = top
         // 分类名映射（恩格尔标签用）：区间/层级变化都要更新
         await refreshEngelFoodNames()
+
+        /*
+         * ★ 同比 / 恩格尔放在主统计之后（本轮用户第 7 条）★
+         *   恩格尔判定要看「这段区间到底有没有支出」，
+         *   而那个数刚由上面的 overview 拿到 ——
+         *   所以必须等主统计回来再跑，不能和它并发。
+         *   仍然各用各的 catch，坏了一边不拖垮另一边。
+         */
+        loadExtras(r)
       } catch (e) {
         console.error('[stats] load failed', e)
         uni.showToast({ title: e.message, icon: 'none' })
@@ -902,39 +927,72 @@ export default {
         comparison.value = null
       }
 
-      // 2) 恩格尔：先读缓存，没有再让 AI 判一次（后台进行，不阻塞）
+      /*
+       * 2) 恩格尔系数（本轮用户第 7 条的核心改动）
+       *
+       * ★ 旧行为 ★
+       *   每次 AI 记账结束后顺手判一次分类（已从 QuickAddBar 移除）。
+       * ★ 新行为 ★
+       *   只在这一页检查：
+       *     · 已有判定记录（缓存）→ 直接用，不发请求；
+       *     · 还没有记录，且这段区间有支出 → 立即调 AI 判定一次，
+       *       卡片上显示「正在识别食品分类…」；
+       *     · 还没有记录、也没有支出 → 不调 AI（没数据可算）——
+       *       否则用户每月初打开统计页都会白烧一次请求。
+       */
       try {
-        let ids = await getCachedEngelFoodIds()
-        if (ids.length === 0) {
-          // 没缓存就后台补一次，补完再刷新这一块（不 await 整体的渲染）
-          ensureEngelFoodCategories()
-            .then(async (fresh) => {
-              if (!fresh || fresh.length === 0) return
-              engelFoodIds.value = fresh
-              await refreshEngel()
-            })
-            .catch(() => {})
+        const cache = await getEngelCacheState()
+        if (cache.exists) {
+          engelFoodIds.value = cache.ids
+          await refreshEngelFoodNames()
+          await refreshEngel()
+          return
+        }
+
+        const hasExpense = Number(overview.value.expense) > 0
+        if (!hasExpense) {
+          engelFoodIds.value = []
+          engel.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
+          return
+        }
+
+        // 本次进页面已经判过（可能失败了）：不重复烧请求，等下次进页面再说
+        if (engelAutoTried.value) {
+          const state = await getEngelCacheState()
+          engelFoodIds.value = state.ids
+          await refreshEngelFoodNames()
+          await refreshEngel()
+          return
+        }
+        engelAutoTried.value = true
+
+        engelLoading.value = true
+        let ids = []
+        try {
+          ids = await ensureEngelFoodCategories()
+        } finally {
+          engelLoading.value = false
         }
         engelFoodIds.value = ids
+        // 判定结果换了，下面那排「吃掉的分类」标签要跟着换
+        await refreshEngelFoodNames()
         await refreshEngel()
       } catch (e) {
+        engelLoading.value = false
         console.warn('[stats] 恩格尔系数计算失败:', e && e.message)
         engel.value = null
       }
     }
 
-    /** 用当前区间 + 已判定的食品分类重算恩格尔系数 */
+    /**
+     * 用当前区间 + 已判定的食品分类重算恩格尔系数
+     *
+     * ★ 分类列表为空也要查 ★
+     *   「一个食品分类都没判出来」和「这段时间没有支出」是两种空态，
+     *   卡片上的文案不一样（见模板里的两个空态分支）。
+     *   所以不在这里提前返回假数据，交给 getEngelCoefficient 给真实的 total。
+     */
     async function refreshEngel() {
-      if (!engelFoodIds.value.length) {
-        engel.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
-        return
-      }
-      /*
-       * ★ 还需要分类名才能显示下面那排标签 ★
-       *   直接复用页面已有的 categoryStats？不行 —— 那是当前区间的，
-       *   而且层级可能是一级/二级不确定。这里单独取一次分类表，
-       *   从缓存 id 反查名字，代价很小（分类是小表）。
-       */
       const r = await getEngelCoefficient(range.value, engelFoodIds.value)
       engel.value = r
     }
@@ -1029,6 +1087,8 @@ export default {
     })
 
     onShow(async () => {
+      // 每次进入统计页都允许重新触发一次「没有记录就立即判定」
+      engelAutoTried.value = false
       if (settingStore.loaded) await loadAll()
       settingStore.syncSystemTheme()
       // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
@@ -1180,7 +1240,7 @@ export default {
       // 同比变化
       comparison, comparisonSub, balanceDiff, balanceDiffHint, cmpBarWidth,
       // 恩格尔系数
-      engel, engelLevel, engelColor, engelFoodNames,
+      engel, engelLoading, engelLevel, engelColor, engelFoodNames,
       onRangeChange,
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,

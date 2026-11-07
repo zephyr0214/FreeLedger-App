@@ -82,26 +82,22 @@
       </view>
 
       <!--
-        不计预算 / 待报销（只有支出才有意义）
+        不计入预算 ｜ 待报销（只有支出才有意义）
 
-        ★ 用户第 1 条要求 ★
-          删掉原来那个「不计入预算」滑块，改成同一行左右两个选框，
-          两个都能勾选/取消。
-        ★ 用户第 3 条要求 ★
-          已报销时「待报销」显示成「已报销」并锁死，不能取消勾选 ——
-          那段逻辑在 ExcludeFlags 组件里（doneLocked / reimburseStatus===2）。
-        ★ 用户第 6 条要求 ★
-          勾上待报销 → 自动勾上「不计预算」并锁死；
-          这条规则也只在组件里写一次，三处调用点行为才会一致。
+        ★ 本轮用户第 1 条要求 ★
+          不要再显示「报销与预算」这种标题，也不要那行说明小字；
+          直接一条竖分割线，左边「不计入预算」、右边「待报销」，视觉居中。
+          所以下面只剩【一行】，头部/说明已整体删掉。
+        ★ 本轮用户第 3 条要求 ★
+          勾「待报销」→「不计入预算」自动勾上且不可点；
+          取消「待报销」→ 「不计入预算」一起取消并恢复可点。
+          联动规则只写在 ExcludeFlags 组件里（三处调用点共用）。
+        ★ 已报销（status=2）★
+          「待报销」显示成「已报销」并锁死 ——
+          待报销 → 已报销只能去「报销管理」页完成。
       -->
       <view v-if="txn.type === 'expense'" class="detail-card">
-        <view class="row">
-          <view class="row-label-col">
-            <text class="row-label">报销与预算</text>
-            <text class="row-hint">{{ flagsHint }}</text>
-          </view>
-        </view>
-        <view class="flags-row">
+        <view class="row flags-row">
           <ExcludeFlags
             :exclude-budget="excludeFromBudget"
             :reimburse-status="reimburseStatus"
@@ -213,13 +209,6 @@ export default {
      */
     const reimburseStatus = computed(() => Number(txn.value && txn.value.reimburse_status) || 0)
 
-    /** 下面那行小字：说清楚这两个标记当前意味着什么 */
-    const flagsHint = computed(() => {
-      if (reimburseStatus.value === 2) return '已报销，状态不能修改'
-      if (reimburseStatus.value === 1) return '等公司打钱，暂不计入收支和预算'
-      return '不计预算 = 不占额度；待报销 = 等报销后再算'
-    })
-
     async function load() {
       try {
         const t = await getTransaction(txnId.value)
@@ -267,7 +256,7 @@ export default {
      * ★ 为什么要分两次调用 ★
      *   「待报销」要用 api/reimburse.js 的 setTxnPendingReimburse
      *   （它要连两个 exclude 标记一起改、还要校验类型和分类）；
-     *   只改「不计预算」用 transaction.js 的 setExcludeFromBudget。
+     *   只改「不计入预算」用 transaction.js 的 setExcludeFromBudget。
      *   合成一把接口反而会让两边的校验互相打架。
      */
     async function onFlagsUpdate(next) {
@@ -293,24 +282,6 @@ export default {
         txnStore.loadHome(true)
       } catch (err) {
         await alertDialog({ title: '设置失败', content: err.message })
-        await load()
-      }
-    }
-
-    async function onToggleExclude(e) {
-      const next = !!e.detail.value
-      try {
-        const updated = await setExcludeFromBudget(txnId.value, next)
-        txn.value = updated
-        uni.showToast({
-          title: next ? '已不计入预算' : '已恢复计入预算',
-          icon: 'none'
-        })
-        // 预算页面的数字要跟着变
-        txnStore.loadHome(true)
-      } catch (err) {
-        await alertDialog({ title: '设置失败', content: err.message })
-        // 失败就把开关拨回去
         await load()
       }
     }
@@ -375,8 +346,8 @@ export default {
       settingStore, statusBarHeight, txn, tags, badges, showPanel, loadingText,
       primaryColor, pageStyle, typeLabel, iconChar,
       dayLabel, timeLabel, excludeFromBudget,
-      onEdit, onSaved, onDelete, onToggleExclude, goBack,
-      reimburseStatus, flagsHint, onFlagsUpdate
+      onEdit, onSaved, onDelete, goBack,
+      reimburseStatus, onFlagsUpdate
     }
   }
 }
@@ -476,29 +447,16 @@ export default {
   gap: 8rpx;
 }
 
-/* 标签 + 副说明（两行），用于「不计入预算」这类带说明的条目 */
-.row-label-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  min-width: 0;
-}
-
-.row-hint {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
 /*
- * 双选框那一行
+ * 「不计入预算 ｜ 待报销」那一行
  *
- * ★ 为什么单独一行而不是塞进 .row 右侧 ★
- *   两个选项 + 勾选框在 375px 宽屏上右侧塞不下（会被挤成两行），
- *   而这一行没有别的值要显示，独占一行最稳。
+ * ★ 本轮用户第 1 条 ★
+ *   删掉标题和说明小字后，这一行就是「一条竖分割线居中两栏」。
+ *   用 .row 复用卡片里其它行的高度/背景/上下边框，
+ *   内部横向居中交给 ExcludeFlags 自己（它 flex:1 + justify-content:center）。
  */
 .flags-row {
-  padding: 0 0 24rpx;
+  justify-content: center;
 }
 
 .row-label {

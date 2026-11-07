@@ -1264,9 +1264,11 @@ export async function getPeriodComparison(range) {
  * ★ 吃什么由 AI 判断，不写死 ★
  *   分类名千差万别（「餐饮食品」「吃饭」「早餐」…），
  *   写死一张表覆盖不全；用户明确要求「使用 ai 来判断哪些属于吃掉的分类」。
- *   判定结果缓存到 setting 表的 `engelFoodCategories`，
- *   每次 AI 记账结束后检查一次（见 components/QuickAddBar.vue），
- *   没有就补一次 —— 这样不会每次打开统计页都请求 AI。
+ *   判定结果缓存到 setting 表的 `engelFoodCategories`。
+ *   ★ 什么时候判（本轮用户第 7 条改了口径）★
+ *     记账时不再碰它（旧版是在 AI 记账结束后顺手判一次，已移除）；
+ *     改为**每次进统计页**时检查：有记录直接用，没有记录且有支出就立即调 AI，
+ *     另外分类保存/删除时会强制重判一次。见 pages/stats/index.vue 与 api/engel.js。
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @param {string[]} foodCategoryIds 被认为是「吃」的一级分类 id

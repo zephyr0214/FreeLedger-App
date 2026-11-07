@@ -265,23 +265,21 @@
         </view>
 
         <!--
-          ★ 不计预算 / 待报销（用户第 5 条要求）★
-            位置：备注下方并排一行。
-          规则全在 ExcludeFlags 组件里（勾待报销 → 自动勾不计预算并锁死），
-          三处调用点（详情页 / 记账面板 / AI 速记条）行为才会一致。
-
+          ★ 不计入预算 ｜ 待报销（本轮用户第 1 / 3 条）★
+            位置：备注下方一行。
+          ★ 没有标题、没有说明小字 ★
+            就是一条竖分割线居中两栏 —— 和交易详情页完全一致，
+            两边都交给 ExcludeFlags 组件（联动规则只写一份）。
           ★ 只有支出才显示 ★
             收入/转账既没有预算额度概念，也不可能「报销」。
         -->
         <view v-if="form.type === 'expense' && !isPersonCategory" class="form-row form-row-flags">
-          <view class="flags-wrap">
-            <ExcludeFlags
-              :exclude-budget="form.excludeBudget"
-              :reimburse-status="form.reimburseStatus"
-              :can-reimburse="form.type === 'expense'"
-              @update="onFlagsUpdate"
-            />
-          </view>
+          <ExcludeFlags
+            :exclude-budget="form.excludeBudget"
+            :reimburse-status="form.reimburseStatus"
+            :can-reimburse="form.type === 'expense'"
+            @update="onFlagsUpdate"
+          />
         </view>
       </view>
 
@@ -403,7 +401,7 @@ import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta, buildOriginalNoteTag, applyNoteTag, stripNoteTag } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
+import { sortCategoriesByUsage, isSelectableCategory, isInternalOnlyCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { pushLayer } from '@/utils/layerStack.js'
@@ -462,7 +460,7 @@ export default {
        * 报销与预算标记（v21）
        *   excludeBudget    是否不计入预算
        *   reimburseStatus  0 不报销 / 1 待报销 / 2 已报销
-       * 两者由 ExcludeFlags 组件联动：勾待报销会自动勾上不计预算。
+       * 两者由 ExcludeFlags 组件联动：勾待报销会自动勾上「不计入预算」。
        */
       excludeBudget: false,
       reimburseStatus: 0,
@@ -926,10 +924,10 @@ export default {
 
     /** 打开人员选择（历史人员列表） */
     /**
-     * 双选框变化（不计预算 / 待报销）
+     * 双栏状态变化（不计入预算 ｜ 待报销）
      *
      * ★ 规则已经在 ExcludeFlags 里实现了 ★
-     *   组件发出来的载荷已经算好「勾待报销要自动勾不计预算」，
+     *   组件发出来的载荷已经算好「勾待报销要自动勾上不计入预算」，
      *   面板这边只负责把值写回 form，不再重复判断一遍 ——
      *   两处都判断，迟早会出现两边结论不一致的诡异状态。
      */
@@ -1075,7 +1073,16 @@ export default {
      */
     const defaultCategoryId = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
-      const list = categories.value.filter((c) => c.type === type && !c.isParent)
+      /*
+       * ★ 内部口径分类不能当默认（本轮用户第 6 条）★
+       *   借入利息 / 借出坏账 / 借出利息 / 借入未还 / 报销坏账 / 报销盈余
+       *   是结清、报销自动写的，用户既不能选，就更不能默认落到它们头上。
+       *   兜底那一档（list[0]）也要过滤 —— 用户把自己的分类全删光时，
+       *   剩下的就只有系统分类，不过滤就会默认选中「借出坏账」这种。
+       */
+      const list = categories.value.filter(
+        (c) => c.type === type && !c.isParent && !isInternalOnlyCategory(c.name)
+      )
       const userList = list.filter((c) => !isSystemPresetName(c.name, type))
       const pick = userList.length > 0 ? userList[0] : list[0]
       return pick ? pick.id : ''
@@ -1281,12 +1288,20 @@ export default {
         /*
          * ★ 预算排除的三条来源 ★
          *   1) 借款类 / 结清类语义 → 一定排除
-         *   2) 用户在本面板勾了「不计预算」或「待报销」→ 排除
+         *   2) 用户在本面板勾了「不计入预算」或「待报销」→ 排除
          *   3) 编辑老数据时保留它原有的标记
+         */
+        /*
+         * ★ 编辑态怎么继承旧标记（本轮用户第 3 条）★
+         *   一般情况：用户在详情页勾过「不计入预算」，进来改个金额不该被清掉，
+         *   所以编辑时保留原值。
+         *   例外：原来是「待报销」自动带出来的排除 —— 现在取消待报销，
+         *   这两个标记必须跟着放开，否则取消完这笔账仍然不计收支/预算。
          */
         exclude_from_budget: (isPersonCategory.value || isSettleCategory.value || form.excludeBudget)
           ? true
-          : !!(props.editing && props.editing.exclude_from_budget),
+          : !!(props.editing && props.editing.exclude_from_budget
+            && Number(props.editing.reimburse_status) !== 1),
         /*
          * ★ 收支：只有前四类排除，结清分类必须计入 ★
          *   坏账是实实在在的损失、利息是实实在在的收益，
@@ -1303,7 +1318,8 @@ export default {
             ? true
             : (form.reimburseStatus === 1
               ? true
-              : !!(props.editing && props.editing.exclude_from_stats))),
+              : !!(props.editing && props.editing.exclude_from_stats
+                && Number(props.editing.reimburse_status) !== 1))),
         /* 报销状态：只有支出才可能是待报销 */
         reimburse_status: form.type === 'expense' ? (Number(form.reimburseStatus) || 0) : 0
       }
@@ -1436,7 +1452,22 @@ export default {
           return
         }
         const valid = categoryList.value.some((c) => c.id === form.category_id)
-        if (!valid && categoryList.value.length > 0) {
+        if (valid) return
+
+        /*
+         * ★ 编辑内部口径分类的老流水时不要强行改分类（本轮用户第 6 条）★
+         *   借出坏账 / 报销坏账这类分类是结清、报销自动写的，已经从
+         *   面板可选列表里剔掉了。但要编辑这样一笔时，如果这里按
+         *   「不在列表里 = 无效」把它换成第一个分类，用户只改个备注
+         *   就会把这笔结清流水的分类改错，管理页的账立刻对不上。
+         *   所以：编辑态下只要原分类还在分类表里，就原样保留。
+         */
+        if (props.editing && form.category_id) {
+          const exists = categories.value.some((c) => c.id === form.category_id)
+          if (exists) return
+        }
+
+        if (categoryList.value.length > 0) {
           form.category_id = categoryList.value[0].id
         }
       }
@@ -1874,16 +1905,17 @@ export default {
   min-width: 0;
 }
 
-/* 双选框那一行：不占整行高度，靠左对齐 */
+/*
+ * 「不计入预算 ｜ 待报销」那一行
+ *
+ * ★ 本轮用户第 1 条 ★
+ *   去掉标题与说明小字后，这一行就是竖分割线居中两栏。
+ *   ExcludeFlags 自己 flex:1 + 居中，这里只把行内边距收掉，
+ *   让分割线落在面板可视区的正中间。
+ */
 .form-row-flags {
-  justify-content: flex-start;
+  justify-content: center;
   min-height: 84rpx;
-}
-
-.flags-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
 }
 
 .person-pick {

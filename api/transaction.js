@@ -570,6 +570,20 @@ async function assertTransferTargetNotCombo(toAccountId) {
 export async function createTransaction(input) {
   validate(input)
 
+  /*
+   * ★ 「已报销」不能由普通记账路径写入（本轮用户第 5 条）★
+   *   待报销可以随手补记（AI 记账、手动记账都行），
+   *   但「待报销 → 已报销」这一步要算实报金额、挑到账账户、
+   *   记坏账/盈余，只有 api/reimburse.js 的 reimburseTxns 能做
+   *   （它走的是自己的 SQL，不经过本函数，所以这里拦不会误伤）。
+   *
+   *   放这一层而不是只靠界面：AI、导入、周期补记都从这儿进，
+   *   界面藏一次不保证别处不写。
+   */
+  if (Number(input.reimburse_status) === 2) {
+    throw new Error('「已报销」请到「报销管理」页确认，记账不能直接改成已报销')
+  }
+
   const id = input.id || prefixedId('txn')
   const now = Date.now()
   // ★ 时间：优先用用户给的时刻 ★
@@ -663,6 +677,15 @@ export async function updateTransaction(id, patch) {
   const existing = await getTransaction(id)
   if (!existing) throw new Error('交易不存在')
 
+  /*
+   * ★ 已报销不能由编辑保存「造出来」（本轮用户第 5 条）★
+   *   编辑一笔已报销的账时原样带回 status=2 是允许的（值没变）；
+   *   但把一笔没报销的账直接改成 2 不行 —— 那会绕过报销台账。
+   */
+  if (Number(patch.reimburse_status) === 2 && Number(existing.reimburse_status) !== 2) {
+    throw new Error('「已报销」请到「报销管理」页确认，记账不能直接改成已报销')
+  }
+
   const merged = { ...existing, ...patch }
   validate(merged)
 
@@ -708,7 +731,7 @@ export async function updateTransaction(id, patch) {
         occurred_at = ?, occurred_day = ?, month_key = ?, year_key = ?,
         updated_at = ?, via_combo_id = ?,
         original_currency = ?, original_amount_cents = ?, exchange_rate = ?,
-        exclude_from_budget = ?, exclude_from_stats = ?
+        exclude_from_budget = ?, exclude_from_stats = ?, reimburse_status = ?
        WHERE id = ?`,
       [
         merged.type,
@@ -728,6 +751,14 @@ export async function updateTransaction(id, patch) {
         merged.exchange_rate || null,
         merged.exclude_from_budget ? 1 : 0,
         merged.exclude_from_stats ? 1 : 0,
+        /*
+         * ★ 报销状态也要能编辑（本轮用户第 3、5 条）★
+         *   旧版这条 UPDATE 里根本没有 reimburse_status，
+         *   于是「编辑一笔普通支出 → 勾上待报销 → 保存」什么都没发生，
+         *   详情页再看还是没勾。待报销允许由手动记账设置（第 3 条）；
+         *   已报销在上面被拦住了（只有报销管理页能推进到 2）。
+         */
+        Number(merged.reimburse_status) || 0,
         id
       ]
     )

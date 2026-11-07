@@ -10,10 +10,15 @@
  *   都要请求一次大模型（慢、费钱，还可能因为网络失败而空着）。
  *   缓存键 `engelFoodCategories`，值是分类 id 数组。
  *
- * ★ 什么时候刷新 ★
- *   用户的第 11 条要求：**每次调用 AI 记账结束后检查一次是否有该数据，
- *   没有的话就执行一次**。见 components/QuickAddBar.vue 的 ensureEngelFoodCategories()。
- *   另外分类增删改之后（分类页保存）也应该让它失效 —— 见 clearEngelCache()。
+ * ★ 什么时候刷新（本轮用户第 7 条改了口径）★
+ *   旧版是「每次 AI 记账结束后检查一次」，用户明确否掉了：
+ *   **记账时什么都别查**。现在的规则是：
+ *     1. 每次进入统计页时检查这份记录 —— 有缓存直接用，
+ *        没有缓存且有支出记录时，立即（页面上显示加载中）调一次 AI；
+ *        见 pages/stats/index.vue 的 loadExtras()。
+ *     2. 分类增删改保存时直接重新判定一次 ——
+ *        见 pages/settings/category.vue 的 rejudgeEngel()，
+ *        它调的就是下面的 refreshEngelFoodCategories()。
  */
 
 import { listCategories } from './category.js'
@@ -36,6 +41,41 @@ export async function getCachedEngelFoodIds() {
 /** 让缓存失效（分类增删改后调用，下次会重新判定） */
 export async function clearEngelCache() {
   await setSetting(ENGEL_CACHE_KEY, null)
+}
+
+/**
+ * 缓存「有没有判过」。
+ *
+ * ★ 为什么要区分「没判过」和「判定结果为空」★
+ *   getCachedEngelFoodIds() 两种情况都返回 []：
+ *     · 从没判过（setting 里是 null）
+ *     · 判过了，但用户一个食品分类都没有（存的是 []）
+ *   统计页需要知道「要不要现在调 AI」，所以这里把原始值也带出来。
+ *
+ * @returns {Promise<{exists:boolean, ids:string[]}>}
+ */
+export async function getEngelCacheState() {
+  const raw = await getSetting(ENGEL_CACHE_KEY, null)
+  if (!Array.isArray(raw)) return { exists: false, ids: [] }
+  return { exists: true, ids: raw.filter(Boolean) }
+}
+
+/**
+ * 清缓存 + 立即重新判定一次（分类增删改保存后调用）。
+ *
+ * ★ 失败不抛 ★
+ *   恩格尔是展示型指标，分类已经存好了；AI 挂了不该让「已保存」变成报错。
+ *
+ * @returns {Promise<string[]>} 新的食品分类 id 数组（失败为空）
+ */
+export async function refreshEngelFoodCategories() {
+  try {
+    await clearEngelCache()
+    return await ensureEngelFoodCategories({ force: true })
+  } catch (e) {
+    console.warn('[engel] 重新判定失败:', e && e.message)
+    return []
+  }
 }
 
 /**

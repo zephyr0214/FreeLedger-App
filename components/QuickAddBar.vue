@@ -29,26 +29,37 @@
         不用打完了再回头勾。
     -->
     <view class="quick-add-flags" :style="flagsStyle" @click.stop @touchmove.stop>
+      <!--
+        ★ 点胶囊不能让输入条消失（本轮第 2 条 bug）★
+          胶囊是原生 <input> 外面的普通 view，点它会抢走焦点，
+          输入框失焦 → 键盘高度归零 → 键盘监听里 h===0 的分支
+          把整个输入态 close() 掉，表现为「一点胶囊输入框就缩回去」。
+          修法见 holdInputAlive() + keepAliveUntil 保护窗：
+          胶囊触摸时开窗，键盘归零回调在窗内跳过 close()，
+          随后用 ref 把输入框重新聚焦。
+      -->
       <view
         class="qa-chip"
         :class="{ on: pendingReimburse }"
+        @touchstart.stop="holdInputAlive"
         @click.stop="togglePendingReimburse"
       >
         <view class="qa-chip-box" :class="{ on: pendingReimburse }">
           <text v-if="pendingReimburse" class="qa-chip-tick">✓</text>
         </view>
-        <text class="qa-chip-text">{{ pendingReimburse ? '待报销' : '待报销' }}</text>
+        <text class="qa-chip-text">待报销</text>
       </view>
 
       <view
         class="qa-chip"
         :class="{ on: excludeBudget || pendingReimburse, locked: pendingReimburse }"
+        @touchstart.stop="holdInputAlive"
         @click.stop="toggleExcludeBudget"
       >
         <view class="qa-chip-box" :class="{ on: excludeBudget || pendingReimburse }">
           <text v-if="excludeBudget || pendingReimburse" class="qa-chip-tick">✓</text>
         </view>
-        <text class="qa-chip-text">不计预算</text>
+        <text class="qa-chip-text">不计入预算</text>
       </view>
     </view>
 
@@ -167,7 +178,7 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const canSend = computed(() => draft.value.trim().length > 0 && !submitting.value)
 
-    /* ------------------------------------------- 不计预算 / 待报销（第 4 条） */
+    /* ------------------------------------------- 不计入预算 / 待报销 */
 
     /**
      * 「待报销」勾选状态
@@ -175,10 +186,24 @@ export default {
      * ★ 只在最终识别为支出时生效 ★
      *   AI 解析出来的 item 可能是收入或转账，那两类既没有预算
      *   也没法报销，落库时会直接忽略这两个标记（见下面的 create 调用）。
+     * ★ 只能落在「待报销」这一档 ★
+     *   待报销 → 已报销必须去「报销管理」页确认（本轮用户第 5 条），
+     *   AI 记账和手动记账都不能把这一档推进到已报销。
      */
     const pendingReimburse = ref(false)
-    /** 「不计预算」勾选状态（待报销时被视为已勾选且锁死） */
+    /** 「不计入预算」勾选状态（待报销时被视为已勾选且锁死） */
     const excludeBudget = ref(false)
+
+    /**
+     * 输入里有没有「报销」二字的上一帧结论
+     *
+     * ★ 为什么要记这个 ★
+     *   watch(draft) 每敲一个字都会跑；如果每次都无条件回写勾选状态，
+     *   用户手动点掉「待报销」后随便再打一个字又会被重新勾上。
+     *   只在「有没有报销二字」这个结论真的翻转时才回写，
+     *   既能实时跟随（本轮用户第 4 条），又不吞掉手动操作。
+     */
+    let autoReimburse = false
 
     /** 胶囊行的位置：跟输入条一样贴底，但要往上挪一个输入条高度 + 间距 */
     const flagsStyle = computed(() => ({
@@ -186,33 +211,36 @@ export default {
     }))
 
     function togglePendingReimburse() {
+      // 点胶囊前先开保活窗：别让这次点击把输入条/键盘收掉（本轮第 2 条）
+      holdInputAlive()
       pendingReimburse.value = !pendingReimburse.value
-      /* 第 6 条：勾上待报销 → 自动勾上不计预算 */
-      if (pendingReimburse.value) excludeBudget.value = true
+      /* 勾上待报销 → 自动勾上不计入预算（用户第 3 条联动） */
+      excludeBudget.value = pendingReimburse.value
     }
 
     function toggleExcludeBudget() {
+      holdInputAlive()
       if (pendingReimburse.value) {
-        uni.showToast({ title: '待报销的账本来就不计预算', icon: 'none' })
+        uni.showToast({ title: '待报销的账本来就不计入预算', icon: 'none' })
         return
       }
       excludeBudget.value = !excludeBudget.value
     }
 
     /**
-     * 输入里提到「报销」就自动勾上待报销
+     * 输入里提到「报销」就勾上待报销，提到又删掉就取消
      *
-     * ★ 用户第 4 条原话 ★
-     *   「当用户输入内容中有报销二字，待报销直接勾选」。
-     * ★ 为什么只自动勾、不自动取消 ★
-     *   用户手动勾上之后又把那句话删掉，如果这里跟着取消，
-     *   他勾的意图就丢了；取消由他自己点一下即可。
+     * ★ 本轮用户第 4 条原话 ★
+     *   「检测到报销两个字时，默认勾选待报销；没有这两个字时，就取消勾选」。
+     *   所以要**双向实时**跟随，不能像旧版那样只勾不取消。
      */
     watch(draft, (text) => {
-      if (String(text || '').includes('报销')) {
-        pendingReimburse.value = true
-        excludeBudget.value = true
-      }
+      const has = /报销/.test(String(text || ''))
+      if (has === autoReimburse) return
+      autoReimburse = has
+      pendingReimburse.value = has
+      /* 勾上时联动不计入预算；取消时一起取消（用户第 3 条） */
+      excludeBudget.value = has
     })
 
     /**
@@ -246,6 +274,38 @@ export default {
 
     let keyboardTimer = null
 
+    /**
+     * 点胶囊时的「别关输入条」保护窗口
+     *
+     * ★ bug 现场（本轮用户第 2 条）★
+     *   胶囊是 <input> 外面的普通 view。点它会抢焦点 → 输入框失焦 →
+     *   系统收起键盘 → onKeyboardHeightChange 收到 height=0 →
+     *   下面的 close() 把整个输入态收掉，看着就是「输入框缩回去了」。
+     *   胶囊只是改个标记，不该结束输入，所以触摸时开一个短保护窗：
+     *   窗口内的 height=0 一律忽略并重新聚焦，窗口外维持原来的关闭行为。
+     */
+    let keepAliveUntil = 0
+    let refocusTimer = null
+
+    function holdInputAlive() {
+      keepAliveUntil = Date.now() + 900
+      refocus()
+    }
+
+    /** 把焦点还给输入框（不主动弹键盘，避免又触发一次高度回调） */
+    function refocus() {
+      if (refocusTimer) clearTimeout(refocusTimer)
+      refocusTimer = setTimeout(() => {
+        refocusTimer = null
+        if (!visible.value) return
+        try {
+          if (inputRef.value && typeof inputRef.value.focus === 'function') {
+            inputRef.value.focus()
+          }
+        } catch (e) {}
+      }, 0)
+    }
+
     function bindKeyboard() {
       try {
         if (typeof uni.onKeyboardHeightChange === 'function') {
@@ -259,11 +319,22 @@ export default {
              *   - 输入条还在，但位置错乱/空白
              *   - FAB 因为 hidden=showQuickAdd 一直不显示
              * 所以高度归零且已经打开过时，直接关闭输入态。
+             *
+             * ★ 例外：刚刚点过胶囊 ★
+             *   那是「手指离开了输入框」造成的假收起，
+             *   跳过 close() 并把焦点还回去，输入条原地不动。
              */
             if (h === 0 && visible.value && keyboardEverShown) {
+              if (Date.now() < keepAliveUntil) {
+                refocus()
+                return
+              }
               close()
             }
-            if (h > 0) keyboardEverShown = true
+            if (h > 0) {
+              keyboardEverShown = true
+              keepAliveUntil = 0
+            }
           })
         }
       } catch (e) {}
@@ -450,7 +521,7 @@ export default {
               category_id: item.category_id,
               occurred_day: item.occurred_day,
               /*
-               * 预算排除的三个来源：借款语义 / 结清语义 / 用户勾了不计预算
+               * 预算排除的三个来源：借款语义 / 结清语义 / 用户勾了「不计入预算」
                * 收支排除：借款语义排除；结清语义必须计入；
                *           待报销的钱还没回来，也先排除。
                */
@@ -511,13 +582,12 @@ export default {
           emit('saved')
 
           /*
-           * ★ 每次 AI 记账结束后检查恩格尔系数的分类缓存（用户第 11 条）★
-           *   没有缓存就顺手让 AI 判一次，下次打开统计页直接有数。
-           *   ★ 不 await、不报错 ★
-           *     用户此刻只关心「记上了没有」，不能让一个展示型指标
-           *     拖住 toast 或者弹一个「AI 判定失败」的框。
+           * ★ 这里不再检查恩格尔系数（本轮用户第 7 条）★
+           *   旧版在每次 AI 记账结束后顺手让 AI 判一次食品分类，
+           *   用户明确要求把这步挪走：**记账时什么都别查**，
+           *   改为「每次点统计页时检查恩格尔系数的记录，有的话立即调 AI 分析」。
+           *   见 pages/stats/index.vue 的 loadExtras()。
            */
-          ensureEngelFoodCategories().catch(() => {})
         }
 
         // 部分失败或校验警告要告知用户
@@ -544,8 +614,14 @@ export default {
           }
         }
       } catch (e) {
+        /*
+         * ★ 「已报销」被拦下时换个标题 ★
+         *   api/aiParse.js 会给这类错误打 isReimburseHint 标记，
+         *   它不是「识别失败」（AI 明明听懂了），
+         *   而是一条使用指引，标题得说清楚。
+         */
         await alertDialog({
-          title: '识别失败',
+          title: e && e.isReimburseHint ? '报销需要手动确认' : '识别失败',
           content: e.message
         })
       } finally {
@@ -575,6 +651,11 @@ export default {
       maskEnabled.value = false
       keyboardEverShown = false
       clearFocusTimers()
+      if (refocusTimer) {
+        clearTimeout(refocusTimer)
+        refocusTimer = null
+      }
+      keepAliveUntil = 0
       if (maskTimer) {
         clearTimeout(maskTimer)
         maskTimer = null
@@ -635,6 +716,18 @@ export default {
         keyboardEverShown = false
         closing = false
 
+        /*
+         * ★ 每次打开都从「都不勾」开始 ★
+         *   这两个胶囊是「这一笔」的属性，粘到下一笔会让人误记 ——
+         *   上一句说了「要报销」，下一句日常早饭还带着待报销，
+         *   那笔账就永远不会进收支统计。
+         *   （草稿清空时 watch(draft) 也会兜一次，但用户可能只是
+         *   手动点开胶囊、根本没打过字，所以这里显式重置。）
+         */
+        autoReimburse = false
+        pendingReimburse.value = false
+        excludeBudget.value = false
+
         // 延迟启用遮罩，挡掉记账按钮抬起时补发的那次 click
         if (maskTimer) clearTimeout(maskTimer)
         maskTimer = setTimeout(() => {
@@ -680,7 +773,7 @@ export default {
       visible, draft, submitting, autoFocus, inputRef,
       primaryColor, canSend, barStyle,
       pendingReimburse, excludeBudget, flagsStyle,
-      togglePendingReimburse, toggleExcludeBudget,
+      togglePendingReimburse, toggleExcludeBudget, holdInputAlive,
       submit, close, onMaskClick, noop
     }
   }
@@ -725,7 +818,7 @@ export default {
  *   这样浮在页面内容上时边界是「折射感」而不是「画了个框」。
  */
 /*
- * 输入框上方的两个胶囊（待报销 / 不计预算）
+ * 输入框上方的两个胶囊（待报销 / 不计入预算）
  *
  * ★ 为什么浮在输入条上方而不是塞进输入条 ★
  *   输入条高度已经被输入框 + 发送按钮占满，再塞两个胶囊会把
@@ -742,6 +835,13 @@ export default {
   gap: 16rpx;
 }
 
+/*
+ * ★ 本轮用户第 2 条：两个胶囊都要主题色描边 ★
+ *   底色保持卡片色（浮在页面内容上要有实体感），
+ *   描边一律用 --app-primary；选中态再叠一层主题浅底，
+ *   这样「有没有勾上」在深浅色模式下都一眼能分出来。
+ *   描边用 2rpx（比卡片分割线粗一档），小尺寸胶囊才看得出是「描了边」。
+ */
 .qa-chip {
   display: flex;
   align-items: center;
@@ -749,24 +849,25 @@ export default {
   padding: 10rpx 22rpx;
   border-radius: 999rpx;
   background-color: var(--app-card);
-  border: 1rpx solid var(--app-line);
+  border: 2rpx solid var(--app-primary);
 }
 
-/* 选中态：主题色描边 + 浅底，和 .flag-box 是同一套语义 */
+/* 选中态：主题色描边 + 主题浅底 */
 .qa-chip.on {
   border-color: var(--app-primary);
   background-color: var(--app-primary-light);
 }
 
+/* 锁死态（待报销时的「不计入预算」）：保留描边，只把整体压暗一点表示不可点 */
 .qa-chip.locked {
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 .qa-chip-box {
   width: 28rpx;
   height: 28rpx;
   border-radius: 6rpx;
-  border: 2rpx solid var(--app-line);
+  border: 2rpx solid var(--app-primary);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -431,6 +431,16 @@ export function validateItem(raw, ctx) {
     }
   }
 
+  /*
+   * ★ 模型点名了内部口径分类 → 整条拒绝（本轮用户第 6 条）★
+   *   这类分类的金额、账户、备注都是结清/报销逻辑算出来的，
+   *   让它记成普通流水会让那套自动计算对不上账。
+   *   静默改成兜底分类反而更糟：用户以为记对了，实际分类是错的。
+   */
+  if (raw.category && type !== 'transfer' && isInternalOnlyCategory(String(raw.category).split('/').pop())) {
+    return { ok: false, reason: `「${String(raw.category)}」只能由系统自动生成，不能手动或 AI 记账` }
+  }
+
   // 分类：按名称或 id 匹配，优先二级分类
   let categoryId = null
   let categoryName = ''
@@ -439,7 +449,13 @@ export function validateItem(raw, ctx) {
     // 提示文本 = 备注 + 原句，用来在一级分类下猜二级
     const hint = [raw.note, ctx.hintText].filter(Boolean).join(' ')
     const hit = matchCategory(rawCat, ctx.categories, hint)
-    if (hit) {
+    /*
+     * ★ 内部口径分类不接受（本轮用户第 6 条）★
+     *   借入利息 / 借出坏账 / 借出利息 / 借入未还 / 报销坏账 / 报销盈余
+     *   是结清、报销自动算出来的，AI 选到会把那套计算搞乱。
+     *   候选列表已经把它们过滤掉了，这里是模型硬编名字时的兜底。
+     */
+    if (hit && !isInternalOnlyCategory(hit.name)) {
       categoryId = hit.id
       categoryName = hit.name
     }
@@ -787,7 +803,15 @@ export function matchCategory(rawValue, categories = [], hintText = '') {
   const v = String(rawValue).trim()
   if (!v) return null
 
-  const list = categories || []
+  /*
+   * ★ 内部口径分类不参与匹配（本轮用户第 6 条）★
+   *   借入利息 / 借出坏账 / 借出利息 / 借入未还 / 报销坏账 / 报销盈余
+   *   只能由结清、报销逻辑写入。
+   *   不在这里剔掉的话还有更隐蔽的坏处：模型给出「利息」这种泛词时，
+   *   下面的「名字包含」匹配会把它撞到「借出利息」上 ——
+   *   一条普通的银行利息收入就被归成了借出结清分类。
+   */
+  const list = (categories || []).filter((c) => !isInternalOnlyCategory(c.name))
 
   // 「餐饮/午餐」这种带路径的写法
   if (v.indexOf('/') !== -1) {
@@ -854,6 +878,32 @@ function matchByNameOrId(rawValue, list) {
   return null
 }
 
+/* -------------------------------------------------------------- 报销语义 */
+
+/**
+ * 这句话是不是在说「已经报完了」（而不是「这是一笔要报销的支出」）
+ *
+ * ★ 为什么只认这些词（本轮用户第 5 条）★
+ *   待报销由 AI 记账就能标（QuickAddBar 的胶囊检测到「报销」二字就勾上），
+ *   但「已报销」意味着钱已到账、可能要算坏账/盈余，必须走报销管理页。
+ *   所以这里只匹配明确的「完成态」说法，避免把
+ *   「报销的机票钱 2000」这种普通待报销支出也拦掉。
+ *
+ * @param {string} text 用户原话
+ * @returns {boolean}
+ */
+export function isReimburseDoneText(text) {
+  const t = String(text || '')
+  if (!t) return false
+  /*
+   * 完成态关键词：
+   *   已报销 / 报销到账 / 到账了 / 报下来了 / 报销下来了 / 报销完了
+   *   / 拿到报销 / 收到报销 / 报销款到了
+   * 注意不能只匹配「报销」—— 那是待报销。
+   */
+  return /(已报销|报销到账|报销款到账|报销款到了|已经报销|报销完了|报销下来了|报下来了|拿到报销|收到报销)/.test(t)
+}
+
 /* -------------------------------------------------------------- 主入口 */
 
 /**
@@ -874,20 +924,21 @@ export async function parseMessageToTransactions(text, ctx) {
   if (!message) throw new Error('消息为空')
 
   /*
-   * ★ 「报销」类话语不入流水（用户第 9 条）★
+   * ★ 报销：只拦「已完成报销」的说法，不拦「待报销」（本轮用户第 4、5 条）★
    *
-   *   报销是一件需要走到「我的 → 报销管理」里点确认的事：
-   *   要填实报金额、选到账账户、算坏账/盈余。
-   *   AI 记账一句话就把它记成普通收支，等于凭空造了一笔
-   *   没有台账的记录 —— 用户以为报完了，其实台账里什么都没有。
+   *   用户明确要求：
+   *     · 待报销**可以**被 AI 识别记账（输入里出现「报销」就算待报销）；
+   *     · 但「待报销 → 已报销」这一档只能由「报销管理」页确认，
+   *       AI 记账和手动记账都不能把它推进到已报销。
    *
-   *   所以这里直接拦下，给一个能指路的错误。
-   *   调用方（QuickAddBar）会把 message 原样弹给用户看。
+   *   旧版这里一见到「报销」二字就整条拒绝，把上面第一条也堵死了；
+   *   现在改成只识别「已经报完」的语义（已报销 / 报销到账 / 钱回来了…），
+   *   命中才给用户指路，其余「报销」字样交给下面正常记账 + 标记待报销。
    */
-  if (/报销/.test(message)) {
+  if (isReimburseDoneText(message)) {
     const err = new Error(
-      '报销相关请到「我的 → 报销管理」操作：' +
-      '先把那笔支出设为「待报销」，收到钱后再在报销管理里点报销。'
+      '「已报销」只能在「我的 → 报销管理」里确认：' +
+      'AI 记账和手动记账都只能把那笔支出标成「待报销」。'
     )
     err.isReimburseHint = true
     throw err
@@ -1005,7 +1056,15 @@ export async function parseMessageToTransactions(text, ctx) {
 11. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
 12. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
     没提时间就给 null（系统会自动记成当前时刻）。
-13. note 填这句话里**剩下的描述性内容**，它可以为 null。
+13. **★★ 报销（reimburse）★★**
+   - 用户提到「报销」但钱还没回来（「这顿饭要报销」「机票 2000 待报销」）：
+     按普通支出记（type="expense"），分类照常选，**不要**自己改分类或金额。
+     程序会自动把那笔标成「待报销」，你不用输出任何额外字段。
+   - 用户说「已报销 / 报销到账 / 报下来了」这类**已完成**的说法：
+     不要输出记录 —— 这部分由「报销管理」页处理（程序会直接提示用户）。
+   - 绝对不要选「报销坏账」「报销盈余」「报销到账」这三个分类。
+
+14. note 填这句话里**剩下的描述性内容**，它可以为 null。
    - 只保留「有信息量」的部分：对象、地点、用途、和谁一起（如「打车」「和姐姐吃饭」「东京」）。
    - **必须去掉这些**：金额、币种、时间、分类词，以及「花了 / 用了 / 付了 / 记一笔 / 消费 / 支出」这类动词。
      例：「打车花了 210 港币」→ note 应为 "打车" 或 null，**不能是 "花了"**。

@@ -2,7 +2,15 @@
  * 分类排序 —— 按最近 30 天使用频率，已选中的排第一
  *
  * 纯函数，不依赖 uni / SQLite，可单测。
+ *
+ * ★ 为什么这里 import 了 api/db/schema.js ★
+ *   「只由系统写入」的分类清单（借入利息 / 借出坏账 / 借出利息 /
+ *   借入未还 / 报销坏账 / 报销盈余 / 报销到账）放在 schema.js 里，
+ *   那个文件不 import 任何业务模块，所以这里 import 它不会拖进
+ *   SQLite / uni 依赖，单测照样能在 node 里跑。
+ *   本轮用户第 6 条要求：这些分类不能被 AI 记账，也不能在记账面板选。
  */
+import { INTERNAL_ONLY_CATEGORY_NAMES } from '../api/db/schema.js'
 
 /**
  * 排序规则（优先级从高到低）：
@@ -51,6 +59,17 @@ export function sortCategoriesByUsage(categories, usageCounts = {}, selectedId =
 }
 
 /**
+ * 这个分类是不是「只由系统写入」的内部口径。
+ *
+ * @param {object|string|null} cat 分类对象或分类名
+ * @returns {boolean}
+ */
+export function isInternalOnlyCategory(cat) {
+  const name = typeof cat === 'string' ? cat : (cat && cat.name)
+  return INTERNAL_ONLY_CATEGORY_NAMES.includes(String(name || ''))
+}
+
+/**
  * 判断一个分类是否「可直接选」。
  *
  * ★ 收入分类不显示的根本原因 ★
@@ -69,6 +88,13 @@ export function sortCategoriesByUsage(categories, usageCounts = {}, selectedId =
  */
 export function isSelectableCategory(cat, all) {
   if (!cat) return false
+  /*
+   * ★ 内部口径分类一律不可选（本轮用户第 6 条）★
+   *   借入利息 / 借出坏账 / 借出利息 / 借入未还 / 报销坏账 / 报销盈余
+   *   是结清与报销自动算出来的，手动记一笔会把那套计算搞乱。
+   *   放在判断最前面：不管它是一级还是二级，一律挡掉。
+   */
+  if (isInternalOnlyCategory(cat)) return false
   if (!cat.isParent) return true
   // 一级分类：仅当它下面没有任何二级时才可选
   return !all.some((c) => c.parent_id === cat.id)
