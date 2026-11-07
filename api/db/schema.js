@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 19
+export const SCHEMA_VERSION = 20
 
 /**
  * 「对账」固定分类（v4 起）
@@ -126,9 +126,13 @@ export const SYSTEM_PRESET_CHILDREN = [
    *   借出管理页里，某个人的钱不是「一分不差还回来」的情况很常见：
    *     少还了 -> 差额是坏账   （expense「借出坏账」）
    *     多还了 -> 差额算利息   （income 「借出利息」）
-   *   这两笔不是用户主动记的账，是点「手动结清」时自动生成的，
-   *   所以 **hidden = 1**：记账面板、AI、分类管理都看不到它们，
-   *   用户无法手动选、也不会被 AI 误选；只有结清逻辑会写进来。
+   *   这两笔平时是「手动结清」自动生成的，但用户明确要求
+   *   **所有系统分类都要能手动记账 / 让 AI 记账**，所以不再是 hidden。
+   *
+   *   ★ 能选 ≠ 该选 ★
+   *     它们仍然锁死（不可改名/删除），也仍然带「人员」语义：
+   *     记账面板选中它们时备注变成「人员」且必填，
+   *     因为「谁的坏账」不写清楚，这笔账就没法归到任何人头上。
    *
    *   ★ 为什么它们不能被 exclude_from_stats 排除 ★
    *     反过来 —— 这两笔**必须计入收支**：
@@ -136,8 +140,8 @@ export const SYSTEM_PRESET_CHILDREN = [
    *     用户要求「这两笔也计入收支」。所以结清时写入的两笔
    *     exclude_from_stats = 0。
    */
-  { type: 'expense', name: '借出坏账', icon: 'more', color: '#FA5151', sort: 904, hidden: true },
-  { type: 'income', name: '借出利息', icon: 'chart', color: '#FF8F1F', sort: 904, hidden: true },
+  { type: 'expense', name: '借出坏账', icon: 'more', color: '#FA5151', sort: 904 },
+  { type: 'income', name: '借出利息', icon: 'chart', color: '#FF8F1F', sort: 904 },
 
   /*
    * ★ 借入结清的两个派生分类（与借出侧对称）★
@@ -154,10 +158,11 @@ export const SYSTEM_PRESET_CHILDREN = [
    *     类型跟着「对用户的经济意义」走，不跟着分类名字的字面方向走 ——
    *     否则统计页会显示「我多还了钱，本月收入反而增加」。
    *
-   *   同样是 hidden：只能由「手动结清」写入，用户和 AI 都选不到。
+   *   和借出侧一样：不 hidden（用户要求所有系统分类可选），
+   *   但保持固定（不可改名/删除）+ 人员语义（备注即人员、必填）。
    */
-  { type: 'income', name: '借入未还', icon: 'more', color: '#FA5151', sort: 905, hidden: true },
-  { type: 'expense', name: '借入利息', icon: 'chart', color: '#FF8F1F', sort: 905, hidden: true }
+  { type: 'income', name: '借入未还', icon: 'more', color: '#FA5151', sort: 905 },
+  { type: 'expense', name: '借入利息', icon: 'chart', color: '#FF8F1F', sort: 905 }
 ]
 
 /**

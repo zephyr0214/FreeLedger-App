@@ -147,10 +147,21 @@ check(
   ].every((n) => SCHEMA_SRC.includes(`name: '${n}'`)),
   true
 )
+/*
+ * ★ v20 起系统分类全部可选（用户要求）★
+ *   四个结清派生分类不再是 hidden —— 面板和 AI 都能选它们，
+ *   但仍保持固定（不可改名/删除）+ 人员语义。
+ */
 check(
-  '两个派生分类是 hidden（面板/AI 都选不到）',
-  /name: '借出坏账'[^}]*hidden: true/.test(SCHEMA_SRC) &&
-    /name: '借出利息'[^}]*hidden: true/.test(SCHEMA_SRC),
+  '四个结清分类都不再 hidden',
+  [
+    '借出坏账', '借出利息', '借入未还', '借入利息'
+  ].every((n) => !new RegExp(`name: '${n}'[^}]*hidden: true`).test(SCHEMA_SRC)),
+  true
+)
+check(
+  '四个结清分类仍然锁死（在 FIXED_CHILD_NAMES 里）',
+  read('api/category.js').includes('LOAN_SETTLE_CATEGORY_NAMES.badDebt.name'),
   true
 )
 
@@ -207,7 +218,12 @@ check('组头有金额', /class="person-balance"/.test(PAGE), true)
 check('组头有金额标签（待收回/待归还/多归还）', /balanceLabel\(g\)/.test(PAGE), true)
 check('组内有该人员的流水列表', /v-for="t in g\.txns"/.test(PAGE), true)
 check('不再有点开弹层看明细（showDetail/wd-popup）', /showDetail|<wd-popup/.test(PAGE), false)
-check('未结清的人都给结清按钮', /v-if="!g\.settled" class="group-actions"/.test(PAGE), true)
+check(
+  '未结清的人都给结清按钮（按钮在组头右列第二行）',
+  /v-if="!g\.settled"[\s\S]{0,120}?class="settle-btn"/.test(PAGE),
+  true
+)
+check('右侧是两行：金额一行 + 按钮一行', /class="balance-row"/.test(PAGE), true)
 check('结清按钮两个方向都出现（不再排除借入）', /!isIncome\.value/.test(PAGE), false)
 
 /* 复用全局分段控件，不另写一套 tab */
@@ -227,8 +243,27 @@ check(
   /请选择已记过的人员/.test(PANEL) && /allowsNewPerson/.test(PANEL),
   true
 )
-check('六类默认不计入收支', /exclude_from_stats:\s*isPersonCategory\.value \? true/.test(PANEL), true)
-check('六类默认不占预算', /exclude_from_budget:\s*isPersonCategory\.value \? true/.test(PANEL), true)
+/*
+ * ★ 八类借款语义分类都要排除预算；只有前四类排除收支 ★
+ *   结清分类（坏账/未还/利息）是真实损益，必须计入收支 ——
+ *   所以 exclude_from_stats 的判定里要有 isSettleCategory 分支。
+ */
+check(
+  '八类借款分类都不占预算',
+  /exclude_from_budget:[\s\S]{0,160}?isPersonCategory\.value/.test(PANEL) &&
+    /exclude_from_budget:[\s\S]{0,160}?isSettleCategory\.value/.test(PANEL),
+  true
+)
+check(
+  '结清分类不计入收支时被排除（必须计入）',
+  /exclude_from_stats:\s*isSettleCategory\.value[\s\S]{0,60}?false/.test(PANEL),
+  true
+)
+check(
+  '四个非结清分类默认不计入收支（结清分类除外）',
+  /exclude_from_stats:\s*isSettleCategory\.value\s*\?\s*false\s*:\s*\(isPersonCategory\.value \? true/.test(PANEL),
+  true
+)
 check('账户与标签同一行（form-row-split）', /form-row-split/.test(PANEL), true)
 check('人员行有「选择」入口', /class="person-pick"/.test(PANEL), true)
 

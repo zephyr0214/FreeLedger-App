@@ -405,6 +405,23 @@ const MIGRATIONS = [
      */
     version: 19,
     up: migrateLoanExcludeAndSettleCategories
+  },
+  {
+    /*
+     * ★ v20 —— 把四个结清派生分类从 hidden 放开 ★
+     *
+     *   用户要求「所有的系统分类都设置为可以手动记账或者 ai 记账」。
+     *   v19 建这四个分类时是按 hidden=1 建的（当时的设计是「只能结清写入」），
+     *   所以已经跑过 v19 的设备上它们在库里是隐藏的 ——
+     *   光改 schema.js 的定义不够，还要一条迁移把库里的隐藏位翻回来。
+     *
+     * ★ 只动「系统分类」下的固定子类 ★
+     *   用户自己在别处建的隐藏分类（如果有）一律不碰。
+     *
+     * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁）★
+     */
+    version: 20,
+    up: migrateUnhideSystemCategories
   }
 ]
 
@@ -2022,6 +2039,52 @@ async function migrateLoanExcludeAndSettleCategories() {
         [prefixedId('cat'), groupId, def.name, type, def.icon, def.color, def.sort, now, now]
       )
     }
+  }
+}
+
+/**
+ * 迁移 v20 —— 放开「系统分类」固定子类的 hidden 位
+ *
+ * 用户要求所有系统分类都能手动记账 / AI 记账。
+ * v19 把四个结清派生分类建成了 hidden=1，这里统一翻回 0。
+ *
+ * ★ 为什么按「定义里不是 hidden」来放开，而不是写死四个名字 ★
+ *   将来如果又有人给某个固定子类加 hidden，这条迁移不会误放开它；
+ *   而已经改成 visible 的那些（定义里没写 hidden）会被正确翻成 0。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateUnhideSystemCategories() {
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v20 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  const now = Date.now()
+
+  /*
+   * 直接按名字列表放开（不依赖 select 查组 id）：
+   * 这些名字是固定子类，名字本身就唯一确定语义；
+   * 加上 parent 限定是为了避免误放开用户自建的同名分类。
+   */
+  for (const def of SYSTEM_PRESET_CHILDREN) {
+    if (def.hidden) continue
+    await run(
+      `UPDATE category SET hidden = 0, updated_at = ?
+       WHERE deleted_at IS NULL AND hidden = 1
+         AND name = ? AND type = ?
+         AND parent_id IN (
+           SELECT g.id FROM category g
+           WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+             AND g.name IN (?, ?)
+         )`,
+      [now, def.name, def.type, SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME]
+    )
   }
 }
 

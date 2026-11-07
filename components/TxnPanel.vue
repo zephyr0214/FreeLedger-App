@@ -374,7 +374,9 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
-import { isLoanPersonCategory, allowsNewPerson, listLoanPeople } from '@/api/loan.js'
+import {
+  isLoanPersonCategory, isLoanSettleCategory, allowsNewPerson, listLoanPeople
+} from '@/api/loan.js'
 import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combineDayTime } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta, buildOriginalNoteTag, applyNoteTag, stripNoteTag } from '@/utils/currency.js'
@@ -698,6 +700,24 @@ export default {
       const cat = currentCategory.value
       if (!cat) return false
       return isLoanPersonCategory(cat.name)
+    })
+
+    /**
+     * 当前分类是不是「结清派生分类」（借出坏账 / 借出利息 / 借入未还 / 借入利息）
+     *
+     * ★ 它们和前面四类的区别只有一个：计不计入收支 ★
+     *   借出/借入/借款归还/借款收回是**资金往来** → 不计收支、不占预算；
+     *   四个结清分类是**真实损益**（坏账是损失、利息是收益）→ 计入收支，
+     *   只是不占预算。
+     *
+     * ★ 人员语义完全一样 ★
+     *   「谁的坏账」「谁多还的利息」不写清楚，管理页就没法归到人头上，
+     *   所以这两类照样走「人员」输入框 + 必填校验。
+     */
+    const isSettleCategory = computed(() => {
+      const cat = currentCategory.value
+      if (!cat) return false
+      return isLoanSettleCategory(cat.name)
     })
 
     /** 人员输入框的占位文案随分类变化 */
@@ -1198,8 +1218,21 @@ export default {
          * ★ 编辑普通交易时保留它原有的标记 ★
          *   用户在详情页手动勾过「不计入预算」，进来改个金额不该被清掉。
          */
-        exclude_from_budget: isPersonCategory.value ? true : !!(props.editing && props.editing.exclude_from_budget),
-        exclude_from_stats: isPersonCategory.value ? true : !!(props.editing && props.editing.exclude_from_stats)
+        /*
+         * ★ 预算：八类借款语义分类都不占预算 ★
+         *   资金往来不占；坏账/利息也不是消费，同样不占。
+         */
+        exclude_from_budget: (isPersonCategory.value || isSettleCategory.value)
+          ? true
+          : !!(props.editing && props.editing.exclude_from_budget),
+        /*
+         * ★ 收支：只有前四类排除，结清分类必须计入 ★
+         *   坏账是实实在在的损失、利息是实实在在的收益，
+         *   把它们也排除掉，用户统计页就看不到「这笔钱亏了/赚了」。
+         */
+        exclude_from_stats: isSettleCategory.value
+          ? false
+          : (isPersonCategory.value ? true : !!(props.editing && props.editing.exclude_from_stats))
       }
 
       try {
@@ -1344,7 +1377,7 @@ export default {
       /* 外币记账 */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
-      currentCategory, isPersonCategory, personPlaceholder, personActions,
+      currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions,
       showPersonPicker, openPersonPicker, onPersonSelect,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,

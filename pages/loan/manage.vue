@@ -97,29 +97,42 @@
                 视觉上成了四行，一行信息量低还占高度。
                 改成横排后右侧只占一行，和左侧的人名对齐在同一基线。
             -->
-            <view class="group-head-right">
-              <text class="person-balance-label">{{ balanceLabel(g) }}</text>
-              <text
-                class="person-balance"
-                :style="{ color: balanceColor(g) }"
-              >{{ balanceText(g) }}</text>
-            </view>
-          </view>
+            <!--
+              ★ 右侧两行，和左侧「人名 + 副标题」等高（用户要求）★
+                第一行：待归还/多归还 + 金额（横排）
+                第二行：手动结清按钮
+              以前按钮是组头下面单独一整行，右侧就显得比左侧「矮一截」，
+              而且那一行只有一个小胶囊，横向拉出一条空白。
+              挪进组头右列后，左右都是两行，整块成了一个规整的矩形。
 
-          <!--
-            ★ 手动结清：两个方向都有，只要还没平账 ★
-              用户要求「增加借入利息和借入未还两个系统分类，逻辑和借出保持一致，
-              界面按钮正常添加，两个页面逻辑基本一致化」。
-              所以借入页也有这个按钮，只是文案和记账方向相反：
-                借出：少还 → 借出坏账（我的损失）；多还 → 借出利息（我的收益）
-                借入：还不齐 → 借入未还（我的收益）；还多了 → 借入利息（我的损失）
-          -->
-          <view v-if="!g.settled" class="group-actions">
-            <text
-              class="settle-btn"
-              :style="{ borderColor: accentColor, color: accentColor }"
-              @click.stop="onSettle(g)"
-            >手动结清</text>
+              ★ 为什么金额和按钮都在右列 ★
+                二者都是「这个人的结论」：多少钱、能不能结清。
+                放在同一列上下排，眼睛从上到下一扫就看完，不用回头找。
+            -->
+            <view class="group-head-right">
+              <view class="balance-row">
+                <text class="person-balance-label">{{ balanceLabel(g) }}</text>
+                <text
+                  class="person-balance"
+                  :style="{ color: balanceColor(g) }"
+                >{{ balanceText(g) }}</text>
+              </view>
+
+              <!--
+                ★ 手动结清：两个方向都有，只要还没平账 ★
+                  用户要求「增加借入利息和借入未还两个系统分类，逻辑和借出保持一致，
+                  界面按钮正常添加，两个页面逻辑基本一致化」。
+                  所以借入页也有这个按钮，只是文案和记账方向相反：
+                    借出：少还 → 借出坏账（我的损失）；多还 → 借出利息（我的收益）
+                    借入：还不齐 → 借入未还（我的收益）；还多了 → 借入利息（我的损失）
+              -->
+              <text
+                v-if="!g.settled"
+                class="settle-btn"
+                :style="{ borderColor: accentColor, color: accentColor }"
+                @click.stop="onSettle(g)"
+              >手动结清</text>
+            </view>
           </view>
 
           <!-- 组内流水：按时间倒序，和交易列表同一套观感 -->
@@ -663,20 +676,39 @@ const ICON_FALLBACK = {
 }
 
 /*
- * 右侧：标签 + 金额横排、整体靠右
+ * 组头右列：第一行「标签 + 金额」，第二行「手动结清」
+ *
+ * ★ 两行对两行 ★
+ *   左列是「人名 / N 笔 · 最近日期」两行，右列也是两行 ——
+ *   整块高度由两边共同撑起，不会出现一侧空一截。
+ *   这也是用户要求的「右边金额+按钮高度和左边一致」。
+ *
+ * ★ 右列内容整体靠右对齐 ★
+ *   姓名在左、金额在右是列表的常规读法；
+ *   两行都贴右边界，纵向看是一条整齐的线。
+ */
+.group-head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+
+/*
+ * 金额那一行：标签 + 数字横排
  *
  * ★ 为什么 label 在金额左边 ★
  *   「待归还 ¥300」是中文习惯的读法（先说是什么，再说多少）；
  *   反过来「¥300 待归还」在小屏上会让数字和左边界不齐，眼睛要来回找。
  *   金额用 tabular-nums，多行之间小数点自然对齐。
  */
-.group-head-right {
+.balance-row {
   display: flex;
   flex-direction: row;
   align-items: baseline;
-  justify-content: flex-end;
-  gap: 10rpx;
-  flex-shrink: 0;
+  gap: 8rpx;
 }
 
 .person-balance {
@@ -692,28 +724,22 @@ const ICON_FALLBACK = {
 }
 
 /*
- * 结清按钮：独占一行、右对齐（用户要求「手动结清显示在第二行」）
+ * 结清按钮：右列的第二行
  *
- * ★ 为什么不再用 --app-card-2 的浅底 ★
- *   组头是浅底，按钮行如果也是浅底，两行会连成一块，
- *   看起来像"组头特别高"，按钮反而像组头的一部分。
- *   改成卡片底色 + 上边一条分隔线：明确是组头的下一行，
- *   又和下面的流水区分开（流水用 --app-line 分隔）。
+ * ★ 尺寸要克制 ★
+ *   它挂在组头里，不能再是 48rpx 高的大按钮 ——
+ *   否则会把这行撑高，右侧又比左侧长一截，白改。
+ *   22rpx 字 + 上下 6rpx 内边距，整行高度约 36rpx，
+ *   和左边「N 笔 · 最近日期」那行视觉重量相当。
  */
-.group-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 14rpx 24rpx;
-  background-color: var(--app-card);
-  border-bottom: 1rpx solid var(--app-line);
-}
-
 .settle-btn {
-  font-size: 24rpx;
-  padding: 8rpx 24rpx;
-  border-radius: 16rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  padding: 6rpx 18rpx;
+  border-radius: 14rpx;
   border: 1rpx solid;
   background-color: transparent;
+  white-space: nowrap;
 }
 
 /* 组内流水 */

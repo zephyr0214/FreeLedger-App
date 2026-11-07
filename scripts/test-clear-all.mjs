@@ -341,17 +341,17 @@ const expectedCategories =
   const groupExpense = expense.find((c) => c.name === '系统分类' && !c.parent_id)
   ok('支出侧有「系统分类」组', !!groupExpense)
   /*
-   * ★ listCategories 默认不返回 hidden ★
-   *   v19 的「借出坏账」是 hidden 派生分类，正常查询看不到它。
-   *   所以对「页面能看到的固定子类」断言时，期望值也要排除 hidden；
-   *   否则每次新增派生分类，这条都会误报成「分类丢了」。
+   * ★ v20 起系统分类全部可见可选 ★
+   *   用户要求「所有的系统分类都可以手动记账 / AI 记账」，
+   *   四个结清派生分类已经从 hidden 放开，listCategories 会返回它们，
+   *   所以期望值不再按 hidden 过滤 —— 两边都列全。
    */
   const groupChildren = expense.filter((c) => c.parent_id === (groupExpense && groupExpense.id))
   check(
     '「系统分类」下挂着固定子类',
     groupChildren.map((c) => c.name).sort(),
     SYSTEM_PRESET_CHILDREN
-      .filter((d) => d.type === 'expense' && !d.hidden)
+      .filter((d) => d.type === 'expense')
       .map((d) => d.name)
       .sort()
   )
