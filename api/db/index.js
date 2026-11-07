@@ -354,6 +354,29 @@ const MIGRATIONS = [
      */
     version: 17,
     up: migrateMultiCurrency
+  },
+  {
+    /*
+     * ★ v18 —— 子预算支持「自定义名称 + 一个子预算挂多个类别」★
+     *
+     *   1. budget 加 name 列（可空）：子预算的名字由用户自己起；
+     *      月预算（scope='total'）不用它，恒为 NULL。
+     *   2. 新建 budget_category 关联表：一条子预算可以有任意多个类别。
+     *      原来的 budget.category_id 保留下来当「第一个类别」的冗余列，
+     *      这样万一用户回退到老版本 App，老代码还能读到一条类别，
+     *      不至于整条子预算显示成「已删除分类」。
+     *   3. 回填：老的「一条子预算一个类别」全部搬进关联表，
+     *      不改任何金额、不改 start_month —— 升级后预算数字完全一致。
+     *
+     * ★ 为什么必须做迁移而不是用 setting 存 JSON ★
+     *   预算要参与统计聚合（GROUP BY 类别），存 JSON 就得把预算全捞到
+     *   JS 里算，多类别关联也没法 JOIN —— 数据量小的时候没事，
+     *   但口径会和交易统计彻底分家，越往后越难维护。
+     *
+     * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+     */
+    version: 18,
+    up: migrateBudgetCategories
   }
 ]
 
@@ -1782,6 +1805,67 @@ async function migrateMultiCurrency() {
   await run(`ALTER TABLE cycle ADD COLUMN original_amount_cents INTEGER`)
 }
 
+/**
+ * 迁移 v18 —— 子预算的「自定义名称 + 多类别」
+ *
+ * ★ 这一步只做结构，不动金额 ★
+ *   1. budget 加 name 列
+ *   2. 建 budget_category 关联表
+ *   3. 把老的 category_id 搬进关联表（一条子预算一个类别 -> 关联表里一行）
+ *
+ * ★ 回填为什么用 INSERT OR IGNORE ★
+ *   迁移是「失败只 log、版本号照样推进」的（见 migrate()），
+ *   所以同一个库可能因为上次失败而重跑这条迁移。
+ *   主键是 (budget_id, category_id)，重复插入被 IGNORE 掉，天然幂等。
+ *
+ * ★ 为什么 category_id 列留着不删 ★
+ *   SQLite 老内核不支持 DROP COLUMN；而且留着它是老版本 App 的降级退路。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateBudgetCategories() {
+  const run = async (sql) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v18 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  // 1) name 列：ALTER TABLE ADD COLUMN 是 O(1) 元数据操作，重复执行会报错，忽略
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'ALTER TABLE budget ADD COLUMN name TEXT'
+    })
+    console.log('[db] migration v18: budget.name 已添加')
+  } catch (e) {
+    // 字段已存在（新装库直接由 SCHEMA_V1 建出来 / 重复迁移）
+    console.log('[db] migration v18: budget.name 已存在，跳过')
+  }
+
+  // 2) 关联表（DDL 与 schema.js 的 SCHEMA_V1 保持一致）
+  await run(`CREATE TABLE IF NOT EXISTS budget_category (
+    budget_id   TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    PRIMARY KEY (budget_id, category_id)
+  )`)
+  await run('CREATE INDEX IF NOT EXISTS idx_budget_cat_cat ON budget_category(category_id)')
+
+  // 3) 回填老数据：一条子预算一个类别
+  //
+  //   ★ 只搬「分类还活着」的 ★
+  //     指向已软删分类的老预算本来就没有统计意义（已用恒为 0），
+  //     搬进关联表只会让统计层多算一次「已删除分类」。
+  //     这类预算留着不动，界面上会显示成「已删除分类」，用户可以自己删。
+  await run(`INSERT OR IGNORE INTO budget_category (budget_id, category_id)
+    SELECT b.id, b.category_id FROM budget b
+    JOIN category c ON c.id = b.category_id AND c.deleted_at IS NULL
+    WHERE b.scope = 'category' AND b.category_id IS NOT NULL`)
+}
+
 async function migrate() {
   const current = await readUserVersion()
   if (current >= SCHEMA_VERSION) return
@@ -1945,7 +2029,8 @@ export async function transaction(fn) {
  */
 export async function truncateAll() {
   const tables = [
-    'txn_tag', 'txn', 'account_snapshot', 'budget', 'cycle', 'cycle_skip',
+    'txn_tag', 'txn', 'account_snapshot', 'budget_category', 'budget',
+    'cycle', 'cycle_skip',
     'category', 'tag', 'account', 'account_combo_member', 'exchange_rate',
     'setting', 'app_meta'
   ]

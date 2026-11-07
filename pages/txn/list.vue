@@ -191,38 +191,30 @@
             </view>
           </view>
 
-          <!-- 分类（一级）
-               一级 + 二级两级联动：
-               只选一级 = 该一级下所有二级；一级 + 二级 = 精确到二级 -->
+          <!--
+            分类（多选）
+
+            ★ 为什么只有一个「分类」行 ★
+              以前是「一级分类 + 二级分类」两级联动的单选，
+              只能表达「一个分类」这一种条件。
+              但预算页一条子预算可以挂好几个类别，点「全部交易」带过来的是
+              一组分类 id，单选装不下 —— 用户再点一次分类就会把整组条件
+              覆盖掉，看到的流水比预算页算的少。
+              所以统一成多选：单选只是「多选里只勾一个」的特例，
+              从任何页面跳进来的 categoryId 都会被换算成这组多选条件。
+          -->
           <view class="filter-section">
-            <view class="filter-row" @click="openPicker('parent')">
+            <view class="filter-row" @click="openMultiCatPicker">
               <text class="filter-row-label">分类</text>
               <view class="filter-row-right">
-                <text class="filter-row-value" :class="{ placeholder: !filter.parentCategoryId }">
-                  {{ parentCategoryLabel }}
+                <text class="filter-row-value" :class="{ placeholder: filter.categoryIds.length === 0 }">
+                  {{ multiCatLabel }}
                 </text>
                 <text class="filter-row-arrow">›</text>
               </view>
             </view>
-          </view>
-
-          <!-- 二级分类：随一级分类动态变化 -->
-          <view class="filter-section">
-            <view
-              class="filter-row"
-              :class="{ disabled: !filter.parentCategoryId }"
-              @click="openPicker('sub')"
-            >
-              <text class="filter-row-label">二级分类</text>
-              <view class="filter-row-right">
-                <text class="filter-row-value" :class="{ placeholder: !filter.categoryId }">
-                  {{ subCategoryLabel }}
-                </text>
-                <text class="filter-row-arrow">›</text>
-              </view>
-            </view>
-            <text v-if="filter.parentCategoryId && subCategories.length === 0" class="filter-hint">
-              该分类下没有二级分类，将匹配全部子分类
+            <text v-if="filter.categoryIds.length > 1" class="filter-hint">
+              已选 {{ filter.categoryIds.length }} 个分类，命中任一即可
             </text>
           </view>
 
@@ -312,6 +304,20 @@
       @select="onPickerSelect"
     />
 
+    <!--
+      类别多选弹层
+      ★ 与预算页的「子预算 → 选择类别」是同一个组件 ★
+        两边共用一套分组与勾选规则，从子预算跳过来时能原样回显多选的类别。
+    -->
+    <CategoryMultiPickerSheet
+      v-model="showMultiCat"
+      :categories="multiCatSource"
+      :selected-ids="filter.categoryIds"
+      title="选择分类"
+      hint="可以选多个分类，命中其中任意一个的流水都会被列出来"
+      @picked="onMultiCatConfirm"
+    />
+
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
 
@@ -326,6 +332,7 @@ import { onShow, onLoad, onBackPress } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DateFilterBar from '@/components/DateFilterBar.vue'
+import CategoryMultiPickerSheet from '@/components/CategoryMultiPickerSheet.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -346,7 +353,7 @@ import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateFilterBar, AppDialog, UpdateDialog },
+  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -397,15 +404,18 @@ export default {
     const filter = reactive({
       type: 'all',
       accountId: '',
-      /** 选中的一级分类 id（'' = 不限） */
-      parentCategoryId: '',
-      /** 选中的二级分类 id（'' = 该一级下全部二级） */
-      categoryId: '',
       /**
-       * 是否把一级分类展开成「一级 + 所有二级」。
-       * 正常由界面状态推导；URL 带入时由 parseTxnQueryOptions 解析。
+       * 分类筛选：多选 id 数组（空数组 = 不限）
+       *
+       * ★ 只有这一种分类条件 ★
+       *   以前是 parentCategoryId + categoryId + includeSubcategories 三个字段
+       *   拼出来的单选，现在统一成一组 id：
+       *     - 选一个二级     -> [那个二级]
+       *     - 选一个一级     -> 展开成它所有二级（没有二级就 [它自己]）
+       *     - 从预算页带多选 -> 原样一组
+       *   查询时统一走 IN，不用再推导「要不要带子分类」。
        */
-      includeSubcategories: false,
+      categoryIds: [],
       tagId: '',
       /** 周期筛选：'' = 不限；非 '' 时只显示该周期产生的流水 */
       cycleId: '',
@@ -427,14 +437,15 @@ export default {
      * 四个下拉共用一个 wd-action-sheet（底部选项表），
      * 切换的是 pickerKind 指向的那一组选项。
      */
+    /** 类别多选弹层是否打开 */
+    const showMultiCat = ref(false)
+
     /** 当前打开的是哪个下拉：account | parent | sub | tag */
     const pickerKind = ref('')
     const showPicker = ref(false)
 
     const PICKER_TITLES = {
       account: '选择账户',
-      parent: '选择分类',
-      sub: '选择二级分类',
       tag: '选择标签',
       cycle: '选择周期'
     }
@@ -458,16 +469,6 @@ export default {
         }
         return list
       }
-      if (kind === 'parent') {
-        const list = [{ name: '全部分类', value: '' }]
-        for (const cat of parentCategories.value) list.push({ name: cat.name, value: cat.id })
-        return list
-      }
-      if (kind === 'sub') {
-        const list = [{ name: '全部', value: '' }]
-        for (const cat of subCategories.value) list.push({ name: cat.name, value: cat.id })
-        return list
-      }
       if (kind === 'tag') {
         const list = [{ name: '全部标签', value: '' }]
         for (const t of tags.value) list.push({ name: t.name, value: t.id })
@@ -485,11 +486,6 @@ export default {
 
     /** 打开某个下拉 */
     function openPicker(kind) {
-      // 二级分类必须先选一级分类
-      if (kind === 'sub' && !filter.parentCategoryId) {
-        uni.showToast({ title: '请先选择一级分类', icon: 'none' })
-        return
-      }
       pickerKind.value = kind
       showPicker.value = true
     }
@@ -502,10 +498,6 @@ export default {
       const kind = pickerKind.value
       if (kind === 'account') {
         filter.accountId = value
-      } else if (kind === 'parent') {
-        onParentCategoryChange(value)
-      } else if (kind === 'sub') {
-        onSubCategoryChange(value)
       } else if (kind === 'tag') {
         filter.tagId = value
       } else if (kind === 'cycle') {
@@ -539,23 +531,98 @@ export default {
 
 
     /**
-     * 一级分类
+     * 多选分类的数据源（扁平列表，含 parent_id / isParent）
      *
-     * 列表本身已按当前类型过滤（见 syncCategories），
-     * 这里只取没有父级的那一层。
+     * ★ 只传白名单字段 ★
+     *   弹层只需要 id / parent_id / name 这些，传整行会把 icon/color
+     *   之类无关字段带到组件里，改起来容易误以为能改库。
      */
-    const parentCategories = computed(() =>
-      categories.value.filter((c) => c.isParent)
+    const multiCatSource = computed(() =>
+      categories.value.map((c) => ({
+        id: c.id,
+        parent_id: c.parent_id || '',
+        name: c.name,
+        isParent: !!c.isParent
+      }))
     )
 
     /**
-     * 二级分类：随一级分类的选择动态更新
+     * 多选分类那一行的当前值
+     *
+     * 没选 → 全部（占位态）；
+     * 选了 → 「A、B 等N项」，太多名字一行放不下。
      */
-    const subCategories = computed(() => {
-      const pid = filter.parentCategoryId
-      if (!pid) return []
-      return categories.value.filter((c) => c.parent_id === pid)
+    const multiCatLabel = computed(() => {
+      const ids = filter.categoryIds || []
+      if (ids.length === 0) return '全部'
+      const all = [...catCache.expense, ...catCache.income]
+      /*
+       * ★ 显示成「一级-二级」而不是只给二级名 ★
+       *   只写「午餐」看不出它属于餐饮食品还是别的分支；
+       *   和预算页的类别标签保持同一套写法（那里也是 ${p.name}-${k.name}）。
+       */
+      const names = ids
+        .map((id) => {
+          const c = all.find((x) => x.id === id)
+          if (!c) return ''
+          if (!c.parent_id) return c.name
+          const p = all.find((x) => x.id === c.parent_id)
+          return p ? `${p.name}-${c.name}` : c.name
+        })
+        .filter(Boolean)
+      if (names.length === 0) return `${ids.length} 个分类`
+      if (names.length <= 2) return names.join('、')
+      return `${names[0]}、${names[1]} 等${names.length}项`
     })
+
+    /**
+     * 把「用户勾的分类」展开成「实际要查的分类 id」
+     *
+     * ★ 为什么要展开一级分类 ★
+     *   用户勾「餐饮食品」这个一级分类，意思显然是「餐饮下所有支出」，
+     *   而不是「直接记在餐饮食品这一级上的那几笔」。
+     *   而交易只会落在二级分类上（记账面板里一级分类若有二级就不可选，
+     *   见 utils/categorySort.js 的 isSelectableCategory），
+     *   所以一级必须展开成它的所有二级，否则勾了只会查出 0 笔。
+     *
+     * ★ 没有二级的一级分类保持原样 ★
+     *   「娱乐」「住房」这类没有子分类的一级，交易是直接挂在它身上的，
+     *   展开成空数组会把条件抹掉（变成「不限分类」）—— 那就是灾难性的错。
+     *
+     * ★ 重复 id 要去掉 ★
+     *   同时勾了「餐饮食品」和它下面的「日常三餐」时，
+     *   展开后会出现两个「日常三餐」，IN 里重复不影响结果，但显得脏。
+     */
+    function expandCategoryIds(ids) {
+      const out = []
+      const seen = new Set()
+      const push = (id) => {
+        if (!id || seen.has(id)) return
+        seen.add(id)
+        out.push(id)
+      }
+      for (const id of ids || []) {
+        const cat = categories.value.find((c) => c.id === id)
+        if (!cat) continue
+        const kids = categories.value.filter((c) => c.parent_id === id)
+        if (kids.length === 0) {
+          push(id)
+          continue
+        }
+        /*
+         * ★ 一级分类要把自己也算进去 ★
+         *   旧版两级联动勾一级时走的是
+         *     t.category_id IN (SELECT id FROM category WHERE id = ? OR parent_id = ?)
+         *   也就是「一级自己 + 所有二级」。
+         *   正常记账不会记在一级上（一级有二级时不可选，见 utils/categorySort.js），
+         *   所以多带一个 id 不会多查出错单，但能保证与旧链接的结果**逐条一致** ——
+         *   老数据里万一有直接挂在一级上的流水，不会因为这次改造凭空消失。
+         */
+        push(id)
+        kids.forEach((k) => push(k.id))
+      }
+      return out
+    }
 
     /* ------------------------------------------------- 下拉当前值文案 */
 
@@ -564,21 +631,6 @@ export default {
       if (!filter.accountId) return '全部'
       const acc = accountStore.list.find((a) => a.id === filter.accountId)
       return acc ? acc.name : '全部'
-    })
-
-    /** 一级分类当前值 */
-    const parentCategoryLabel = computed(() => {
-      if (!filter.parentCategoryId) return '全部'
-      const cat = categories.value.find((c) => c.id === filter.parentCategoryId)
-      return cat ? cat.name : '全部'
-    })
-
-    /** 二级分类当前值 */
-    const subCategoryLabel = computed(() => {
-      if (!filter.parentCategoryId) return '请先选择一级分类'
-      if (!filter.categoryId) return '全部'
-      const cat = categories.value.find((c) => c.id === filter.categoryId)
-      return cat ? cat.name : '全部'
     })
 
     /** 标签当前值 */
@@ -592,7 +644,7 @@ export default {
       let n = 0
       if (appliedFilter.type && appliedFilter.type !== 'all') n++
       if (appliedFilter.accountId) n++
-      if (appliedFilter.parentCategoryId || appliedFilter.categoryId) n++
+      if ((appliedFilter.categoryIds || []).length > 0) n++
       if (appliedFilter.tagId) n++
       if (appliedFilter.cycleId) n++
       if (appliedFilter.keyword) n++
@@ -662,53 +714,41 @@ export default {
       filter.type = type
       await syncCategories(type)
 
-      const pid = filter.parentCategoryId
-      if (pid) {
-        const still = categories.value.find((c) => c.id === pid)
-        if (!still) {
-          // 选中的父级属于另一种类型，这个类型下选不了它 —— 清掉
-          filter.parentCategoryId = ''
-          filter.categoryId = ''
-          filter.includeSubcategories = false
-          return
-        }
+      /*
+       * 分类条件跟着类型清理
+       *
+       *   从「全部」切到「支出」时，之前勾的收入分类已经不在 categories 里了；
+       *   留着它不会报错，但查询会带上一个永远匹配不到的 id，
+       *   用户看到的是「列表突然变空」，却看不出原因。
+       *   所以把已经不存在的分类 id 摘掉。
+       */
+      if ((filter.categoryIds || []).length > 0) {
+        const alive = new Set(categories.value.map((c) => c.id))
+        const kept = filter.categoryIds.filter((id) => alive.has(id))
+        if (kept.length !== filter.categoryIds.length) filter.categoryIds = kept
       }
-      if (filter.categoryId) {
-        const still = categories.value.find((c) => c.id === filter.categoryId)
-        if (!still) filter.categoryId = ''
+    }
+
+    /** 打开多选分类弹层 */
+    function openMultiCatPicker() {
+      if (multiCatSource.value.length === 0) {
+        uni.showToast({ title: '没有可选的分类', icon: 'none' })
+        return
       }
-      // 只选一级 = 该一级下所有二级
-      filter.includeSubcategories = !filter.categoryId && !!filter.parentCategoryId
+      showMultiCat.value = true
     }
 
     /**
-     * 选一级分类
+     * 多选分类确定
      *
-     * 换了父级以后，之前选的二级多半已经不属于新的父级 —— 清空它。
-     * 只选一级（不选二级）表示「该一级下的所有二级」。
+     * ★ 这里存的是「用户勾的那几个」，不是展开后的 ★
+     *   勾了一级分类，回显时要显示一级分类的名字；
+     *   展开成二级是查询时才做的事（见 buildQuery 里的 expandCategoryIds）。
+     *   如果这里就存展开结果，界面上会变成「餐饮食品」突然显示成
+     *   「日常三餐、奶茶饮料…」一串，用户会以为自己勾错了。
      */
-    function onParentCategoryChange(id) {
-      filter.parentCategoryId = id
-      if (id) {
-        const sub = categories.value.find((c) => c.id === id)
-        // 选中的父级变了，二级若不属于新父级就清空
-        if (filter.categoryId) {
-          const child = categories.value.find((c) => c.id === filter.categoryId)
-          if (!child || child.parent_id !== id) filter.categoryId = ''
-        }
-        // 选中的父级在这个类型下不存在时，说明它属于另一种类型
-        if (!sub) filter.parentCategoryId = ''
-      } else {
-        filter.categoryId = ''
-      }
-      // 只选一级 = 该一级下所有二级
-      filter.includeSubcategories = !filter.categoryId && !!filter.parentCategoryId
-    }
-
-    /** 选二级分类（'' = 该一级下的全部二级） */
-    function onSubCategoryChange(id) {
-      filter.categoryId = id
-      filter.includeSubcategories = !id && !!filter.parentCategoryId
+    function onMultiCatConfirm(ids) {
+      filter.categoryIds = Array.isArray(ids) ? ids.slice() : []
     }
 
     /* ------------------------------------------------------ 查询 */
@@ -744,22 +784,16 @@ export default {
       }
       if (appliedFilter.type !== 'all') q.type = appliedFilter.type
       if (appliedFilter.accountId) q.accountId = appliedFilter.accountId
-      /**
+      /*
        * 分类过滤
        *
-       *   选到二级 → 精确匹配那个二级
-       *   只选一级 → 用子查询匹配「一级 + 它的所有二级」
-       *
-       * includeSubcategories 由「是否选到二级」推导，
-       * 不需要额外存一份状态。
+       * ★ 只有多选这一条路 ★
+       *   面板上勾的是「用户想看的分类」，勾一级分类表示「这一整支」，
+       *   所以这里先展开成实际的二级 id，再拼成 IN 查询。
+       *   展开逻辑见 expandCategoryIds（勾了没有二级的一级分类时原样保留）。
        */
-      if (appliedFilter.categoryId) {
-        q.categoryId = appliedFilter.categoryId
-        if (appliedFilter.includeSubcategories) q.includeSubcategories = true
-      } else if (appliedFilter.parentCategoryId) {
-        q.categoryId = appliedFilter.parentCategoryId
-        q.includeSubcategories = true
-      }
+      const pickedCats = expandCategoryIds(appliedFilter.categoryIds || [])
+      if (pickedCats.length > 0) q.categoryIds = pickedCats.join(',')
       if (appliedFilter.tagId) q.tagId = appliedFilter.tagId
       if (appliedFilter.cycleId) q.cycleId = appliedFilter.cycleId
       if (appliedFilter.keyword) q.keyword = appliedFilter.keyword
@@ -816,9 +850,8 @@ export default {
 
     function resetFilter() {
       Object.assign(filter, {
-        type: 'all', accountId: '', parentCategoryId: '', categoryId: '',
-        includeSubcategories: false, tagId: '', cycleId: '',
-        keyword: '', minYuan: '', maxYuan: ''
+        type: 'all', accountId: '', categoryIds: [],
+        tagId: '', cycleId: '', keyword: '', minYuan: '', maxYuan: ''
       })
       // 重置后类型回到「全部」，分类列表也要跟着回到全量
       syncCategories('all')
@@ -1006,6 +1039,14 @@ export default {
      *   ?day=2026-10-27               按某一天筛选（首页日历深链）
      */
     const urlOptions = ref(null)
+    /**
+     * URL 上待换算的分类 id
+     *
+     * 分类列表是异步加载的，applyUrlOptions 里拿到 id 时还不能判断
+     * 「这是一级还是二级」，先存这里，等两个类型的分类缓存都齐了
+     * 再调 normalizeUrlCategory 换算（见 onMounted）。
+     */
+    let pendingUrlCategoryId = ''
     /** 页面是否已经挂载完成（用来判断 onLoad 是不是来得比 onMounted 晚） */
     const mounted = ref(false)
 
@@ -1053,55 +1094,77 @@ export default {
       // 时间范围
       applyDateFromOptions(q)
 
-      // 分类：先记下，等分类加载完再解析它是一级还是二级
-      filter.categoryId = q.categoryId
-      filter.parentCategoryId = ''
-      filter.includeSubcategories = q.includeSubcategories
+      /*
+       * 分类：两种 URL 写法都要接
+       *
+       *   ?categoryIds=a,b,c  子预算的「全部交易」带的一组分类，直接用
+       *   ?categoryId=x      账户/分类/标签/周期详情页的「全部」带单个分类，
+       *                      换算成一组
+       *
+       * ★ 单选的那个 id 不一定存在于分类列表里 ★
+       *   URL 上的分类可能已经被删了，或者 type 参数不对（比如只传了
+       *   categoryId 而 type 仍是「全部」）。所以先记下来，
+       *   等分类加载完再换算（见 normalizeUrlCategory）。
+       */
+      filter.categoryIds = Array.isArray(q.categoryIds) ? q.categoryIds.slice() : []
+      pendingUrlCategoryId = q.categoryId || ''
 
       await syncCategories(filter.type)
-      // 解析分类归属时可能要查另一种类型的分类，所以两个缓存都备齐
+      // 换算 URL 上的分类时可能要查另一种类型的分类，所以两个缓存都备齐
       await loadCategoryType('expense')
       await loadCategoryType('income')
-      resolveUrlCategory(q.includeSubcategories)
+      normalizeUrlCategory(q.includeSubcategories)
 
       // URL 带来的条件直接生效，不用再点「应用筛选」
       Object.assign(appliedFilter, filter)
     }
 
     /**
-     * 解析 URL 里的 categoryId 到底是一级还是二级
+     * 把 URL 上单个 categoryId 折算成「一组已选分类」
      *
-     *   传的是二级 → 选中该二级（一级也高亮）
-     *   传的是一级 → 选中该一级，不选二级，查询时匹配它的所有二级
+     *   传二级 → [那个二级]
+     *   传一级 → [那个一级]（查询时由 expandCategoryIds 展开成整支）
      *
      * 两个类型的缓存都找一遍 —— URL 上的分类可能与 type 参数不同源
      * （比如只传了 categoryId，type 仍是「全部」）。
+     *
+     * includeSub 参数已不再影响结果（一级一律按整支处理），
+     * 保留形参只是为了让调用处看着仍然「考虑过这个参数」——
+     * 老链接 ?categoryId=x&includeSubcategories=1 的结果保持不变。
      */
-    function resolveUrlCategory(includeSub) {
-      const cid = filter.categoryId
-      if (!cid) {
-        filter.parentCategoryId = ''
-        return
-      }
+    function normalizeUrlCategory(includeSub) {
+      const cid = pendingUrlCategoryId
+      if (!cid) return
+      pendingUrlCategoryId = ''
+
       const all = [...catCache.expense, ...catCache.income]
       const cat = all.find((c) => c.id === cid)
       if (!cat) {
         // 分类不存在（已删除 / id 写错）—— 退回「不按分类筛」
-        filter.parentCategoryId = ''
-        filter.categoryId = ''
-        filter.includeSubcategories = false
         return
       }
-      if (cat.isParent) {
-        filter.parentCategoryId = cid
-        filter.categoryId = ''
-        filter.includeSubcategories = true
-      } else {
-        filter.parentCategoryId = cat.parent_id || ''
-        filter.categoryId = cid
-        // URL 明确带了 includeSubcategories=1 就尊重它
-        filter.includeSubcategories = !!includeSub
-      }
+
+      /*
+       * ★ 一级分类按「整支」理解 ★
+       *   详情页的「全部」跳过来时带的是那个分类本身。
+       *   如果它是一级分类，用户的意思是「这一整支的流水」，
+       *   所以把它的二级都加进来。
+       *
+       *   includeSubcategories=1 是旧链接的写法，现在不需要它也知道该展开；
+       *   但为了老链接行为不变，这里仍然接受这个参数 ——
+       *   反正一级一律展开，与传不传参数的结果一致。
+       *   （includeSub 只在「只想看这一级、不看子级」时才有区别，
+       *     而那种用法在旧版界面里就不存在。）
+       */
+      /*
+       * ★ 只存这一个 id，展开留给查询时做 ★
+       *   如果这里就把一级展开成一串二级，筛选面板上会显示成
+       *   「日常三餐、奶茶饮料 等N项」—— 用户明明是从「餐饮食品」
+       *   的详情页点过来的，看到一串陌生的子分类会以为自己点错了。
+       *   存原 id 的话面板显示「餐饮食品」，查询时再展开，
+       *   显示与命中范围两头都对。
+       */
+      filter.categoryIds = [cid]
     }
 
     onMounted(async () => {
@@ -1209,13 +1272,14 @@ export default {
       dateMode, customStart, customEnd, todayKey,
       onModeChange, onCustomChange,
       filter, appliedFilter, typeOptions, categories, tags,
-      primaryColor, pageStyle, rangeLabel, parentCategories, subCategories, filterCount, groups,
+      primaryColor, pageStyle, rangeLabel, filterCount, groups,
+      showMultiCat, multiCatSource, multiCatLabel, openMultiCatPicker, onMultiCatConfirm,
       // 下拉选择器
       showPicker, pickerTitle, pickerActions, openPicker, onPickerSelect,
       // 下拉当前值
-      accountLabel, parentCategoryLabel, subCategoryLabel, tagLabel, cycleFilterLabel,
+      accountLabel, tagLabel, cycleFilterLabel,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
-      onTypeChange, onParentCategoryChange, onSubCategoryChange,
+      onTypeChange,
       iconChar, txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
     }
   }

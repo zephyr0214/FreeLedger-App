@@ -126,7 +126,14 @@ check('stripNoteTag 不动非标记备注', stripNoteTag('和姐姐吃饭'), '�
 
 console.log('=== 迁移 v17 与覆盖安装兼容 ===')
 
-check('SCHEMA_VERSION 到 17', SCHEMA_VERSION, 17)
+/*
+ * ★ 这里只断言「至少到 17」★
+ *   v17（外币）是这个测试要守的迁移，但 SCHEMA_VERSION 会随之后的
+ *   结构变更继续往上加（v18 加了 budget_category 子预算关联表）。
+ *   写死等号会在每次加迁移时误报，而这不是本测试关心的事 ——
+ *   SCHEMA_VERSION 与迁移链的一致性由 test-version / test-bugfixes-round 守。
+ */
+check('SCHEMA_VERSION 至少到 17', SCHEMA_VERSION >= 17, true)
 
 {
   const schemaSrc = read('api/db/schema.js')

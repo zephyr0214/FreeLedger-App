@@ -181,14 +181,49 @@ export async function deleteCategory(id) {
       )
     }
 
-    // 3) 删掉这些分类的「分类预算」
+    // 3) 删掉这些分类的「子预算」关联 / 预算
+    //
     //   ★ budget 表没有 deleted_at 字段，只能硬删 ★
     //     （见 api/db/schema.js 的建表语句）
-    //   不删的话预算会一直挂着，但它的分类已经没了：
-    //   交易的 category_id 都变成 NULL 了，那个预算的「已用」永远是 0，
-    //   看着像「预算没生效」。
+    //
+    //   ★ v18 起预算不能直接按 category_id 删了 ★
+    //     一条子预算可以挂多个类别，category_id 只是冗余的「第一个类别」。
+    //     所以要先从关联表里把这些类别摘掉，再看这条预算还剩不剩类别：
+    //       还剩  -> 同步一下冗余列，预算继续可用（只是少统计一个类别）
+    //       摘空了 -> 这条预算已经没有任何统计口径，留着只会显示「已删除分类」
+    //                 并把额度占住，直接删掉（与 api/budget.js 的 detachCategories 同口径）
     for (const cid of ids) {
-      await execute('DELETE FROM budget WHERE scope = ? AND category_id = ?', ['category', cid])
+      const holders = await query(
+        'SELECT budget_id FROM budget_category WHERE category_id = ?',
+        [cid]
+      )
+      for (const h of holders) {
+        await execute('DELETE FROM budget_category WHERE budget_id = ? AND category_id = ?', [h.budget_id, cid])
+        const left = await queryOne(
+          'SELECT COUNT(*) AS c FROM budget_category WHERE budget_id = ?',
+          [h.budget_id]
+        )
+        if (Number(left ? left.c : 0) === 0) {
+          await execute('DELETE FROM budget_category WHERE budget_id = ?', [h.budget_id])
+          await execute('DELETE FROM budget WHERE id = ?', [h.budget_id])
+        } else {
+          const first = await queryOne(
+            'SELECT category_id FROM budget_category WHERE budget_id = ? ORDER BY category_id ASC LIMIT 1',
+            [h.budget_id]
+          )
+          await execute('UPDATE budget SET category_id = ? WHERE id = ?', [first ? first.category_id : null, h.budget_id])
+        }
+      }
+      // v18 之前留下的、还没搬进关联表的老数据（迁移没跑成的库）也要删干净。
+      // ★ 必须排除「已有关联记录」的预算 ★
+      //   多类别子预算的冗余 category_id 可能正好是这个分类，
+      //   但它还有别的类别在关联表里 —— 那不是老数据，不能删。
+      await execute(
+        `DELETE FROM budget
+         WHERE scope = ? AND category_id = ?
+           AND id NOT IN (SELECT budget_id FROM budget_category)`,
+        ['category', cid]
+      )
     }
 
     // 4) 软删除子分类 + 自己

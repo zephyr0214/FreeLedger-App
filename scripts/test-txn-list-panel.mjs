@@ -12,7 +12,8 @@
  *
  * 检查项：
  *   1. 筛选面板里不能再有 chip（胶囊按钮）布局
- *   2. 账户 / 分类 / 二级分类 / 标签 四项必须都是「下拉行」
+ *   2. 账户 / 分类 / 标签 这几项必须都是「下拉行」
+ *      （分类原来是「一级 + 二级」两行，v1.18.0 起合成一行多选，见第 3.1 节）
  *   3. 四个下拉必须共用同一个 wd-action-sheet
  *   4. 列表行的标签必须是纯文字（不能有背景块样式）
  *   5. 标签文字样式里不能有 background-color / border
@@ -52,11 +53,20 @@ check('样式里没有 .chip 规则', /\.chip[\s-]/.test(style), false)
 check('样式里没有 .chip-wrap 规则', /\.chip-wrap/.test(style), false)
 check('样式里没有 .chip-sub 规则', /\.chip-sub/.test(style), false)
 
-/* ------------------------------------ 2. 四项都是「下拉行」 */
+/* ------------------------------------ 2. 每项都是「下拉行」 */
 
-for (const label of ['账户', '分类', '二级分类', '标签']) {
+/*
+ * ★ 分类从「一级 + 二级」两级联动单选改成单行多选 ★
+ *   用户要求「筛选时删除单选的一级和二级分类，同时其他页面跳转过来的效果
+ *   保持不变（也就是修改为使用多选分类的逻辑实现）」。
+ *   所以这里不再有「二级分类」这一行，分类只剩一行，点开是多选弹层
+ *   （见下方第 3 节与 3.1 节）。
+ */
+for (const label of ['账户', '分类', '标签']) {
   check(`「${label}」是下拉行`, template.includes(`>${label}</text>`), true)
 }
+check('不再有「二级分类」筛选行', template.includes('>二级分类</text>'), false)
+check('分类行点开的是多选弹层', /class="filter-row" @click="openMultiCatPicker"/.test(template), true)
 
 check('下拉行有左标签样式', /\.filter-row-label\s*\{/.test(style), true)
 check('下拉行有右侧当前值样式', /\.filter-row-value\s*\{/.test(style), true)
@@ -68,8 +78,42 @@ check('有占位文案样式', /\.filter-row-value\.placeholder\s*\{/.test(style
 const actionSheets = (template.match(/<wd-action-sheet/g) || []).length
 check('只有一个 wd-action-sheet', actionSheets, 1)
 check('选项表由 pickerActions 驱动', template.includes(':actions="pickerActions"'), true)
-check('每个下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 5)
-check('pickerKind 区分下拉类别', (code.match(/kind === '(account|parent|sub|tag|cycle)'/g) || []).length >= 5, true)
+/*
+ * 分类不再走 action-sheet（改成多选弹层），所以下拉只剩账户 / 标签 / 周期。
+ * 数量从 5 变 3 是有意的，不是漏改。
+ */
+check('剩余下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 3)
+check('pickerKind 区分下拉类别', (code.match(/kind === '(account|tag|cycle)'/g) || []).length >= 3, true)
+
+/* ------------------------- 3.1 分类：单行多选弹层（v1.18.0 改） */
+
+/*
+ * ★ 为什么分类必须能多选 ★
+ *   预算页的一条子预算可以挂多个类别，点「全部交易」跳过来时
+ *   带的是 categoryIds（一组），单选装不下 —— 用户再点一次分类
+ *   就会把整组条件覆盖掉，看到的流水比预算页算的少。
+ */
+check('用了多选弹层组件', /<CategoryMultiPickerSheet/.test(template), true)
+check('多选弹层接 filter.categoryIds', /:selected-ids="filter.categoryIds"/.test(template), true)
+check(
+  '其他页面跳转的分类条件也走多选（URL 换算）',
+  /function normalizeUrlCategory\(includeSub\)/.test(code),
+  true
+)
+check(
+  '一级分类按整支展开成二级',
+  /function expandCategoryIds\(ids\)/.test(code) && /kids\.length === 0\) \{[\s\S]{0,40}?push\(id\)/.test(code),
+  true
+)
+check(
+  '查询统一拼 categoryIds',
+  /q\.categoryIds = pickedCats\.join\(','\)/.test(code),
+  true
+)
+// 旧的两级联动字段必须彻底撤掉
+check('filter 里没有 parentCategoryId', /parentCategoryId:/.test(code), false)
+check('filter 里没有 categoryId 单值字段', /^\s+categoryId: '',/m.test(code), false)
+check('没有 includeSubcategories 状态', /includeSubcategories:/.test(code), false)
 
 /* ------------------------------------------- 4. 标签是小 tag 胶囊 */
 

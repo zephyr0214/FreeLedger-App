@@ -215,10 +215,10 @@ export default {
      */
     const featureParas = [
       { type: 'item', lead: '记账：', text: '手动记账面板，或一句话 AI 速记（「昨天午饭 45，打车 28」）' },
-      { type: 'item', lead: '账户：', text: '多账户管理，支持自定义品牌图标，可右滑设为默认' },
+      { type: 'item', lead: '账户：', text: '多账户管理，支持自定义品牌图标，长按账户可设为默认' },
       { type: 'item', lead: '统计：', text: '分类 / 账户 / 标签多维度分析，含趋势、占比与月度对比' },
       { type: 'item', lead: '周期：', text: '房租、订阅、工资这类重复收支，可按天 / 周 / 月自动提醒记一笔' },
-      { type: 'item', lead: '预算：', text: '总预算与分类预算，随时看剩余额度' },
+      { type: 'item', lead: '预算：', text: '月预算与子预算，随时看剩余额度' },
       { type: 'item', lead: '标签：', text: '跨分类的项目维度汇总（如「2026 装修」「日本旅行」）' },
       { type: 'item', lead: '主题：', text: '6 套主题色 + 跟随系统的深浅色' },
       { type: 'item', lead: '备份：', text: '自动备份 + 手动导入导出，换机不丢数据' }

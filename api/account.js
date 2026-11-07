@@ -238,22 +238,55 @@ export async function getTotalAssets() {
  *   按余额正负拆才能保证「净资产 == 总资产 - 负债」这条恒等式永远成立 ——
  *   否则用户会看到「负债 0、净资产却是负数」这种自相矛盾的页面。
  *
- * @returns {Promise<{assets:number, debt:number, net:number, loanDebt:number}>}
+ * ★ 应收（借出）为什么只显示、不进净资产 ★
+ *   借出的钱已经从账户余额里扣掉了。如果把它加回资产，等于说
+ *   「借出去的钱还当自己的钱」，净资产就会虚高 —— 所以净资产口径
+ *   一个字都不改：net = assets - debt，lending 不参与运算。
+ *   但它确实是**可收回的钱**，用户有权看得到，于是作为 lending 字段
+ *   单独返回，账户页在「负债」后面显示一格「应收」
+ *   （文案只写「应收」两个字，不带「借出」「不计入净资产」等附加说明，
+ *    用户要求总览保持简洁）。
+ *   注意：lending 既不进 assets 也不进 debt，加进任何一边都会
+ *   让净资产凭空变动（这是产品口径选择，不是算术问题）。
+ *
+ * @returns {Promise<{assets:number, debt:number, net:number, loanDebt:number, lending:number}>}
  *   loanDebt 是负债里属于「未归还借入」的那部分（页面可用于说明构成）
+ *   lending  是尚未收回的借出净额，**只用于展示，不参与净资产**
  */
 export async function getAssetOverview() {
-  const accRow = await queryOne(
-    `SELECT
-       COALESCE(SUM(CASE WHEN balance_cents > 0 THEN balance_cents ELSE 0 END), 0) AS assets,
-       COALESCE(SUM(CASE WHEN balance_cents < 0 THEN -balance_cents ELSE 0 END), 0) AS debt
-     FROM account
-     WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1`
-  )
+  /*
+   * ★ 三条查询并发 ★
+   *   总资产 / 负债（账户余额）、未归还的借入（流水）、应收（流水）
+   *   互相独立，串行 await 会让账户页的概览白白多等两个来回。
+   *   ★ 应收（lending）只作为返回值里的展示字段，不参与 net 计算 ★
+   *     见上面注释：加回去等于「借出去的钱还当自己的钱」。
+   */
+  const [accRow, loanRow, lending] = await Promise.all([
+    queryOne(
+      `SELECT
+         COALESCE(SUM(CASE WHEN balance_cents > 0 THEN balance_cents ELSE 0 END), 0) AS assets,
+         COALESCE(SUM(CASE WHEN balance_cents < 0 THEN -balance_cents ELSE 0 END), 0) AS debt
+       FROM account
+       WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1`
+    ),
+    queryOne(
+      `SELECT COALESCE(SUM(
+                CASE WHEN t.type = 'income'  AND c.name = '借入'     THEN t.amount_cents
+                     WHEN t.type = 'expense' AND c.name = '借款归还' THEN -t.amount_cents
+                     ELSE 0 END), 0) AS loan_debt
+       FROM txn t
+       JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
+       WHERE t.deleted_at IS NULL`
+    ),
+    // 复用同一个函数，保证「应收」口径只有一处定义（别在这里复制一份 SQL）
+    getOutstandingLending()
+  ])
+
   const assets = Number(accRow ? accRow.assets : 0) || 0
   const accountDebt = Number(accRow ? accRow.debt : 0) || 0
 
   /*
-   * ★ 未归还的借入 ★
+   * ★ 未归还的借入 ★（上面的第二条查询）
    *   按分类名聚合，不硬编码 id（id 会随备份导入变化）。
    *   「借入」是 income（钱进来 -> 增加了要还的债），
    *   「借款归还」是 expense（钱还出去 -> 减少要还的债）。
@@ -262,20 +295,16 @@ export async function getAssetOverview() {
    *   分类已被删除的交易（category_id 为空或指向已删行）自然被 JOIN 排除，
    *   它们本来也不算在借入里。
    */
-  const loanRow = await queryOne(
-    `SELECT COALESCE(SUM(
-              CASE WHEN t.type = 'income'  AND c.name = '借入'     THEN t.amount_cents
-                   WHEN t.type = 'expense' AND c.name = '借款归还' THEN -t.amount_cents
-                   ELSE 0 END), 0) AS loan_debt
-     FROM txn t
-     JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
-     WHERE t.deleted_at IS NULL`
-  )
   // 归还多于借入（数据异常）时不让负债变负
   const loanDebt = Math.max(0, Number(loanRow ? loanRow.loan_debt : 0) || 0)
 
   const debt = accountDebt + loanDebt
-  return { assets, debt, net: assets - debt, loanDebt }
+  /*
+   * ★ net 的口径一个字都没改 ★
+   *   net = assets - debt。lending（应收）只是携带出来给页面展示，
+   *   绝不参与这条减法 —— 用户明确要求「应收不计入净资产」。
+   */
+  return { assets, debt, net: assets - debt, loanDebt, lending }
 }
 
 /**

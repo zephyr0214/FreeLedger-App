@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.16.2-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.18.0-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -33,7 +33,7 @@
 - 资产概览：净资产 / 总资产 / 负债（负债含尚未归还的借入）
 
 **账务管理**
-- 二级分类（自定义图标）、标签、预算（总预算 + 分类子预算）
+- 二级分类（自定义图标）、标签、预算（月预算 + 子预算，支持结转与多类别）
 - 周期账：按天 / 周 / 月自动补记，手动删掉的日期不会被重复补上
 
 **统计与 AI 问答**

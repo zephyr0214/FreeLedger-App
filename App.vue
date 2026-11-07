@@ -550,6 +550,147 @@ view, text, scroll-view, image {
 
 /**
  * ============================================================
+   分段切换控件（segmented control）
+   ============================================================
+
+   ★ 为什么收敛到全局 ★
+     同一个「二选一」控件原本有三份独立实现，而且都是
+     「浅灰底槽 + 白底选中块」：
+       · components/DateFilterBar.vue  年月日筛选 / 自定义筛选
+       · pages/stats/index.vue         支出收入、一级二级等 6 组
+       · pages/settings/category.vue   支出分类 / 收入分类
+     浅色模式下底槽 --app-card-2(#F7F8FA) 与选中块 --app-card(#FFFFFF)
+     亮度只差不到 2%，控件看起来就是一行字 ——
+     用户反馈的「不像一个可切换的按钮」就是这个原因。
+     三份各改一遍必然走样，所以样式收在这里，三处共用同一套。
+
+   ★ 底槽为什么用 --app-line 而不是原来的 --app-card-2 ★
+     --app-line 是「沟」的颜色：浅色 #EBEDF0 比页面底(#F7F8FA)
+     和卡片(#FFFFFF) 都深一档，选中块浮在上面一眼可见；
+     深色 #2E2E31 比页面底(#000000)亮、比卡片(#1C1C1E)略亮，
+     同样是可见的凹槽。
+
+   ★ 深色下为什么要单独覆盖 ★
+     深色界面的层级语义是「越亮越靠前」，跟浅色正好相反：
+     底槽若照搬 --app-line(#2E2E31)，它比选中块要用的颜色还亮，
+     选中态反而像被按下去。所以深色把底槽换成 --app-bg-2(#0D0D0F)、
+     选中块提亮到 --app-card-2(#2C2C2E)，「选中 = 更亮」才成立。
+     底槽比卡片(#1C1C1E)更暗，凹槽在卡片里也看得出来；
+     在纯黑的页面底(#000000)上则靠那 1rpx 的 --app-line 描边
+     把控件边界勾出来 —— 所以边框在深色下不是装饰，
+     是底槽可见性的保证，不能省。
+
+   ★ 选中块为什么不直接填主题色 ★
+     6 套预设里有暖橘(#FF8F1F)、收支绿(#07C160)这类偏亮的颜色，
+     白字或主题色字压在上面达不到对比度要求。
+     而「白底 + 深字 + 阴影」在 6 套主题、深浅两种模式下都成立，
+     也正是 iOS 分段控件的表达方式（选中 = 浮起一格）。
+
+   ★ 为什么同时定义 .mode-toggle/.mode-tag 和 .seg-toggle/.seg-item ★
+     components/DateFilterBar.vue 里的 .mode-toggle/.mode-tag 被
+     scripts/test-date-mode-toggle.mjs 逐字断言，不能改名；
+     另外两处用语义中性的 .seg-*。两组名字共用同一批规则，
+     保证「同一个控件两种叫法」不会长成两副样子。
+*/
+
+.seg-toggle,
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  padding: 4rpx;
+  border: 1rpx solid var(--app-line);
+  border-radius: 16rpx;
+  /* 底槽实心填充：只靠边框的话，浅色下槽内仍是页面底色，等于没有底 */
+  background-color: var(--app-line);
+  /*
+   * 选中块的阴影不能复用 --app-shadow（那是给卡片的 0 2rpx 16rpx）：
+   * 16rpx 的模糊半径远大于底槽 4rpx 的留白，白块的投影会溢出到
+   * 控件外面，在页面底上糊出一圈灰边。
+   *
+   * ★ 这里是全项目少数需要直接写 rgba 的地方 ★
+   *   因为「色块自身要浮起」没法定成一个通用色值 ——
+   *   浅色下要极轻（重了像脏），深色下要够重（轻了看不见），
+   *   所以只在本控件内部用一个局部变量分档，不污染全局 token。
+   *   用 --seg-* 而不是 --app-* 前缀，就是为了表明它只管这一个控件。
+   */
+  --seg-shadow: 0 1rpx 6rpx rgba(0, 0, 0, 0.10);
+}
+
+.seg-item,
+.mode-tag {
+  /*
+   * text 元素默认是 inline，纵向 padding 不撑高度；
+   * 这里显式 flex 居中，选中块的底色才是一整块、而不是压在文字腰上。
+   * text-align 留着是兜底：某些机型的 uni-text 会忽略 flex 的居中。
+   */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 24rpx;
+  line-height: 1.4;
+  color: var(--app-text-2);
+  padding: 10rpx 20rpx;
+  border-radius: 12rpx;
+  /* 过渡只为让「切换」有一下反馈，时长压短，不影响连续点击 */
+  transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.seg-item.active,
+.mode-tag.active {
+  background-color: var(--app-card);
+  color: var(--app-text);
+  font-weight: 500;
+  /* 选中块必须有阴影：白块与底槽的色差靠它补足「浮起」的层级（见上） */
+  box-shadow: var(--seg-shadow);
+}
+
+/* 深色：底槽压暗、选中块提亮，恢复「选中 = 更亮」的层级 */
+.wot-theme-dark .seg-toggle,
+.wot-theme-dark .mode-toggle {
+  background-color: var(--app-bg-2);
+  /* 黑底上的白块不需要柔光，投影加重一点才有「扣在槽里」的实体感 */
+  --seg-shadow: 0 1rpx 8rpx rgba(0, 0, 0, 0.55);
+}
+
+.wot-theme-dark .seg-item.active,
+.wot-theme-dark .mode-tag.active {
+  background-color: var(--app-card-2);
+}
+
+/*
+ * 宽版：整行铺满、两项平分宽度（DateFilterBar、分类管理页）
+ *
+ * DateFilterBar 的包裹层被测试断言必须叫 .mode-toggle（不能加修饰类），
+ * 所以宽版规则直接挂在 .mode-toggle 上；分类管理页用 .seg-toggle--block。
+ *
+ * ★ 高度写死 62rpx 而不是靠 padding 撑 ★
+ *   DateFilterBar 下面「年月日筛选」那一行（DateRangePicker 的 .drp-bar）
+ *   和「自定义筛选」那一行（.custom-row）都是 72rpx 高；
+ *   底槽上下 padding 4+4、描边 1+1 共 10rpx，所以格子必须正好 62rpx，
+ *   两行才会严格等高 —— 切 tab 时下面的内容不会跳一下。
+ *   靠 padding 算的话会随字体行高浮动，做不到。
+ *   line-height 与高度取同一个值：flex 居中是主手段，
+ *   某些机型的 uni-text 不认 flex 居中时靠它兜底。
+ */
+.mode-toggle .mode-tag,
+.seg-toggle--block .seg-item {
+  flex: 1;
+  height: 62rpx;
+  line-height: 62rpx;
+  font-size: 26rpx;
+  padding: 0;
+}
+
+/* 紧凑版：卡片标题右侧的小尺寸（统计页，两组并排，宽度要省着用） */
+.seg-toggle--sm .seg-item {
+  font-size: 22rpx;
+  padding: 6rpx 18rpx;
+}
+
+/**
+ * ============================================================
    输入框（uni-input）兜底样式
    ============================================================
 

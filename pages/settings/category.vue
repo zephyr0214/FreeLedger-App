@@ -9,24 +9,29 @@
       </template>
     </PageNav>
 
-    <!-- 类型切换 -->
+    <!--
+      支出分类 / 收入分类切换
+
+      ★ 用全局分段控件，不再是下划线 tab ★
+        下划线 tab 的选中态只有「文字变色 + 底部 4rpx 短线」，
+        而这两项本来就是同一页的两个视图，本质是一个二选一开关。
+        换成和「年月日筛选 / 自定义筛选」「支出 / 收入统计」
+        同款的分段控件后，整个 App 里这类切换长得一模一样
+        （样式定义在 App.vue 的 .seg-toggle / .seg-item）。
+
+      ★ 这两个是整行等宽的两格 ★
+        用 --block 变体（flex:1 平分），而不是卡片头里那种自适应宽度：
+        页面顶部空间宽裕，平分后左右两块都够大、好点。
+    -->
     <view class="type-bar">
-      <view
-        v-for="t in types"
-        :key="t.key"
-        class="type-item"
-        :class="{ active: activeType === t.key }"
-        @click="switchType(t.key)"
-      >
+      <view class="seg-toggle seg-toggle--block">
         <text
-          class="type-text"
-          :style="{ color: activeType === t.key ? primaryColor : 'var(--app-text-2)' }"
+          v-for="t in types"
+          :key="t.key"
+          class="seg-item"
+          :class="{ active: activeType === t.key }"
+          @click="switchType(t.key)"
         >{{ t.name }}</text>
-        <view
-          v-if="activeType === t.key"
-          class="type-indicator"
-          :style="{ backgroundColor: primaryColor }"
-        />
       </view>
     </view>
 
@@ -669,31 +674,22 @@ export default {
 </script>
 
 <style scoped>
+/*
+ * 支出 / 收入切换的外层
+ *
+ * ★ 只负责定位，控件本身在 App.vue ★
+ *   原来这里还写着 .type-item / .type-text / .type-indicator 一整套
+ *   下划线 tab，现在换成全局的 .seg-toggle / .seg-item
+ *   （和统计页、时间筛选条同款）。
+ *   局部保留同名规则会压住全局样式，所以旧的那几条必须删干净。
+ *
+ * ★ flex-shrink: 0 ★
+ *   本页是「PageNav + 切换条 + scroll-view」的纵向 flex 布局，
+ *   滚动区没有这个约束就会把切换条压扁。
+ */
 .type-bar {
-  display: flex;
-  gap: 40rpx;
+  flex-shrink: 0;
   padding: 8rpx 32rpx 16rpx;
-}
-
-.type-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-  padding-bottom: 12rpx;
-}
-
-.type-text {
-  font-size: 28rpx;
-  font-weight: 500;
-}
-
-.type-indicator {
-  position: absolute;
-  bottom: 0;
-  width: 32rpx;
-  height: 4rpx;
-  border-radius: 2rpx;
 }
 
 .page-scroll {

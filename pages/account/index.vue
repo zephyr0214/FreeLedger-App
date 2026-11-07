@@ -10,20 +10,28 @@
       <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
         <!--
-          概览：上面是净资产大数字，下面一行「总资产 / 负债」。
+          概览：上面是净资产大数字，下面一行三格「总资产 / 负债 / 应收」。
 
           ★ 为什么不给大数字加「净资产」这三个字 ★
-            用户明确要求删掉 —— 三个金额一起看，中间那个大字
+            用户明确要求删掉 —— 几个金额一起看，中间那个大字
             天然就是「主数」，再加标题反而显得啰嗦。
-            左右两个小字已经让用户对出大数是什么。
+            下面的小字已经让用户对出大数是什么。
 
           ★ 三个数的口径 ★
             总资产 = 计入资产的账户正余额之和
             负  债 = 账户负余额绝对值之和 + **未归还的借入**
             净资产 = 总资产 - 负债
-          全部来自 accountStore（一条 SQL 同时算出，
+          全部来自 accountStore（后台一次并发算出来，
           见 api/account.js 的 getAssetOverview），
-          所以三块数字永远自洽，不会出现「负债 0、净资产却是负的」。
+          所以几块数字永远自洽，不会出现「负债 0、净资产却是负的」。
+
+          ★ 应收为什么单独一栏、不进净资产 ★
+            借出的钱已经从账户余额里扣掉了，把它加回总资产
+            等于「借出去的钱还当自己的钱」，净资产会虚高。
+            但它确实是可收回的钱，用户有权看到 —— 于是放在
+            「负债」后面单独显示。文案只写「应收」两个字，
+            不带「借出」「不计入净资产」等附加说明（用户要求简洁）。
+            净资产口径一个字都没变：net = 总资产 - 负债。
 
           ★ 借入为什么要算进负债 ★
             借来的钱进了真实账户（已计入总资产），
@@ -49,7 +57,7 @@
               <text class="asset-sub-label">总资产</text>
               <MoneyText
                 :cents="accountStore.totalAssets"
-                :size="26"
+                :size="24"
                 :weight="500"
                 color="var(--app-text-2)"
               />
@@ -59,7 +67,27 @@
               <text class="asset-sub-label">负债</text>
               <MoneyText
                 :cents="accountStore.totalDebt"
-                :size="26"
+                :size="24"
+                :weight="500"
+                color="var(--app-text-2)"
+              />
+            </view>
+            <view class="asset-sub-divider" />
+            <!--
+              ★ 应收放在「负债」后面 ★
+                用户要求「负债后方显示应收」，并且文案只保留「应收」两个字
+                （不要「借出」、不要「不计入净资产」这类附加说明）——
+                总览要简洁，口径解释放在代码注释和文档里就够。
+                它单独一栏、不参与净资产：借出的钱已经从余额里扣掉了，
+                加回资产等于「借出去的钱还当自己的钱」。
+                颜色用 --app-text-2 中性色：应收既不是资产也不是负债，
+                红色/主题色会让人误以为它改变了净资产。
+            -->
+            <view class="asset-sub-item">
+              <text class="asset-sub-label">应收</text>
+              <MoneyText
+                :cents="accountStore.netReceivable"
+                :size="24"
                 :weight="500"
                 color="var(--app-text-2)"
               />
@@ -115,94 +143,86 @@
 
         <view class="acc-list">
           <!--
-            右滑显示「设为默认」：
-            用 wd-swipe-action 的 right 插槽。
-            ★ 用组件自己的 @click 事件，不用插槽内容的 @click ★
-               插槽内容所在的容器上已经绑了 @click="onClick('right')"，
-               它会先把滑动关掉再冒泡；
-               自己的 @click.stop 虽然能拦住冒泡，
-               但在真机上事件顺序不稳（先关滑动 -> 按钮消失 -> 处理器还没跑）。
-               组件的 @click 事件在关闭之后才 emit，是它设计的用法。
+            长按账户 -> 弹出居中确认框 -> 点「确定」设为默认。
+
+            ★ 为什么从右滑改成点长按 ★
+              用户要求。右滑是「先滑开、再点按钮」两步，还得先知道能滑；
+              长按是列表里更常见的手势，也不用给每行额外留一块操作区，
+              列表本身更干净（每行不再套一层 swipe 组件）。
+
+            ★ 为什么用 @longpress 而不是自己算计时器 ★
+              @longpress 是 uni-app 的原生事件（小程序 / App / H5 都支持），
+              触发时机由平台决定，比自己手写 setTimeout 稳；
+              这里给原生事件绑定，不涉及组件自定义事件，
+              不受 check-events「自定义事件不许撞原生名」的约束。
+
+            ★ 长按松开后平台还会补发一次 tap ★
+              不挡掉就是「弹出确认框的同时跳进详情页」，
+              由 onAccountTap 里的时间窗挡掉（见 script）。
           -->
-          <wd-swipe-action
+          <view
             v-for="acc in group.accounts"
             :key="acc.id"
-            v-model="swipeStates[acc.id]"
-            :disabled="acc.isCombo"
-            class="acc-swipe"
-            @click="onSwipeClick(acc, $event)"
+            class="acc-item"
+            @click="onAccountTap(acc)"
+            @longpress="onAccountLongPress(acc)"
           >
-            <view class="acc-item" @click="goDetail(acc)">
-              <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
-                <!--
-                  账户图标：预设 key（用 AccountIcon 渲染，
-                  品牌图标是官方填充矢量，通用图标是线性描边）。
-                  没有图标就退回首字符。
-                -->
-                <AccountIcon
-                  v-if="acc.icon"
-                  :name="acc.icon"
-                  :size="22"
-                  :color="acc.color || primaryColor"
-                />
-                <text
-                  v-else
-                  class="acc-icon-text"
-                  :style="{ color: acc.color || primaryColor }"
-                >
-                  {{ acc.name.slice(0, 1) }}
-                </text>
-              </view>
-
-              <view class="acc-info">
-                <view class="acc-name-row">
-                  <text class="acc-name">{{ acc.name }}</text>
-                  <view v-if="acc.id === defaultAccountId" class="default-badge">
-                    <text class="default-badge-text">默认</text>
-                  </view>
-                </view>
-                <text class="acc-type">{{ acc.isCombo ? '按顺序扣款' : acc.typeName }}</text>
-              </view>
-
-              <view class="acc-right">
-                <!--
-                  组合账户不显示余额 —— 它没有钱，显示 0.00 会误导。
-                  只放一个「组合账户」标签说明它是什么。
-                -->
-                <text v-if="acc.isCombo" class="acc-combo-tag">组合账户</text>
-                <!--
-                  账户余额：无论正负都不加颜色、不加符号（用户要求）。
-                  ★ 唯一例外：不计入资产的账户用中性浅灰 ★
-                    这类账户不参与总资产，浅灰提示「它不算在这本账里」。
-                  ★ 这里原来还有一行「额度 xxxx」★
-                    信用卡的额度字段已整套删掉，那一行也随之删除；
-                    网络借贷沿用信用卡，同样不显示（它只有余额，没有额度）。
-                -->
-                <MoneyText
-                  v-else
-                  :cents="acc.balance_cents"
-                  :muted="!acc.include_in_total"
-                  :size="32"
-                  :weight="500"
-                />
-              </view>
-
-              <text class="acc-arrow">›</text>
+            <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
+              <!--
+                账户图标：预设 key（用 AccountIcon 渲染，
+                品牌图标是官方填充矢量，通用图标是线性描边）。
+                没有图标就退回首字符。
+              -->
+              <AccountIcon
+                v-if="acc.icon"
+                :name="acc.icon"
+                :size="22"
+                :color="acc.color || primaryColor"
+              />
+              <text
+                v-else
+                class="acc-icon-text"
+                :style="{ color: acc.color || primaryColor }"
+              >
+                {{ acc.name.slice(0, 1) }}
+              </text>
             </view>
 
-            <!-- 右滑操作区（组合账户 disabled，不会滑出） -->
-            <template #right>
-              <view
-                v-if="!acc.isCombo"
-                class="swipe-default"
-                :style="{ backgroundColor: acc.id === defaultAccountId ? 'var(--app-text-3)' : primaryColor }"
-              >
-                <text class="swipe-default-text">
-                  {{ acc.id === defaultAccountId ? '已默认' : '设为默认' }}
-                </text>
+            <view class="acc-info">
+              <view class="acc-name-row">
+                <text class="acc-name">{{ acc.name }}</text>
+                <view v-if="acc.id === defaultAccountId" class="default-badge">
+                  <text class="default-badge-text">默认</text>
+                </view>
               </view>
-            </template>
-          </wd-swipe-action>
+              <text class="acc-type">{{ acc.isCombo ? '按顺序扣款' : acc.typeName }}</text>
+            </view>
+
+            <view class="acc-right">
+              <!--
+                组合账户不显示余额 —— 它没有钱，显示 0.00 会误导。
+                只放一个「组合账户」标签说明它是什么。
+              -->
+              <text v-if="acc.isCombo" class="acc-combo-tag">组合账户</text>
+              <!--
+                账户余额：无论正负都不加颜色、不加符号（用户要求）。
+                ★ 唯一例外：不计入资产的账户用中性浅灰 ★
+                  这类账户不参与总资产，浅灰提示「它不算在这本账里」。
+                ★ 这里原来还有一行「额度 xxxx」★
+                  信用卡的额度字段已整套删掉，那一行也随之删除；
+                  网络借贷沿用信用卡，同样不显示（它只有余额，没有额度）。
+              -->
+              <MoneyText
+                v-else
+                :cents="acc.balance_cents"
+                :muted="!acc.include_in_total"
+                :size="32"
+                :weight="500"
+              />
+            </view>
+
+            <text class="acc-arrow">›</text>
+          </view>
         </view>
       </view>
 
@@ -226,7 +246,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -244,6 +264,7 @@ import { getAssetChangePoints, fillChangePoints } from '@/api/account.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { formatCents } from '@/utils/money.js'
 import { BASE_SYMBOL } from '@/utils/currency.js'
+import { confirmDialog } from '@/utils/dialog.js'
 
 export default {
   components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar, AppDialog, UpdateDialog },
@@ -255,12 +276,6 @@ export default {
     const trendRange = ref(1)
     const trendData = ref([])
 
-    /**
-     * 每个账户的右滑开合状态。
-     * key 是账户 id，值是 wd-swipe-action 的 modelValue：
-     *   'left' / 'right' 展开，'close' 收起。
-     */
-    const swipeStates = reactive({})
 
     const ranges = [
       { months: 1, label: '1月' },
@@ -321,8 +336,8 @@ export default {
     /**
      * 设为默认账户 —— AI 记账和手动记账都会优先用它
      *
-     * 点完要把右滑的按钮收起来：
-     * 不收的话它一直露在那儿，用户会以为还能再点什么。
+     * 由长按弹出的确认框在用户点「确定」后调用，
+     * 弹层的开关由 confirmDialog / AppDialog 自己管，这里只负责写库。
      */
     async function setDefault(acc) {
       // 组合账户不能作为默认账户（它是虚拟账户，不能直接记账）
@@ -356,17 +371,62 @@ export default {
       gotoHomeAndAdd(settingStore.quickAddHoldAction === 'manual' ? 'manual' : 'ai', uiStore)
     }
 
+    /* ------------------------------------------------ 长按设置默认账户 */
+
     /**
-     * wd-swipe-action 的 click 事件
+     * 长按之后平台还会补发一次 tap，这个时间窗用来把那次 tap 挡掉。
      *
-     * 组件在关闭滑动之后才 emit 这个事件，
-     * 事件参数是 { value: 'left' | 'right' | 'inside' }。
-     * 只有点到了右边的操作区（'right'）才算「点了设为默认」。
+     * ★ 为什么是时间窗而不是布尔标志位 ★
+     *   标志位要么在 tap 里清、要么靠定时器清：
+     *   前者如果这一次根本没有 tap（部分机型长按后不补发）就永远卡住，
+     *   下一次单击进不了详情页；后者要额外维护定时器。
+     *   时间窗天然自愈：过了这个窗口，点击恢复。
      */
-    function onSwipeClick(acc, event) {
-      const position = event && event.value
-      if (position !== 'right') return
-      setDefault(acc)
+    let tapAfterLongPressUntil = 0
+
+    /**
+     * 长按某一行的账户：弹居中的确认框，问「要不要把它设为默认」。
+     *
+     * ★ 为什么用 confirmDialog，而不是自己搭一个弹层 ★
+     *   用户要的是「中间弹窗 + 取消 / 确定两个按钮」，
+     *   而这正是 utils/dialog.js 的 confirmDialog：
+     *   它统一走 components/AppDialog（居中、自带层级 1000、自带返回键处理），
+     *   和「删除账户」「删除预算」这些确认框是同一套样式。
+     *   自己再拼一个 wd-popup 就是第二套弹窗，层级和返回键都得重做一遍。
+     */
+    async function onAccountLongPress(acc) {
+      // 组合账户不能作为默认账户（它是虚拟账户，不能直接记账），不用问
+      if (acc.isCombo) {
+        uni.showToast({ title: '组合账户不能设为默认', icon: 'none' })
+        return
+      }
+      // 已经是默认账户了，问一遍再提示「已经是了」多此一举
+      if (acc.id === defaultAccountId.value) {
+        uni.showToast({ title: '已经是默认账户了', icon: 'none' })
+        return
+      }
+      // 记下时间窗：确认框弹出后平台可能补发一次 tap，别让它跳进详情页
+      tapAfterLongPressUntil = Date.now() + 600
+      // 轻震动一下：给「长按被识别到了」一个即时反馈（和底栏长按记账同一套）
+      try {
+        uni.vibrateShort({ type: 'medium' })
+      } catch (e) {}
+
+      // 只有点「确定」才真的写库；点「取消」什么都不做
+      const ok = await confirmDialog({
+        title: '设为默认账户？',
+        content: `记账时会优先使用「${acc.name}」`,
+        confirmText: '确定',
+        cancelText: '取消'
+      })
+      if (!ok) return
+      await setDefault(acc)
+    }
+
+    /** 点整行：进详情页（长按刚结束时的那次 tap 要忽略） */
+    function onAccountTap(acc) {
+      if (Date.now() < tapAfterLongPressUntil) return
+      goDetail(acc)
     }
 
     function goAddAccount() {
@@ -429,9 +489,10 @@ export default {
 
     return {
       settingStore, accountStore,
-      trendRange, ranges, trendData, trendPoints, swipeStates,
+      trendRange, ranges, trendData, trendPoints,
       primaryColor, pageStyle, defaultAccountId,
-      switchRange, formatGroupSum, formatAmount, setDefault, onSwipeClick,
+      switchRange, formatGroupSum, formatAmount, setDefault,
+      onAccountTap, onAccountLongPress,
       onAddTap, onAddHoldEnd,
       goAddAccount, goDetail, goProfile
     }
@@ -464,16 +525,16 @@ export default {
 /* --------------------------------------------------------- 资产概览 */
 
 /**
- * 概览区：上面净资产大数字，下面一行「总资产 / 负债」。
+ * 概览区：上面净资产大数字，下面一行三格「总资产 / 负债 / 应收」。
  *
  * ★ 上下排而不是左右排 ★
  *   用户要求「总资产和负债排列在净资产下方」。
  *   左右排时净资产被挤在左边一条，金额一长（比如百万级）
- *   右侧两个数字就得换行；上下排之后大数字占满整行宽度，
+ *   右侧几个数字就得换行；上下排之后大数字占满整行宽度，
  *   再长的金额也不会被挤。
  *
  * ★ 大数字不再带「净资产」标签 ★
- *   用户要求删掉。下面的「总资产 / 负债」两行已经把事情说清楚了。
+ *   用户要求删掉。下面的「总资产 / 负债」两格已经把事情说清楚了。
  */
 .asset-overview {
   display: flex;
@@ -481,17 +542,36 @@ export default {
   gap: 12rpx;
 }
 
-/* 下方一行：总资产 | 负债（中间一条竖线分隔） */
+/**
+ * 下方一行：总资产 | 负债 | 应收（中间竖线分隔，三列等分）
+ *
+ * ★ 从「标签 + 金额同一行」改成「标签在上、金额在下」★
+ *   两格时标签和金额 inline 排得开；变成三格后，每格只有约 185rpx，
+ *   标签再和金额挤在一行，金额一到百万级就会把分隔线顶歪、文字被迫换行。
+ *   改成上下两行 + 三列等分（flex:1）后，每格宽度固定且相等，
+ *   ¥1,234,567.89 这种长金额也放得下，三格永远对齐。
+ *   三个标签都是两个字，视觉上也很齐。
+ *
+ *   ★ 为什么用 flex:1 等分而不是写死宽度 ★
+ *     不同机型（尤其是大屏 / 折叠屏）内容宽度不同，
+ *     等分会自动适配；写死 rpx 宽度总会有机型对不齐。
+ *     间距和分隔线都靠 gap 控制，不额外加 margin。
+ */
 .asset-sub-row {
   display: flex;
-  align-items: center;
-  gap: 20rpx;
+  /* 三格内容结构一致（标签 + 金额两行），按顶部对齐即可 */
+  align-items: flex-start;
+  gap: 16rpx;
 }
 
 .asset-sub-item {
+  flex: 1;
+  /* min-width:0 允许在极端窄屏下收缩，而不是撑破父级 */
+  min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 10rpx;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6rpx;
 }
 
 .asset-sub-label {
@@ -499,9 +579,16 @@ export default {
   color: var(--app-text-3);
 }
 
+/**
+ * 竖分隔线
+ *
+ * align-self: center —— 分隔线按整行高度中线对齐，
+ * 视觉上落在「标签 + 金额」两行的中间，不会贴着顶。
+ */
 .asset-sub-divider {
   width: 1rpx;
   height: 24rpx;
+  align-self: center;
   background-color: var(--app-line);
 }
 
@@ -603,36 +690,25 @@ export default {
   overflow: hidden;
 }
 
-/* 右滑容器：每一行独立包一层 */
-.acc-swipe {
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.acc-swipe:last-child {
-  border-bottom: none;
-}
-
+/*
+ * 行分隔线
+ *
+ * ★ 为什么挂在 .acc-item 上 ★
+ *   原来每行外面包一层 wd-swipe-action，分隔线挂在那个容器上；
+ *   现在没有包裹层了，线直接挂在行上。
+ *   :last-child 去掉最后一行的线，否则会和 .acc-list 的圆角底边叠成双线。
+ */
 .acc-item {
   display: flex;
   align-items: center;
   gap: 20rpx;
   padding: 26rpx 28rpx;
   background-color: var(--app-card);
+  border-bottom: 1rpx solid var(--app-line);
 }
 
-/* 右滑操作区：「设为默认」 */
-.swipe-default {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 200rpx;
-  height: 100%;
-}
-
-.swipe-default-text {
-  color: #ffffff;
-  font-size: 26rpx;
-  font-weight: 500;
+.acc-item:last-child {
+  border-bottom: none;
 }
 
 .acc-icon {

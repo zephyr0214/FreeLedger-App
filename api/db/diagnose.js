@@ -77,11 +77,11 @@ export async function runDbDiagnostics() {
   let tableDetail = ''
   try {
     const rows = await query(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('account','txn','category','tag','budget','setting','account_snapshot','txn_tag','app_meta') ORDER BY name"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('account','txn','category','tag','budget','budget_category','setting','account_snapshot','txn_tag','app_meta') ORDER BY name"
     )
     const names = rows.map((r) => r.name)
-    tableOk = names.length >= 9
-    tableDetail = `已建 ${names.length}/9 张表：${names.join(', ') || '无'}`
+    tableOk = names.length >= 10
+    tableDetail = `已建 ${names.length}/10 张表：${names.join(', ') || '无'}`
   } catch (e) {
     tableDetail = e.message
   }

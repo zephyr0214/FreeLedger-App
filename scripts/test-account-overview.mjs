@@ -421,9 +421,98 @@ console.log('=== 借出不计入负债（借款收回也不该抵债）===')
   check('借出不影响负债', r.debt, 0)
   check('借出负债字段为 0', r.loanDebt, 0)
 
+  /*
+   * ★ 需求：总览「负债」后面显示「应收」，应收不计入净资产 ★
+   *   getAssetOverview 现在把 lending 一起带出来（账户页直接消费），
+   *   但 net 必须仍然是 assets - debt —— 借出的钱已经从余额里扣掉了，
+   *   加回去等于「借出去的钱还当自己的钱」。
+   */
+  check('概览带出应收 = 500 - 200 = 300', r.lending, 30000)
+  check('应收计入概览后净资产口径不变', r.net, 100000)
+  check('恒等式仍成立（应收不参与减法）', r.net, r.assets - r.debt)
+
   // 未收回的借出单独提供（不进净资产）
   const lending = await mod.getOutstandingLending()
   check('未收回的借出 = 500 - 200 = 300', lending, 30000)
+  check('概览里的 lending 与独立函数一致', r.lending, lending)
+}
+
+console.log('=== 没有借出时概览的应收字段是 0（老数据兼容）===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 100000 })
+  insertCat(db, { id: 'c_borrow_in', name: '借入', type: 'income' })
+  insertCat(db, { id: 'c_borrow_back', name: '借款归还', type: 'expense' })
+
+  insertTxn(db, { id: 't1', type: 'income', amount: 100000, category_id: 'c_borrow_in' })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js')
+  const r = await mod.getAssetOverview()
+
+  check('没有借出：应收字段为 0', r.lending, 0)
+  check('没有借出：净资产 = 1000 - 1000 = 0', r.net, 0)
+}
+
+/* ------------------------------------------- 页面 / store 的数据链路 */
+
+/*
+ * ★ 为什么要在这里查源码 ★
+ *   这条需求是「负债后面多一格应收」。数据链路有三段：
+ *     api 返回 lending -> store 存 netReceivable -> 页面渲染「应收」
+ *   任何一段断掉，数字都会静默变成 0 或整格不显示（编译不报错）。
+ *   所以除了算得对，还要锁住「三格结构」与「文案是应收」。
+ */
+console.log('=== 账户页三格：总资产 / 负债 / 应收 ===')
+
+{
+  const { readFileSync } = await import('fs')
+  const { join, dirname, resolve } = await import('path')
+  const { fileURLToPath } = await import('url')
+  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const read = (p) => readFileSync(join(ROOT, p), 'utf-8')
+
+  /*
+   * ★ 断言前先剥掉注释 ★
+   *   注释里会写「不要『借出』/『不计入净资产』」「lending 不参与 net」
+   *   这类说明文字，直接正则会把注释当实现，误报。
+   *   注释是给维护者看的，断言只该盯真正的模板结构和代码。
+   */
+  const stripHtmlComments = (s) => s.replace(/<!--[\s\S]*?-->/g, '')
+  const stripJsComments = (s) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+
+  const page = read('pages/account/index.vue')
+  const store = read('stores/account.js')
+
+  // 三格都在同一行，且顺序是 总资产 -> 负债 -> 应收
+  const rowHtml = page.match(/<view class="asset-sub-row">([\s\S]*?)\n          <\/view>/)
+  check('账户页有 asset-sub-row 概览行', !!rowHtml, true)
+  const row = stripHtmlComments(rowHtml ? rowHtml[1] : '')
+  const order = ['总资产', '负债', '应收'].map((t) => row.indexOf(t))
+  check('三格文案齐全', order.every((i) => i >= 0), true)
+  check('顺序：总资产 -> 负债 -> 应收', order[0] < order[1] && order[1] < order[2], true)
+  // 用户要求只显示「应收」两个字，不要「（借出）」/「不计入净资产」的附加说明
+  check('文案只有「应收」，不带「（借出）」', /应收（借出）/.test(row), false)
+  check('不再显示「不计入净资产」小字', /不计入净资产/.test(row), false)
+  // 三格必须是等分布局，否则长金额会把其中一格挤扁
+  check('三格等分（asset-sub-item flex:1）', /\.asset-sub-item\s*\{[^}]*flex:\s*1/.test(page), true)
+
+  // 血缘：页面读 store 的 netReceivable，store 读 api 的 lending
+  check('页面消费 accountStore.netReceivable', /accountStore\.netReceivable/.test(page), true)
+  check('store 有 netReceivable 字段', /netReceivable:\s*0/.test(store), true)
+  check('store 从 overview.lending 取值', /netReceivable\s*=\s*overview\.lending/.test(store), true)
+
+  // ★ 净资产口径：不能把应收减进/加进 assets 或 net
+  const api = stripJsComments(read('api/account.js'))
+  const overviewFn = api.match(/export async function getAssetOverview\(\)[\s\S]*?\n\}/)
+  const body = overviewFn ? overviewFn[0] : ''
+  check('找到 getAssetOverview 函数体', !!body, true)
+  check('net 仍然只由 assets - debt 得出', /net:\s*assets\s*-\s*debt/.test(body), true)
+  check('net 表达式里不含 lending', /net:\s*[^,}\n]*lending/.test(body), false)
+  check('assets 没有被 lending 修改', /assets\s*(\+=|=)[^;\n]*lending/.test(body), false)
+  check('debt 没有被 lending 修改', /debt\s*(\+=|=)[^;\n]*lending/.test(body), false)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

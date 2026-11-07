@@ -37,7 +37,7 @@
         </view>
       </view>
 
-      <!-- 图标选择器：3 行 × 6 列 = 18 个 -->
+      <!-- 图标选择器：4 行 × 6 列 = 24 个（最后一行是用户指定新增的 6 个） -->
       <view class="form-card">
         <view class="form-row form-row-column">
           <text class="form-label">账户图标</text>
@@ -835,7 +835,7 @@ export default {
   font-weight: 600;
 }
 
-/* 图标选择器：3 行 × 6 列 */
+/* 图标选择器：4 行 × 6 列（最后一行是用户指定新增的 6 个） */
 .icon-grid {
   display: flex;
   flex-wrap: wrap;

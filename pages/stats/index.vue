@@ -56,26 +56,26 @@
           <text class="card-title">分类统计</text>
           <view class="card-head-right">
             <!-- ★ 一级/二级分类切换：与支出/收入同款按钮，放左边 ★ -->
-            <view class="type-toggle">
+            <view class="seg-toggle seg-toggle--sm">
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: categoryLevel === 'sub' }"
                 @click="switchCategoryLevel('sub')"
               >二级</text>
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: categoryLevel === 'root' }"
                 @click="switchCategoryLevel('root')"
               >一级</text>
             </view>
-            <view class="type-toggle">
+            <view class="seg-toggle seg-toggle--sm">
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: categoryStatType === 'expense' }"
                 @click="switchCategoryType('expense')"
               >支出</text>
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: categoryStatType === 'income' }"
                 @click="switchCategoryType('income')"
               >收入</text>
@@ -132,26 +132,26 @@
           <text class="card-title">账户统计</text>
           <view class="card-head-right">
             <!-- ★ 账户/账户类别切换：与支出/收入同款按钮，放左边 ★ -->
-            <view class="type-toggle">
+            <view class="seg-toggle seg-toggle--sm">
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: accountViewMode === 'account' }"
                 @click="switchAccountViewMode('account')"
               >账户</text>
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: accountViewMode === 'type' }"
                 @click="switchAccountViewMode('type')"
               >类别</text>
             </view>
-            <view class="type-toggle">
+            <view class="seg-toggle seg-toggle--sm">
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: accountStatType === 'expense' }"
                 @click="switchAccountType('expense')"
               >支出</text>
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: accountStatType === 'income' }"
                 @click="switchAccountType('income')"
               >收入</text>
@@ -240,26 +240,26 @@
           <text class="card-title">平均值</text>
           <view class="card-head-right">
             <!-- ★ 一级/二级分类切换：与支出/收入同款按钮，放左边 ★ -->
-            <view class="type-toggle">
+            <view class="seg-toggle seg-toggle--sm">
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: averageLevel === 'sub' }"
                 @click="switchAverageLevel('sub')"
               >二级</text>
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: averageLevel === 'root' }"
                 @click="switchAverageLevel('root')"
               >一级</text>
             </view>
-            <view class="type-toggle">
+            <view class="seg-toggle seg-toggle--sm">
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: averageStatType === 'expense' }"
                 @click="switchAverageType('expense')"
               >支出</text>
               <text
-                class="type-tag"
+                class="seg-item"
                 :class="{ active: averageStatType === 'income' }"
                 @click="switchAverageType('income')"
               >收入</text>
@@ -995,27 +995,19 @@ export default {
   margin: 24rpx 0 8rpx;
 }
 
-/* 类型切换 */
-.type-toggle {
-  display: flex;
-  gap: 8rpx;
-  background-color: var(--app-card-2);
-  border-radius: 16rpx;
-  padding: 4rpx;
-}
-
-.type-tag {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  padding: 6rpx 18rpx;
-  border-radius: 12rpx;
-}
-
-.type-tag.active {
-  background-color: var(--app-card);
-  color: var(--app-text);
-  font-weight: 500;
-}
+/*
+ * 卡片标题右侧的分段切换（支出/收入、一级/二级、账户/类别）
+ *
+ * ★ 样式在 App.vue ★
+ *   .seg-toggle / .seg-item 是全局分段控件，分类管理页、时间筛选条
+ *   用的是同一套 —— 以前这里还有一份 .type-toggle/.type-tag，
+ *   浅色下底槽和选中块几乎同色，三处一起看不出是按钮。
+ *   现在只留全局那份，本页只负责用 --sm 变体把它们塞进卡片头。
+ *
+ * ★ 为什么本页不能留同名局部样式 ★
+ *   scoped 规则的优先级高于全局（多一个 [data-v-xxx]），
+ *   留着旧规则会静默压住全局新样式，改了等于没改。
+ */
 
 /* 环形图：SVG 图（引导线+文字标注），用 image 加载 data URI */
 .donut-wrap {

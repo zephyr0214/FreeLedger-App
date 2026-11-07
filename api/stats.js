@@ -22,6 +22,9 @@
 import { query, queryOne } from './db/index.js'
 import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey, monthSpan, TREND_DAY_MAX_MONTHS } from '../utils/date.js'
 import { ACCOUNT_TYPES } from './account.js'
+// 结转口径只定义在 api/budget.js 一处，统计层复用同一个纯函数 ——
+// 两边各写一遍算法，迟早会出现「预算页说到这月还剩 100、详情页说 90」。
+import { computeMonthAvailability } from './budget.js'
 
 /* ============================================================ 区间基础 */
 
@@ -1133,6 +1136,168 @@ export async function getTopExpensesRange(range, limit = 10) {
 
 /* ------------------------------------------------------------ 预算情况 */
 
+/**
+ * 把预算挂的类别一次性查出来，按预算 id 分组。
+ *
+ * ★ 为什么以关联表为准 ★
+ *   v18 起一条子预算可以挂多个类别，真正来源是 budget_category；
+ *   budget.category_id 只是「第一个类别」的冗余列（给老版本 App 兜底显示）。
+ *
+ * ★ 为什么要留单列兜底 ★
+ *   migrate() 对单条迁移是「失败只 log、版本号照样推进」的，
+ *   万一 v18 的回填没跑成，关联表就是空的 ——
+ *   这时退回单列 category_id，用户升级后预算至少还能正常显示和使用。
+ *
+ * @param {Array<Object>} budgets budget 表的行
+ * @returns {Promise<Object<string, Array<{id:string,name:string,icon:string}>>>}
+ */
+async function loadBudgetCategories(budgets) {
+  const list = Array.isArray(budgets) ? budgets : []
+  const ids = list.filter((b) => b.scope === 'category').map((b) => b.id)
+  const map = {}
+  if (ids.length === 0) return map
+
+  const rows = await query(
+    `SELECT bc.budget_id AS bid, c.id AS cid, c.name AS cname, c.icon AS cicon
+     FROM budget_category bc
+     JOIN category c ON c.id = bc.category_id AND c.deleted_at IS NULL
+     WHERE bc.budget_id IN (${ids.map(() => '?').join(',')})
+     ORDER BY c.sort ASC, c.created_at ASC`,
+    ids
+  )
+  rows.forEach((r) => {
+    if (!map[r.bid]) map[r.bid] = []
+    map[r.bid].push({ id: r.cid, name: r.cname || '', icon: r.cicon || '' })
+  })
+
+  const legacy = list.filter((b) => b.scope === 'category' && !map[b.id] && b.category_id)
+  if (legacy.length > 0) {
+    const catIds = legacy.map((b) => b.category_id)
+    const catRows = await query(
+      `SELECT id, name, icon FROM category
+       WHERE deleted_at IS NULL AND id IN (${catIds.map(() => '?').join(',')})`,
+      catIds
+    )
+    const byId = {}
+    catRows.forEach((c) => { byId[c.id] = { id: c.id, name: c.name || '', icon: c.icon || '' } })
+    legacy.forEach((b) => {
+      const c = byId[b.category_id]
+      if (c) map[b.id] = [c]
+    })
+  }
+
+  return map
+}
+
+/**
+ * 预算的展示名。
+ *
+ *   月预算 -> 固定「月预算」
+ *   子预算 -> 用户起的名字优先；没起名就按挂的类别拼：
+ *             一个类别用它的名字；两个用「A、B」；
+ *             再多用「A、B 等N项」—— 一行放不下太多字。
+ */
+function budgetDisplayName(b, cats) {
+  if (b.scope === 'total') return '月预算'
+  const name = String(b.name || '').trim()
+  if (name) return name
+  const names = (cats || []).map((c) => c.name).filter(Boolean)
+  if (names.length === 0) return '已删除分类'
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return names.join('、')
+  return `${names[0]}、${names[1]} 等${names.length}项`
+}
+
+/**
+ * 某段月份区间内「每个月计入预算的支出」。
+ *
+ * ★ 为什么结转要查这么多月 ★
+ *   结转是逐月累计的：要算 2026-10 的结转，得知道 2026-03（起始月）
+ *   到 2026-09 每个月各花了多少。只查目标月永远只能得到 0 结转。
+ *
+ * @param {string} fromMonth 含（'YYYY-MM'）
+ * @param {string} toMonth   不含（'YYYY-MM'）
+ * @returns {Promise<Object<string, number>>}
+ */
+async function monthlyBudgetExpenseMap(fromMonth, toMonth) {
+  const map = {}
+  if (!fromMonth || !toMonth || fromMonth >= toMonth) return map
+
+  const rows = await query(
+    `SELECT month_key AS mk, COALESCE(SUM(amount_cents),0) AS amt
+     FROM txn
+     WHERE deleted_at IS NULL AND type = 'expense'
+       AND COALESCE(exclude_from_budget, 0) = 0
+       AND month_key >= ? AND month_key < ?
+     GROUP BY month_key`,
+    [fromMonth, toMonth]
+  )
+  rows.forEach((r) => { map[r.mk] = Number(r.amt) || 0 })
+  return map
+}
+
+/** 'YYYY-MM' 递增一个月 */
+function nextMonthKey(monthKey) {
+  let y = Number(String(monthKey).slice(0, 4)) || 0
+  let m = Number(String(monthKey).slice(5, 7)) || 0
+  m += 1
+  if (m > 12) { m = 1; y += 1 }
+  return `${y}-${String(m).padStart(2, '0')}`
+}
+
+/**
+ * 月预算在若干个月份里各自的「可用额度」（月额度 + 上期结转）。
+ *
+ * 口径见 api/budget.js 的 computeMonthAvailability（逐月累计、只结转正数）：
+ *   每月可用 = 月额度 + 上期结转
+ *   本期结转 = max(0, 本期可用 - 本期已用)
+ * 超支时结转 0，不透支下月额度。
+ *
+ * @param {object} totalRow budget 表里 scope='total' 的行
+ * @param {string[]} months 升序月份列表
+ * @returns {Promise<Object<string, number>>} monthKey -> 可用额度（分）
+ */
+async function totalBudgetMonthlyAvailability(totalRow, months) {
+  const monthly = Number(totalRow.amount_cents) || 0
+  const startMonth = totalRow.start_month || ''
+  const rollover = Number(totalRow.rollover) === 1
+  const out = {}
+
+  if (!rollover || !startMonth || months.length === 0) {
+    months.forEach((m) => { out[m] = monthly })
+    return out
+  }
+
+  const wanted = new Set(months)
+  const last = months[months.length - 1]
+  const usedByMonth = await monthlyBudgetExpenseMap(startMonth, nextMonthKey(last))
+
+  let carry = 0
+  let m = startMonth
+  while (m <= last) {
+    if (wanted.has(m)) out[m] = monthly + carry
+    carry = Math.max(0, carry + monthly - (Number(usedByMonth[m]) || 0))
+    m = nextMonthKey(m)
+  }
+  return out
+}
+
+/** 月预算在单独某个月的结转额（没开结转/尚未开始 -> 0） */
+async function totalBudgetCarryover(totalRow, targetMonth) {
+  if (!totalRow || Number(totalRow.rollover) !== 1) return 0
+  const startMonth = totalRow.start_month || ''
+  if (!startMonth || startMonth >= targetMonth) return 0
+
+  const usedByMonth = await monthlyBudgetExpenseMap(startMonth, targetMonth)
+  return computeMonthAvailability({
+    monthly: Number(totalRow.amount_cents) || 0,
+    startMonth,
+    monthKey: targetMonth,
+    usedByMonth,
+    rollover: true
+  }).carryover
+}
+
 export async function getBudgetUsage(monthKey) {
   const mk = monthKey || toMonthKey()
 
@@ -1158,18 +1323,15 @@ export async function getBudgetUsage(monthKey) {
 
   // 分类支出
   //
-  // ★ 这里必须同时按「一级」和「二级」两个口径算 ★
-  //   budget.category_id 存的是用户在分类选择器里选的那个分类 ——
-  //   而选择器只让选**叶子分类**（二级）。
-  //   如果这里只用 COALESCE(c.parent_id, c.id) 归并到一级，
-  //   那么 key 全是一级 id，用它去查 catMap[某个二级 id] 永远是 0，
-  //   于是「分类预算统计有误，交易未统计在内」。
+  // ★ 必须同时按「一级」和「二级」两个口径算 ★
+  //   子预算挂的类别可能是二级、也可能是一级，
+  //   如果只用 COALESCE(c.parent_id, c.id) 归并到一级，
+  //   那么 key 全是一级 id，拿二级 id 去查永远是 0，
+  //   于是「子预算的已用恒为 0」。
   //
   //   所以两套口径都查一遍：
   //     catMapRoot  一级 id -> 该一级下所有交易的合计
   //     catMapLeaf  二级 id -> 该二级自己的交易合计
-  //   取用时先看 lid 是不是二级（有 parent_id），
-  //   是就查 leaf，否则查 root。
   const catRows = await query(
     `SELECT COALESCE(c.parent_id, c.id) AS root_id,
             t.category_id AS leaf_id,
@@ -1195,14 +1357,13 @@ export async function getBudgetUsage(monthKey) {
    *   一级分类也可能**直接**挂着交易（比如「其他/杂项」这种没有二级的），
    *   那样 catMapLeaf['一级id'] 也会存在。
    *   如果优先取 leaf，一级预算就只会统计到那几笔直接挂一级的交易，
-   *   把它下面所有二级的交易全漏掉 —— 这是写这个测试时才发现的坑。
+   *   把它下面所有二级的交易全漏掉 —— 这是写测试时才发现的问题。
    *
-   *   正确做法：先判断这个 id 是不是「父分类」。
-   *   是父分类 -> 用 root 口径（含所有子孙）
-   *   是叶子   -> 用 leaf 口径（只算自己）
+   *   正确做法：先判断这个 id 是不是「一级分类」。
+   *   是一级 -> 用 root 口径（含所有子孙）；是二级 -> 用 leaf 口径（只算自己）
    *
-   *   parentIds 是从 GROUP BY 结果里收集的：只要有任意一行的
-   *   root_id === leaf_id，说明这个 id 自己就是根（没有 parent）。
+   *   parentIds 是从 GROUP BY 结果里收集的：只要有一行 root_id === leaf_id，
+   *   说明这个 id 自己就是根（没有 parent）。
    */
   const parentIds = new Set()
   catRows.forEach((r) => {
@@ -1217,20 +1378,32 @@ export async function getBudgetUsage(monthKey) {
       : (catMapRoot[catId] || 0)
   }
 
-  // 分类名称
-  const catIds = budgets.filter((b) => b.scope === 'category' && b.category_id).map((b) => b.category_id)
-  let catNames = {}
-  if (catIds.length > 0) {
-    const list = await query(
-      `SELECT id, name, icon FROM category WHERE deleted_at IS NULL AND id IN (${catIds.map(() => '?').join(',')})`,
-      catIds
-    )
-    list.forEach((c) => { catNames[c.id] = c })
-  }
+  const catInfo = await loadBudgetCategories(budgets)
+  const totalRowBudget = budgets.find((b) => b.scope === 'total') || null
+  const carryover = await totalBudgetCarryover(totalRowBudget, mk)
 
   return budgets.map((b) => {
-    const limit = Number(b.amount_cents) || 0
-    const used = b.scope === 'total' ? monthExpense : usedOf(b.category_id)
+    const monthly = Number(b.amount_cents) || 0
+    const cats = catInfo[b.id] || []
+    const isTotal = b.scope === 'total'
+
+    /*
+     * ★ limit 与 baseLimit 的区别 ★
+     *   limit     本月**实际可用**（月额度 + 上期结转）—— 进度条、剩余都按它算
+     *   baseLimit 本月**本来是多少**（不含结转）—— 「月预算 → 子预算」的额度
+     *             分配按它算；把结转也算进可分配池，子预算能设的额度会随
+     *             月份莫名其妙变大，用户完全没法理解。
+     */
+    const baseLimit = monthly
+    const carry = isTotal ? carryover : 0
+    const limit = monthly + carry
+
+    // 子预算的「已用」= 它挂的所有类别的支出之和。
+    // （api/budget.js 保证不会同时挂一级和它自己的二级，所以不会重复计算。）
+    const used = isTotal
+      ? monthExpense
+      : cats.reduce((sum, c) => sum + usedOf(c.id), 0)
+
     const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0
     const remaining = limit - used
     /*
@@ -1248,9 +1421,16 @@ export async function getBudgetUsage(monthKey) {
       id: b.id,
       scope: b.scope,
       categoryId: b.category_id,
-      name: b.scope === 'total' ? '总预算' : ((catNames[b.category_id] || {}).name || '已删除分类'),
-      icon: b.scope === 'total' ? 'chart' : ((catNames[b.category_id] || {}).icon || 'more'),
+      categoryIds: cats.map((c) => c.id),
+      categoryNames: cats.map((c) => c.name),
+      name: budgetDisplayName(b, cats),
+      icon: isTotal ? 'chart' : ((cats[0] && cats[0].icon) || 'more'),
       limit,
+      baseLimit,
+      carryover: carry,
+      monthly,
+      // 是否开启了「未用完结转到下一月」（只有月预算可能为 true）
+      rollover: isTotal && Number(b.rollover) === 1,
       used,
       remaining,
       percent: pct,
@@ -1331,8 +1511,12 @@ function rangeCalendar(kind, e, firstDay) {
  *
  *   单月 → 与 getBudgetUsage(monthKey) 完全一致
  *   单日 → 按该日所属月计算（月度额度），used 只算区间内的支出
- *   整年 → 预算按月展开：limit = 月额度 × 生效月份数，used = 生效月份的支出合计
+ *   整年 → 预算按月展开：limit = 各生效月的可用额度之和，used = 生效月支出合计
  *   全部 → 最早有交易的月份 ~ 今天，逐月展开
+ *
+ * ★ 结转在区间口径下逐月展开 ★
+ *   开了结转的月预算，每个月的可用额度都不一样（前面几个月攒下来的），
+ *   所以区间额度不能简单「月额度 × 月数」，必须把每个月各自算出来再相加。
  *
  * 生效月份 = 区间月份中 start_month <= 该月的那些月；一个都没有则该预算不返回。
  *
@@ -1344,10 +1528,6 @@ export async function getBudgetUsageRange(range) {
 
   // 单月：与现有单月口径逐条一致
   if (kind === 'month') return getBudgetUsage(e.monthKey)
-
-  // 单日 / 整年 / 全部 / 自定义：走下面的通用路径。
-  // 通用路径用 rangeScope(range) 直接按区间聚合，
-  // 所以单日区间的 used 天然只含这一天的支出，额度仍是月度额度。
 
   const budgets = await query('SELECT * FROM budget ORDER BY scope ASC')
   if (budgets.length === 0) return []
@@ -1361,10 +1541,8 @@ export async function getBudgetUsageRange(range) {
   // ★ 排除标记了「不计入预算」的交易 ★
   //
   // ★ 一级 / 二级两套口径都要留 ★
-  //   budget.category_id 存的是选择器里选的叶子（二级）分类，
-  //   只按 COALESCE(parent_id, id) 归并到一级的话，
-  //   拿二级 id 去查永远是 0 —— 分类预算的「已用」就恒为 0。
-  //   （和 getBudgetUsage 里同样的坑，两处必须一致。）
+  //   子预算挂的类别可能是二级：只按 COALESCE(parent_id, id) 归并到一级的话，
+  //   拿二级 id 去查永远是 0 —— 子预算的「已用」就恒为 0。
   const monthRows = await query(
     `SELECT t.month_key AS mk,
             COALESCE(c.parent_id, c.id) AS root_id,
@@ -1418,16 +1596,7 @@ export async function getBudgetUsageRange(range) {
     return (root && root[catId]) || 0
   }
 
-  // 分类名称
-  const catIds = budgets.filter((b) => b.scope === 'category' && b.category_id).map((b) => b.category_id)
-  let catNames = {}
-  if (catIds.length > 0) {
-    const list = await query(
-      `SELECT id, name, icon FROM category WHERE deleted_at IS NULL AND id IN (${catIds.map(() => '?').join(',')})`,
-      catIds
-    )
-    list.forEach((c) => { catNames[c.id] = c })
-  }
+  const catInfo = await loadBudgetCategories(budgets)
 
   // 最早有交易的日期（全部口径下算自然日进度用）
   let firstDay = ''
@@ -1437,25 +1606,45 @@ export async function getBudgetUsageRange(range) {
   }
   const cal = rangeCalendar(kind, e, firstDay)
 
+  const totalRowBudget = budgets.find((b) => b.scope === 'total') || null
+  // 月预算各月的可用额度（含结转），只算一次，所有预算共用
+  const totalAvailability = totalRowBudget
+    ? await totalBudgetMonthlyAvailability(totalRowBudget, months)
+    : {}
+
   const out = []
   for (const b of budgets) {
     const startMonth = b.start_month || ''
+    const isTotal = b.scope === 'total'
 
     // 生效月份 = 区间月份中，预算已经「开始」的那些月。
     // start_month 是「预算从哪个月开始生效」，
-    // 所以 2025-06 建的预算在 2026 年整年视角下 12 个月全都生效（2025-06 <= 2026-01）。
-    // 只有 start_month 落在所选区间之后（如预算 2026-06，看 2026 全年）才只算部分月份。
+    // 所以 2025-06 建的预算在 2026 年整年视角下 12 个月全都生效。
     const effective = months.filter((m) => !startMonth || m >= startMonth)
     if (effective.length === 0) continue
 
     const monthly = Number(b.amount_cents) || 0
-    const limit = monthly * effective.length
+    const cats = catInfo[b.id] || []
+
+    /*
+     * 额度：
+     *   月预算     -> 各生效月可用额度之和（结转逐月展开，见上方说明）
+     *   子预算     -> 月额度 × 生效月数（子预算不参与结转）
+     */
+    let limit = 0
+    if (isTotal) {
+      for (const m of effective) limit += totalAvailability[m] !== undefined ? totalAvailability[m] : monthly
+    } else {
+      limit = monthly * effective.length
+    }
 
     let used = 0
-    if (b.scope === 'total') {
+    if (isTotal) {
       for (const m of effective) used += totalByMonth[m] || 0
     } else {
-      for (const m of effective) used += usedOfMonth(m, b.category_id)
+      for (const m of effective) {
+        for (const c of cats) used += usedOfMonth(m, c.id)
+      }
     }
 
     const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0
@@ -1474,9 +1663,15 @@ export async function getBudgetUsageRange(range) {
       id: b.id,
       scope: b.scope,
       categoryId: b.category_id,
-      name: b.scope === 'total' ? '总预算' : ((catNames[b.category_id] || {}).name || '已删除分类'),
-      icon: b.scope === 'total' ? 'chart' : ((catNames[b.category_id] || {}).icon || 'more'),
+      categoryIds: cats.map((c) => c.id),
+      categoryNames: cats.map((c) => c.name),
+      name: budgetDisplayName(b, cats),
+      icon: isTotal ? 'chart' : ((cats[0] && cats[0].icon) || 'more'),
       limit,
+      baseLimit: monthly * effective.length,
+      carryover: isTotal ? limit - monthly * effective.length : 0,
+      monthly,
+      rollover: isTotal && Number(b.rollover) === 1,
       used,
       remaining,
       percent: pct,

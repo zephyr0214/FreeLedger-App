@@ -11,7 +11,7 @@
             <view class="summary-info">
               <text class="summary-name">{{ usage.name }}</text>
               <text class="summary-type">
-                {{ usage.scope === 'total' ? '总预算' : '分类预算' }} · {{ monthKey }}
+                {{ scopeLabel }} · {{ monthKey }}
               </text>
             </view>
           </view>
@@ -159,10 +159,27 @@ export default {
     )
 
     /**
+     * 「月预算 / 子预算」这行小字
+     *
+     * ★ 为什么不在模板里直接写三元 ★
+     *   子预算挂多个类别时，这里还要顺带说清楚是哪几个类别，
+     *   三元表达式塞不下，抽成 computed 更好读。
+     */
+    const scopeLabel = computed(() => {
+      if (!usage.value) return ''
+      if (usage.value.scope === 'total') {
+        return usage.value.carryover > 0
+          ? `月预算（含结转 ¥${(usage.value.carryover / 100).toFixed(2)}）`
+          : '月预算'
+      }
+      return '子预算'
+    })
+
+    /**
      * 找到当前要展示的预算
      *
-     * 传了 id 就按 id 找（分类预算）；
-     * 没传 id 就取 scope='total' 的那条（总预算）。
+     * 传了 id 就按 id 找（子预算）；
+     * 没传 id 就取 scope='total' 的那条（月预算）。
      */
     function pickUsage(list) {
       if (!list || list.length === 0) return null
@@ -191,7 +208,7 @@ export default {
         }
         notFound.value = false
 
-        /**
+        /*
          * 流水筛选条件 —— 必须和这条预算真正的归属分类一致。
          *
          * ★ 原来的 bug ★
@@ -203,18 +220,30 @@ export default {
          *   和上方「已用」对不上。
          *
          * ★ 正确口径 ★
-         *   预算的 category_id 就是用户当时选的分类：
-         *     · 选的是二级 → 只统计这一个二级分类自己
-         *     · 选的是 一级 → 统计整个分类族（含所有二级）
-         *   所以要先判断该分类有没有 parent_id 再决定。
+         *   一个类别时按它是不是二级决定口径：
+         *     · 二级 → 只统计这一个二级分类自己
+         *     · 一级 → 统计整个分类族（含所有二级）
+         *   多个类别时直接用 categoryIds 做 IN 查询 —— 这些类别是用户
+         *   在子预算编辑器里逐个选的，不需要再展开子分类。
+         *
+         * ★ v18：子预算可以挂多个类别 ★
+         *   一个类别时仍走原来的 isLeaf 口径（二级只查自己、一级查整族）；
+         *   多个类别时改成 categoryIds 直接 IN 查询 —— 这些类别是用户在
+         *   子预算编辑器里逐个选的，不需要再展开子分类。
          */
+        const catIds = u.categoryIds && u.categoryIds.length > 0
+          ? u.categoryIds
+          : (u.categoryId ? [u.categoryId] : [])
+
         let filter = {}
-        if (u.scope === 'category' && u.categoryId) {
-          const cat = await getCategory(u.categoryId)
+        if (u.scope === 'category' && catIds.length === 1) {
+          const cat = await getCategory(catIds[0])
           const isLeaf = !!(cat && cat.parent_id)
           filter = isLeaf
-            ? { categoryId: u.categoryId, includeSubcategories: false }
-            : { categoryId: u.categoryId, includeSubcategories: true }
+            ? { categoryId: catIds[0], includeSubcategories: false }
+            : { categoryId: catIds[0], includeSubcategories: true }
+        } else if (u.scope === 'category' && catIds.length > 1) {
+          filter = { categoryIds: catIds }
         }
 
         const [list, sum] = await Promise.all([
@@ -247,7 +276,22 @@ export default {
      */
     function goAllTxn() {
       const u = usage.value
-      if (u && u.scope === 'category' && u.categoryId) {
+      const catIds = u && u.categoryIds && u.categoryIds.length > 0
+        ? u.categoryIds
+        : (u && u.categoryId ? [u.categoryId] : [])
+
+      // 多类别：一个子预算挂了多个类别时，用 categoryIds 一次带过去
+      if (u && u.scope === 'category' && catIds.length > 1) {
+        uni.navigateTo({
+          url: `/pages/txn/list?monthKey=${toMonthKey()}&categoryIds=${catIds.join(',')}`
+        })
+        return
+      }
+      /*
+       * 单类别：继续用 budget.category_id 判断（冗余列就是「第一个类别」，
+       * 单类别时两者必然相等），这样能沿用原来的 isLeaf 口径。
+       */
+      if (u && u.scope === 'category' && catIds.length === 1) {
         const cat = categories.value.find((c) => c.id === u.categoryId)
         /*
          * ★ 与上方「已用」保持同一口径 ★
@@ -287,7 +331,7 @@ export default {
     return {
       settingStore, usage, txnList, monthStats, categories, loading, notFound,
       primaryColor, pageStyle, monthKey, budgetTitle, iconChar, iconBg, iconFg,
-      goAllTxn, goBack
+      scopeLabel, goAllTxn, goBack
     }
   }
 }

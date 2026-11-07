@@ -3,7 +3,9 @@
     <!--
       ★ 时间筛选方式切换（用户指定）★
         文案固定为「年月日筛选 / 自定义筛选」。
-        样式照抄统计页「一级/二级」那组 type-toggle，两个页面观感一致。
+        .mode-toggle/.mode-tag 这两个类名被 scripts/test-date-mode-toggle.mjs
+        逐字断言，不能改名；样式本体统一放在 App.vue 的全局 <style> 里
+        （和统计页、分类管理页的分段切换是同一套，见下方 style 注释）。
     -->
     <view class="mode-toggle">
       <text
@@ -396,29 +398,24 @@ export default {
   position: relative;
 }
 
-/* 筛选方式切换（年月日筛选 ｜ 自定义筛选） */
-.mode-toggle {
-  display: flex;
-  gap: 8rpx;
-  background-color: var(--app-card-2);
-  border-radius: 16rpx;
-  padding: 4rpx;
+/*
+ * ★ 筛选方式切换的样式不在这里 ★
+ *   .mode-toggle / .mode-tag 的规则写在 App.vue 的全局 <style> 里，
+ *   和统计页的分段切换、分类管理页的支出/收入切换共用同一套。
+ *
+ *   原因：这三个控件本来是「同款」的，却各写了一份；浅色模式下
+ *   底槽(--app-card-2)和选中块(--app-card)差不到 2% 亮度，
+ *   三处一起变得看不出来。样式只留一份，改一次三处同步，
+ *   也就不会再出现「这个页面像按钮、那个页面像一行字」。
+ *
+ *   ★ 为什么这里一行都不留 ★
+ *     scoped 样式带有 [data-v-xxx] 属性选择器，特异性比 App.vue 的
+ *     全局规则高 —— 只要这里还留着旧的那几条，全局新样式就压不过它，
+ *     等于白改。所以必须删干净，而不是「先留着反正会被覆盖」。
+ */
+.dfb .mode-toggle {
+  /* 只补这一处布局差异：切换条与下方内容之间留出间距 */
   margin-bottom: 12rpx;
-}
-
-.mode-tag {
-  flex: 1;
-  text-align: center;
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  padding: 12rpx 0;
-  border-radius: 12rpx;
-}
-
-.mode-tag.active {
-  background-color: var(--app-card);
-  color: var(--app-text);
-  font-weight: 500;
 }
 
 /*

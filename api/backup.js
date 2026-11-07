@@ -2,7 +2,8 @@
  * 数据备份 / 恢复
  *
  * 设计要点：
- *   1. 导出包含 settings + accounts + snapshots + categories + tags + txn + txn_tag + budgets + cycles
+ *   1. 导出包含 settings + accounts + snapshots + categories + tags + txn + txn_tag + budgets
+ *      + budgetCategories（v18 起：子预算挂的多个类别）+ cycles
  *   2. API Key 默认不导出，需显式勾选（防误分享）
  *   3. 恢复前自动备份当前库（最后一道保险）
  *   4. 恢复只支持「覆盖」一种模式
@@ -62,7 +63,7 @@ async function buildExportPayload(opt = {}) {
 
   const whereNotDeleted = includeDeleted ? '' : 'WHERE deleted_at IS NULL'
 
-  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, cycles, comboMembers] = await Promise.all([
+  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, budgetCategories, cycles, comboMembers] = await Promise.all([
     query(`SELECT * FROM account ${whereNotDeleted} ORDER BY sort ASC`),
     query('SELECT * FROM account_snapshot ORDER BY day ASC'),
     query(`SELECT * FROM category ${whereNotDeleted} ORDER BY sort ASC`),
@@ -70,6 +71,10 @@ async function buildExportPayload(opt = {}) {
     query(`SELECT * FROM txn ${whereNotDeleted} ORDER BY occurred_at ASC`),
     query('SELECT * FROM txn_tag'),
     query('SELECT * FROM budget'),
+    // ★ 子预算挂的类别（v18）★
+    //   不导出的话，多类别子预算恢复后只剩冗余列里的第一个类别，
+    //   「已用」会突然变小 —— 用户会以为恢复把数据弄坏了。
+    query('SELECT * FROM budget_category ORDER BY budget_id ASC, category_id ASC'),
     query(`SELECT * FROM cycle ${whereNotDeleted} ORDER BY created_at ASC`),
     // ★ 组合账户的成员关系 ★
     //   不导出的话，恢复后组合账户会变成「空壳」，用户还得重新配一遍。
@@ -87,6 +92,7 @@ async function buildExportPayload(opt = {}) {
       categories: categories.length,
       tags: tags.length,
       budgets: budgets.length,
+      budgetCategories: budgetCategories.length,
       cycles: cycles.length,
       comboMembers: comboMembers.length
     },
@@ -98,6 +104,7 @@ async function buildExportPayload(opt = {}) {
     transactions,
     txnTags,
     budgets,
+    budgetCategories,
     cycles,
     comboMembers
   }
@@ -651,7 +658,7 @@ export async function importPayload(payload, opt = {}) {
 
   const report = {
     mode,
-    accounts: 0, transactions: 0, categories: 0, tags: 0, budgets: 0, cycles: 0,
+    accounts: 0, transactions: 0, categories: 0, tags: 0, budgets: 0, budgetCategories: 0, cycles: 0,
     skipped: 0, conflicts: 0, backupPath: null
   }
 
@@ -858,17 +865,47 @@ export async function importPayload(payload, opt = {}) {
     }
 
     // ---------- 预算
+    //
+    // ★ name 缺失时写 NULL ★
+    //   老备份包里没有 name 列（v18 之前的导出），取 undefined 会写成 NULL，
+    //   正好就是「没起名」的语义，统计层会按类别名自动拼。
     if (Array.isArray(payload.budgets)) {
       for (const b of payload.budgets) {
         const exists = mode === 'merge' ? await queryOne('SELECT id FROM budget WHERE id = ?', [b.id]) : null
         if (exists) { report.skipped++; continue }
         await execute(
-          `INSERT INTO budget (id, scope, category_id, period, amount_cents, start_month, rollover, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
-          [b.id, b.scope, b.category_id || null, b.period || 'month', b.amount_cents,
+          `INSERT INTO budget (id, scope, category_id, name, period, amount_cents, start_month, rollover, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [b.id, b.scope, b.category_id || null, b.name || null, b.period || 'month', b.amount_cents,
            b.start_month, b.rollover || 0, b.created_at || Date.now(), b.updated_at || Date.now()]
         )
         report.budgets++
+      }
+    }
+
+    // ---------- 子预算挂的类别（v18）
+    //
+    // ★ 老备份没有这一段 ★
+    //   那时一条子预算只有一个类别，信息全在 budget.category_id 里，
+    //   所以这里要按「关联表为空就退回单列」补一份，否则恢复后子预算挂不上类别，
+    //   页面上会显示成「已删除分类」、已用恒为 0。
+    if (Array.isArray(payload.budgets)) {
+      const rows = Array.isArray(payload.budgetCategories) ? payload.budgetCategories.slice() : []
+      const covered = new Set(rows.map((r) => r.budget_id))
+      for (const b of payload.budgets) {
+        if (b.scope !== 'category' || !b.category_id || covered.has(b.id)) continue
+        rows.push({ budget_id: b.id, category_id: b.category_id })
+      }
+      for (const r of rows) {
+        // 类别可能已经不在了（备份包里分类被裁剪过），外键没建但统计会 JOIN 不到，
+        // 所以这里先确认类别存在再写，避免关联表里堆垃圾行。
+        const cat = await queryOne('SELECT id FROM category WHERE deleted_at IS NULL AND id = ?', [r.category_id])
+        if (!cat) { report.skipped++; continue }
+        await execute(
+          'INSERT OR IGNORE INTO budget_category (budget_id, category_id) VALUES (?, ?)',
+          [r.budget_id, r.category_id]
+        )
+        report.budgetCategories++
       }
     }
 

@@ -91,7 +91,7 @@
             </view>
           </view>
 
-          <!-- 下方：预算进度条（总预算 + 分类预算）
+          <!-- 下方：预算进度条（月预算 + 子预算）
                ★ 四角排布 ★
                  左上：预算名称 + 百分比（一眼看"花了多少比例"）
                  左下：已用 / 总额（具体数字）
@@ -106,7 +106,7 @@
             <view class="ov-budget">
               <view class="ov-budget-head">
                 <view class="ov-budget-head-left">
-                  <text class="ov-budget-name">总预算</text>
+                  <text class="ov-budget-name">月预算</text>
                   <text class="ov-budget-pct" :style="{ color: totalBudget.over ? 'var(--app-danger)' : primaryColor }">
                     {{ totalBudget.percent }}%
                   </text>
@@ -396,17 +396,24 @@ export default {
 
     const overview = computed(() => txnStore.overview)
 
-    /** 总预算（scope=total） */
+    /** 月预算（scope=total） */
     const totalBudget = computed(
       () => budgets.value.find((b) => b.scope === 'total') || null
     )
 
-    /** 分类预算（没有则为空数组，概览卡里不显示） */
+    /**
+     * 子预算列表（没有则为空数组，概览卡里不显示）
+     *
+     * ★ 变量名仍叫 categoryBudgets ★
+     *   数据结构的 scope 还是 'category'（v18 只是改了用户能看到的叫法），
+     *   模板里 b.name / b.percent / b.used / b.limit / b.dailyAvailable 都不变，
+     *   改名只会带来无谓的 diff。
+     */
     const categoryBudgets = computed(
       () => budgets.value.filter((b) => b.scope === 'category')
     )
 
-    /** 预算剩余：优先用总预算，没有总预算就用分类预算合计 */
+    /** 预算剩余：优先用月预算，没有月预算就用子预算合计 */
     const budgetRemaining = computed(() => {
       if (totalBudget.value) return totalBudget.value.remaining
       if (categoryBudgets.value.length > 0) {

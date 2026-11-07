@@ -103,16 +103,30 @@ function makeFakePlus() {
     key   TEXT PRIMARY KEY,
     value TEXT
   )`)
+  /*
+   * budget（v18 起：多了 name 列，子预算挂的类别另存 budget_category）
+   *
+   * ★ 测试库必须跟着 SCHEMA_VERSION 一起长 ★
+   *   删分类时会去 budget_category 里摘关联（见 api/category.js），
+   *   这个库少了那张表就会报「no such table: budget_category」——
+   *   那不是业务 bug，是测试库没跟上结构。
+   */
   db.exec(`CREATE TABLE budget (
     id           TEXT PRIMARY KEY,
     scope        TEXT    NOT NULL,
     category_id  TEXT,
+    name         TEXT,
     period       TEXT    NOT NULL DEFAULT 'month',
     amount_cents INTEGER NOT NULL,
     start_month  TEXT    NOT NULL,
     rollover     INTEGER NOT NULL DEFAULT 0,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
+  )`)
+  db.exec(`CREATE TABLE budget_category (
+    budget_id   TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    PRIMARY KEY (budget_id, category_id)
   )`)
   db.exec(`CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)`)
   db.exec(`CREATE TABLE tag (

@@ -26,6 +26,15 @@ export const useAccountStore = defineStore('account', {
     totalDebt: 0,
     /** 负债里属于「未归还借入」的那部分（页面用来解释构成） */
     loanDebt: 0,
+    /**
+     * 应收（借出）= 尚未收回的借出净额（借出 - 借款收回）
+     *
+     * ★ 只展示，不计入净资产 ★
+     *   借出的钱已经从账户余额里扣掉了，加回资产等于
+     *   「借出去的钱还当自己的钱」。它又确实是可收回的钱，
+     *   所以单独放一个字段给账户页显示，不混进下面的 netAssets。
+     */
+    netReceivable: 0,
     /** 净资产 = 总资产 - 负债，账户页那个大数字 */
     netAssets: 0,
     loading: false,
@@ -78,6 +87,13 @@ export const useAccountStore = defineStore('account', {
         this.totalAssets = overview.assets
         this.totalDebt = overview.debt
         this.loanDebt = overview.loanDebt || 0
+        /*
+         * ★ 应收（借出）★
+         *   老版本 getAssetOverview 不返回 lending，
+         *   这里 `|| 0` 保证升级覆盖场景下页面不会出现 NaN。
+         *   ★ 它不参与 netAssets：净资产口径保持 assets - debt ★
+         */
+        this.netReceivable = overview.lending || 0
         this.netAssets = overview.net
         this.loaded = true
       } finally {

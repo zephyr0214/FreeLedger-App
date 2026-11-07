@@ -78,7 +78,7 @@ export function buildCategoryCondition(categoryId, includeSubcategories) {
  */
 function buildFilterWhere(opt = {}) {
   const {
-    monthKey, startDay, endDay, type, accountId, categoryId,
+    monthKey, startDay, endDay, type, accountId, categoryId, categoryIds,
     includeSubcategories, tagId, keyword, minCents, maxCents, cycleId
   } = opt
 
@@ -94,10 +94,22 @@ function buildFilterWhere(opt = {}) {
     where.push('(t.account_id = ? OR t.to_account_id = ?)')
     params.push(accountId, accountId)
   }
-  const catCond = buildCategoryCondition(categoryId, includeSubcategories)
-  if (catCond) {
-    where.push(catCond.sql)
-    params.push(...catCond.params)
+  /*
+   * ★ 多类别过滤（categoryIds）优先于单个 categoryId ★
+   *   子预算可以挂多个类别，它的「全部 ›」需要一次筛出这几个类别下的流水。
+   *   走 IN 列表而不是多个 OR 子查询：数量有限（一条子预算十几个类别顶天），
+   *   SQL 长度可控，也比一堆 OR 更容易走索引。
+   */
+  const multiCats = Array.isArray(categoryIds) ? categoryIds.filter(Boolean) : []
+  if (multiCats.length > 0) {
+    where.push(`t.category_id IN (${multiCats.map(() => '?').join(',')})`)
+    params.push(...multiCats)
+  } else {
+    const catCond = buildCategoryCondition(categoryId, includeSubcategories)
+    if (catCond) {
+      where.push(catCond.sql)
+      params.push(...catCond.params)
+    }
   }
   if (keyword) {
     /*
@@ -133,6 +145,7 @@ function buildFilterWhere(opt = {}) {
  * 契约（账户详情 / 分类 / 标签 / 预算页点「全部」时带上）：
  *   accountId            按账户筛选
  *   categoryId           按分类筛选（一级或二级都行）
+ *   categoryIds          按多个分类筛选（逗号分隔，子预算的「全部」用）
  *   includeSubcategories "1" 时表示 categoryId 是一级分类，匹配其所有二级
  *   tagId                按标签筛选
  *   monthKey             按月份筛选，YYYY-MM
@@ -165,10 +178,25 @@ export function parseTxnQueryOptions(options = {}) {
 
   const includeSubcategories = parseBoolFlag(opt.includeSubcategories)
 
+  /*
+   * 多类别：categoryIds=a,b,c
+   *
+   * ★ 为什么需要它 ★
+   *   v18 起一条子预算可以挂多个类别，预算详情页的「全部 ›」
+   *   要把这些类别的流水一起筛出来，单个 categoryId 装不下。
+   *   非法/空值一律当没传，不把脏数据带进查询。
+   */
+  const categoryIds = str(opt.categoryIds)
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 100)
+
   return {
     type,
     accountId,
     categoryId,
+    categoryIds,
     tagId,
     cycleId,
     monthKey,
@@ -180,7 +208,9 @@ export function parseTxnQueryOptions(options = {}) {
      * 页面据此把时间范围放宽到全部时间，
      * 否则用户会只看到当月那几笔。
      */
-    hasFilter: Boolean(accountId || categoryId || tagId || cycleId || type !== 'all')
+    hasFilter: Boolean(
+      accountId || categoryId || categoryIds.length > 0 || tagId || cycleId || type !== 'all'
+    )
   }
 }
 

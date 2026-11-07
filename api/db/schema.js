@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 17
+export const SCHEMA_VERSION = 18
 
 /**
  * 「对账」固定分类（v4 起）
@@ -449,16 +449,55 @@ export const SCHEMA_V1 = [
   )`,
 
   // ---------------------------------------------------------------- 预算
+  /*
+   * budget —— 月预算与子预算（v18 起）
+   *
+   * ★ 两级结构 ★
+   *   scope='total'    月预算：每月总支出上限，全局只有一条
+   *   scope='category' 子预算：从月预算里分出来的额度，可以设多条
+   *
+   * ★ name ★
+   *   子预算的名字可以由用户自己起（「吃饭+交通」「周末开销」），
+   *   不填时统计层按它挂的类别自动拼一个（见 api/stats.js 的 budgetDisplayName）。
+   *   月预算这条 name 恒为 NULL —— 它的名字是固定的「月预算」。
+   *
+   * ★ category_id ★
+   *   v18 起只是「第一个类别」的冗余列，真正挂哪些类别看 budget_category 表。
+   *   保留它是为了让老版本 App 读新库时仍能显示一个类别，不至于整条预算不可用。
+   *
+   * ★ rollover ★
+   *   只有月预算用：未用完的额度结转到下一月（逐月累计、只结转正数）。
+   */
   `CREATE TABLE IF NOT EXISTS budget (
     id           TEXT PRIMARY KEY,
     scope        TEXT    NOT NULL,
     category_id  TEXT,
+    name         TEXT,
     period       TEXT    NOT NULL DEFAULT 'month',
     amount_cents INTEGER NOT NULL,
     start_month  TEXT    NOT NULL,
     rollover     INTEGER NOT NULL DEFAULT 0,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
+  )`,
+
+  /*
+   * budget_category —— 子预算挂的类别（v18）
+   *
+   * ★ 为什么需要这张关联表 ★
+   *   v17 之前一条子预算只能挂一个类别（budget.category_id 单列），
+   *   用户要求「同一个子预算可以选择多个类别」，
+   *   单列装不下，只能拆成关联表。
+   *
+   * ★ 一个类别只能属于一条子预算 ★
+   *   否则同一笔支出会被两条子预算各算一次。
+   *   主键 (budget_id, category_id) 保证「一条预算里不重复」，
+   *   「跨预算不重复」由 api/budget.js 保存时清掉旧关联来保证。
+   */
+  `CREATE TABLE IF NOT EXISTS budget_category (
+    budget_id   TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    PRIMARY KEY (budget_id, category_id)
   )`,
 
   // ------------------------------------------------------------ 设置 KV
@@ -528,5 +567,6 @@ export const INDEXES_V1 = [
   `CREATE INDEX IF NOT EXISTS idx_cat_parent     ON category(parent_id, sort)`,
   `CREATE INDEX IF NOT EXISTS idx_budget_scope   ON budget(scope, start_month)`,
   `CREATE INDEX IF NOT EXISTS idx_txn_tag_tag    ON txn_tag(tag_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_combo_member   ON account_combo_member(combo_id, sort)`
+  `CREATE INDEX IF NOT EXISTS idx_combo_member   ON account_combo_member(combo_id, sort)`,
+  `CREATE INDEX IF NOT EXISTS idx_budget_cat_cat ON budget_category(category_id)`
 ]
