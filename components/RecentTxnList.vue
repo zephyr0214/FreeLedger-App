@@ -89,6 +89,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { listTags } from '@/api/tag.js'
+import { isLoanPersonCategory } from '@/api/loan.js'
 import { useSettingStore } from '@/stores/setting.js'
 
 export default {
@@ -195,6 +196,22 @@ export default {
       if (txn.via_combo_id) {
         list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
       }
+      /*
+       * ★ 借入借出的「人员」也渲染成徽标（用户要求）★
+       *   这六类的备注存的就是人名，但它在业务上不是「备注」而是「谁」——
+       *   直接当普通副标题文字混在「12:30 · 现金 · 张三」里，
+       *   用户根本注意不到这笔是记在谁头上的。
+       *   所以单独提成一个胶囊，和标签同样的视觉分量，一眼就能扫到。
+       *
+       * ★ 只是「显示成 tag」，不写 tag 表 ★
+       *   用户明确要求不加标签记录：这些名字是流水的属性，
+       *   写进 tag 表会污染标签统计（「项目统计」里凭空多出人名）。
+       */
+      if (txn && txn.note && isLoanPersonCategory(txn.category_name)) {
+        const c = primaryColor.value
+        list.push({ key: '__person__', name: txn.note, color: c, bg: c + '22', border: c })
+      }
+
       // 用户标签
       const ids = txn && txn.tag_ids
       if (ids && ids.length) {
@@ -260,7 +277,11 @@ export default {
       } else {
         parts.push(txn.account_name || '无账户')
       }
-      if (txn.note) parts.push(txn.note)
+      /*
+       * ★ 人员类流水的 note 不再重复出现在副标题 ★
+       *   它已经在上面作为胶囊显示了，这里再来一遍就是同一个名字出现两次。
+       */
+      if (txn.note && !isLoanPersonCategory(txn.category_name)) parts.push(txn.note)
       return parts.join(' · ')
     }
 

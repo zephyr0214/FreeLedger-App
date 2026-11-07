@@ -33,6 +33,16 @@ function normalizeTxn(row) {
     tz_offset: Number(row.tz_offset) || 480,
     /** 这笔是否不计入预算 */
     exclude_from_budget: Number(row.exclude_from_budget) === 1,
+    /**
+     * 这笔是否不计入收支（v19）
+     *
+     * ★ 与 exclude_from_budget 的区别 ★
+     *   exclude_from_budget 只让「预算用量」不算它；
+     *   exclude_from_stats 让「收支统计 / 分类占比 / 趋势」也不算它。
+     *   借入借出四类两个标记都是 1（既不占预算也不算收支），
+     *   但账户余额照常按资金流动计算 —— 钱确实动了。
+     */
+    exclude_from_stats: Number(row.exclude_from_stats) === 1,
     tag_ids: row.tag_ids ? String(row.tag_ids).split(',').filter(Boolean) : []
   }
 }
@@ -565,8 +575,9 @@ export async function createTransaction(input) {
         id, type, amount_cents, account_id, to_account_id, category_id, note,
         occurred_at, occurred_day, month_key, year_key, tz_offset,
         created_at, updated_at, deleted_at, cycle_id, via_combo_id,
-        original_currency, original_amount_cents, exchange_rate
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?)`,
+        original_currency, original_amount_cents, exchange_rate,
+        exclude_from_budget, exclude_from_stats
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?)`,
       [
         id,
         input.type,
@@ -586,7 +597,9 @@ export async function createTransaction(input) {
         resolved.viaComboId || null,
         input.original_currency || null,
         input.original_amount_cents || null,
-        input.exchange_rate || null
+        input.exchange_rate || null,
+        input.exclude_from_budget ? 1 : 0,
+        input.exclude_from_stats ? 1 : 0
       ]
     )
 
@@ -663,7 +676,8 @@ export async function updateTransaction(id, patch) {
         type = ?, amount_cents = ?, account_id = ?, to_account_id = ?, category_id = ?, note = ?,
         occurred_at = ?, occurred_day = ?, month_key = ?, year_key = ?,
         updated_at = ?, via_combo_id = ?,
-        original_currency = ?, original_amount_cents = ?, exchange_rate = ?
+        original_currency = ?, original_amount_cents = ?, exchange_rate = ?,
+        exclude_from_budget = ?, exclude_from_stats = ?
        WHERE id = ?`,
       [
         merged.type,
@@ -681,6 +695,8 @@ export async function updateTransaction(id, patch) {
         merged.original_currency || null,
         merged.original_amount_cents || null,
         merged.exchange_rate || null,
+        merged.exclude_from_budget ? 1 : 0,
+        merged.exclude_from_stats ? 1 : 0,
         id
       ]
     )
@@ -717,6 +733,31 @@ export async function setExcludeFromBudget(id, exclude) {
   await execute(
     'UPDATE txn SET exclude_from_budget = ?, updated_at = ? WHERE id = ?',
     [flag, Date.now(), id]
+  )
+  return getTransaction(id)
+}
+
+/**
+ * 设置/取消「这笔不计入收支」（v19）
+ *
+ * ★ 与 setExcludeFromBudget 分开 ★
+ *   「不计入预算」和「不计入收支」是两件独立的事：
+ *   一笔借款两个都要排除，但一笔代购可能只排除预算、仍要算收支。
+ *
+ * ★ 只改标记，不动余额 ★
+ *   钱确实进出过账户，余额必须照实反映。
+ *
+ * @param {string} id 交易 id
+ * @param {boolean} exclude true = 不计入收支
+ * @returns {Promise<object>} 更新后的交易
+ */
+export async function setExcludeFromStats(id, exclude) {
+  const existing = await getTransaction(id)
+  if (!existing) throw new Error('交易不存在')
+
+  await execute(
+    'UPDATE txn SET exclude_from_stats = ?, updated_at = ? WHERE id = ?',
+    [exclude ? 1 : 0, Date.now(), id]
   )
   return getTransaction(id)
 }

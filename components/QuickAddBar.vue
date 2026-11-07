@@ -68,6 +68,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
+import { listLoanPeople } from '@/api/loan.js'
 import { combineDayTime } from '@/utils/date.js'
 import { buildOriginalNoteTag, applyNoteTag, cleanNote } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
@@ -248,10 +249,23 @@ export default {
           ? prefDefault
           : (realAccounts[0] || accountStore.list[0] || {}).id || ''
 
+        /*
+         * 已记过的人员名单 —— 给 AI 认「还给谁」用
+         *
+         * ★ 为什么要给 ★
+         *   借款归还 / 借款收回 的人名必须和之前那笔对上，
+         *   模型拼错一个字，管理页就会多出一个「新人员」，
+         *   那笔账永远结不清。给候选名单能让它优先照抄已有写法。
+         * ★ 拿不到不影响记账 ★
+         *   人员列表只是「帮模型选得更准」，失败就当没有。
+         */
+        const people = await listLoanPeople().catch(() => [])
+
         const result = await parseMessageToTransactions(pendingText, {
           categories,
           accounts: accountStore.list,
           tags,
+          people,
           defaultAccountId,
           baseDate: new Date()
         })

@@ -149,24 +149,47 @@
 
       <!-- 表单行 -->
       <view class="form-rows">
-        <!-- 账户 -->
-        <view class="form-row" @click="openAccountPicker">
-          <text class="row-label">账户</text>
-          <view class="row-value">
-            <text class="row-text">{{ currentAccountName }}</text>
-            <text class="row-arrow">›</text>
-          </view>
-        </view>
+        <!--
+          ★ 账户 + 标签同一行、各占一半（用户要求）★
+            以前是两整行，一行只有一个短词（「现金」「日常」），
+            面板下方留白很多却把数字键盘挤到屏幕外。
+            合并成一行后省下 96rpx 高度，两种选择互不干扰。
 
-        <!-- 转账目标账户 -->
-        <view v-if="form.type === 'transfer'" class="form-row" @click="openToAccountPicker">
-          <text class="row-label">转入</text>
-          <view class="row-value">
-            <text
-              class="row-text"
-              :style="{ color: form.to_account_id ? 'var(--app-text)' : 'var(--app-text-3)' }"
-            >{{ toAccountName || '请选择' }}</text>
-            <text class="row-arrow">›</text>
+          ★ 转账时这一行只显示账户 ★
+            转账没有分类/标签语义，右边那一格让给「转入」，
+            否则「转入」还得再占一整行，又多出 96rpx。
+        -->
+        <view class="form-row form-row-split">
+          <view class="form-cell" @click="openAccountPicker">
+            <text class="cell-label">账户</text>
+            <view class="cell-value">
+              <text class="cell-text">{{ currentAccountName }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
+          </view>
+
+          <!-- 转账目标账户：占右半边 -->
+          <view v-if="form.type === 'transfer'" class="form-cell cell-right" @click="openToAccountPicker">
+            <text class="cell-label">转入</text>
+            <view class="cell-value">
+              <text
+                class="cell-text"
+                :style="{ color: form.to_account_id ? 'var(--app-text)' : 'var(--app-text-3)' }"
+              >{{ toAccountName || '请选择' }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
+          </view>
+
+          <!-- 标签：占右半边 -->
+          <view v-else class="form-cell cell-right" @click="openTagPicker">
+            <text class="cell-label">标签</text>
+            <view class="cell-value">
+              <text
+                class="cell-text"
+                :style="{ color: selectedTags.length ? 'var(--app-text)' : 'var(--app-text-3)' }"
+              >{{ selectedTagNames || '请选择' }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
           </view>
         </view>
 
@@ -200,20 +223,36 @@
           </view>
         </view>
 
-        <!-- 标签：与账户一致，点击弹出选择 -->
-        <view class="form-row" @click="openTagPicker">
-          <text class="row-label">标签</text>
-          <view class="row-value">
-            <text
-              class="row-text"
-              :style="{ color: selectedTags.length ? 'var(--app-text)' : 'var(--app-text-3)' }"
-            >{{ selectedTagNames || '请选择' }}</text>
-            <text class="row-arrow">›</text>
+        <!--
+          ★ 借入借出四类：备注 = 人员，且必填 ★
+            用户要求：「记账面板上的选择这四个分类时，记账面板上的备注
+            两个字修改为人员，此时该项为必填项」。
+            · 借出 / 借入：可以是没见过的新人，直接输入；
+            · 借款归还 / 借款收回：必须是之前记过的人，
+              点右侧 › 从「已添加过的人员」里选（还错人不会触发新分组）。
+
+          ★ 为什么必须是必填 ★
+            管理页按人员分组，备注空着这一笔就变成孤儿：
+            既不在任何人的账上，也不会出现在「未结清」里，
+            用户会以为钱记丢了。
+        -->
+        <view v-if="isPersonCategory" class="form-row form-row-person">
+          <text class="row-label">人员</text>
+          <view class="row-value person-value">
+            <input
+              v-model="form.note"
+              class="note-input person-input"
+              :placeholder="personPlaceholder"
+              placeholder-class="note-placeholder"
+              :maxlength="20"
+              confirm-type="done"
+            />
+            <text class="person-pick" @click="openPersonPicker">选择</text>
           </view>
         </view>
 
-        <!-- 备注 -->
-        <view class="form-row">
+        <!-- 备注：普通分类才显示 -->
+        <view v-else class="form-row">
           <text class="row-label">备注</text>
           <input
             v-model="form.note"
@@ -258,6 +297,14 @@
       :actions="tagActions"
       cancel-text="取消"
       @select="onTagSelect"
+    />
+
+    <!-- 人员选择：已经从流水里出现过的人名（借款归还/借款收回用它匹配） -->
+    <wd-action-sheet
+      v-model="showPersonPicker"
+      :actions="personActions"
+      cancel-text="取消"
+      @select="onPersonSelect"
     />
 
     <!--
@@ -327,6 +374,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
+import { isLoanPersonCategory, allowsNewPerson, listLoanPeople } from '@/api/loan.js'
 import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combineDayTime } from '@/utils/date.js'
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta, buildOriginalNoteTag, applyNoteTag, stripNoteTag } from '@/utils/currency.js'
@@ -482,6 +530,17 @@ export default {
 
     const categories = ref([])
     const tags = ref([])
+    /**
+     * 已出现过的人员（借入借出的备注）
+     *
+     * ★ 只用来给「借款归还 / 借款收回」挑选 ★
+     *   那两类是把钱还回/收回某笔旧账，人一定是之前记过的；
+     *   手输一个错别字就会凭空多出一个「新人员」，
+     *   管理页里同一笔账被拆成两行。
+     *   而「借出 / 借入」是第一次打交道，允许直接输入新名字。
+     */
+    const loanPeople = ref([])
+    const showPersonPicker = ref(false)
     /** 最近 30 天各分类的使用次数，用于分类排序 */
     const usageCounts = ref({})
     const showAccountPicker = ref(false)
@@ -618,6 +677,47 @@ export default {
       }
       return !!form.category_id
     })
+
+    /**
+     * 当前选中的分类对象（没有则 null）
+     *
+     * ★ 不能只看 category_id ★
+     *   分类可能刚被删掉，id 还在 form 里但 categories 里找不到 ——
+     *   这时 isPersonCategory 要按「不在列表里 = 普通分类」处理。
+     */
+    const currentCategory = computed(() =>
+      categories.value.find((c) => c.id === form.category_id) || null
+    )
+
+    /**
+     * 当前分类是不是「借入借出」六类之一
+     *
+     * 是的话：备注变成「人员」、必填、这笔默认不计入收支。
+     */
+    const isPersonCategory = computed(() => {
+      const cat = currentCategory.value
+      if (!cat) return false
+      return isLoanPersonCategory(cat.name)
+    })
+
+    /** 人员输入框的占位文案随分类变化 */
+    const personPlaceholder = computed(() => {
+      const name = currentCategory.value ? currentCategory.value.name : ''
+      if (allowsNewPerson(name)) return '输入人名，如 张三 / 姐姐'
+      return '选择已记过的人'
+    })
+
+    /**
+     * 人员候选项（action-sheet 用）
+     *
+     * ★ 借款归还 / 借款收回 只允许选已有人名 ★
+     *   这两类是在结一笔旧账，人名必须能和原流水对上；
+     *   允许手输新名字等于允许「还给了不存在的人」，账永远结不清。
+     *   所以这两类点「选择」时给的是历史人员列表，列表为空就提示。
+     */
+    const personActions = computed(() =>
+      loanPeople.value.map((name) => ({ name }))
+    )
 
     const currentAccountName = computed(() => {
       const acc = accountStore.list.find((a) => a.id === form.account_id)
@@ -775,6 +875,21 @@ export default {
       showTagPicker.value = true
     }
 
+    /** 打开人员选择（历史人员列表） */
+    function openPersonPicker() {
+      if (loanPeople.value.length === 0) {
+        uni.showToast({ title: '还没有记过人员，直接输入名字即可', icon: 'none' })
+        return
+      }
+      showPersonPicker.value = true
+    }
+
+    function onPersonSelect({ index }) {
+      const name = loanPeople.value[index]
+      if (name) form.note = name
+      showPersonPicker.value = false
+    }
+
     function onAccountSelect({ index }) {
       const acc = sourceAccountList.value[index]
       if (!acc) return
@@ -828,15 +943,18 @@ export default {
     }
 
     async function loadOptions() {
-      const [cats, tgs, counts] = await Promise.all([
+      const [cats, tgs, counts, people] = await Promise.all([
         listCategories(),
         listTags(),
         // 用不到排序统计时不能影响主流程
-        getCategoryUsageCounts(30).catch(() => ({}))
+        getCategoryUsageCounts(30).catch(() => ({})),
+        // 人员列表同样不该拖垮面板：拿不到就当没有可选人员
+        listLoanPeople().catch(() => [])
       ])
       categories.value = cats
       tags.value = tgs
       usageCounts.value = counts || {}
+      loanPeople.value = Array.isArray(people) ? people : []
     }
 
     /** 重置表单 */
@@ -1028,6 +1146,26 @@ export default {
        *   编辑三次金额不会留下三个标记，用户手写的正文永远保留。
        */
       let note = form.note.trim()
+      /*
+       * ★ 借入借出六类：人员必填 ★
+       *   管理页按 note 分组，空备注这一笔会变成「孤儿流水」——
+       *   不在任何人的账上、也不进未结清列表，用户会以为记丢了。
+       */
+      if (isPersonCategory.value && !note) {
+        uni.showToast({ title: '请填写人员姓名', icon: 'none' })
+        return
+      }
+      /*
+       * ★ 借款归还 / 借款收回：人名必须是已经记过的 ★
+       *   这两类是在结旧账，名字对不上就永远结不清。
+       */
+      if (isPersonCategory.value) {
+        const catName = currentCategory.value ? currentCategory.value.name : ''
+        if (!allowsNewPerson(catName) && !loanPeople.value.includes(note)) {
+          uni.showToast({ title: '请选择已记过的人员', icon: 'none' })
+          return
+        }
+      }
       if (isForeign.value) {
         const tag = buildOriginalNoteTag(originalAmountCents, originalCurrency)
         note = applyNoteTag(note, tag)
@@ -1050,7 +1188,18 @@ export default {
         // 外币快照（人民币交易为 null）
         original_currency: originalCurrency,
         original_amount_cents: originalAmountCents,
-        exchange_rate: isForeign.value ? exchangeRate.value : null
+        exchange_rate: isForeign.value ? exchangeRate.value : null,
+        /*
+         * ★ 借入借出六类默认不进预算、不进收支（用户要求）★
+         *   资金往来不是消费：借给姐姐 500，本月支出不该多 500；
+         *   姐姐还我 500，也不是我赚了 500。
+         *   这两笔在账户余额里照常计算 —— 钱确实动了。
+         *
+         * ★ 编辑普通交易时保留它原有的标记 ★
+         *   用户在详情页手动勾过「不计入预算」，进来改个金额不该被清掉。
+         */
+        exclude_from_budget: isPersonCategory.value ? true : !!(props.editing && props.editing.exclude_from_budget),
+        exclude_from_stats: isPersonCategory.value ? true : !!(props.editing && props.editing.exclude_from_stats)
       }
 
       try {
@@ -1106,6 +1255,7 @@ export default {
     bindSheet('txnAccountPicker', showAccountPicker)
     bindSheet('txnToAccountPicker', showToAccountPicker)
     bindSheet('txnTagPicker', showTagPicker)
+    bindSheet('txnPersonPicker', showPersonPicker)
     /*
      * ★ 「更多分类」不在这里登记 ★
      *   它现在是独立组件 CategoryPickerSheet，
@@ -1194,6 +1344,8 @@ export default {
       /* 外币记账 */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
+      currentCategory, isPersonCategory, personPlaceholder, personActions,
+      showPersonPicker, openPersonPicker, onPersonSelect,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate, minDate,
@@ -1534,6 +1686,95 @@ export default {
   font-size: 28rpx;
   color: var(--app-text);
   text-align: right;
+}
+
+/* -------------------------------------------------- 账户 + 标签同一行 */
+
+/*
+ * 一行两格、等分
+ *
+ * ★ 为什么用 50% 而不是 flex:1 ★
+ *   两格的内容长度差别很大（「现金」vs「日常开销」），
+ *   flex:1 会让内容长的那格把另一格挤扁，两行文字一长就会换行错位。
+ *   固定等分保证「账户」「标签」两个标签始终对齐在同一列。
+ */
+.form-row-split {
+  padding: 0;
+  gap: 0;
+}
+
+.form-cell {
+  flex: 1;
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8rpx;
+  min-height: 88rpx;
+  min-width: 0;
+}
+
+/* 右半格：左边一条竖分隔，视觉上分成两栏 */
+.form-cell.cell-right {
+  padding-left: 20rpx;
+  margin-left: 20rpx;
+  border-left: 1rpx solid var(--app-line);
+}
+
+.cell-label {
+  font-size: 28rpx;
+  color: var(--app-text-2);
+  flex-shrink: 0;
+}
+
+.cell-value {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.cell-text {
+  font-size: 28rpx;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-arrow {
+  font-size: 30rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------- 人员（借入借出） */
+
+/*
+ * 人员行：输入框在左、右侧「选择」胶囊
+ *
+ * ★ 比备注行多一个「选择」 ★
+ *   借款归还/借款收回必须挑已有的人名，光给输入框等于让用户
+ *   凭记忆拼写，拼错就多出一个不存在的人员，账永远结不清。
+ */
+.person-value {
+  gap: 12rpx;
+}
+
+.person-input {
+  text-align: right;
+  min-width: 0;
+}
+
+.person-pick {
+  font-size: 24rpx;
+  color: var(--app-primary);
+  padding: 6rpx 16rpx;
+  border-radius: 16rpx;
+  background-color: var(--app-primary-light);
+  flex-shrink: 0;
 }
 
 .note-placeholder {

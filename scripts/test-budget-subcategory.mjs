@@ -332,7 +332,14 @@ console.log('=== 迁移 v18：结构 ===')
   const schemaSrc = read('api/db/schema.js')
   const dbSrc = read('api/db/index.js')
 
-  check('SCHEMA_VERSION 是 18', /export const SCHEMA_VERSION = 18/.test(schemaSrc), true)
+  // ★ 断言「至少 18」而不是「恰好 18」★
+  //   v19 起还有新的迁移，写死 18 会让每次加迁移都要回来改这一条。
+  //   这里要钉的是「v18 这一版的结构存在」，不是「版本停在 18」。
+  check(
+    'SCHEMA_VERSION 至少是 18',
+    Number((schemaSrc.match(/export const SCHEMA_VERSION = (\d+)/) || [])[1]) >= 18,
+    true
+  )
   check('budget 表有 name 列', /CREATE TABLE IF NOT EXISTS budget \([\s\S]*?name\s+TEXT/.test(schemaSrc), true)
   check(
     '有 budget_category 建表 DDL',
@@ -354,11 +361,28 @@ console.log('=== 迁移 v18：结构 ===')
     /INSERT OR IGNORE INTO budget_category[\s\S]{0,400}?c\.deleted_at IS NULL/.test(dbSrc),
     true
   )
-  // ★ 迁移内不能用 query()/execute()，会死锁（见 test-db-migration.mjs）
-  const migrateFn = dbSrc.slice(
-    dbSrc.indexOf('function migrateBudgetCategories'),
-    dbSrc.indexOf('async function migrate()')
-  )
+  /*
+   * ★ 迁移内不能用 query()/execute()，会死锁（见 test-db-migration.mjs）★
+   *
+   * ★ 切片必须以「下一个函数定义」为界，不能切到 migrate() ★
+   *   v19 的迁移函数插在 migrateBudgetCategories 和 migrate() 之间，
+   *   按旧写法会把 v19 的代码一起切进来，于是「v18 迁移里用了 query()」
+   *   这种假警报就出现了 —— 实际是隔壁函数的内容被误判。
+   */
+  const migrateFnStart = dbSrc.indexOf('function migrateBudgetCategories')
+  const nextFnAfterMigrate = dbSrc.indexOf('async function migrateLoanExcludeAndSettleCategories')
+  let migrateFnEnd
+  if (nextFnAfterMigrate > 0) {
+    /*
+     * ★ 要退到下一个函数的**文档注释开头**，不是函数名 ★
+     *   v19 函数头上那段注释里就写着「不能 query()/execute()」，
+     *   按函数名切会把这段注释算进 v18 —— 断言直接命中自己那段说明。
+     */
+    migrateFnEnd = dbSrc.lastIndexOf('/**', nextFnAfterMigrate)
+  } else {
+    migrateFnEnd = dbSrc.indexOf('async function migrate()')
+  }
+  const migrateFn = dbSrc.slice(migrateFnStart, migrateFnEnd)
   check('迁移内部没有用 query(', /\bquery\(/.test(migrateFn), false)
   check('迁移内部没有用 execute(', /\bexecute\(/.test(migrateFn), false)
   check('迁移内部用底层 call(', /call\('executeSql'/.test(migrateFn), true)

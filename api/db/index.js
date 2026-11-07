@@ -377,6 +377,34 @@ const MIGRATIONS = [
      */
     version: 18,
     up: migrateBudgetCategories
+  },
+  {
+    /*
+     * ★ v19 —— 借入借出不计入收支 + 借出结清的两个派生分类 ★
+     *
+     *   1. txn 加 exclude_from_stats 列（默认 0）。
+     *      与 exclude_from_budget 是两个独立语义：
+     *        预算只关心「这笔支出占不占额度」；
+     *        收支关心「这笔钱算不算我的花销/收入」。
+     *      一笔借款既不该占预算、也不该算收支，所以两个都要打标；
+     *      但一笔代购/报销可能不占预算、却要算收支 —— 不能合并成一个字段。
+     *
+     *   2. 把四类借款流水（借出/借入/借款收回/借款归还）的回填成
+     *      exclude_from_stats = 1、exclude_from_budget = 1。
+     *      ★ 只回填这四类的历史数据 ★
+     *        其它分类的历史流水一律不动，升级后统计数字只有
+     *        「借款不再算收支」这一处变化，其余分毫不变。
+     *
+     *   3. 建「借出坏账」（expense）与「借出利息」（income）两个
+     *      hidden=1 的派生分类，供借出管理页的「手动结清」写入。
+     *
+     * ★ 为什么回填要放在迁移里，而不是每次查询时 JOIN 分类名判断 ★
+     *   用户可以在分类管理里给这四类改颜色/图标（名字锁死但行仍可改），
+     *   而更关键的是：性能。每一条统计 SQL 都多一个 JOIN 是长期代价，
+     *   一个 0/1 字段的存储代价几乎为零，查询还能走条件过滤。
+     */
+    version: 19,
+    up: migrateLoanExcludeAndSettleCategories
   }
 ]
 
@@ -1864,6 +1892,137 @@ async function migrateBudgetCategories() {
     SELECT b.id, b.category_id FROM budget b
     JOIN category c ON c.id = b.category_id AND c.deleted_at IS NULL
     WHERE b.scope = 'category' AND b.category_id IS NOT NULL`)
+}
+
+/**
+ * 迁移 v19 —— 借入借出不进收支 + 借出「手动结清」的两个派生分类
+ *
+ * 三件事：
+ *   1. txn 加 exclude_from_stats 列（默认 0）
+ *   2. 借出 / 借入 / 借款收回 / 借款归还 四类历史流水回填
+ *      exclude_from_stats = 1（同时把 exclude_from_budget 也补成 1 ——
+ *      这四类本来就不该占预算，老版本只支持手动勾选，多数老数据没勾）
+ *   3. 建「借出坏账」（expense）/「借出利息」（income）两个 hidden 派生分类
+ *
+ * ★ 回填为什么放在这里，而不是查询时 JOIN 分类名 ★
+ *   统计 SQL 有 20 多条，每条都加一个 JOIN 分类表是长期性能代价；
+ *   而 0/1 字段既不占空间又能走索引条件。
+ *   另外「不计入」是个**快照决定**：今天这笔借款不该算收支，
+ *   将来用户把「借出」分类改名成别的，历史这笔仍然不该算收支 ——
+ *   JOIN 名字的写法在这时会静默改变历史统计。
+ *
+ * ★ 回填只碰这四类，其它分类一笔不动 ★
+ *   升级后用户的月度收支数字，变化只来自「借款不再算收支」这一处，
+ *   可以逐笔对上，不会有「升级后统计全变了」的惊吓。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateLoanExcludeAndSettleCategories() {
+  const now = Date.now()
+
+  /** 底层查询（迁移里不能走 query()，会死锁） */
+  const select = async (sql, params) => {
+    try {
+      const rows = await call('selectSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      console.warn('[db] migration v19 select failed:', e && e.message)
+      return null
+    }
+  }
+  /** 底层写入（迁移里不能走 execute()，会死锁） */
+  const run = async (sql, params) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql: bindParams(sql, params) })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v19 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  // ---------- 1) exclude_from_stats 列 ----------
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'ALTER TABLE txn ADD COLUMN exclude_from_stats INTEGER NOT NULL DEFAULT 0'
+    })
+    console.log('[db] migration v19: txn.exclude_from_stats 已添加')
+  } catch (e) {
+    // 字段已存在（新装库由 SCHEMA_V1 建出来 / 迁移重跑），忽略
+    console.log('[db] migration v19: txn.exclude_from_stats 已存在，跳过')
+  }
+
+  // ---------- 2) 四类借款流水回填 ----------
+  /*
+   * ★ 用 IN (子查询) 而不是 JOIN 分类名 ★
+   *   分类名在「系统分类」组下是唯一的，但用户可能在别处建同名分类
+   *   （分类管理允许），所以再限定 parent_id 指向「系统分类」组，
+   *   避免把用户自建的同名分类下的流水也一起标掉。
+   */
+  const loanNames = ['借出', '借入', '借款收回', '借款归还']
+  const placeholders = loanNames.map(() => '?').join(',')
+  await run(
+    `UPDATE txn SET exclude_from_stats = 1, exclude_from_budget = 1, updated_at = ?
+     WHERE deleted_at IS NULL
+       AND exclude_from_stats = 0
+       AND category_id IN (
+         SELECT c.id FROM category c
+         WHERE c.deleted_at IS NULL
+           AND c.name IN (${placeholders})
+           AND c.parent_id IN (
+             SELECT g.id FROM category g
+             WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+               AND g.name IN (?, ?)
+           )
+       )`,
+    [now, ...loanNames, SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME]
+  )
+
+  // ---------- 3) 两个派生分类 ----------
+  /*
+   * 结构上等价于 api/category.js 的 ensurePresetCategories()，
+   * 但这里不能调它（它内部用 query()/execute()，会死锁），所以抄一份最小实现。
+   * 只在迁移里跑一次，后续由 syncDefaultCategories() 负责维持。
+   */
+  for (const type of ['expense', 'income']) {
+    const groupDef = SYSTEM_PRESET_GROUPS[type]
+
+    let groupRows = await select(
+      'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+      [groupDef.name, type]
+    )
+    if (groupRows !== null && groupRows.length === 0) {
+      groupRows = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NULL',
+        [SYSTEM_PRESET_LEGACY_NAME, type]
+      )
+    }
+    if (groupRows === null || groupRows.length === 0) continue
+    const groupId = groupRows[0].id
+
+    const defs = SYSTEM_PRESET_CHILDREN.filter((d) => d.type === type && d.hidden === true)
+    for (const def of defs) {
+      const existing = await select(
+        'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
+        [def.name, type, groupId]
+      )
+      if (existing === null) continue
+      if (existing.length > 0) {
+        // 已存在：只把 hidden 拉回 1（防止老数据里它是可见的）
+        await run(
+          'UPDATE category SET hidden = 1, updated_at = ? WHERE id = ? AND hidden != 1',
+          [now, existing[0].id]
+        )
+        continue
+      }
+      await run(
+        `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,1,?,?,NULL)`,
+        [prefixedId('cat'), groupId, def.name, type, def.icon, def.color, def.sort, now, now]
+      )
+    }
+  }
 }
 
 async function migrate() {

@@ -340,11 +340,20 @@ const expectedCategories =
   // 固定分类组也要在（这是 seed + sync 一起才有的结果）
   const groupExpense = expense.find((c) => c.name === '系统分类' && !c.parent_id)
   ok('支出侧有「系统分类」组', !!groupExpense)
+  /*
+   * ★ listCategories 默认不返回 hidden ★
+   *   v19 的「借出坏账」是 hidden 派生分类，正常查询看不到它。
+   *   所以对「页面能看到的固定子类」断言时，期望值也要排除 hidden；
+   *   否则每次新增派生分类，这条都会误报成「分类丢了」。
+   */
   const groupChildren = expense.filter((c) => c.parent_id === (groupExpense && groupExpense.id))
   check(
     '「系统分类」下挂着固定子类',
     groupChildren.map((c) => c.name).sort(),
-    SYSTEM_PRESET_CHILDREN.filter((d) => d.type === 'expense').map((d) => d.name).sort()
+    SYSTEM_PRESET_CHILDREN
+      .filter((d) => d.type === 'expense' && !d.hidden)
+      .map((d) => d.name)
+      .sort()
   )
 
   // 4) 幂等：再跑一遍不能翻倍（onLaunch 下次启动还会跑这两句）

@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.18.0-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.19.0-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -35,6 +35,7 @@
 **账务管理**
 - 二级分类（自定义图标）、标签、预算（月预算 + 子预算，支持结转与多类别）
 - 周期账：按天 / 周 / 月自动补记，手动删掉的日期不会被重复补上
+- 借入借出按人员管理：未结清 / 已结清分组，借出可手动结清（差额自动记坏账或利息）
 
 **统计与 AI 问答**
 - SVG 自绘图表：分类构成环形图、趋势折线、月历、账户统计

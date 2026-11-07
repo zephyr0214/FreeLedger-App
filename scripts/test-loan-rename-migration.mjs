@@ -285,10 +285,20 @@ console.log('=== 场景 5：源码里不能残留旧名字 ===')
   check('schema 里有「借款收回」', schema.includes('借款收回'), true)
   check('schema 里有「借款归还」', schema.includes('借款归还'), true)
 
-  // 页面 tab 文案也从 schema 的常量来（不是写死旧名）
-  const loanPage = readFileSync(join(ROOT, 'pages/loan/manage.vue'), 'utf-8')
-  check('借出页有「借款收回」', loanPage.includes('借款收回'), true)
-  check('借入页有「借款归还」', loanPage.includes('借款归还'), true)
+  /*
+   * ★ v19 起管理页不再按「借出 / 借款收回」写 tab ★
+   *   页面改成按人员看账（未结清 / 已结清），分类名只出现在
+   *   api/loan.js 的常量里和记账面板的分类网格里 ——
+   *   所以「新名字确实在用」这条断言改成查 api/loan.js。
+   *   要钉的规则没变：旧名（借出收回 / 借入归还）不能复活。
+   */
+  const loanApi = readFileSync(join(ROOT, 'api/loan.js'), 'utf-8')
+  check('api/loan.js 有「借款收回」', loanApi.includes('借款收回'), true)
+  check('api/loan.js 有「借款归还」', loanApi.includes('借款归还'), true)
+
+  // 记账面板的分类网格仍会显示这四个名字（来自数据库，不是写死）
+  const loanPanel = readFileSync(join(ROOT, 'components/TxnPanel.vue'), 'utf-8')
+  check('记账面板引入借入借出判定', loanPanel.includes('isLoanPersonCategory'), true)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

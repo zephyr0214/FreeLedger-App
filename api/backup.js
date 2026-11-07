@@ -838,16 +838,25 @@ export async function importPayload(payload, opt = {}) {
          *   其余字段照常恢复，不影响历史数据导入。
          */
         await execute(
+          /*
+           * ★ 导入要带上两个「不计入」标记（v19 起）★
+           *   老备份里没有这两个字段 —— 用 `|| 0` 兜成 0，
+           *   和老版本的行为完全一致（照常计入预算与收支）。
+           *   不写这两列的话，新备份导回来会把
+           *   「借款不计入收支」全部丢掉，收支统计立刻被借款污染。
+           */
           `INSERT INTO txn (id, type, amount_cents, account_id, to_account_id, category_id, note,
             occurred_at, occurred_day, month_key, year_key, tz_offset,
-            cycle_id, created_at, updated_at, deleted_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            cycle_id, created_at, updated_at, deleted_at,
+            exclude_from_budget, exclude_from_stats)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             t.id, t.type, t.amount_cents, t.account_id, t.to_account_id || null,
             t.category_id || null, t.note || '',
             t.occurred_at, t.occurred_day, t.month_key, t.year_key, t.tz_offset || 480,
             t.cycle_id || null,
-            t.created_at || Date.now(), t.updated_at || Date.now(), t.deleted_at || null
+            t.created_at || Date.now(), t.updated_at || Date.now(), t.deleted_at || null,
+            t.exclude_from_budget ? 1 : 0, t.exclude_from_stats ? 1 : 0
           ]
         )
         report.transactions++

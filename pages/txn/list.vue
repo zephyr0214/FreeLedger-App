@@ -343,6 +343,7 @@ import {
   customToRange, customRangeLabel, defaultCustomRange, toDayKey
 } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { isLoanPersonCategory } from '@/api/loan.js'
 import { parseAmountInput } from '@/utils/money.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -931,7 +932,8 @@ export default {
        */
       // ★ 账户被删除后 account_name 为空 —— 显示「无账户」 ★
       if (txn.type !== 'transfer') parts.push(txn.account_name || '无账户')
-      if (txn.note) parts.push(txn.note)
+      // 人员类流水的 note 已在徽标里显示，副标题不再重复一次
+      if (txn.note && !isLoanPersonCategory(txn.category_name)) parts.push(txn.note)
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
@@ -1000,6 +1002,20 @@ export default {
       if (txn.via_combo_id) {
         list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
       }
+      /*
+       * ★ 借入借出的「人员」也渲染成徽标（用户要求）★
+       *   这六类的备注存的就是人名，业务上它不是「备注」而是「谁」。
+       *   混在副标题「现金 · 张三」里几乎不会被注意到，
+       *   提成胶囊后一眼就能看出这笔记在谁头上。
+       *
+       * ★ 只是显示成 tag，不写 tag 表 ★
+       *   用户明确要求不加标签记录 —— 写进去会污染标签统计。
+       */
+      if (txn.note && isLoanPersonCategory(txn.category_name)) {
+        const c = primaryColor.value
+        list.push({ key: '__person__', name: txn.note, color: c, bg: c + '22', border: c })
+      }
+
       // 用户标签
       const ids = txn.tag_ids
       if (ids && ids.length) {

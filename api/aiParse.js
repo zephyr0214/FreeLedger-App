@@ -948,6 +948,18 @@ export async function parseMessageToTransactions(text, ctx) {
      - 只有两边都是**账户列表里的账户**（如「微信转支付宝」）才是 transfer。
        如果句子里出现的「对方」不在账户列表里，那就不是转账。
 
+   ★★★ 这四类的 note 字段必须是「人」★★★
+     借出 / 借入 / 借款归还 / 借款收回 的 note **不是描述、是对方的名字**，
+     只填那个称呼本身，不要带「借给」「还给」「向」这些动词，也不要带金额。
+       「借给姐姐200」      → note = "姐姐"
+       「还给同事500」      → note = "同事"
+       「向老王借了1000」   → note = "老王"
+       「小张还我300」      → note = "小张"
+     note 是这四个分类的唯一分组依据，填成「借给姐姐」程序就会把
+     「姐姐」和「借给姐姐」当成两个人，管理页里一个人变两行。
+     如果原句里**看不出是谁**，note 给 null —— 程序会让用户补填，
+     绝不要编一个「朋友」「某人」之类的占位。
+
 11. date 用 "YYYY-MM-DD" 格式；用户说「昨天」「前天」这类相对时间，请换算成具体日期。
 12. time 用 "HH:mm" 格式（24 小时制）。用户明确说了几点几分就填那个时间，
     没提时间就给 null（系统会自动记成当前时刻）。
@@ -962,6 +974,14 @@ export async function parseMessageToTransactions(text, ctx) {
 
 今天的日期是：${toDayKey(baseDate, baseDate)}`
 
+  /*
+   * ★ 已记过的人员名单（只在提示词里给模型看）★
+   *   借款归还 / 借款收回 的人名必须和之前那笔借出/借入对上，
+   *   模型拼错一个字，管理页就会多出一个「新人员」，那笔账永远结不清。
+   *   把候选名单给模型，让它优先从里面挑，能大幅减少错别字。
+   */
+  const knownPeople = Array.isArray(ctx.people) ? ctx.people.filter(Boolean).slice(0, 40) : []
+
   const userPrompt = `可选分类（请原样使用列表里的完整路径，**不要输出列表以外的分类**）：
 ${categoryLabels.map((l) => `- ${l}`).join('\n')}
 ${parentNames.length ? `
@@ -972,6 +992,11 @@ ${parentNames.map((n) => `- ${n}`).join('\n')}
 ${fallbackNames.map((n) => `- ${n}`).join('\n')}
 ` : ''}
 可选账户：${JSON.stringify(accountNames)}
+${knownPeople.length ? `
+已经记过的人员（借入 / 借出 / 借款归还 / 借款收回 的 note 优先从这里面选，
+写法必须一模一样；确实是新的人再按用户原话填）：
+${knownPeople.map((n) => `- ${n}`).join('\n')}
+` : ''}
 
 用户消息：${message}
 

@@ -8,6 +8,7 @@ import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
   SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME, SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
+  LOAN_SETTLE_CATEGORY_NAMES,
   childIcon, childColor
 } from './db/schema.js'
 
@@ -301,7 +302,13 @@ export const LOAN_CATEGORY_NAMES = {
 
 /** 每个 type 下「系统分类」这一组里的固定子类名（顺序即展示顺序） */
 const FIXED_CHILD_NAMES = {
-  expense: ['借出', '借款归还', RECONCILE_NAMES.expense],
+  /*
+   * ★ 借出坏账 / 借出利息（v19 起）★
+   *   它们是「手动结清」自动生成的派生分类，hidden=1 且不可选。
+   *   同样要锁死：用户删掉它们之后，syncDefaultCategories() 会补回来，
+   *   变成删不掉的僵尸分类。
+   */
+  expense: ['借出', '借款归还', RECONCILE_NAMES.expense, LOAN_SETTLE_CATEGORY_NAMES.badDebt.name],
   /*
    * ★ 收入侧多一个「报销收入」（v18 起）★
    *   它和「对账收入」一样是系统自己给的记账口径，
@@ -309,7 +316,10 @@ const FIXED_CHILD_NAMES = {
    *   syncDefaultCategories() 下次启动又会把它补回来，
    *   变成「删了又出现」的僵尸分类。
    */
-  income: ['借入', '借款收回', RECONCILE_NAMES.income, '报销收入']
+  income: [
+    '借入', '借款收回', RECONCILE_NAMES.income, '报销收入',
+    LOAN_SETTLE_CATEGORY_NAMES.interest.name
+  ]
 }
 
 /** 所有借入借出相关的固定分类名（跨两个 type） */
@@ -474,7 +484,20 @@ async function ensurePresetChildRow(type, name) {
     'SELECT id FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id = ?',
     [name, type, groupId]
   )
-  if (child) return child.id
+  if (child) {
+    /*
+     * ★ 已存在时也要对齐 hidden ★
+     *   v19 新增的「借出坏账 / 借出利息」是 hidden 的派生分类。
+     *   如果某台设备上它们早被建成了普通分类（老版本升级上来、
+     *   或用户手动建过同名的），这里要把它拉回隐藏态，
+     *   否则记账面板里会多出两个用户根本不该选的分类。
+     */
+    await execute(
+      'UPDATE category SET hidden = ?, updated_at = ? WHERE id = ? AND hidden != ?',
+      [def.hidden ? 1 : 0, Date.now(), child.id, def.hidden ? 1 : 0]
+    )
+    return child.id
+  }
 
   const now = Date.now()
 
@@ -498,10 +521,16 @@ async function ensurePresetChildRow(type, name) {
   }
 
   const id = prefixedId('cat')
+  /*
+   * ★ hidden 跟着定义走 ★
+   *   大部分固定子类是 0（借出、借入…要在记账面板里可选），
+   *   但「借出坏账 / 借出利息」是 hidden=1 的派生分类（v19），
+   *   写死 0 会让它们出现在记账面板里 —— 用户能手动记坏账就乱套了。
+   */
   await execute(
     `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
-     VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-    [id, groupId, name, type, def.icon, def.color, def.sort, now, now]
+     VALUES (?,?,?,?,?,?,?,?,?,?,NULL)`,
+    [id, groupId, name, type, def.icon, def.color, def.sort, def.hidden ? 1 : 0, now, now]
   )
   return id
 }
@@ -537,6 +566,10 @@ export async function ensurePresetCategories() {
   const lendBackId = await ensurePresetChildRow('income', LOAN_CATEGORY_NAMES.lendBack.name)
   const reconcileIncomeId = await ensurePresetChildRow('income', RECONCILE_NAMES.income)
 
+  // ★ 借出结清的两个派生分类（hidden，只有结清逻辑会用到）★
+  const badDebtId = await ensurePresetChildRow('expense', LOAN_SETTLE_CATEGORY_NAMES.badDebt.name)
+  const interestId = await ensurePresetChildRow('income', LOAN_SETTLE_CATEGORY_NAMES.interest.name)
+
   return {
     expenseGroupId,
     incomeGroupId,
@@ -546,6 +579,8 @@ export async function ensurePresetCategories() {
     borrowBackId,
     reconcileExpenseId,
     reconcileIncomeId,
+    badDebtId,
+    interestId,
     // 旧字段名，等价的别名
     loanExpenseId: lendOutId,
     loanIncomeId: borrowInId

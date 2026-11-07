@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 18
+export const SCHEMA_VERSION = 19
 
 /**
  * 「对账」固定分类（v4 起）
@@ -119,7 +119,25 @@ export const SYSTEM_PRESET_CHILDREN = [
    *   它是系统给的一笔固定收入口径，所以放进这一组。
    *   sort 排在对账收入之后，不影响前两条的顺序。
    */
-  { type: 'income', name: '报销收入', icon: 'refund', color: '#26A69A', sort: 903 }
+  { type: 'income', name: '报销收入', icon: 'refund', color: '#26A69A', sort: 903 },
+
+  /*
+   * ★ 借出结清的两个派生分类（v19 起）★
+   *   借出管理页里，某个人的钱不是「一分不差还回来」的情况很常见：
+   *     少还了 -> 差额是坏账   （expense「借出坏账」）
+   *     多还了 -> 差额算利息   （income 「借出利息」）
+   *   这两笔不是用户主动记的账，是点「手动结清」时自动生成的，
+   *   所以 **hidden = 1**：记账面板、AI、分类管理都看不到它们，
+   *   用户无法手动选、也不会被 AI 误选；只有结清逻辑会写进来。
+   *
+   *   ★ 为什么它们不能被 exclude_from_stats 排除 ★
+   *     反过来 —— 这两笔**必须计入收支**：
+   *     坏账是实实在在的损失，利息是实实在在的收益，
+   *     用户要求「这两笔也计入收支」。所以结清时写入的两笔
+   *     exclude_from_stats = 0。
+   */
+  { type: 'expense', name: '借出坏账', icon: 'more', color: '#FA5151', sort: 904, hidden: true },
+  { type: 'income', name: '借出利息', icon: 'chart', color: '#FF8F1F', sort: 904, hidden: true }
 ]
 
 /**
@@ -144,6 +162,27 @@ export const LOAN_CATEGORY_NAMES = {
   borrowIn: { name: '借入', type: 'income' },
   /** 借款归还：把借来的还回去（支出） */
   borrowBack: { name: '借款归还', type: 'expense' }
+}
+
+/**
+ * 借出「手动结清」时自动生成的两个派生分类（v19 起）
+ *
+ * ★ 什么时候用 ★
+ *   借出管理页里，某个人的「借出 - 借款收回」不为 0 时点「手动结清」：
+ *     · 差额 > 0（对方少还）→ 记一笔支出「借出坏账」，钱没了
+ *     · 差额 < 0（对方多还）→ 记一笔收入「借出利息」，算利息
+ *   两笔都是系统自动写的，用户不能手动记、AI 也不能选。
+ *
+ * ★ 为什么账户要跟原来的借出一致 ★
+ *   用户原话「借出坏账账户与借出账户一致，借款利息与归还账户一致」——
+ *   坏账要从当初借出的那个账户「核销」，利息要回到收钱的那个账户，
+ *   否则账户余额会和现实的现金/银行卡对不上。
+ */
+export const LOAN_SETTLE_CATEGORY_NAMES = {
+  /** 借出坏账：支出一笔，冲掉收不回来的那部分 */
+  badDebt: { name: '借出坏账', type: 'expense' },
+  /** 借出利息：收入一笔，多还出来的那部分 */
+  interest: { name: '借出利息', type: 'income' }
 }
 
 /**
@@ -438,6 +477,21 @@ export const SCHEMA_V1 = [
     updated_at    INTEGER NOT NULL,
     deleted_at    INTEGER,
     exclude_from_budget INTEGER NOT NULL DEFAULT 0,
+    /*
+     * ★ 不计入收支（v19）★
+     *   借入 / 借出 / 借款归还 / 借款收回这四类是**资金往来**，不是消费：
+     *   借给姐姐 500 块，我的总支出并没有多 500；
+     *   姐姐还我 500，也不是我赚了 500。
+     *   把它们算进收支会把「这个月花了多少 / 赚了多少」彻底带偏，
+     *   所以这四类默认打上 1，统计时排除。
+     *
+     *   与 exclude_from_budget 分开两个字段的理由：
+     *     预算只要排除「支出」，收支要排「收入 + 支出」，
+     *     两者的语义边界不一样（一笔借款既不该占预算也不该算收支，
+     *     但一笔境外购物可能不该占预算、却要算收支）。
+     *   默认 0 = 老数据全部照老口径计算，升级后历史统计一分不变。
+     */
+    exclude_from_stats INTEGER NOT NULL DEFAULT 0,
     via_combo_id  TEXT
   )`,
 

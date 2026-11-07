@@ -361,9 +361,17 @@ check(
 console.log('=== 固定子类的名字与顺序（用户指定）===')
 
 /** 某个 type 下的固定子类（按 sort 排好） */
+/**
+ * 某个 type 下「用户看得见」的固定子类
+ *
+ * ★ 必须排除 hidden ★
+ *   v19 加了「借出坏账 / 借出利息」两个 hidden 的派生分类，
+ *   它们不在分类页/记账面板里出现，不属于「固定子类」这个清单。
+ *   不排除的话这条断言会在每次新增派生分类时误报。
+ */
 function fixedChildrenOf(type) {
   return SYSTEM_PRESET_CHILDREN
-    .filter((d) => d.type === type)
+    .filter((d) => d.type === type && !d.hidden)
     .sort((a, b) => a.sort - b.sort)
     .map((d) => d.name)
 }
@@ -372,6 +380,7 @@ function fixedChildrenOf(type) {
  * ★ 每个 type 下的固定子类 ★
  *   支出：借出（钱出去）、借款归还（还钱出去）、对账支出
  *   收入：借入（钱进来）、借款收回（收钱回来）、对账收入、报销收入
+ *   （「借出坏账 / 借出利息」是 v19 的 hidden 派生分类，不在此列）
  *
  *   顺序由 sort 决定：借贷两类在前（900/901），对账排 902，
  *   「报销收入」是 v18 新加的，排 903 接在对账后面。

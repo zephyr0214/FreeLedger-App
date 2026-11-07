@@ -127,6 +127,22 @@ function withScope(base, scope) {
   return base + (scope && scope.where ? ` AND ${scope.where}` : '')
 }
 
+/**
+ * 「不计入收支」的 SQL 片段（v19）
+ *
+ * ★ 为什么所有收支统计都要带它 ★
+ *   借入 / 借出 / 借款归还 / 借款收回是资金往来，不是消费也不是收入：
+ *   借给姐姐 500，我的「本月支出」不该多 500；姐姐还我 500，
+ *   我也没赚 500。少了这个条件，统计页的分类占比、趋势、日均
+ *   全部会被借款流水带偏，而这笔钱在账户页的余额里是对的。
+ *
+ * ★ 为什么用 COALESCE 而不是直接 = 0 ★
+ *   v19 之前建的库在迁移跑完前可能有 NULL（理论上不会，ALTER 时
+ *   已经 DEFAULT 0 回填了，但导入的老备份 JSON 里可能缺这一列），
+ *   用 COALESCE 兜一下，宁可多算不漏算。
+ */
+const NOT_EXCLUDED_STATS = 'COALESCE(t.exclude_from_stats, 0) = 0'
+
 /** 两个 YYYY-MM-DD 之间相差的自然天数（含首尾） */
 function dayDiffInclusive(a, b) {
   const da = parseDayKey(a)
@@ -196,6 +212,7 @@ export async function getCategoryUsageCounts(days = 30) {
     `SELECT category_id AS id, COUNT(*) AS c
      FROM txn
      WHERE deleted_at IS NULL
+       AND COALESCE(exclude_from_stats, 0) = 0
        AND category_id IS NOT NULL
        AND occurred_day >= ?
      GROUP BY category_id`,
@@ -218,7 +235,7 @@ async function overviewByScope(scope) {
             COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
             COUNT(*) AS cnt
      FROM txn t
-     WHERE t.deleted_at IS NULL${withScope('', scope)}`,
+     WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
     scope.params
   )
   const expense = Number(row ? row.exp : 0)
@@ -232,7 +249,7 @@ async function todayTotals() {
   const row = await queryOne(
     `SELECT COALESCE(SUM(CASE WHEN type='expense' AND occurred_day=? THEN amount_cents ELSE 0 END),0) AS exp,
             COALESCE(SUM(CASE WHEN type='income'  AND occurred_day=? THEN amount_cents ELSE 0 END),0) AS inc
-     FROM txn WHERE deleted_at IS NULL`,
+     FROM txn WHERE deleted_at IS NULL AND COALESCE(exclude_from_stats, 0) = 0`,
     [today, today]
   )
   return {
@@ -286,7 +303,7 @@ export async function getMonthComparison(monthKey) {
        COALESCE(SUM(CASE WHEN type='income'  AND month_key=? THEN amount_cents ELSE 0 END),0) AS cur_inc,
        COALESCE(SUM(CASE WHEN type='expense' AND month_key=? THEN amount_cents ELSE 0 END),0) AS prev_exp,
        COALESCE(SUM(CASE WHEN type='income'  AND month_key=? THEN amount_cents ELSE 0 END),0) AS prev_inc
-     FROM txn WHERE deleted_at IS NULL`,
+     FROM txn WHERE deleted_at IS NULL AND COALESCE(exclude_from_stats, 0) = 0`,
     [mk, mk, prev, prev]
   )
 
@@ -319,7 +336,7 @@ async function categoryStatsByScope(scope, type) {
             COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY root_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
@@ -421,7 +438,7 @@ export async function getSubCategoryStatsRange(range, type = 'expense') {
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN category p ON p.id = c.parent_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', rangeScope(range))}
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', rangeScope(range))}
      GROUP BY t.category_id
      ORDER BY amt DESC`,
     [type].concat(rangeScope(range).params)
@@ -474,6 +491,7 @@ export async function getSubCategoryStats(parentId, monthKey, type = 'expense') 
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      WHERE t.deleted_at IS NULL AND t.type = ? AND t.month_key = ?
+       AND ${NOT_EXCLUDED_STATS}
        AND (t.category_id = ? OR c.parent_id = ?)
      GROUP BY t.category_id
      ORDER BY amt DESC`,
@@ -498,7 +516,7 @@ async function accountStatsByScope(scope, type) {
             SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN account a ON a.id = t.account_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY t.account_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
@@ -548,7 +566,7 @@ export async function getAccountTypeStatsRange(range, type = 'expense') {
             SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN account a ON a.id = t.account_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', rangeScope(range))}
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', rangeScope(range))}
      GROUP BY COALESCE(a.type, 'other')
      ORDER BY amt DESC`,
     [type].concat(rangeScope(range).params)
@@ -624,7 +642,7 @@ async function tagStatsByScope(scope, type) {
      FROM txn t
      JOIN txn_tag tt ON tt.txn_id = t.id
      JOIN tag tg ON tg.id = tt.tag_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)} AND tg.deleted_at IS NULL
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)} AND tg.deleted_at IS NULL
      GROUP BY tg.id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
@@ -660,7 +678,7 @@ async function untaggedAmountByScope(scope) {
   const row = await queryOne(
     `SELECT COALESCE(SUM(t.amount_cents),0) AS amt
      FROM txn t
-     WHERE t.deleted_at IS NULL AND t.type='expense'${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
        AND NOT EXISTS (SELECT 1 FROM txn_tag tt WHERE tt.txn_id = t.id)`,
     scope.params
   )
@@ -690,7 +708,7 @@ async function trendByDay(scope) {
             COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
             COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc
      FROM txn t
-     WHERE t.deleted_at IS NULL${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY t.occurred_day
      ORDER BY t.occurred_day ASC`,
     scope.params
@@ -704,7 +722,7 @@ async function trendByMonth(scope) {
             COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
             COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc
      FROM txn t
-     WHERE t.deleted_at IS NULL${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY t.month_key
      ORDER BY t.month_key ASC`,
     scope.params
@@ -872,7 +890,7 @@ export async function getDailyTrendRange(range) {
 async function averagesByScope(scope, daysPassed, type = 'expense') {
   const row = await queryOne(
     `SELECT COALESCE(SUM(t.amount_cents),0) AS total, COUNT(*) AS cnt
-     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}`,
+     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
     [type].concat(scope.params)
   )
   const total = Number(row ? row.total : 0)
@@ -881,7 +899,7 @@ async function averagesByScope(scope, daysPassed, type = 'expense') {
   // 最高单日
   const maxDay = await queryOne(
     `SELECT t.occurred_day AS day, SUM(t.amount_cents) AS amt
-     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY t.occurred_day ORDER BY amt DESC LIMIT 1`,
     [type].concat(scope.params)
   )
@@ -1003,7 +1021,7 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
             SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY root_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
@@ -1071,7 +1089,7 @@ export async function getSubCategoryAveragesRange(range, type = 'expense') {
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN category p ON p.id = c.parent_id
-     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      GROUP BY t.category_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
@@ -1109,7 +1127,7 @@ async function topExpensesByScope(scope, limit) {
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN account  a ON a.id = t.account_id
-     WHERE t.deleted_at IS NULL AND t.type='expense'${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
      ORDER BY t.amount_cents DESC
      LIMIT ?`,
     scope.params.concat([Number(limit) || 10])

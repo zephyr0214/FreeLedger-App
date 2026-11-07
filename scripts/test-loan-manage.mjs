@@ -1,22 +1,25 @@
 /**
- * 借出 / 借入页面的统计口径测试
+ * 借入 / 借出管理页 —— 按人员看账的口径测试
  *
  *   node scripts/test-loan-manage.mjs
  *
- * ★ 用户要求（本轮）★
- *   借出页：上方大数字 = 当前借出；
- *     下方 = 累计借出、借款收回、累计笔数
- *   借入页：上方大数字 = 当前借入；
- *     下方 = 累计借入、借款归还、累计笔数
- *   两个页面上方卡片下方先是 tab：全部流水 / 借出 / 借款收回
- *                                     全部流水 / 借入 / 借款归还
- *   全部流水页不显示「全部 ›」
+ * ★ 这一版和上一版的区别 ★
+ *   上一版页面是「全部流水 / 借出 / 借款收回」三个 tab 的流水列表，
+ *   测试钉的是 tab 定义和记账面板预填。
+ *   现在页面改成「未结清 / 已结清」+ 按人员分组，所以测试也整体重写：
+ *     · 余额口径（含坏账/利息的抵消）
+ *     · 结清自动归类
+ *     · 手动结清生成哪一笔
+ *     · 页面静态约束（不再有旧 tab、不再有右上「记一笔」、借入页没有结清按钮）
  *
- * ★ 为什么口径要单测 ★
- *   「当前借出」= 借出 - 借款收回，这个减法一旦写反，
- *   用户会看到「借出去 500 收回来 200，当前显示 700」。
- *   纯算术，最适合用测试钉死。
+ * ★ 为什么这些要单测 ★
+ *   「当前借出 = Σ(借出 - 借款收回 - 借出坏账 + 借出利息)」这个式子
+ *   任何一项写反/漏写，用户都会看到「结清了却还挂在未结清」或者
+ *   「坏账又多算一遍欠款」。纯算术，最适合钉死。
  */
+
+import fs from 'node:fs'
+import path from 'node:path'
 
 let pass = 0
 let fail = 0
@@ -32,190 +35,241 @@ function check(name, actual, expected) {
   }
 }
 
+const ROOT = path.resolve(import.meta.dirname, '..')
+function read(rel) {
+  return fs.readFileSync(path.join(ROOT, rel), 'utf8')
+}
+
+/* =============================================== 1. 余额口径 */
+
+console.log('=== 人员余额 = 借出 - 借款收回 - 借出坏账 + 借出利息 ===')
+
 /**
- * 页面里 currentAmount 的计算（与 pages/loan/manage.vue 一致）
+ * 与 api/loan.js 的 listLoanByPerson 一致的余额算法
  *
- * @param {number} total  累计借出 / 累计借入（分）
- * @param {number} back   借款收回 / 借款归还（分）
- * @returns {number} 当前借出 / 当前借入（分），不小于 0
+ * @param {{total:number, back:number, bad:number, interest:number}} s
+ * @returns {number} 正数 = 对方还欠我
  */
-function currentAmountOf(total, back) {
-  const diff = total - back
-  return diff > 0 ? diff : 0
+function balanceOf(s) {
+  return (
+    (Number(s.total) || 0) -
+    (Number(s.back) || 0) -
+    (Number(s.bad) || 0) +
+    (Number(s.interest) || 0)
+  )
 }
 
-console.log('=== 当前借出 = 借出 - 借款收回 ===')
+check('借 500，没收回 -> 欠 500', balanceOf({ total: 50000 }), 50000)
+check('借 500，收回 200 -> 欠 300', balanceOf({ total: 50000, back: 20000 }), 30000)
+check('借 500，全收回 -> 0（自动结清）', balanceOf({ total: 50000, back: 50000 }), 0)
+check('对方多还 100 -> -100（该记利息）', balanceOf({ total: 50000, back: 60000 }), -10000)
 
-check('借 500，收回 200 -> 当前 300', currentAmountOf(50000, 20000), 30000)
-check('借 500，没收回 -> 当前 500', currentAmountOf(50000, 0), 50000)
-check('借 500，全收回 -> 当前 0', currentAmountOf(50000, 50000), 0)
-// 多记了收回（收回 > 借出）不该显示负数
-check('收回多于借出 -> 按 0 显示', currentAmountOf(20000, 50000), 0)
-check('一笔都没有 -> 0', currentAmountOf(0, 0), 0)
+/*
+ * ★ 结清之后必须归零 ★
+ *   少还 200 记为坏账之后，这个人就该落到「已结清」，
+ *   否则「手动结清」按钮会一直亮着，用户点了还会再生成一笔坏账。
+ */
+check(
+  '借 500 收 300，坏账 200 -> 0（结清）',
+  balanceOf({ total: 50000, back: 30000, bad: 20000 }),
+  0
+)
+check(
+  '借 500 收 600，利息 100 -> 0（结清）',
+  balanceOf({ total: 50000, back: 60000, interest: 10000 }),
+  0
+)
 
-console.log('=== 当前借入 = 借入 - 借款归还 ===')
+/* =============================================== 2. 结清派生分类 */
 
-check('借入 1000，还 300 -> 当前 700', currentAmountOf(100000, 30000), 70000)
-check('借入 1000，没还 -> 当前 1000', currentAmountOf(100000, 0), 100000)
-check('借入 1000，还清 -> 当前 0', currentAmountOf(100000, 100000), 0)
-check('还多了 -> 按 0 显示', currentAmountOf(10000, 20000), 0)
-
-console.log('=== 累计笔数 = 主方向 + 反向 ===')
+console.log('=== 手动结清：按差额正负生成哪一笔 ===')
 
 /**
- * 页面里 totalCount 的计算
- * @param {number} mainCount 借出/借入 笔数
- * @param {number} backCount 借款收回/借款归还 笔数
+ * 与 api/loan.js 的 settleLendPerson 一致的判定
+ * @param {number} balance
+ * @returns {'badDebt'|'interest'|'none'}
  */
-function totalCountOf(mainCount, backCount) {
-  return mainCount + backCount
+function settleKindOf(balance) {
+  if (balance === 0) return 'none'
+  return balance > 0 ? 'badDebt' : 'interest'
 }
 
-check('借 3 笔、收回 2 笔 -> 累计 5 笔', totalCountOf(3, 2), 5)
-check('只借没收回 -> 3 笔', totalCountOf(3, 0), 3)
-check('一笔都没有 -> 0 笔', totalCountOf(0, 0), 0)
+check('少还（余额 > 0）-> 借出坏账', settleKindOf(30000), 'badDebt')
+check('多还（余额 < 0）-> 借出利息', settleKindOf(-10000), 'interest')
+check('恰好平账 -> 不生成', settleKindOf(0), 'none')
 
-console.log('=== 两个方向的分类与 type 必须成对 ===')
+/* 结清两笔必须计入收支、不占预算（用户明确要求） */
+const LOAN_SRC = read('api/loan.js')
+check(
+  '结清生成的流水计入收支（exclude_from_stats: false）',
+  /exclude_from_stats:\s*false/.test(LOAN_SRC),
+  true
+)
+check(
+  '结清生成的流水不占预算（exclude_from_budget: true）',
+  /exclude_from_budget:\s*true/.test(LOAN_SRC),
+  true
+)
 
-/**
- * 与 api/db/schema.js 的 SYSTEM_PRESET_CHILDREN 保持一致的镜像。
- * （这里不直接 import，是为了让测试能独立跑出「方向配对」这条规则）
- */
+/* =============================================== 3. 分类与方向配对 */
+
+console.log('=== 六个分类的方向必须成对 ===')
+
 const LOAN = {
-  lendOut:    { name: '借出',     type: 'expense' },
-  lendBack:   { name: '借款收回', type: 'income' },
-  borrowIn:   { name: '借入',     type: 'income' },
-  borrowBack: { name: '借款归还', type: 'expense' }
+  lendOut:   { name: '借出',     type: 'expense' },
+  lendBack:  { name: '借款收回', type: 'income' },
+  borrowIn:  { name: '借入',     type: 'income' },
+  borrowBack:{ name: '借款归还', type: 'expense' },
+  badDebt:   { name: '借出坏账', type: 'expense' },
+  interest:  { name: '借出利息', type: 'income' }
 }
 
 check('借出是支出（钱从账户出去）', LOAN.lendOut.type, 'expense')
 check('借款收回是收入（钱回账户）', LOAN.lendBack.type, 'income')
 check('借入是收入（钱进账户）', LOAN.borrowIn.type, 'income')
 check('借款归还是支出（钱从账户出去）', LOAN.borrowBack.type, 'expense')
+check('借出坏账是支出（核销损失）', LOAN.badDebt.type, 'expense')
+check('借出利息是收入（确认收益）', LOAN.interest.type, 'income')
 
-/** 借出页要看的两个分类 */
-function lendCats() {
-  return [LOAN.lendOut, LOAN.lendBack]
-}
-/** 借入页要看的两个分类 */
-function borrowCats() {
-  return [LOAN.borrowIn, LOAN.borrowBack]
-}
+/* =============================================== 4. 人员分类判定 */
 
+console.log('=== 哪些分类要强制填人员 ===')
+
+const SCHEMA_SRC = read('api/db/schema.js')
 check(
-  '借出页涉及「借出」+「借款收回」',
-  lendCats().map((d) => d.name),
-  ['借出', '借款收回']
+  'schema 里六个分类名齐全',
+  [
+    '借出', '借款收回', '借入', '借款归还', '借出坏账', '借出利息'
+  ].every((n) => SCHEMA_SRC.includes(`name: '${n}'`)),
+  true
 )
 check(
-  '借入页涉及「借入」+「借款归还」',
-  borrowCats().map((d) => d.name),
-  ['借入', '借款归还']
+  '两个派生分类是 hidden（面板/AI 都选不到）',
+  /name: '借出坏账'[^}]*hidden: true/.test(SCHEMA_SRC) &&
+    /name: '借出利息'[^}]*hidden: true/.test(SCHEMA_SRC),
+  true
 )
 
-console.log('=== tab 定义 ===')
+/* =============================================== 5. 页面静态约束 */
 
-/**
- * 页面里 tabs 的计算
- * @param {'expense'|'income'} loanType
- */
-function tabsOf(loanType) {
-  const isIncome = loanType === 'income'
-  return [
-    { key: 'all', name: '全部流水' },
-    { key: 'main', name: isIncome ? '借入' : '借出' },
-    { key: 'back', name: isIncome ? '借款归还' : '借款收回' }
-  ]
-}
+console.log('=== 页面：按人员看账 ===')
 
-check(
-  '借出页三个 tab',
-  tabsOf('expense').map((t) => t.name),
-  ['全部流水', '借出', '借款收回']
-)
-check(
-  '借入页三个 tab',
-  tabsOf('income').map((t) => t.name),
-  ['全部流水', '借入', '借款归还']
-)
-check('tab 的 key 顺序固定', tabsOf('expense').map((t) => t.key), ['all', 'main', 'back'])
-
-console.log('=== 「全部 ›」只在分类 tab 上显示 ===')
-
-/**
- * 页面里 showListMore 的计算
- * ★ 用户要求：「全部流水页面不显示跳转到全部交易的按钮」★
- *   那个 tab 本身就是全部，再给一个「全部 ›」是语义重复。
- */
-function showMoreOf(tabKey) {
-  return tabKey !== 'all'
-}
-
-check('全部流水 tab：不显示「全部 ›」', showMoreOf('all'), false)
-check('借出/借入 tab：显示「全部 ›」', showMoreOf('main'), true)
-check('借款收回/借款归还 tab：显示「全部 ›」', showMoreOf('back'), true)
-
-console.log('=== 记账面板预填的分类随 tab 变化 ===')
-
-/**
- * 页面里 panelPreset 的计算
- *
- * ★ 在「借款收回」tab 点「+」应该预填「借款收回」★
- *   预填成「借出」的话，用户想记一笔收回，
- *   打开面板却是「借出」，很容易记反。
- */
-function presetOf(loanType, tabKey) {
-  const isIncome = loanType === 'income'
-  if (tabKey === 'back') {
-    return {
-      type: isIncome ? LOAN.borrowBack.type : LOAN.lendBack.type,
-      categoryName: isIncome ? LOAN.borrowBack.name : LOAN.lendBack.name
-    }
-  }
-  return {
-    type: isIncome ? LOAN.borrowIn.type : LOAN.lendOut.type,
-    categoryName: isIncome ? LOAN.borrowIn.name : LOAN.lendOut.name
-  }
-}
-
-check(
-  '借出页 + 全部流水 -> 预填「借出」',
-  presetOf('expense', 'all'),
-  { type: 'expense', categoryName: '借出' }
-)
-check(
-  '借出页 + 借出 tab -> 预填「借出」',
-  presetOf('expense', 'main'),
-  { type: 'expense', categoryName: '借出' }
-)
-check(
-  '借出页 + 借款收回 tab -> 预填「借款收回」',
-  presetOf('expense', 'back'),
-  { type: 'income', categoryName: '借款收回' }
-)
-check(
-  '借入页 + 全部流水 -> 预填「借入」',
-  presetOf('income', 'all'),
-  { type: 'income', categoryName: '借入' }
-)
-check(
-  '借入页 + 借款归还 tab -> 预填「借款归还」',
-  presetOf('income', 'back'),
-  { type: 'expense', categoryName: '借款归还' }
-)
-
-console.log('=== 借出借入的净额与账户负债口径一致 ===')
+const PAGE_RAW = read('pages/loan/manage.vue')
 
 /*
- * ★ 页面上的「当前借入」和账户页的「未归还借入」必须是同一个口径 ★
- *   两处算法完全一样：借入 - 借款归还。
- *   如果一处按累计、一处按净额，用户会在两个页面看到两个数。
+ * 去掉注释再断言
+ *
+ * ★ 为什么要剥注释 ★
+ *   页面顶部特意写了「不再有全部流水 tab」「右上角不再有记一笔」
+ *   这类说明注释 —— 直接对原文断言「不含某字符串」会被自己的注释命中，
+ *   测试永远失败。断言要针对**真正会渲染/执行的代码**。
+ */
+function stripComments(src) {
+  return src
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+}
+
+const PAGE = stripComments(PAGE_RAW)
+
+check('页面按人员聚合（listLoanByPerson）', /listLoanByPerson/.test(PAGE), true)
+check('页面有手动结清（settleLendPerson）', /settleLendPerson/.test(PAGE), true)
+check(
+  '两个状态 tab：未结清 / 已结清',
+  /key: 'open', name: '未结清'/.test(PAGE) && /key: 'settled', name: '已结清'/.test(PAGE),
+  true
+)
+
+/*
+ * ★ 用户要求去掉的东西，必须真的不在 ★
+ *   这几条最容易在「顺手加回来」时被破坏，所以用断言挡住。
+ */
+check('不再有「全部流水 / 借入 / 借款归还」三 tab', /全部流水/.test(PAGE), false)
+check('右上角不再有「记一笔」', /nav-add/.test(PAGE), false)
+check('不再直接用 TxnPanel（这页不记账）', /<TxnPanel/.test(PAGE), false)
+
+/*
+ * ★ 结清按钮只在借出方向 ★
+ *   用户原话「借入则不显示未平衡这种逻辑」。
  */
 check(
-  '页面当前借入 == 账户页的未归还借入',
-  currentAmountOf(100000, 30000),
-  70000
+  '结清按钮受 canSettle 控制',
+  /v-if="canSettle\(p\)"/.test(PAGE),
+  true
 )
+check(
+  'canSettle 只在非借入方向为 true',
+  /function canSettle\(p\)[\s\S]{0,120}?!isIncome\.value/.test(PAGE),
+  true
+)
+
+/* 复用全局分段控件，不另写一套 tab */
+check('状态切换复用全局 .seg-toggle', /class="seg-toggle seg-toggle--block/.test(PAGE), true)
+check('页面没有自造的 .loan-tabs', /loan-tabs/.test(PAGE), false)
+
+/* =============================================== 6. 记账面板 */
+
+console.log('=== 记账面板：人员必填 + 账户标签同行 ===')
+
+const PANEL = read('components/TxnPanel.vue')
+
+check('引入人员判定', /isLoanPersonCategory/.test(PANEL), true)
+check('人员为空时拦截', /请填写人员姓名/.test(PANEL), true)
+check(
+  '借款归还/收回必须选已记过的人',
+  /请选择已记过的人员/.test(PANEL) && /allowsNewPerson/.test(PANEL),
+  true
+)
+check('六类默认不计入收支', /exclude_from_stats:\s*isPersonCategory\.value \? true/.test(PANEL), true)
+check('六类默认不占预算', /exclude_from_budget:\s*isPersonCategory\.value \? true/.test(PANEL), true)
+check('账户与标签同一行（form-row-split）', /form-row-split/.test(PANEL), true)
+check('人员行有「选择」入口', /class="person-pick"/.test(PANEL), true)
+
+/* =============================================== 7. 人员显示成 tag */
+
+console.log('=== 流水列表把人员渲染成胶囊 ===')
+
+const RECENT = read('components/RecentTxnList.vue')
+const LIST = read('pages/txn/list.vue')
+
+check('最近流水有人员胶囊', /__person__/.test(RECENT), true)
+check('全部交易页有人员胶囊', /__person__/.test(LIST), true)
+/*
+ * ★ 只是显示成 tag，不能真的写进 tag 表 ★
+ *   用户明确要求。写进去会污染「项目统计」。
+ */
+check('不写 tag 表（没有 person 相关 createTag）', /createTag[\s\S]{0,80}person/.test(RECENT + LIST), false)
+
+/* =============================================== 8. AI 识别人员 */
+
+console.log('=== AI 提示词要求 note 填人名 ===')
+
+const AI = read('api/aiParse.js')
+check('提示词说明 note 是「人」', /note 字段必须是「人」/.test(AI), true)
+check('给了「借给姐姐200 -> note = 姐姐」示例', /note = "姐姐"/.test(AI), true)
+check('已知人员名单进提示词', /knownPeople/.test(AI), true)
+
+/* =============================================== 9. 不计入收支全链路 */
+
+console.log('=== 借款流水不进收支统计 ===')
+
+const STATS = read('api/stats.js')
+check('统计层有排除常量', /NOT_EXCLUDED_STATS/.test(STATS), true)
+check(
+  '总览聚合带排除条件',
+  /overviewByScope[\s\S]{0,600}NOT_EXCLUDED_STATS/.test(STATS),
+  true
+)
+check(
+  '支出/收入两套口径都排除（categoryStatsByScope）',
+  /categoryStatsByScope[\s\S]{0,600}NOT_EXCLUDED_STATS/.test(STATS),
+  true
+)
+
+const TXN = read('api/transaction.js')
+check('交易写入持久化 exclude_from_stats', /exclude_from_stats/.test(TXN), true)
+check('有独立的 setExcludeFromStats', /export async function setExcludeFromStats/.test(TXN), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)
