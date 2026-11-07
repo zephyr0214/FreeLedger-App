@@ -288,12 +288,24 @@ export async function listTransactions(opt = {}) {
 export async function sumTransactions(opt = {}) {
   const { where, params } = buildFilterWhere(opt)
 
+  /*
+   * ★ 汇总不带「不计入收支」的那几笔（v19）★
+   *   借出 / 借入 / 借款归还 / 借款收回是资金往来，不是消费也不是收入。
+   *   列表本身仍然把这几笔**列出来**（用户要看到它们），
+   *   但顶部的「支出 X / 收入 Y」小计必须把它们排除 ——
+   *   否则借出去 500 块，列表顶上就显示「支出 500」，用户以为花掉了。
+   *
+   * ★ 为什么 WHERE 而不是只在 SUM 里排除 ★
+   *   count 也要一起排除：不然会出现「3 笔 · 支出 0.00」这种读不通的组合。
+   */
+  const statsWhere = where.concat(['COALESCE(t.exclude_from_stats, 0) = 0'])
+
   const row = await queryOne(
     `SELECT COUNT(*) AS cnt,
             COALESCE(SUM(CASE WHEN t.type='expense'  THEN t.amount_cents ELSE 0 END),0) AS expense,
             COALESCE(SUM(CASE WHEN t.type='income'   THEN t.amount_cents ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN t.type='transfer' THEN t.amount_cents ELSE 0 END),0) AS transfer
-     FROM txn t WHERE ${where.join(' AND ')}`,
+     FROM txn t WHERE ${statsWhere.join(' AND ')}`,
     params
   )
 
@@ -362,6 +374,7 @@ export async function getDailyTotals(monthKey) {
             COUNT(*) AS cnt
      FROM txn
      WHERE month_key = ? AND deleted_at IS NULL
+       AND COALESCE(exclude_from_stats, 0) = 0
      GROUP BY occurred_day
      ORDER BY occurred_day ASC`,
     [monthKey]
@@ -406,7 +419,7 @@ export async function getAllDailyTotals() {
             COALESCE(SUM(CASE WHEN type='income'  THEN amount_cents ELSE 0 END),0) AS inc,
             COUNT(*) AS cnt
      FROM txn
-     WHERE deleted_at IS NULL
+     WHERE deleted_at IS NULL AND COALESCE(exclude_from_stats, 0) = 0
      GROUP BY occurred_day
      ORDER BY occurred_day ASC`
   )

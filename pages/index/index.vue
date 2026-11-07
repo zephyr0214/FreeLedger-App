@@ -347,6 +347,7 @@ import { getBudgetUsage } from '@/api/stats.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { isLoanPersonCategory } from '@/api/loan.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
@@ -637,7 +638,8 @@ export default {
        *   备注长短不一，放前面会把账户名挤到省略号里。
        */
       if (txn.type !== 'transfer') parts.push(txn.account_name || '')
-      if (txn.note) parts.push(txn.note)
+      // 人员类流水的 note 已在胶囊里显示，副标题不再重复一次
+      if (txn.note && !isLoanPersonCategory(txn.category_name)) parts.push(txn.note)
       return parts.filter(Boolean).join(' · ') || '无备注'
     }
 
@@ -669,6 +671,17 @@ export default {
       // 组合账户（独立标记，不是标签）
       if (txn.via_combo_id) {
         list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
+      }
+      /*
+       * ★ 借入借出的人员（用户要求）★
+       *   这八类的备注存的就是人名，业务上它不是「备注」而是「谁」。
+       *   混在副标题「现金 · 张三」里几乎不会被注意到，
+       *   提成胶囊后一眼就能看出这笔记在谁头上。
+       *   只是显示成 tag，不写 tag 表（写进去会污染标签统计）。
+       */
+      if (txn.note && isLoanPersonCategory(txn.category_name)) {
+        const c = primaryColor.value
+        list.push({ key: '__person__', name: txn.note, color: c, bg: c + '22', border: c })
       }
       // 用户标签
       const ids = txn.tag_ids

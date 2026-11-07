@@ -137,7 +137,27 @@ export const SYSTEM_PRESET_CHILDREN = [
    *     exclude_from_stats = 0。
    */
   { type: 'expense', name: '借出坏账', icon: 'more', color: '#FA5151', sort: 904, hidden: true },
-  { type: 'income', name: '借出利息', icon: 'chart', color: '#FF8F1F', sort: 904, hidden: true }
+  { type: 'income', name: '借出利息', icon: 'chart', color: '#FF8F1F', sort: 904, hidden: true },
+
+  /*
+   * ★ 借入结清的两个派生分类（与借出侧对称）★
+   *   借入方向和借出方向是同一件事的两面，用户在借入管理页
+   *   同样会遇到「还不齐 / 还多了」：
+   *     还不齐（我还欠对方）-> 债务被勾销 -> 收入「借入未还」
+   *     还多了（我多付了）   -> 多付的是利息 -> 支出「借入利息」
+   *
+   *   ★ 为什么 未还 是收入、利息 是支出 ★
+   *     借出侧：少还的差额是我的**损失**（坏账，支出），
+   *             多还的差额是我的**收益**（利息，收入）。
+   *     借入侧正好反过来：少还的差额是我的**收益**（不用还了，收入），
+   *             多还的差额是我的**损失**（多付的利息，支出）。
+   *     类型跟着「对用户的经济意义」走，不跟着分类名字的字面方向走 ——
+   *     否则统计页会显示「我多还了钱，本月收入反而增加」。
+   *
+   *   同样是 hidden：只能由「手动结清」写入，用户和 AI 都选不到。
+   */
+  { type: 'income', name: '借入未还', icon: 'more', color: '#FA5151', sort: 905, hidden: true },
+  { type: 'expense', name: '借入利息', icon: 'chart', color: '#FF8F1F', sort: 905, hidden: true }
 ]
 
 /**
@@ -179,10 +199,22 @@ export const LOAN_CATEGORY_NAMES = {
  *   否则账户余额会和现实的现金/银行卡对不上。
  */
 export const LOAN_SETTLE_CATEGORY_NAMES = {
-  /** 借出坏账：支出一笔，冲掉收不回来的那部分 */
+  /** 借出坏账：支出一笔，冲掉收不回来的那部分（我的损失） */
   badDebt: { name: '借出坏账', type: 'expense' },
-  /** 借出利息：收入一笔，多还出来的那部分 */
-  interest: { name: '借出利息', type: 'income' }
+  /** 借出利息：收入一笔，多还出来的那部分（我的收益） */
+  interest: { name: '借出利息', type: 'income' },
+
+  /*
+   * ★ 借入侧的两个对称分类 ★
+   *   借入管理页的「手动结清」也按差额自动生成，方向和借出侧相反：
+   *     · 余额 > 0（我还欠对方）→ 这笔债不用还了 → 收入「借入未还」
+   *     · 余额 < 0（我还多了）  → 多付的是利息     → 支出「借入利息」
+   *   类型跟着「对用户的经济意义」走，见 SYSTEM_PRESET_CHILDREN 的注释。
+   */
+  /** 借入未还：收入一笔，对方把剩下的免了 */
+  borrowWaived: { name: '借入未还', type: 'income' },
+  /** 借入利息：支出一笔，我还多了的那部分 */
+  borrowInterest: { name: '借入利息', type: 'expense' }
 }
 
 /**

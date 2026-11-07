@@ -45,7 +45,11 @@ function read(rel) {
 console.log('=== 人员余额 = 借出 - 借款收回 - 借出坏账 + 借出利息 ===')
 
 /**
- * 与 api/loan.js 的 listLoanByPerson 一致的余额算法
+ * 与 api/loan.js 的 listLoanByPerson 一致的余额算法（借出方向）
+ *
+ *   balance = 主 - 反 - positive + negative
+ *   positive = 借出坏账（我的损失，冲掉应收）
+ *   negative = 借出利息（对方多还，算收益）
  *
  * @param {{total:number, back:number, bad:number, interest:number}} s
  * @returns {number} 正数 = 对方还欠我
@@ -173,8 +177,8 @@ function stripComments(src) {
 
 const PAGE = stripComments(PAGE_RAW)
 
-check('页面按人员聚合（listLoanByPerson）', /listLoanByPerson/.test(PAGE), true)
-check('页面有手动结清（settleLendPerson）', /settleLendPerson/.test(PAGE), true)
+check('页面按人员分组（listLoanGroups）', /listLoanGroups/.test(PAGE), true)
+check('页面有手动结清（settleLoanPerson）', /settleLoanPerson/.test(PAGE), true)
 check(
   '两个状态 tab：未结清 / 已结清',
   /key: 'open', name: '未结清'/.test(PAGE) && /key: 'settled', name: '已结清'/.test(PAGE),
@@ -193,16 +197,18 @@ check('不再直接用 TxnPanel（这页不记账）', /<TxnPanel/.test(PAGE), f
  * ★ 结清按钮只在借出方向 ★
  *   用户原话「借入则不显示未平衡这种逻辑」。
  */
-check(
-  '结清按钮受 canSettle 控制',
-  /v-if="canSettle\(p\)"/.test(PAGE),
-  true
-)
-check(
-  'canSettle 只在非借入方向为 true',
-  /function canSettle\(p\)[\s\S]{0,120}?!isIncome\.value/.test(PAGE),
-  true
-)
+/*
+ * ★ 用户要求的形制：组头 + 金额 + 按钮 + 组内流水 ★
+ *   不是「卡片 + 点开弹层」。这几条断言钉住这个形状，
+ *   防止以后又改回「点开才看到明细」。
+ */
+check('组头有人员姓名', /class="person-name/.test(PAGE), true)
+check('组头有金额', /class="person-balance"/.test(PAGE), true)
+check('组头有金额标签（待收回/待归还/多归还）', /balanceLabel\(g\)/.test(PAGE), true)
+check('组内有该人员的流水列表', /v-for="t in g\.txns"/.test(PAGE), true)
+check('不再有点开弹层看明细（showDetail/wd-popup）', /showDetail|<wd-popup/.test(PAGE), false)
+check('未结清的人都给结清按钮', /v-if="!g\.settled" class="group-actions"/.test(PAGE), true)
+check('结清按钮两个方向都出现（不再排除借入）', /!isIncome\.value/.test(PAGE), false)
 
 /* 复用全局分段控件，不另写一套 tab */
 check('状态切换复用全局 .seg-toggle', /class="seg-toggle seg-toggle--block/.test(PAGE), true)

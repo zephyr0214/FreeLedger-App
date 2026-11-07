@@ -308,7 +308,12 @@ const FIXED_CHILD_NAMES = {
    *   同样要锁死：用户删掉它们之后，syncDefaultCategories() 会补回来，
    *   变成删不掉的僵尸分类。
    */
-  expense: ['借出', '借款归还', RECONCILE_NAMES.expense, LOAN_SETTLE_CATEGORY_NAMES.badDebt.name],
+  expense: [
+    '借出', '借款归还', RECONCILE_NAMES.expense,
+    LOAN_SETTLE_CATEGORY_NAMES.badDebt.name,
+    // 借入侧「还多了」= 我的损失（支出）
+    LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name
+  ],
   /*
    * ★ 收入侧多一个「报销收入」（v18 起）★
    *   它和「对账收入」一样是系统自己给的记账口径，
@@ -318,12 +323,18 @@ const FIXED_CHILD_NAMES = {
    */
   income: [
     '借入', '借款收回', RECONCILE_NAMES.income, '报销收入',
-    LOAN_SETTLE_CATEGORY_NAMES.interest.name
+    LOAN_SETTLE_CATEGORY_NAMES.interest.name,
+    // 借入侧「还不齐但不用还了」= 我的收益（收入）
+    LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name
   ]
 }
 
 /** 所有借入借出相关的固定分类名（跨两个 type） */
-const ALL_LOAN_NAMES = ['借出', '借款收回', '借入', '借款归还']
+const ALL_LOAN_NAMES = [
+  '借出', '借款收回', '借入', '借款归还',
+  // 结清派生分类也算借入借出语义（isLoanCategory 用来判断"这条要不要按借款处理"）
+  '借出坏账', '借出利息', '借入未还', '借入利息'
+]
 
 /**
  * 是不是「系统分类」这个一级分类本身。
@@ -566,9 +577,17 @@ export async function ensurePresetCategories() {
   const lendBackId = await ensurePresetChildRow('income', LOAN_CATEGORY_NAMES.lendBack.name)
   const reconcileIncomeId = await ensurePresetChildRow('income', RECONCILE_NAMES.income)
 
-  // ★ 借出结清的两个派生分类（hidden，只有结清逻辑会用到）★
+  /*
+   * ★ 四个结清派生分类（hidden，只有结清逻辑会用到）★
+   *   借出侧：借出坏账（expense）/ 借出利息（income）
+   *   借入侧：借入未还（income）/ 借入利息（expense）
+   *   type 跟着「对用户的经济意义」走，与名字字面方向不一定相同，
+   *   详见 api/db/schema.js 的 SYSTEM_PRESET_CHILDREN 注释。
+   */
   const badDebtId = await ensurePresetChildRow('expense', LOAN_SETTLE_CATEGORY_NAMES.badDebt.name)
   const interestId = await ensurePresetChildRow('income', LOAN_SETTLE_CATEGORY_NAMES.interest.name)
+  const borrowWaivedId = await ensurePresetChildRow('income', LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name)
+  const borrowInterestId = await ensurePresetChildRow('expense', LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name)
 
   return {
     expenseGroupId,
@@ -581,6 +600,8 @@ export async function ensurePresetCategories() {
     reconcileIncomeId,
     badDebtId,
     interestId,
+    borrowWaivedId,
+    borrowInterestId,
     // 旧字段名，等价的别名
     loanExpenseId: lendOutId,
     loanIncomeId: borrowInId

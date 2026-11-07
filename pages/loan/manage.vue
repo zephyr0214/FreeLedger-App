@@ -3,10 +3,9 @@
     <!--
       标题随类型变化：借出管理 / 借入管理
 
-      ★ 右上角不再有「记一笔」★
-        用户要求去掉。这一页现在回答的是「谁欠我多少」，
-        不是「记流水」；要记一笔走首页的记账面板，
-        在管理页再摆一个入口只会让两种入口抢注意力。
+      ★ 右上角没有「记一笔」★
+        用户要求去掉。这一页回答的是「谁欠我多少」，
+        不是「记流水」；要记一笔走首页的记账面板。
     -->
     <PageNav :title="pageTitle" @back="goBack" />
 
@@ -15,9 +14,9 @@
         汇总卡：只保留「现在还有多少钱在外面」这一个结论
 
         ★ 为什么不再显示「累计借出 / 借款收回 / 累计笔数」★
-          那三项是「全部流水」视角的指标，而这页现在是按人看账：
+          那三项是「全部流水」视角的指标，而这页是按人看账：
           用户真正要的是「还有多少人没还清、一共多少钱」。
-          累计数在统计页和交易列表里都能看到，这里重复三行只是噪音。
+          累计数在统计页和交易列表里都能看到，重复三行只是噪音。
       -->
       <view class="summary-card">
         <view class="summary-head">
@@ -49,8 +48,8 @@
 
         ★ 复用全局分段切换（App.vue 的 .seg-toggle）★
           用户要求「复用年月日和自定义的 tab 切换组件」——
-          就是记账/筛选里那套 `.seg-toggle` + `.seg-item`，
-          不是另写一套 tab，否则同一批控件在 App 里会有三种长相。
+          就是筛选条上那套 `.seg-toggle` + `.seg-item`，
+          不另写一套 tab，否则同一批控件在 App 里会有三种长相。
       -->
       <view class="seg-toggle seg-toggle--block status-toggle">
         <text
@@ -63,96 +62,99 @@
       </view>
 
       <!-- 空态 -->
-      <view v-if="!loading && people.length === 0" class="empty-wrap">
-        <EmptyState
-          :emoji="headEmoji"
-          :title="emptyTitle"
-          :desc="emptyDesc"
-        />
+      <view v-if="!loading && groups.length === 0" class="empty-wrap">
+        <EmptyState :emoji="headEmoji" :title="emptyTitle" :desc="emptyDesc" />
       </view>
 
       <!--
-        人员列表：按金额从高到低
+        人员分组列表
 
-        ★ 排序口径在 api/loan.js 里 ★
-          未结清在前、再按 |余额| 降序。这里不再排一遍 ——
-          两处各排一次，迟早会出现「列表顺序和汇总对不上」。
+        ★ 形制照「按日期分组的流水列表」来（用户要求）★
+          以前是「一张卡片 + 点开弹层看明细」，用户说不是他要的样子。
+          现在每组就是：
+            组头：人名 + 待归还/多归还金额 + 一个按钮
+            组内：这个人的每一笔流水，直接铺在下面
+          这样「谁、欠多少、怎么欠的」在同一屏看完，不用再点开。
       -->
-      <view v-else class="person-list">
-        <view v-for="p in people" :key="p.person" class="person-card">
-          <!--
-            一行：人名 + 余额
-            点整行进明细（谁、什么时候、多少），
-            结清按钮只在借出方向、且未结清时出现。
-          -->
-          <view class="person-head" @click="openDetail(p)">
-            <view class="person-avatar" :style="{ backgroundColor: accentColor + '22' }">
-              <text class="person-avatar-text" :style="{ color: accentColor }">{{ avatarText(p.person) }}</text>
+      <view v-else class="group-list">
+        <view v-for="g in groups" :key="g.person" class="person-group">
+          <!-- 组头 -->
+          <view class="group-head">
+            <view class="group-head-left">
+              <view class="person-avatar" :style="{ backgroundColor: accentColor + '22' }">
+                <text class="person-avatar-text" :style="{ color: accentColor }">{{ avatarText(g.person) }}</text>
+              </view>
+              <view class="person-meta">
+                <text class="person-name ellipsis">{{ g.person }}</text>
+                <text class="person-sub">{{ g.count }} 笔 · 最近 {{ g.lastDay || '—' }}</text>
+              </view>
             </view>
 
-            <view class="person-info">
-              <text class="person-name ellipsis">{{ p.person }}</text>
-              <text class="person-sub">{{ personSub(p) }}</text>
-            </view>
-
-            <view class="person-amount">
+            <!--
+              ★ 标签 + 金额同一行（用户要求）★
+                以前是「金额在上、待归还/多归还」在下，两行堆在右侧，
+                和左边「人名 + N 笔 · 最近日期」两行挤在一起，
+                视觉上成了四行，一行信息量低还占高度。
+                改成横排后右侧只占一行，和左侧的人名对齐在同一基线。
+            -->
+            <view class="group-head-right">
+              <text class="person-balance-label">{{ balanceLabel(g) }}</text>
               <text
                 class="person-balance"
-                :style="{ color: balanceColor(p) }"
-              >{{ balanceText(p) }}</text>
-              <text class="person-balance-label">{{ balanceLabel(p) }}</text>
+                :style="{ color: balanceColor(g) }"
+              >{{ balanceText(g) }}</text>
             </view>
           </view>
 
           <!--
-            ★ 手动结清：只有借出方向、只有未结清时才出现 ★
-              用户明确要求「借入不显示未平衡逻辑」——
-              借入的钱是「我欠别人」，怎么结清取决于对方，
-              在这里给一个按钮反而会让人以为可以替对方销账。
+            ★ 手动结清：两个方向都有，只要还没平账 ★
+              用户要求「增加借入利息和借入未还两个系统分类，逻辑和借出保持一致，
+              界面按钮正常添加，两个页面逻辑基本一致化」。
+              所以借入页也有这个按钮，只是文案和记账方向相反：
+                借出：少还 → 借出坏账（我的损失）；多还 → 借出利息（我的收益）
+                借入：还不齐 → 借入未还（我的收益）；还多了 → 借入利息（我的损失）
           -->
-          <view v-if="canSettle(p)" class="person-actions">
-            <text class="settle-btn" :style="{ borderColor: accentColor, color: accentColor }" @click.stop="onSettle(p)">手动结清</text>
+          <view v-if="!g.settled" class="group-actions">
+            <text
+              class="settle-btn"
+              :style="{ borderColor: accentColor, color: accentColor }"
+              @click.stop="onSettle(g)"
+            >手动结清</text>
+          </view>
+
+          <!-- 组内流水：按时间倒序，和交易列表同一套观感 -->
+          <view class="group-txns">
+            <view
+              v-for="t in g.txns"
+              :key="t.id"
+              class="txn-item"
+              @click="goTxnDetail(t.id)"
+            >
+              <view
+                class="txn-icon"
+                :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
+              >
+                <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
+                  {{ iconChar(t) }}
+                </text>
+              </view>
+
+              <view class="txn-info">
+                <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
+                <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
+              </view>
+
+              <view class="txn-right">
+                <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
+                <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
+              </view>
+            </view>
           </view>
         </view>
 
         <view class="bottom-space" />
       </view>
     </scroll-view>
-
-    <!--
-      人员明细弹层
-
-      ★ 为什么用弹层而不是跳交易列表 ★
-        交易列表按「分类」筛，筛不出「某个人」——
-        人名存在备注入里，列表页没有按备注过滤的入口。
-        而这里的明细天然只有这一个人十几条，弹层足够了。
-    -->
-    <wd-popup
-      v-model="showDetail"
-      position="bottom"
-      :z-index="100"
-      :safe-area-inset-bottom="true"
-      custom-style="background-color: var(--app-card); border-radius: 28rpx 28rpx 0 0;"
-    >
-      <view class="detail-sheet">
-        <view class="detail-head">
-          <text class="detail-title">{{ detailPerson }}</text>
-          <text class="detail-close" @click="showDetail = false">关闭</text>
-        </view>
-        <scroll-view class="detail-scroll" scroll-y>
-          <view v-for="t in detailTxns" :key="t.id" class="detail-row" @click="goTxnDetail(t.id)">
-            <view class="detail-left">
-              <text class="detail-cat">{{ t.category_name || '未分类' }}</text>
-              <text class="detail-day">{{ t.occurred_day }} · {{ t.account_name || '无账户' }}</text>
-            </view>
-            <MoneyText :cents="t.amount_cents" :type="t.type" :size="26" />
-          </view>
-          <view v-if="detailTxns.length === 0" class="detail-empty">
-            <text class="detail-empty-text">没有流水</text>
-          </view>
-        </scroll-view>
-      </view>
-    </wd-popup>
 
     <!-- 全局弹窗宿主 -->
     <AppDialog />
@@ -172,20 +174,19 @@
  *   用户原来看到的是「全部流水 / 借出 / 借款收回」三个 tab 的流水列表，
  *   但真正想知道的是「谁还欠我多少」。所以：
  *     · 上面切 未结清 / 已结清
- *     · 下面一人一行，金额 = Σ借出 - Σ借款收回（借入方向相反）
- *     · 一行内部的差额恰好为 0 就算已结清，不存状态字段
+ *     · 下面一人一组：组头是人名 + 待归还金额 + 结清按钮，组内铺他的流水
+ *     · 组内差额恰好为 0 就算已结清，不存状态字段
  *   聚合逻辑全在 api/loan.js，页面只负责展示。
  *
  * ★ 人员就是备注（note）★
- *   借入借出六类的备注存的是人名，管理页按 note 分组。
+ *   借入借出八类的备注存的是人名，管理页按 note 分组。
  *   不建人员表：既少一次迁移，也不会出现「人员表和流水对不上」。
  *
- * ★ 手动结清只在借出方向 ★
- *   差额 > 0（对方少还）→ 支出「借出坏账」
- *   差额 < 0（对方多还）→ 收入「借出利息」
- *   两笔由 api/loan.js 自动写，计入收支、不占预算。
+ * ★ 借出 / 借入两个方向完全对称 ★
+ *   差别只有文案和「差额正负对应的分类」，都收敛在 api/loan.js 的 pairOf() 里。
+ *   页面本身除 `isIncome` 影响文案外，逻辑一字不差。
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -193,14 +194,10 @@ import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
-import {
-  LOAN_DIRECTIONS,
-  listLoanByPerson,
-  listLoanTxnsOfPerson,
-  settleLendPerson
-} from '@/api/loan.js'
-import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
+import { LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson } from '@/api/loan.js'
+import { handleBackPress } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
+import { formatTime } from '@/utils/date.js'
 
 /** 收入方向的图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const INCOME_COLOR = '#07C160'
@@ -217,16 +214,12 @@ export default {
     const status = ref('open')
 
     const loading = ref(true)
-    /** 当前 tab 下的人员列表（已按金额排好序） */
-    const people = ref([])
-    /** 两个 tab 的人数（汇总卡要用，所以两边都要算） */
+    /** 当前 tab 下的分组（每组带自己的流水） */
+    const groups = ref([])
+    /** 两个 tab 的人数 + 未结清总额（汇总卡要用，所以两边都要算） */
     const openCount = ref(0)
     const settledCount = ref(0)
     const openTotal = ref(0)
-
-    const showDetail = ref(false)
-    const detailPerson = ref('')
-    const detailTxns = ref([])
 
     /** 首屏加载完成后，onShow 才需要再刷一次（避免和 onLoad 重复加载） */
     let ready = false
@@ -277,57 +270,82 @@ export default {
       return s ? s.slice(0, 1) : '?'
     }
 
-    /** 副标题：笔数 · 最近一次往来 */
-    function personSub(p) {
-      const parts = [`${p.count} 笔`]
-      if (p.lastDay) parts.push(`最近 ${p.lastDay}`)
-      return parts.join(' · ')
-    }
-
     /**
-     * 余额文案
+     * 余额文案与标签
      *
-     * ★ 借出和借入的符号一样、含义相反 ★
+     * ★ 借出 / 借入的正数含义相反，但都表示「未结清的金额」★
      *   借出：正数 = 对方还欠我
-     *   借入：正数 = 我还欠对方（余额口径同样是「主方向 - 反向」）
-     *   两边的数字都是「未结清金额」，只是叙述方向不同，
-     *   所以标签分开写，数字不必变号 —— 变号会让用户以为算错了。
+     *   借入：正数 = 我还欠对方
+     *   两边都显示绝对值，标签分开写（待收回 / 待归还 / 多归还），
+     *   数字不变号 —— 变号会让用户以为算错了。
      */
-    function balanceText(p) {
-      const v = Math.abs(p.balance)
-      const yuan = (v / 100).toFixed(2)
-      return `¥${yuan}`
+    function balanceText(g) {
+      if (g.settled) return '已结清'
+      const v = Math.abs(g.balance)
+      return `¥${(v / 100).toFixed(2)}`
     }
 
-    function balanceLabel(p) {
-      if (p.settled) return '已结清'
+    function balanceLabel(g) {
+      if (g.settled) return '账目已平'
+      /*
+       * 余额为负 = 反向多于正向：
+       *   借出：对方多还了（我还欠他钱）
+       *   借入：我多还了（他欠我钱）
+       */
+      if (g.balance < 0) return '多归还'
       return isIncome.value ? '待归还' : '待收回'
     }
 
-    /** 余额颜色：结清走次要色，未结清走主题色/绿色 */
-    function balanceColor(p) {
-      return p.settled ? 'var(--app-text-3)' : accentColor.value
-    }
-
-    /** 只有借出方向、且还有差额时才给「手动结清」 */
-    function canSettle(p) {
-      return !isIncome.value && !p.settled && p.balance !== 0
+    /** 余额颜色：结清走次要色，未结清走主题色 */
+    function balanceColor(g) {
+      return g.settled ? 'var(--app-text-3)' : accentColor.value
     }
 
     /**
-     * 加载人员列表
+     * 组内流水的分类图标
+     *
+     * ★ 按分类名取，不按 category_icon 的 key ★
+     *   这几类的 icon key 在库里分别指向 lend/borrow/more/chart，
+     *   要转成 emoji 还得再引一张 key 表；而这一页的分类最多就八种，
+     *   直接按名字查一张 8 项的映射最直白，也不会因为图标库改名而失效。
+     *
+     * @param {{category_name?:string}} t
+     * @returns {string} emoji，拿不到时给一个中性符号
+     */
+    function iconChar(t) {
+      return ICON_FALLBACK[t && t.category_name] || '¥'
+    }
+
+    /** 组内流水的副标题：时间 · 账户 */
+    function txnSub(t) {
+      const parts = []
+      if (t.occurred_at) parts.push(formatTime(t.occurred_at))
+      parts.push(t.account_name || '无账户')
+      return parts.join(' · ')
+    }
+
+    function timeLabel(ts) {
+      return formatTime(ts)
+    }
+
+    function goTxnDetail(id) {
+      uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
+    }
+
+    /**
+     * 加载分组
      *
      * ★ 两个 tab 的人数都要算 ★
      *   汇总卡要显示「未结清 N 人 / 已结清 M 人」，
      *   只查当前 tab 的话另一个数字永远是 0。
-     *   一次 all 查回来在 JS 里分两边，比查两次省一趟 SQL。
+     *   一次 all 查回来在 JS 里分两边，比查两次少一趟 SQL。
      */
     async function load() {
       loading.value = true
       try {
-        const all = await listLoanByPerson(direction.value, 'all')
-        const open = all.filter((p) => !p.settled)
-        const settled = all.filter((p) => p.settled)
+        const all = await listLoanGroups(direction.value, 'all')
+        const open = all.filter((g) => !g.settled)
+        const settled = all.filter((g) => g.settled)
 
         openCount.value = open.length
         settledCount.value = settled.length
@@ -335,16 +353,15 @@ export default {
          * 「当前借出 / 当前借入」= 所有未结清余额之和
          *
          * ★ 用 balance 而不是 total - back ★
-         *   balance 已经把「借出坏账 / 借出利息」算进去了
-         *   （结清过的那些人的余额正好抵消为 0），
-         *   直接用 total-back 会把已经核销的坏账又算成欠款。
+         *   balance 已经把结清那两笔算进去了（结清过的人余额正好为 0），
+         *   直接用 total - back 会把已经核销的坏账又算成欠款。
          */
-        openTotal.value = open.reduce((acc, p) => acc + Math.abs(p.balance), 0)
+        openTotal.value = open.reduce((acc, g) => acc + Math.abs(g.balance), 0)
 
-        people.value = status.value === 'open' ? open : settled
+        groups.value = status.value === 'open' ? open : settled
       } catch (e) {
         console.warn('[loan] 加载人员账目失败:', e && e.message)
-        people.value = []
+        groups.value = []
         openCount.value = 0
         settledCount.value = 0
         openTotal.value = 0
@@ -359,41 +376,25 @@ export default {
       load()
     }
 
-    /** 打开人员明细 */
-    async function openDetail(p) {
-      detailPerson.value = p.person
-      detailTxns.value = []
-      showDetail.value = true
-      try {
-        detailTxns.value = await listLoanTxnsOfPerson(direction.value, p.person)
-      } catch (e) {
-        detailTxns.value = []
-      }
-    }
-
-    function goTxnDetail(id) {
-      showDetail.value = false
-      uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
-    }
-
     /**
      * 手动结清
      *
      * ★ 不输入金额，差额自动算 ★
      *   用户原话「肯定是自动计算了，多还了的，少还了的还算不出来吗」。
-     *   所以这里只做二次确认 + 说明会生成哪一笔：
-     *     余额 > 0 → 「还差 ¥x 收不回来，记为借出坏账」
-     *     余额 < 0 → 「多还了 ¥x，记为借出利息」
-     *   确认后由 api/loan.js 写库，写完刷新列表（这个人会落到已结清）。
+     *   这里只做二次确认 + 说清会生成哪一笔：
+     *     借出 余额 > 0 → 「还差 ¥x 收不回来，记为借出坏账（支出）」
+     *     借出 余额 < 0 → 「对方多还了 ¥x，记为借出利息（收入）」
+     *     借入 余额 > 0 → 「还差 ¥x 不用还了，记为借入未还（收入）」
+     *     借入 余额 < 0 → 「多还了 ¥x，记为借入利息（支出）」
      */
-    async function onSettle(p) {
-      const diff = p.balance
+    async function onSettle(g) {
+      const diff = g.balance
       const yuan = (Math.abs(diff) / 100).toFixed(2)
 
       /*
        * ★ 余额已经是 0 就不该走到这里 ★
        *   列表是按 settled 分好的，理论不会出现；
-       *   但用户可能在别处删了一笔，弹层数据是旧的 ——
+       *   但用户可能在别处删了一笔，页面数据是旧的 ——
        *   这时提示刷新，而不是写一笔 0 元流水（金额必须 > 0，会保存失败）。
        */
       if (diff === 0) {
@@ -402,12 +403,11 @@ export default {
         return
       }
 
-      const isBadDebt = diff > 0
-      const content = isBadDebt
-        ? `还有 ¥${yuan} 收不回来，将记为「借出坏账」支出，计入收支。`
-        : `对方多还了 ¥${yuan}，将记为「借出利息」收入，计入收支。`
+      const isPositive = diff > 0
+      const content = settleHint(isPositive, yuan)
+      const title = settleTitle(isPositive)
       const ok = await confirmDialog({
-        title: isBadDebt ? '确认记为坏账？' : '确认记为利息？',
+        title,
         content,
         confirmText: '确认结清',
         cancelText: '取消'
@@ -415,7 +415,7 @@ export default {
       if (!ok) return
 
       try {
-        await settleLendPerson(p.person)
+        await settleLoanPerson(g.person, direction.value)
         uni.showToast({ title: '已结清', icon: 'success' })
         await load()
       } catch (e) {
@@ -423,27 +423,25 @@ export default {
       }
     }
 
-    /*
-     * 明细弹层登记到弹层栈
-     *
-     * ★ 不登记的话侧滑返回会直接退出整个页面 ★
-     *   用户只是想关掉「张三的明细」，结果回到了「我的」页 ——
-     *   这个坑在记账面板（TxnPanel）和其它弹层上都踩过，
-     *   所以凡是自己画的 wd-popup 都要 pushLayer（见 utils/layerStack.js）。
-     */
-    let unregisterDetail = null
-    watch(showDetail, (open) => {
-      if (open) {
-        if (!unregisterDetail) {
-          unregisterDetail = pushLayer(() => { showDetail.value = false }, 'loanPersonDetail')
-        }
-        return
+    /** 结清确认框标题（按方向 + 差额正负） */
+    function settleTitle(isPositive) {
+      if (isIncome.value) {
+        return isPositive ? '确认记为借入未还？' : '确认记为借入利息？'
       }
-      if (unregisterDetail) {
-        unregisterDetail()
-        unregisterDetail = null
+      return isPositive ? '确认记为坏账？' : '确认记为利息？'
+    }
+
+    /** 结清确认框正文：说清楚会写哪一类、金额多少 */
+    function settleHint(isPositive, yuan) {
+      if (isIncome.value) {
+        return isPositive
+          ? `还差 ¥${yuan} 不用还了，将记为「借入未还」收入，计入收支。`
+          : `你多还了 ¥${yuan}，将记为「借入利息」支出，计入收支。`
       }
-    })
+      return isPositive
+        ? `还有 ¥${yuan} 收不回来，将记为「借出坏账」支出，计入收支。`
+        : `对方多还了 ¥${yuan}，将记为「借出利息」收入，计入收支。`
+    }
 
     function goBack() {
       uni.navigateBack()
@@ -463,18 +461,38 @@ export default {
       if (ready) await load()
     })
 
-    // 侧滑返回 / 物理返回键：明细弹层打开时先收起弹层，不退出本页
+    // 侧滑返回 / 物理返回键
     onBackPress(() => handleBackPress())
 
     return {
-      settingStore, loanType, status, loading, people, openCount, settledCount, openTotal,
+      settingStore, loanType, status, loading, groups, openCount, settledCount, openTotal,
       pageStyle, primaryColor, isIncome, pageTitle, headEmoji, currentLabel, directionText,
       accentColor, statusTabs, emptyTitle, emptyDesc,
-      showDetail, detailPerson, detailTxns,
-      avatarText, personSub, balanceText, balanceLabel, balanceColor, canSettle,
-      switchStatus, openDetail, goTxnDetail, onSettle, goBack
+      avatarText, balanceText, balanceLabel, balanceColor,
+      iconChar, txnSub, timeLabel, goTxnDetail,
+      switchStatus, onSettle, goBack
     }
   }
+}
+
+/**
+ * 分类名 → 图标 emoji
+ *
+ * ★ 为什么在页面里写死一张小表 ★
+ *   组内流水用的是「八类借款分类」，图标固定就这几个；
+ *   走 utils/icons.js 的 iconEmoji(key) 也能拿到，但那张表是按 key 取的，
+ *   而这里手上只有分类名。写一张 8 项的映射最直白，也省一次 import。
+ *   取值与 api/db/schema.js 的 SYSTEM_PRESET_CHILDREN 对齐。
+ */
+const ICON_FALLBACK = {
+  借出: '📤',
+  借款收回: '📥',
+  借入: '📥',
+  借款归还: '📤',
+  借出坏账: '📦',
+  借出利息: '📈',
+  借入未还: '📦',
+  借入利息: '📈'
 }
 </script>
 
@@ -569,32 +587,50 @@ export default {
   margin: 24rpx 0 8rpx;
 }
 
-/* ------------------------------------------------------- 人员卡片 */
+/* ------------------------------------------------------- 人员分组 */
 
-.person-list {
+.group-list {
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 20rpx;
   margin-top: 16rpx;
 }
 
-.person-card {
+/*
+ * 一个人员分组 = 组头 + 按钮 + 他自己的流水
+ *
+ * 视觉上做成一张卡片：组头是浅一层底（--app-card-2），
+ * 下面的流水是卡片底色，两者用圆角套着 ——
+ * 和首页「按日期分组」的观感一致（日期条 → 当天流水）。
+ */
+.person-group {
   background-color: var(--app-card);
   border-radius: 20rpx;
-  padding: 20rpx 24rpx;
+  overflow: hidden;
   box-shadow: var(--app-shadow);
 }
 
-.person-head {
+.group-head {
   display: flex;
   align-items: center;
-  gap: 20rpx;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  background-color: var(--app-card-2);
+}
+
+.group-head-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+  flex: 1;
 }
 
 /* 头像：名字首字，主题色 13% 底 */
 .person-avatar {
-  width: 76rpx;
-  height: 76rpx;
+  width: 64rpx;
+  height: 64rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -603,16 +639,16 @@ export default {
 }
 
 .person-avatar-text {
-  font-size: 30rpx;
+  font-size: 26rpx;
   font-weight: 600;
 }
 
-.person-info {
-  flex: 1;
-  min-width: 0;
+.person-meta {
   display: flex;
   flex-direction: column;
-  gap: 6rpx;
+  gap: 4rpx;
+  min-width: 0;
+  flex: 1;
 }
 
 .person-name {
@@ -622,15 +658,24 @@ export default {
 }
 
 .person-sub {
-  font-size: 22rpx;
+  font-size: 21rpx;
   color: var(--app-text-3);
 }
 
-.person-amount {
+/*
+ * 右侧：标签 + 金额横排、整体靠右
+ *
+ * ★ 为什么 label 在金额左边 ★
+ *   「待归还 ¥300」是中文习惯的读法（先说是什么，再说多少）；
+ *   反过来「¥300 待归还」在小屏上会让数字和左边界不齐，眼睛要来回找。
+ *   金额用 tabular-nums，多行之间小数点自然对齐。
+ */
+.group-head-right {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4rpx;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10rpx;
   flex-shrink: 0;
 }
 
@@ -641,17 +686,26 @@ export default {
 }
 
 .person-balance-label {
-  font-size: 20rpx;
+  font-size: 21rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
-/* 操作区：右对齐一个描边按钮 */
-.person-actions {
+/*
+ * 结清按钮：独占一行、右对齐（用户要求「手动结清显示在第二行」）
+ *
+ * ★ 为什么不再用 --app-card-2 的浅底 ★
+ *   组头是浅底，按钮行如果也是浅底，两行会连成一块，
+ *   看起来像"组头特别高"，按钮反而像组头的一部分。
+ *   改成卡片底色 + 上边一条分隔线：明确是组头的下一行，
+ *   又和下面的流水区分开（流水用 --app-line 分隔）。
+ */
+.group-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 16rpx;
-  padding-top: 16rpx;
-  border-top: 1rpx solid var(--app-line);
+  padding: 14rpx 24rpx;
+  background-color: var(--app-card);
+  border-bottom: 1rpx solid var(--app-line);
 }
 
 .settle-btn {
@@ -662,70 +716,64 @@ export default {
   background-color: transparent;
 }
 
-/* ------------------------------------------------------- 明细弹层 */
-
-.detail-sheet {
-  padding: 24rpx 0 12rpx;
+/* 组内流水 */
+.group-txns {
+  display: flex;
+  flex-direction: column;
 }
 
-.detail-head {
+.txn-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 32rpx 20rpx;
-}
-
-.detail-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.detail-close {
-  font-size: 26rpx;
-  color: var(--app-text-3);
-}
-
-.detail-scroll {
-  max-height: 60vh;
-}
-
-.detail-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  padding: 20rpx 32rpx;
+  gap: 20rpx;
+  padding: 18rpx 24rpx;
   border-top: 1rpx solid var(--app-line);
 }
 
-.detail-left {
+.txn-icon {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.txn-icon-text {
+  font-size: 32rpx;
+}
+
+.txn-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6rpx;
-  min-width: 0;
-  flex: 1;
 }
 
-.detail-cat {
+.txn-name {
   font-size: 28rpx;
   color: var(--app-text);
 }
 
-.detail-day {
+.txn-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
 }
 
-.detail-empty {
-  padding: 60rpx 0;
+.txn-right {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4rpx;
+  flex-shrink: 0;
 }
 
-.detail-empty-text {
-  font-size: 26rpx;
+.txn-time {
+  font-size: 20rpx;
   color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 空态卡片 */

@@ -68,7 +68,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
-import { listLoanPeople } from '@/api/loan.js'
+import { listLoanPeople, isLoanPersonCategory, isLoanSettleCategory } from '@/api/loan.js'
 import { combineDayTime } from '@/utils/date.js'
 import { buildOriginalNoteTag, applyNoteTag, cleanNote } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
@@ -323,6 +323,24 @@ export default {
               }
             }
 
+            /*
+             * ★ 借入借出的四类「资金往来」必须不计收支（用户反馈的 bug）★
+             *   AI 记账以前走的是这条分支，payload 里没有 exclude_from_stats，
+             *   于是 createTransaction 里 `input.exclude_from_stats ? 1 : 0`
+             *   恒为 0 —— 用户看到「借出 500」被算进了本月支出。
+             *
+             *   判定按分类名（name 才是稳定语义，id 会随分类重建变化）：
+             *     · 借出 / 借入 / 借款归还 / 借款收回 → 两个标记都置 true
+             *     · 四个结清派生分类（借出坏账/借出利息/借入未还/借入利息）
+             *       → exclude_from_stats 必须 false（真实损益要计入收支），
+             *         只排除预算。
+             *   AI 理论上选不到 hidden 的派生分类，但导入/异常分支可能带进来，
+             *   所以这里显式兜住。
+             */
+            const catName = item.category_name || ''
+            const isLoanMove = isLoanPersonCategory(catName) && !isLoanSettleCategory(catName)
+            const isSettleCat = isLoanSettleCategory(catName)
+
             await txnStore.create({
               type: item.type,
               amount_cents: amountCents,
@@ -330,6 +348,8 @@ export default {
               to_account_id: item.to_account_id,
               category_id: item.category_id,
               occurred_day: item.occurred_day,
+              exclude_from_budget: isLoanMove || isSettleCat,
+              exclude_from_stats: isLoanMove,
               // ★ 模型识别出时刻就用它，否则由 store 按「此刻」处理
               occurred_at: item.occurred_time
                 ? combineDayTime(item.occurred_day, item.occurred_time)
