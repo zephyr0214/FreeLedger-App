@@ -32,8 +32,11 @@ export const STATS_PANEL_DEFS = [
   { key: 'category',   name: '分类统计',       desc: '哪些分类花得最多',        editable: false },
   { key: 'account',    name: '账户统计',       desc: '钱从哪出、进到哪',        editable: false },
   { key: 'trend',      name: '趋势',           desc: '按天 / 按月的支出走势',   editable: false },
-  { key: 'comparison', name: '同比变化',       desc: '与前一段同期对比',        editable: false },
+  { key: 'comparison', name: '同比变化',       desc: '与去年同期 / 上月同期对比', editable: false },
+  { key: 'mom',        name: '环比变化',       desc: '与紧邻的上一段等长区间对比', editable: false },
   { key: 'engel',      name: '恩格尔系数',     desc: '食品支出占总支出的比例',  editable: true  },
+  { key: 'savings',    name: '储蓄率',         desc: '结余占收入的比例',        editable: false },
+  { key: 'budget',     name: '预算执行情况',   desc: '这个区间设了多少、用了多少', editable: false },
   { key: 'average',    name: '平均值',         desc: '日均 / 笔均与各分类均值', editable: false },
   { key: 'top',        name: '最高的 10 笔消费', desc: '这段时间最大的几笔',    editable: false }
 ]

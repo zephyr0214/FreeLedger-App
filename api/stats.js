@@ -1176,6 +1176,7 @@ async function topExpensesByScope(scope, limit) {
  * @param {{level?:'root'|'sub', type?:'expense'|'income', today?:string}} [opt]
  *   level = 一级（默认，按一级分类归并）/ 二级（按二级分类，没有二级的归到自己）
  *   type  = 支出（默认）/ 收入 —— 决定下方分类列表走哪个方向
+ *   mode  = 'yoy' 同比（默认）/ 'mom' 环比（紧邻等长区间）
  *   today = 可注入的「今天」，测试用；不传给真实今天
  * @returns {Promise<null|{
  *   align:'year'|'month'|'span', clipped:boolean,
@@ -1189,8 +1190,17 @@ async function topExpensesByScope(scope, limit) {
 export async function getPeriodComparison(range, opt = {}) {
   const level = opt.level === 'sub' ? 'sub' : 'root'
   const type = opt.type === 'income' ? 'income' : 'expense'
+  /*
+   * mode：'yoy' 同比（默认）/ 'mom' 环比
+   *
+   * ★ 为什么同一个函数出两个面板 ★
+   *   两者的数据形状完全一样（两段总账 + 分类维度增减），
+   *   只有「对比窗口怎么算」不同。写两份就是两份 SQL 要实现同样的
+   *   排除口径（exclude_from_stats / type / 归并方式），迟早一边漏一个条件。
+   */
+  const mode = opt.mode === 'mom' ? 'mom' : 'yoy'
 
-  const cr = buildCompareRange(range, opt.today || toDayKey())
+  const cr = buildCompareRange(range, opt.today || toDayKey(), mode)
   if (!cr) return null
 
   /* 两段各查一次总账（同一条 SQL，只换 where 参数） */
@@ -1344,6 +1354,121 @@ export async function getEngelCoefficient(range, foodCategoryIds = []) {
     // 百分比保留 1 位小数（恩格尔系数习惯用百分数）
     ratio: Math.round((food / total) * 1000) / 10,
     foodIds: ids
+  }
+}
+
+/* ------------------------------------------------------ 储蓄率 / 预算执行 */
+
+/**
+ * 储蓄率 = 结余 ÷ 收入
+ *
+ * ★ 为什么用「结余 ÷ 收入」而不是「(收入-支出) ÷ 收入」★
+ *   两个式子在数学上完全一样（结余就是这么算的）。
+ *   用结余只是因为它是 overview 已经算好的字段，少一次减法、少一个错的机会。
+ *
+ * ★ 收入为 0 时返回 null，不返回 0 ★
+ *   「这个月没收入」和「这个月一分没存下」是两件完全不同的事。
+ *   返回 0 会让页面写「储蓄率 0%」，用户以为自己月光了；
+ *   返回 null 让页面能说「这段时间没有收入」。
+ *
+ * ★ 结余为负也算得出来（负数储蓄率）★
+ *   花超了就是负储蓄率，那正是用户需要看到的信号，不能夹到 0。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @returns {Promise<{income:number,expense:number,balance:number,
+ *   rate:number|null,savedCents:number}>} rate 是百分比（-100 ~ 100 通常）
+ */
+export async function getSavingsRate(range) {
+  const scope = rangeScope(range)
+  const row = await queryOne(
+    `SELECT COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
+            COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp
+     FROM txn t
+     WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
+    scope.params
+  )
+  const income = Number(row ? row.inc : 0)
+  const expense = Number(row ? row.exp : 0)
+  const balance = income - expense
+  /*
+   * ★ 保留 1 位小数，且不四舍五入到整数 ★
+   *   储蓄率 12.5% 和 13% 在用户眼里是两个不同的自己，
+   *   而且月度数据本来就粗，多给一位是必要的。
+   */
+  const rate = income > 0 ? Math.round((balance / income) * 1000) / 10 : null
+  return { income, expense, balance, rate, savedCents: Math.max(balance, 0) }
+}
+
+/**
+ * 预算执行情况（统计页面板用）
+ *
+ * ★ 与预算管理页的口径必须完全一致 ★
+ *   所以这里**不重写算法**，直接复用 getBudgetUsageRange()。
+ *   自己再写一遍「已用 / 额度」的话，统计页说用了 80%、预算页说 85%，
+ *   用户会以为哪边算错了 —— 而实际上只是两处漏了同一个「不计入预算」条件。
+ *
+ * ★ 返回的是「精简后的执行摘要」★
+ *   面板上只需要：总额度、已用、占比、超没超、还剩多少；
+ *   再加上逐条预算的执行率（最多 5 条，按执行率降序，最该看的排前面）。
+ *
+ * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
+ * @returns {Promise<{hasBudget:boolean,limit:number,used:number,
+ *   remaining:number,percent:number,over:boolean,items:Array}>}
+ */
+export async function getBudgetExecution(range) {
+  let list = []
+  try {
+    list = await getBudgetUsageRange(range)
+  } catch (e) {
+    console.warn('[stats] 预算执行查询失败:', e && e.message)
+    list = []
+  }
+  const arr = Array.isArray(list) ? list : []
+  if (arr.length === 0) {
+    return { hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] }
+  }
+
+  /*
+   * ★ 总额度 = 各条预算额度之和 ★
+   *   注意「总预算」和「子预算」在预算页里是包含关系（子预算花的是同一笔钱），
+   *   但这里的「执行情况」看的是**每条预算各自守没守住**，
+   *   所以求和是各条的额度，不构成重复计算 —— 因为它只用于展示
+   *   「一共设了多少额度、其中用掉多少」，不做任何账务判断。
+   */
+  let limit = 0
+  let used = 0
+  for (const b of arr) {
+    limit += Number(b.limit) || 0
+    used += Number(b.used) || 0
+  }
+  const remaining = limit - used
+
+  return {
+    hasBudget: true,
+    limit,
+    used,
+    remaining,
+    percent: limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0,
+    over: used > limit,
+    /*
+     * ★ 逐条按执行率降序 ★
+     *   最可能超支的排最上面，用户一眼看到该管哪一条。
+     *   额度为 0 的（新设还没生效）执行率算 0，排后面。
+     */
+    items: arr
+      .map((b) => ({
+        id: b.id,
+        name: b.name,
+        icon: b.icon,
+        limit: Number(b.limit) || 0,
+        used: Number(b.used) || 0,
+        remaining: Number(b.remaining) || 0,
+        percent: Number(b.percent) || 0,
+        over: !!b.over,
+        scope: b.scope
+      }))
+      .sort((a, b) => b.percent - a.percent)
+      .slice(0, 5)
   }
 }
 
