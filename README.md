@@ -36,10 +36,14 @@
 - 二级分类（自定义图标）、标签、预算（月预算 + 子预算，支持结转与多类别）
 - 周期账：按天 / 周 / 月自动补记，手动删掉的日期不会被重复补上；周期也能预设「不计入预算 / 待报销」
 - 报销台账：支出标记「待报销」，收到钱后一键报销，差额自动记坏账或盈余；流水上直接显示「待报销 / 已报销」徽标
-- 借入借出按人员管理：未结清 / 已结清分组，借出可手动结清（差额自动记坏账或利息）
+- 报销单：每次报销自动生成一张单，显示报销金额、实报金额、报销时间、报销笔数，坏账/盈余也归在同一张单下
+- 借入借出按人员管理：未结清 / 已结清分组，借出可手动结清（差额自动记坏账或利息）；结清过又新借的，旧账自动折叠
 
 **统计与 AI 问答**
 - SVG 自绘图表：分类构成环形图、趋势折线、月历、账户统计
+- 同比变化：本月到今天对比上月同期，百分比与金额同时给，按分类看涨跌
+- 组件管理：统计页的七个面板可自定顺序与显隐，恩格尔系数的食品分类由自己选
+- 恩格尔系数：食品支出占总支出的比例，「哪些分类算食品」由你自己勾选
 - AI 对话：问账、看趋势、出图表——**数字全部由本地 SQL 取数**，模型只输出图表规格，不给它编数字的机会
 - 深度思考、图表均可开关
 
@@ -148,9 +152,12 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 - Two-level categories (custom icons), tags, budgets (total + per-category)
 - Recurring transactions auto-posted by day / week / month; days you deliberately deleted are never re-posted — a cycle can preset "exclude from budget / to be reimbursed"
 - Reimbursement ledger: mark an expense as pending, settle it in one tap, and the difference is auto-booked as bad debt or surplus; "pending / reimbursed" badges show up right in the transaction list
+- Reimbursement slips: every settlement creates one slip with the original total, the actual amount received, the date and how many entries it covers (bad debt / surplus are listed under it, not counted as entries)
 
 **Insights & AI chat**
 - Hand-drawn SVG charts: category donut, trend lines, calendar heatmap, account stats
+- Period-over-period: this month to date vs. the same stretch of last month, with both percentage and amount per category
+- Panel manager: reorder or hide the seven stat panels; pick which categories count as food for the Engel coefficient
 - AI chat about your finances — **all numbers come from local SQL queries**; the model only outputs chart specs, so it can never make numbers up
 - Deep thinking and charts are both toggleable
 
