@@ -33,13 +33,16 @@
     <view
       v-if="canReimburse"
       class="flag-item"
-      :class="{ locked: reimburseLocked }"
+      :class="{ locked: reimburseLocked, disabled: reimburseDisabled }"
       @click="onToggleReimburse"
     >
-      <view class="flag-box" :class="{ on: reimburseChecked, dim: reimburseLocked }">
+      <view
+        class="flag-box"
+        :class="{ on: reimburseChecked, dim: reimburseLocked || reimburseDisabled }"
+      >
         <text v-if="reimburseChecked" class="flag-tick">✓</text>
       </view>
-      <text class="flag-label" :class="{ on: reimburseChecked }">
+      <text class="flag-label" :class="{ on: reimburseChecked, disabled: reimburseDisabled }">
         {{ reimburseChecked ? reimburseLabel : '待报销' }}
       </text>
     </view>
@@ -80,7 +83,20 @@ export default {
     /** 是否显示「待报销」（只有支出生效） */
     canReimburse: { type: Boolean, default: false },
     /** 已报销时锁死（父层再兜一层，避免调用点忘传 reimburseStatus===2） */
-    doneLocked: { type: Boolean, default: false }
+    doneLocked: { type: Boolean, default: false },
+    /**
+     * 禁止「待报销」（系统固定分类下的支出不允许报销）
+     *
+     * ★ 为什么单独一个 prop，不复用 doneLocked ★
+     *   两者语义完全不同：
+     *     doneLocked       = 这笔**已经**报销了，改不了（真值读得到）
+     *     reimburseDisabled = 这笔**永远**不能报销（系统分类，如借出/借入）
+     *   复用一个 prop 会让「已报销」的提示语变成「系统分类不能报销」，
+     *   用户看到「这笔记不了报销」会以为自己之前操作错了。
+     * ★ 默认 false ★
+     *   现有 3 个调用点不传，行为完全不变（老分类都是用户自建的）。
+     */
+    reimburseDisabled: { type: Boolean, default: false }
   },
   emits: ['update'],
   setup(props, { emit }) {
@@ -94,6 +110,16 @@ export default {
     function onToggleReimburse() {
       if (reimburseLocked.value) {
         uni.showToast({ title: '已报销，不能再改', icon: 'none' })
+        return
+      }
+      /*
+       * ★ 系统固定分类不能标记待报销（用户本轮第 5 条）★
+       *   借出 / 借入 / 对账这类系统分类是「资金往来」性质，
+       *   把它们标成待报销没有任何业务含义 —— 报销的是消费，不是借出去的钱。
+       *   置灰 + 提示，而不是静默不响应（静默会让人以为点了没生效）。
+       */
+      if (props.reimburseDisabled) {
+        uni.showToast({ title: '系统分类不能标记待报销', icon: 'none' })
         return
       }
       const next = reimburseChecked.value ? 0 : 1
@@ -121,6 +147,7 @@ export default {
 
     return {
       reimburseChecked, reimburseLocked, budgetLocked, budgetChecked, reimburseLabel,
+      reimburseDisabled: computed(() => props.reimburseDisabled),
       onToggleReimburse, onToggleBudget
     }
   }
@@ -192,6 +219,12 @@ export default {
   font-size: 22rpx;
   color: #ffffff;
   line-height: 1;
+}
+
+/* 禁用态（系统固定分类）：整项压暗到「明显点不动」的程度 */
+.flag-item.disabled .flag-label,
+.flag-label.disabled {
+  opacity: 0.45;
 }
 
 .flag-label {

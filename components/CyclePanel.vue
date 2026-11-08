@@ -216,6 +216,7 @@
             :exclude-budget="form.excludeBudget"
             :reimburse-status="form.reimburseStatus"
             :can-reimburse="form.type === 'expense'"
+            :reimburse-disabled="reimburseDisabled"
             @update="onFlagsUpdate"
           />
         </view>
@@ -292,7 +293,7 @@ import ExcludeFlags from '@/components/ExcludeFlags.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { listCategories } from '@/api/category.js'
+import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay, skipCycleDay } from '@/api/cycle.js'
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
@@ -452,6 +453,21 @@ export default {
     // ★ 与首页「+」记账面板统一：按最近 30 天使用频率排序，已选中的排第一。
     //   ★ 用 isSelectableCategory：二级 + 「无二级的一级」（如收入默认分类）都可选，
     //     修复选「收入」时分类列表空白的问题。
+    /**
+     * 「待报销」是否被禁用（用户本轮第 5 条）
+     *
+     * ★ 系统固定分类下的支出不能报销 ★
+     *   借出 / 借入 / 对账这类是资金往来，不是消费。
+     *   周期模板同样要挡：一个「每月借出」的周期不该带待报销标记。
+     * ★ 判定用 isSystemPresetName（同步、只看名字和 type）★
+     *   与分类管理页「固定分类不可删改」是同一份名单。
+     */
+    const reimburseDisabled = computed(() => {
+      const cat = categories.value.find((c) => c.id === form.category_id)
+      if (!cat) return false
+      return isSystemPresetName(cat.name, cat.type)
+    })
+
     const categoryList = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
       const list = categories.value.filter(
@@ -759,6 +775,18 @@ export default {
       form.reimburseStatus = Number(next.reimburseStatus) || 0
     }
 
+    /*
+     * ★ 切到系统分类时清掉「待报销」★
+     *   理由同 TxnPanel：勾选框那边已经置灰，但 form 里的旧值不清就会
+     *   带着 reimburse_status = 1 存进周期，之后每次补记都带着它。
+     */
+    watch(reimburseDisabled, (disabled) => {
+      if (disabled && form.reimburseStatus === 1) {
+        form.reimburseStatus = 0
+        form.excludeBudget = false
+      }
+    })
+
     function onFinish(value) {
       if (value === -1) {
         uni.showToast({ title: '括号没有闭合', icon: 'none' })
@@ -1012,7 +1040,7 @@ export default {
       convertedPreview, onCurrencyChange, iconInk,
       currentAccountName, toAccountName, accountActions, toAccountActions,
       recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
-      dayActions, dayOfMonthLabel, onFlagsUpdate,
+      dayActions, dayOfMonthLabel, onFlagsUpdate, reimburseDisabled,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
       showWeekdayPicker, showDayPicker,
       iconChar, catIconStyle, switchType, pickCategory,

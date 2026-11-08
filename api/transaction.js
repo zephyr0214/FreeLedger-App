@@ -15,6 +15,12 @@ import {
   recalcBalance, writeTodaySnapshot, isComboType, listComboMembers, getAccount
 } from './account.js'
 import { resolveComboAccount } from '../utils/combo.js'
+/*
+ * ★ 只为「系统固定分类不能待报销」这一条校验而引 ★
+ *   category.js 只依赖 db/index.js 与 db/schema.js，不反向依赖 transaction.js，
+ *   所以这里不会形成循环引用（详见 isSystemPresetName 的注释）。
+ */
+import { isSystemPresetName } from './category.js'
 
 
 
@@ -569,6 +575,7 @@ async function assertTransferTargetNotCombo(toAccountId) {
  */
 export async function createTransaction(input) {
   validate(input)
+  await assertReimburseAllowed(input)
 
   /*
    * ★ 「已报销」不能由普通记账路径写入（本轮用户第 5 条）★
@@ -688,6 +695,7 @@ export async function updateTransaction(id, patch) {
 
   const merged = { ...existing, ...patch }
   validate(merged)
+  await assertReimburseAllowed(merged)
 
   const amount = Math.abs(Math.round(Number(merged.amount_cents) || 0))
   // ★ 改了日期就重算时刻：只有日期时按 resolveOccurredTime 的规则取
@@ -912,6 +920,41 @@ export async function getTxnTags(txnId) {
 }
 
 /* ------------------------------------------------------------------ 校验 */
+
+/**
+ * 校验「待报销」不能挂在系统固定分类上（用户本轮第 5 条）
+ *
+ * ★ 为什么这条要在 API 层再挡一次 ★
+ *   前端四个入口（记账面板、周期面板、交易详情、AI 速记）都已经置灰了，
+ *   但这四处的判断都依赖「当前选中的分类对象」，而分类是可能被改的：
+ *   建账时选了普通分类、勾了待报销，之后有人把那个分类改名成「借出」——
+ *   库里那笔账就变成了「系统分类 + 待报销」的矛盾状态。
+ *   还有导入老备份、以及以后新增的调用点，都可能绕过前端判断。
+ *   放在 create/update 的唯一写入口上兜底，是最后一道防线。
+ *
+ * ★ 为什么抛错而不是静默降级成 0 ★
+ *   静默降级会产生「用户勾了、界面没报错、但没生效」的诡异行为
+ *   （这正是上一轮 AI 记账里踩过的坑）。抛错至少能让人知道为什么。
+ *
+ * ★ 不会误伤报销派生流水 ★
+ *   「报销到账 / 报销坏账 / 报销盈余」是 api/reimburse.js 用原始 SQL 写的，
+ *   不走 createTransaction / updateTransaction，所以不受这里影响。
+ *
+ * @param {{category_id:string|null, reimburse_status:number|undefined}} t
+ * @returns {Promise<void>}
+ */
+async function assertReimburseAllowed(t) {
+  if (!t || Number(t.reimburse_status) !== 1) return
+  if (!t.category_id) return
+  const cat = await queryOne(
+    'SELECT name, type FROM category WHERE id = ? AND deleted_at IS NULL',
+    [t.category_id]
+  )
+  if (!cat) return
+  if (isSystemPresetName(cat.name, cat.type)) {
+    throw new Error(`「${cat.name}」是系统分类，不能标记为待报销`)
+  }
+}
 
 function validate(t) {
   if (!t || !t.type) throw new Error('缺少交易类型')

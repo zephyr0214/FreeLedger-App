@@ -103,6 +103,7 @@
             :reimburse-status="reimburseStatus"
             :can-reimburse="txn.type === 'expense'"
             :done-locked="reimburseStatus === 2"
+            :reimburse-disabled="reimburseDisabled"
             @update="onFlagsUpdate"
           />
         </view>
@@ -148,6 +149,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } from '@/api/transaction.js'
+import { isSystemPresetName } from '@/api/category.js'
 import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
@@ -209,6 +211,22 @@ export default {
      *   会让台账和账户余额对不上，所以只读。
      */
     const reimburseStatus = computed(() => Number(txn.value && txn.value.reimburse_status) || 0)
+
+    /**
+     * 「待报销」是否被禁用（用户本轮第 5 条）
+     *
+     * ★ 系统固定分类下的支出不能报销 ★
+     *   借出 / 借入 / 对账这类是资金往来，不是消费。
+     *   详情页是唯一能事后改标记的地方，这里不挡的话，
+     *   用户可以在 AI 记错的借款上勾「待报销」，那笔就会永远挂在报销清单里。
+     * ★ 判定用分类名 + type（isSystemPresetName）★
+     *   和分类管理页「固定分类不可删改」是同一份名单，不依赖分类 id。
+     */
+    const reimburseDisabled = computed(() => {
+      const t = txn.value
+      if (!t || !t.category_name) return false
+      return isSystemPresetName(t.category_name, t.type)
+    })
 
     async function load() {
       try {
@@ -351,7 +369,7 @@ export default {
       primaryColor, pageStyle, typeLabel, iconChar,
       dayLabel, timeLabel, excludeFromBudget,
       onEdit, onSaved, onDelete, goBack,
-      reimburseStatus, onFlagsUpdate
+      reimburseStatus, reimburseDisabled, onFlagsUpdate
     }
   }
 }

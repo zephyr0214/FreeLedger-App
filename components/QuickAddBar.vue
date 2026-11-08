@@ -110,7 +110,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
-import { listCategories } from '@/api/category.js'
+import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { parseMessageToTransactions } from '@/api/aiParse.js'
 import { listLoanPeople, isLoanPersonCategory, isLoanSettleCategory } from '@/api/loan.js'
@@ -555,7 +555,18 @@ export default {
              *   所以这里按 item.type 判一次，不是支出的直接当没勾。
              */
             const isExpenseItem = item.type === 'expense'
-            const itemPendingReimburse = isExpenseItem && wantPendingReimburse
+            /*
+             * ★ 系统固定分类下的支出不能标记待报销（用户本轮第 5 条）★
+             *   借出 / 借入 / 对账这类是资金往来，不是消费；
+             *   即使 AI 把它们识别成支出，也不该挂「待报销」——
+             *   否则那笔会永远躺在报销清单里，用户还不知道怎么冒出来的。
+             *   ★ 为什么要在这里挡一次，而不是只靠 api/transaction.js 的兜底 ★
+             *     兜底是「静默降级」，用户已经看到「已记 N 笔」的成功提示，
+             *     却不知道自己勾的待报销被丢掉了。这里先判一次，
+             *     与前端其它入口的置灰规则保持一致。
+             */
+            const itemIsSystemCat = isSystemPresetName(item.category_name || '', item.type)
+            const itemPendingReimburse = isExpenseItem && wantPendingReimburse && !itemIsSystemCat
             const itemExcludeBudget = isExpenseItem && wantExcludeBudget
 
             await txnStore.create({

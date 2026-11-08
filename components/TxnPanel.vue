@@ -278,6 +278,7 @@
             :exclude-budget="form.excludeBudget"
             :reimburse-status="form.reimburseStatus"
             :can-reimburse="form.type === 'expense'"
+            :reimburse-disabled="reimburseDisabled"
             @update="onFlagsUpdate"
           />
         </view>
@@ -747,6 +748,22 @@ export default {
       return isLoanSettleCategory(cat.name)
     })
 
+    /**
+     * 「待报销」是否被禁用（用户本轮第 5 条）
+     *
+     * ★ 系统固定分类下的支出不能报销 ★
+     *   借出 / 借入 / 对账这类是资金往来，不是消费 ——
+     *   「报销」这个词对它们没有意义。
+     * ★ 判定用 isSystemPresetName（同步、只看名字和 type）★
+     *   它和分类管理页「固定分类不可删改」用的是同一份名单，
+     *   不会因为分类 id 重建而变化（名字才是稳定语义）。
+     */
+    const reimburseDisabled = computed(() => {
+      const cat = currentCategory.value
+      if (!cat) return false
+      return isSystemPresetName(cat.name, cat.type)
+    })
+
     /** 人员输入框的占位文案随分类变化 */
     const personPlaceholder = computed(() => {
       const name = currentCategory.value ? currentCategory.value.name : ''
@@ -935,6 +952,21 @@ export default {
       form.excludeBudget = !!next.excludeBudget
       form.reimburseStatus = Number(next.reimburseStatus) || 0
     }
+
+    /*
+     * ★ 切到系统分类时要把「待报销」清掉 ★
+     *   用户可能先选了普通分类、勾了待报销，再改成「借出」。
+     *   组件那边已经把「待报销」置灰了，但如果不清 form 里的值，
+     *   保存时还是会带着 reimburse_status = 1 落库。
+     *   （api/transaction.js 还有一道兜底会让它变成 0，但界面状态要先自洽：
+     *    保存完再打开详情，勾选框不该是勾着的。）
+     */
+    watch(reimburseDisabled, (disabled) => {
+      if (disabled && form.reimburseStatus === 1) {
+        form.reimburseStatus = 0
+        form.excludeBudget = false
+      }
+    })
 
     function openPersonPicker() {
       if (loanPeople.value.length === 0) {
@@ -1482,6 +1514,7 @@ export default {
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
       currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions, onFlagsUpdate,
+      reimburseDisabled,
       showPersonPicker, openPersonPicker, onPersonSelect,
       currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
