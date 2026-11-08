@@ -302,6 +302,14 @@ export function compareRangeLabel(cr) {
     // 跨年对比时把年份也写出来，否则「对比 12/01~12/08」看不出是哪一年
     return Number(y) === curYear ? `${m}/${dd}` : `${y}/${m}/${dd}`
   }
-  const why = cr.align === 'year' ? '去年同期' : cr.align === 'month' ? '上月同期' : '等长区间'
-  return `对比 ${f(cr.prevStart)}~${f(cr.prevEnd)}（${why}）`
+  /*
+   * ★ 不再带「（上月同期）」这种括号说明（本轮用户第 9b 条）★
+   *   用户原话「「对比...」后面的两个括号及其内容删除，
+   *   保持现有字号显示在同比变化和环比变化之后，同行」。
+   *   括号里的「上月同期 / 去年同期 / 等长区间」属于解释性文字，
+   *   放在标题后面会把「对比 10/01~10/08」挤到换行，
+   *   而对比哪两段日期本身已经把话说清楚了。
+   *   align 字段仍然返回给调用方，需要时可用（比如以后做 tooltip）。
+   */
+  return `对比 ${f(cr.prevStart)}~${f(cr.prevEnd)}`
 }

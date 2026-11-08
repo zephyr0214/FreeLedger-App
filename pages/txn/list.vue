@@ -344,7 +344,7 @@ import {
 } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
-import { reimburseBadge } from '@/utils/reimburseBadge.js'
+import { reimburseBadge, notCountedBadge } from '@/utils/reimburseBadge.js'
 import { parseAmountInput } from '@/utils/money.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -1043,6 +1043,14 @@ export default {
       // 报销状态徽标（待报销 / 已报销，见 utils/reimburseBadge.js）
       const rb = reimburseBadge(txn)
       if (rb) list.push(rb)
+      /*
+       * ★ 不计收支徽标（本轮用户第 7 条）★
+       *   借款四类、待报销、报销到账/坏账/盈余都是 exclude_from_stats，
+       *   以前它们在列表里长得和普通流水一样，用户看不出「这笔没进统计」。
+       *   和报销徽标并排显示：一笔账可能同时是「待报销」+「不计收支」。
+       */
+      const nc = notCountedBadge(txn)
+      if (nc) list.push(nc)
 
       // 用户标签
       const ids = txn.tag_ids

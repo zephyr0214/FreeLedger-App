@@ -620,8 +620,8 @@ export function splitLoanEpisodes(txns, pair) {
  * 返回的每一项在原 segment 上多了几个字段：
  *   rowIndex            段序号（页面记折叠状态用）
  *   collapsed           这一段的流水是否折叠成一行摘要
- *   showDividerBefore   这一段前面是否画「已结清」分割标注
- *   dividerText         分割标注文案（日期取**上一段**的收口日）
+ *   showDividerBefore   恒为 false（分割标注已按用户要求删除），保留字段是为了不破坏调用方
+ *   dividerText         结清日期文案「已结清 · YYYY-MM-DD」（页面暂不使用）
  *   collapseText        折叠条文案「已结清 N 笔 · 点击展开」
  *   showCollapseBtn     展开后是否给「收起」入口
  *
@@ -667,7 +667,14 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
      */
     const prev = i > 0 ? ordered[i - 1] : null
     const prevDay = (prev && prev.closingDay) || ''
-    const showDividerBefore = status === 'settled' && i > 0
+    /*
+     * ★ 分割标注已按用户要求删除（本轮第 8 条）★
+     *   用户原话「已结清页面…你给「已结清」上下都添加了分割线，现在删除
+     *   两个分割线，复原」。所以这里不再产出 showDividerBefore。
+     *   dividerText 仍然保留在返回值里 —— 它不影响渲染，
+     *   但页面以后若要改成「在折叠条上显示结清日期」可以直接用。
+     */
+    const showDividerBefore = false
 
     /*
      * ★ 未结清 tab：历史已结清的段默认折叠 ★
@@ -806,9 +813,16 @@ export async function settleLoanPerson(person, direction = LOAN_DIRECTIONS.lend)
     note: name,
     occurred_day: toDayKey(now),
     occurred_at: now.getTime(),
-    // 计入收支、不占预算
+    /*
+     * ★ 结清派生的这三类要**占预算**（本轮用户第 5 条）★
+     *   用户原话「借出坏账 / 借入利息 / 报销坏账这三类要默认计入预算」。
+     *   以前这里写的是 exclude_from_budget: true，理由是「它们不是消费」——
+     *   但用户的口径是「真实损益就该算进来」：坏账是实际损失、
+     *   借入利息是实际多付的钱，都占用了这个月的可花额度。
+     *   exclude_from_stats 仍然是 false（计入收支），这条不变。
+     */
     exclude_from_stats: false,
-    exclude_from_budget: true,
+    exclude_from_budget: false,
     tag_ids: []
   })
 

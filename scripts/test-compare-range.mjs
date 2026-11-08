@@ -149,11 +149,16 @@ check('算不出且本期为 0 → 破折号', percentText(null, 0), '—')
 
 {
   const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY)
-  check('本月到今天的文案', compareRangeLabel(cr), '对比 10/01~10/08（上月同期）')
+  /*
+   * ★ 括号说明已删除（本轮第 9b 条）★
+   *   用户要求「对比...后面的两个括号及其内容删除」。
+   */
+  check('本月到今天的文案（不再带括号说明）', compareRangeLabel(cr), '对比 10/01~10/08')
 }
 {
   const cr = buildCompareRange({ startDay: '2026-01-01', endDay: '2026-12-31' }, TODAY)
-  check('整年文案带年份', /去年同期/.test(compareRangeLabel(cr)), true)
+  check('整年文案带年份', /\d{4}\/\d{2}\/\d{2}/.test(compareRangeLabel(cr)), true)
+  check('整年文案也不带括号说明', /\(/.test(compareRangeLabel(cr)), false)
 }
 
 console.log('=== 8. 环比模式（紧邻等长区间）===')

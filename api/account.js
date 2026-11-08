@@ -270,9 +270,23 @@ export async function getAssetOverview() {
        WHERE deleted_at IS NULL AND archived = 0 AND include_in_total = 1`
     ),
     queryOne(
+      /*
+       * ★ 借入侧的四类都要算（本轮用户第 3 条）★
+       *   用户原话「负债也存在逻辑问题，已结清就不再计算了」。
+       *   以前只算「借入 - 借款归还」，漏了结清时自动生成的两笔：
+       *     · 借入未还（income，对方免掉剩下的）→ 债务被勾销，要**减**
+       *     · 借入利息（expense，我还多了）    → 多付的部分，要**加**
+       *   漏掉它们，一个已经「手动结清」的人，负债里还挂着一笔未还的钱 ——
+       *   因为结清那笔金额记在「借入未还」上，而旧 SQL 根本不看它。
+       *   ★ 口径必须与 api/loan.js 的 splitLoanEpisodes 完全一致 ★
+       *     balance = 借入 - 借入未还 + 借入利息 - 借款归还
+       *     这样「已结清的人 balance 为 0」在两边同时成立，不会再对不上。
+       */
       `SELECT COALESCE(SUM(
                 CASE WHEN t.type = 'income'  AND c.name = '借入'     THEN t.amount_cents
                      WHEN t.type = 'expense' AND c.name = '借款归还' THEN -t.amount_cents
+                     WHEN t.type = 'income'  AND c.name = '借入未还' THEN -t.amount_cents
+                     WHEN t.type = 'expense' AND c.name = '借入利息' THEN t.amount_cents
                      ELSE 0 END), 0) AS loan_debt
        FROM txn t
        JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
@@ -323,9 +337,23 @@ export async function getAssetOverview() {
  */
 export async function getOutstandingLending() {
   const row = await queryOne(
+    /*
+     * ★ 借出侧的四类都要算（本轮用户第 3 条）★
+     *   用户原话「应收存在逻辑问题，应该是当前借出和当前之和，结清的就不要再算了」。
+     *   实际错在哪：以前只算「借出 - 借款收回」，漏了手动结清时自动生成的两笔：
+     *     · 借出坏账（expense，收不回来的部分）→ 这笔应收已经核销，要**减**
+     *     · 借出利息（income，对方多还的）    → 多收回的钱，要**加**
+     *   漏掉「借出坏账」的后果最明显：一个人 500 块只还了 300、
+     *   手动结清后记了 200 坏账，页面上的「应收」却还是 500 —— 永远归不了零。
+     *   ★ 口径必须与 api/loan.js 的 splitLoanEpisodes 完全一致 ★
+     *     balance = 借出 - 借出坏账 + 借出利息 - 借款收回
+     *   这样「已结清的人余额为 0」在两边同时成立 —— 结了就不再算。
+     */
     `SELECT COALESCE(SUM(
               CASE WHEN t.type = 'expense' AND c.name = '借出'     THEN t.amount_cents
                    WHEN t.type = 'income'  AND c.name = '借款收回' THEN -t.amount_cents
+                   WHEN t.type = 'expense' AND c.name = '借出坏账' THEN -t.amount_cents
+                   WHEN t.type = 'income'  AND c.name = '借出利息' THEN t.amount_cents
                    ELSE 0 END), 0) AS lending
      FROM txn t
      JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL

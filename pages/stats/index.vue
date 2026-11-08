@@ -78,14 +78,14 @@
             <view class="seg-toggle seg-toggle--sm">
               <text
                 class="seg-item"
-                :class="{ active: categoryLevel === 'sub' }"
-                @click="switchCategoryLevel('sub')"
-              >二级</text>
-              <text
-                class="seg-item"
                 :class="{ active: categoryLevel === 'root' }"
                 @click="switchCategoryLevel('root')"
               >一级</text>
+              <text
+                class="seg-item"
+                :class="{ active: categoryLevel === 'sub' }"
+                @click="switchCategoryLevel('sub')"
+              >二级</text>
             </view>
             <view class="seg-toggle seg-toggle--sm">
               <text
@@ -319,28 +319,40 @@
         <view v-else-if="engel.food === 0" class="card-empty">
           <text class="empty-text">这段时间在选中的食品分类上没有支出</text>
         </view>
-        <view v-else class="engel-body">
-          <view class="engel-main">
-            <text class="engel-value">{{ engel.ratio }}<text class="engel-unit">%</text></text>
+        <!--
+          ★ 左右两列（本轮用户第 10 条）★
+            左：选定区间的系数
+            右：所有数据合起来的系数（全部时间）
+            同一个数字在不同区间下会差很多，并列才能判断
+            「这段时间是不是偏离了我平时的水平」。
+          ★ 不再罗列食品分类名 ★
+            用户原话「恩格尔系数不要罗列出来下方分类名」。
+            那几个标签占一整行却只说明「选了哪几个分类」，
+            而那件事去组件管理里看就行。
+        -->
+        <view v-else class="engel-split">
+          <!-- 左：选定区间 -->
+          <view class="engel-col">
+            <text class="engel-col-label">本区间</text>
+            <text class="engel-value" :style="{ color: engelColor }">{{ engel.ratio }}<text class="engel-unit">%</text></text>
             <text class="engel-level" :style="{ color: engelColor }">{{ engelLevel }}</text>
-          </view>
-          <view class="engel-rows">
-            <view class="engel-row">
-              <text class="engel-row-label">食品支出</text>
-              <text class="engel-row-value">¥{{ (engel.food / 100).toFixed(2) }}</text>
-            </view>
-            <view class="engel-row">
-              <text class="engel-row-label">总支出</text>
-              <text class="engel-row-value">¥{{ (engel.total / 100).toFixed(2) }}</text>
+            <view class="engel-costs">
+              <text class="engel-cost">食品 ¥{{ (engel.food / 100).toFixed(2) }}</text>
+              <text class="engel-cost">总 ¥{{ (engel.total / 100).toFixed(2) }}</text>
             </view>
           </view>
-          <!-- 用户选中的食品分类名，让人知道这个数是怎么来的 -->
-          <view v-if="engelFoodNames.length" class="engel-tags">
-            <text
-              v-for="n in engelFoodNames"
-              :key="n"
-              class="engel-tag"
-            >{{ n }}</text>
+
+          <view class="engel-split-line" />
+
+          <!-- 右：全部数据 -->
+          <view class="engel-col">
+            <text class="engel-col-label">全部</text>
+            <text class="engel-value" :style="{ color: engelAllColor }">{{ engelAllText }}<text class="engel-unit">%</text></text>
+            <text class="engel-level" :style="{ color: engelAllColor }">{{ engelAllLevel }}</text>
+            <view class="engel-costs">
+              <text class="engel-cost">食品 ¥{{ (engelAll.food / 100).toFixed(2) }}</text>
+              <text class="engel-cost">总 ¥{{ (engelAll.total / 100).toFixed(2) }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -368,26 +380,37 @@
           <text class="card-sub">结余占收入的比例</text>
         </view>
 
-        <view v-if="savings.income === 0" class="card-empty">
+        <!--
+          ★ 左右两列（本轮用户第 10 条）★
+            左：选定区间的储蓄率
+            右：所有数据的储蓄率
+            ★ 两边都没收入时才整块空态 ★
+              只要一边有数就该显示对比（比如选中一个没收入的月，
+              但全部数据里有收入，那正是用户需要看的对比）。
+        -->
+        <view v-if="savings.income === 0 && savingsAll.income === 0" class="card-empty">
           <text class="empty-text">这段时间没有收入，算不出储蓄率</text>
         </view>
-        <view v-else class="savings-body">
-          <view class="savings-main">
-            <text class="savings-value" :style="{ color: savingsColor }">{{ savings.rate }}<text class="savings-unit">%</text></text>
+        <view v-else class="savings-split">
+          <view class="savings-col">
+            <text class="savings-col-label">本区间</text>
+            <text class="savings-value" :style="{ color: savingsColor }">{{ savings.rate === null ? '—' : savings.rate }}<text v-if="savings.rate !== null" class="savings-unit">%</text></text>
             <text class="savings-level" :style="{ color: savingsColor }">{{ savingsHint }}</text>
+            <view class="savings-costs">
+              <text class="savings-cost">结余 ¥{{ (savings.balance / 100).toFixed(2) }}</text>
+              <text class="savings-cost">收入 ¥{{ (savings.income / 100).toFixed(2) }}</text>
+            </view>
           </view>
-          <view class="savings-rows">
-            <view class="savings-row">
-              <text class="savings-row-label">收入</text>
-              <text class="savings-row-value">¥{{ (savings.income / 100).toFixed(2) }}</text>
-            </view>
-            <view class="savings-row">
-              <text class="savings-row-label">支出</text>
-              <text class="savings-row-value">¥{{ (savings.expense / 100).toFixed(2) }}</text>
-            </view>
-            <view class="savings-row">
-              <text class="savings-row-label">结余</text>
-              <text class="savings-row-value">¥{{ (savings.balance / 100).toFixed(2) }}</text>
+
+          <view class="savings-split-line" />
+
+          <view class="savings-col">
+            <text class="savings-col-label">全部</text>
+            <text class="savings-value" :style="{ color: savingsAllColor }">{{ savingsAll.rate === null ? '—' : savingsAll.rate }}<text v-if="savingsAll.rate !== null" class="savings-unit">%</text></text>
+            <text class="savings-level" :style="{ color: savingsAllColor }">{{ savingsAllHint }}</text>
+            <view class="savings-costs">
+              <text class="savings-cost">结余 ¥{{ (savingsAll.balance / 100).toFixed(2) }}</text>
+              <text class="savings-cost">收入 ¥{{ (savingsAll.income / 100).toFixed(2) }}</text>
             </view>
           </view>
         </view>
@@ -466,14 +489,14 @@
             <view class="seg-toggle seg-toggle--sm">
               <text
                 class="seg-item"
-                :class="{ active: averageLevel === 'sub' }"
-                @click="switchAverageLevel('sub')"
-              >二级</text>
-              <text
-                class="seg-item"
                 :class="{ active: averageLevel === 'root' }"
                 @click="switchAverageLevel('root')"
               >一级</text>
+              <text
+                class="seg-item"
+                :class="{ active: averageLevel === 'sub' }"
+                @click="switchAverageLevel('sub')"
+              >二级</text>
             </view>
             <view class="seg-toggle seg-toggle--sm">
               <text
@@ -683,7 +706,7 @@ export default {
      *   共用一个开关会把两件事绑死。
      */
     const comparisonType = ref('expense')
-    const comparisonLevel = ref('sub')
+    const comparisonLevel = ref('root')
 
     /*
      * ★ 账户统计视图：按账户 / 按账户类别 ★
@@ -699,8 +722,8 @@ export default {
      *   'sub' = 二级分类（午餐、外卖…，默认，贴近用户实际记的）
      *   'root' = 一级分类（餐饮、居住…，统计口径）
      */
-    const categoryLevel = ref('sub')
-    const averageLevel = ref('sub')
+    const categoryLevel = ref('root')
+    const averageLevel = ref('root')
 
     const categoryStats = ref([])
     const accountStats = ref([])
@@ -806,7 +829,7 @@ export default {
      *   共用一个 level/type 会让两个面板互相牵制 ——
      *   切同比的「收入」，环比也跟着变，完全不符合直觉。
      */
-    const momLevel = ref('sub')
+    const momLevel = ref('root')
     const momType = ref('expense')
 
     /**
@@ -829,21 +852,40 @@ export default {
      *   储蓄率不是越精确越好，用户要的是「我这段时间算不算会存钱」这个判断，
      *   三档（不错 / 一般 / 花超了）比一个精确到小数点的百分数更好用。
      */
-    const savingsColor = computed(() => {
-      const r = savings.value.rate
-      if (r === null) return 'var(--app-text-3)'
+    /*
+     * ★ 颜色 / 文案抽成函数（本轮第 10 条需要两列）★
+     *   左右两列各算一次，内联两遍就是四遍。
+     *   抽出来后只改一处，两列永远一致。
+     */
+    function savingsColorOf(rate) {
+      const r = rate
+      if (r === null || r === undefined) return 'var(--app-text-3)'
       if (r >= 30) return 'var(--app-success)'
       if (r < 0) return 'var(--app-danger)'
       return 'var(--app-text-2)'
-    })
+    }
 
-    const savingsHint = computed(() => {
-      const r = savings.value.rate
-      if (r === null) return '没有收入'
+    function savingsHintOf(rate) {
+      const r = rate
+      if (r === null || r === undefined) return '没有收入'
       if (r >= 30) return '存得不错'
       if (r < 0) return '花超了'
       return '还算稳'
-    })
+    }
+
+    const savingsColor = computed(() => savingsColorOf(savings.value.rate))
+
+    const savingsHint = computed(() => savingsHintOf(savings.value.rate))
+
+    /*
+     * 右列：全部数据的储蓄率（本轮第 10 条）
+     *
+     * ★ 与 engelAll 同理：「当前区间」与「全部」必须分开存 ★
+     *   共用一个 ref 的话，切日期会把两列一起改掉，对比就没了意义。
+     */
+    const savingsAll = ref({ income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 })
+    const savingsAllColor = computed(() => savingsColorOf(savingsAll.value.rate))
+    const savingsAllHint = computed(() => savingsHintOf(savingsAll.value.rate))
 
     async function switchComparisonType(type) {
       if (comparisonType.value === type) return
@@ -904,20 +946,42 @@ export default {
      *   这套分法在学术上有争议，但对普通用户足够说明「你在食物上
      *   花的钱占比偏高还是偏低」，比只给一个百分数有用得多。
      */
-    const engelLevel = computed(() => {
-      const r = engel.value ? engel.value.ratio : 0
+    /*
+     * ★ 等级 / 颜色抽成公式（本轮第 10 条需要两列）★
+     *   以前只有一个结果，两个 computed 各自内联一遍。
+     *   现在左右两列各算一次（本区间 / 全部），
+     *   内联两遍变成四遍、且两列的分档口径会慢慢分岔。
+     *   抽出来后只要改一处，两列永远一致。
+     */
+    function engelLevelOf(ratio) {
+      const r = Number(ratio) || 0
       if (r < 30) return '富裕水平'
       if (r < 40) return '小康水平'
       if (r < 50) return '温饱水平'
       return '偏高'
-    })
+    }
 
-    const engelColor = computed(() => {
-      const r = engel.value ? engel.value.ratio : 0
+    function engelColorOf(ratio) {
+      const r = Number(ratio) || 0
       if (r < 40) return 'var(--app-success)'
       if (r < 50) return 'var(--app-text-2)'
       return 'var(--app-danger)'
-    })
+    }
+
+    const engelLevel = computed(() => engelLevelOf(engel.value ? engel.value.ratio : 0))
+    const engelColor = computed(() => engelColorOf(engel.value ? engel.value.ratio : 0))
+
+    /*
+     * 右列：全部数据的恩格尔系数（不限时间）
+     *
+     * ★ 为什么单独存一份、不复用 engel ★
+     *   engel 是「当前选中区间」的结果，用户切日期它就变；
+     *   右列是「不受日期影响的常年水平」，两者必须分开存。
+     */
+    const engelAll = ref({ total: 0, food: 0, ratio: 0, foodIds: [] })
+    const engelAllText = computed(() => (engelAll.value.total > 0 ? engelAll.value.ratio : '—'))
+    const engelAllLevel = computed(() => (engelAll.value.total > 0 ? engelLevelOf(engelAll.value.ratio) : '暂无数据'))
+    const engelAllColor = computed(() => (engelAll.value.total > 0 ? engelColorOf(engelAll.value.ratio) : 'var(--app-text-3)'))
 
     /**
      * 趋势图该按「日」还是「月」分桶
@@ -1172,6 +1236,16 @@ export default {
         console.warn('[stats] 储蓄率计算失败:', e && e.message)
         savings.value = { income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 }
       }
+      /*
+       * 右列：全部数据的储蓄率（本轮第 10 条）
+       * 空区间 = 不限时间，与 engelAll 同一口径。
+       */
+      try {
+        savingsAll.value = await getSavingsRate({ startDay: '', endDay: '', monthKey: '' })
+      } catch (e) {
+        console.warn('[stats] 全部储蓄率计算失败:', e && e.message)
+        savingsAll.value = { income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 }
+      }
 
       /*
        * 1d) 预算执行情况
@@ -1196,6 +1270,21 @@ export default {
         engelFoodIds.value = await getEngelFoodIds()
         await refreshEngelFoodNames()
         await refreshEngel()
+        /*
+         * 右列：全部数据的恩格尔系数（本轮第 10 条）
+         *
+         * ★ 不限时间 = 传一个空区间 ★
+         *   getEngelCoefficient 的 rangeScope 对空字符串不拼任何 where，
+         *   自然就是「全部数据」。不需要另一套 SQL。
+         * ★ 失败不影响左列 ★
+         *   右列是辅助对照，算不出来就显示「暂无数据」。
+         */
+        try {
+          engelAll.value = await getEngelCoefficient({ startDay: '', endDay: '', monthKey: '' }, engelFoodIds.value)
+        } catch (e2) {
+          console.warn('[stats] 全部数据恩格尔系数计算失败:', e2 && e2.message)
+          engelAll.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
+        }
       } catch (e) {
         console.warn('[stats] 恩格尔系数计算失败:', e && e.message)
         engel.value = null
@@ -1525,9 +1614,10 @@ export default {
       statsPanels, visiblePanels, panelVisible, panelOrderStyle,
       // 同比 / 环比（两块共用 components/StatsComparePanel.vue）
       comparison, comparisonType, comparisonLevel, momComparison, momLevel, momType,
-      savings, savingsColor, savingsHint, budgetExecution,
+      savings, savingsColor, savingsHint, savingsAll, savingsAllColor, savingsAllHint, budgetExecution,
       // 恩格尔系数
       engel, engelLevel, engelColor, engelFoodNames,
+      engelAll, engelAllText, engelAllLevel, engelAllColor,
       onRangeChange,
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
@@ -1563,56 +1653,68 @@ export default {
 
 /* ------------------------------------------------ 储蓄率 */
 
-.savings-body {
+/*
+ * 储蓄率：左右两列（本轮用户第 10 条）
+ *
+ * ★ 与恩格尔同一套排版 ★
+ *   两块面板都是「本区间 vs 全部」，长得一模一样才不会让人
+ *   以为是两个不同的东西；用同一组类名也能共用一部分样式。
+ */
+.savings-split {
   display: flex;
-  flex-direction: column;
-  gap: 20rpx;
+  align-items: stretch;
+  margin-top: 8rpx;
 }
 
-.savings-main {
+.savings-col {
+  flex: 1;
   display: flex;
-  align-items: baseline;
-  gap: 16rpx;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+/* 中间竖分隔：和恩格尔 / 不计入预算同一套视觉语言 */
+.savings-split-line {
+  width: 1rpx;
+  background-color: var(--app-line);
+  margin: 4rpx 20rpx;
+  flex-shrink: 0;
+}
+
+.savings-col-label {
+  font-size: 20rpx;
+  color: var(--app-text-3);
 }
 
 .savings-value {
-  font-size: 64rpx;
+  font-size: 52rpx;
   font-weight: 600;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
 .savings-unit {
-  font-size: 28rpx;
+  font-size: 24rpx;
   font-weight: 500;
 }
 
 .savings-level {
-  font-size: 24rpx;
+  font-size: 22rpx;
 }
 
-.savings-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 10rpx;
-  padding-top: 16rpx;
-  border-top: 1rpx solid var(--app-line);
-}
-
-.savings-row {
+/* 结余 / 收入：同一行小字 */
+.savings-costs {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 4rpx;
 }
 
-.savings-row-label {
-  font-size: 24rpx;
+.savings-cost {
+  font-size: 20rpx;
   color: var(--app-text-3);
-}
-
-.savings-row-value {
-  font-size: 24rpx;
-  color: var(--app-text-2);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1711,74 +1813,75 @@ export default {
 
 /* ------------------------------------------------ 恩格尔系数 */
 
-.engel-body {
+/*
+ * 恩格尔：左右两列（本轮用户第 10 条）
+ *
+ * ★ 为什么是并排而不是上下堆 ★
+ *   两个数字回答的是同一个问题（我在食物上花的占比），
+ *   只是一个限定在选中区间、一个是全部数据。
+ *   并排才能一眼看出「这段时间偏离了平时水平吗」。
+ */
+.engel-split {
   display: flex;
-  flex-direction: column;
-  gap: 20rpx;
+  align-items: stretch;
   margin-top: 8rpx;
 }
 
-.engel-main {
+.engel-col {
+  flex: 1;
   display: flex;
-  align-items: baseline;
-  gap: 16rpx;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+/* 中间竖分隔：和「不计入预算 ｜ 待报销」同一套视觉语言 */
+.engel-split-line {
+  width: 1rpx;
+  background-color: var(--app-line);
+  margin: 4rpx 20rpx;
+  flex-shrink: 0;
+}
+
+/* 列标签：本区间 / 全部 */
+.engel-col-label {
+  font-size: 20rpx;
+  color: var(--app-text-3);
 }
 
 .engel-value {
-  font-size: 64rpx;
+  font-size: 52rpx;
   font-weight: 600;
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
+  line-height: 1.1;
 }
 
 .engel-unit {
-  font-size: 28rpx;
+  font-size: 24rpx;
   font-weight: 400;
   color: var(--app-text-3);
   margin-left: 4rpx;
 }
 
 .engel-level {
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 500;
 }
 
-.engel-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 10rpx;
-}
-
-.engel-row {
+/* 食品 / 总额：同一行小字，省高度 */
+.engel-costs {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 4rpx;
 }
 
-.engel-row-label {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-}
-
-.engel-row-value {
-  font-size: 26rpx;
-  color: var(--app-text-2);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 被判为「吃」的分类标签：说明这个数是怎么来的 */
-.engel-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10rpx;
-}
-
-.engel-tag {
+.engel-cost {
   font-size: 20rpx;
   color: var(--app-text-3);
-  background-color: var(--app-card-2);
-  border-radius: 8rpx;
-  padding: 4rpx 12rpx;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 时间范围选择 */

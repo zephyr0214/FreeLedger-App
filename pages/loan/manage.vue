@@ -164,21 +164,6 @@
                 未结清 tab 不画：那边的已结清段本身就是折叠条，再画一条是重复信息。
               -->
               <!--
-                已结清分割标注（用户本轮第 4 条）
-                ★ 上下都要有分割线 ★
-                  用户原话「中间的已结清+日期的上下都应该有分割线，
-                  不应该只有下方有」。原来渲染的是「线 · 文字 · 线」这种
-                  **中间夹着**的形态，看着只有文字左右两条线；
-                  现在改成「整条横线 + 居中文字 + 整条横线」上下两行 ——
-                  上一条压住上一段的末尾，下一条开启下一段。
-              -->
-              <view v-if="ep.showDividerBefore" class="episode-divider">
-                <view class="episode-divider-rule" />
-                <text class="episode-divider-text">{{ ep.dividerText }}</text>
-                <view class="episode-divider-rule" />
-              </view>
-
-              <!--
                 未结清 tab：历史已结清的段默认折叠成这一行
                 ★ 折叠时只占一行高度 ★
                   点开才铺流水 —— 用户原话「自动折叠之前已结清的流水，可展开」。
@@ -214,7 +199,26 @@
                   </view>
 
                   <view class="txn-right">
-                    <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
+                    <!--
+                      ★ 已结清段的金额划删除线（本轮用户第 6 条）★
+                        用户原话「已结清的借出/借入价钱上也添加删除线」。
+                        已结清意味着这笔账已经两清、不再影响「当前借出」，
+                        划掉它和报销单里「已报销的原支出」是同一个视觉语言：
+                        **这个数已经不作数了**。
+                        ★ 只划金额，不划分类名和时间 ★
+                          划整行会像「这笔记录被作废」；划金额表达的才是
+                          「这个金额已结清」。
+                      -->
+                    <text v-if="ep.settled" class="amount-settled-strike">
+                      <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
+                    </text>
+                    <MoneyText
+                      v-else
+                      :cents="t.amount_cents"
+                      :type="t.type"
+                      :size="28"
+                      :weight="500"
+                    />
                     <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
                   </view>
                 </view>
@@ -1049,48 +1053,20 @@ const ICON_FALLBACK = {
 }
 
 /*
- * 「已结清」分割标注（只在已结清 tab、段与段之间）
+ * 已结清段的金额：划删除线（用户本轮第 6 条）
  *
- * ★ 两侧细线 + 中间文字 ★
- *   用户要求「每次结清的中间要做分割标注已结清」。
- *   两边各一条 --app-line 的线，中间夹一行 --app-text-3 的小字，
- *   和微信/支付宝账单里「以下为历史账单」那种分隔同一个观感。
- *
- * ★ 不给它加背景色 ★
- *   它压在两段流水之间，底色跟着卡片走最自然；
- *   加一层 --app-card-2 会在深色模式里变成一道明显的色带，
- *   看起来像「这两笔之间缺了一块」。
+ * ★ 为什么用 text-decoration 包一层而不是改 MoneyText ★
+ *   MoneyText 是所有金额的统一出口，给它加删除线开关会污染其它调用点。
+ *   这里是「这个数已经结清、不再计入当前借出」的纯展示语义。
+ *   ★ 为什么不用 opacity ★
+ *     压暗会让金额和其它行的对比度变化，看着像禁用态；
+ *     删除线只表达「不再作数」，两回事。
  */
-/*
- * 已结清分割标注：上横线 / 居中文字 / 下横线
- *
- * ★ 为什么用「三行竖排」而不是「文字左右各一条短横线」★
- *   之前是 `.episode-divider { display:flex }` + 两条 `flex:1` 的短横线，
- *   视觉上只有文字两侧各伸出一小段 —— 用户看到的截图里就是
- *   「已结清 · 2026-11-08」下面有一条线、上面没有。
- *   现在改成纵向排列的两条**通栏**横线，上一条压住上一段的末尾、
- *   下一条开启下一段，「一次结清到此为止」的分界感才出来。
- */
-.episode-divider {
+.amount-settled-strike {
+  text-decoration: line-through;
+  opacity: 0.7;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10rpx;
-  padding: 20rpx 24rpx;
-}
-
-.episode-divider-rule {
-  height: 1rpx;
-  background-color: var(--app-line);
-}
-
-/* 文字居中，两侧留白不做成线 —— 线已经是整条通栏了 */
-.episode-divider-text {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  flex-shrink: 0;
+  align-items: baseline;
 }
 
 .txn-item {

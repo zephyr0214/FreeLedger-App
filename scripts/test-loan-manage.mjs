@@ -227,7 +227,12 @@ check('组内按结清批次分段渲染', /v-for="\(ep, epIndex\) in episodeVie
 check('段内流水由 episodeTxns 取倒序副本', /v-for="t in episodeTxns\(ep\)"/.test(PAGE), true)
 check('分段与折叠规则来自 api/loan.js', /buildLoanEpisodeView/.test(PAGE), true)
 check('普通流水行有兜底分支', /v-else class="episode-txns"/.test(PAGE), true)
-check('有「已结清」分段的分割标注', /class="episode-divider"/.test(PAGE), true)
+/*
+ * ★ 分割标注已按用户要求删除（本轮第 8 条）★
+ *   用户原话「已结清页面…你给「已结清」上下都添加了分割线，
+ *   现在删除两个分割线，复原」。所以断言翻成「必须不存在」。
+ */
+check('已结清页不再有分割标注', /class="episode-divider/.test(PAGE), false)
 check('已结清旧段默认折叠可展开', /class="episode-collapsed"/.test(PAGE), true)
 check('不再有点开弹层看明细（showDetail/wd-popup）', /showDetail|<wd-popup/.test(PAGE), false)
 check(

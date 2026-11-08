@@ -413,27 +413,34 @@ check(
 check('折叠条渲染在页面里', /class="episode-collapsed"/.test(PAGE), true)
 check('折叠条可点开', /class="episode-collapsed"[\s\S]{0,200}?@click="toggleEpisode/.test(PAGE), true)
 check('展开后有收起入口', /class="episode-collapse-btn"/.test(PAGE), true)
-check('已结清 tab 有分割标注', /class="episode-divider-text"/.test(PAGE), true)
-check('分割标注文案含「已结清 · 日期」', /已结清 · \$\{prevDay\}/.test(LOAN), true)
+/*
+ * ★ 分割标注已按用户要求删除（本轮第 8 条）★
+ *   用户原话「已结清页面，如上一轮图所示，你给「已结清」上下都添加了
+ *   分割线，现在删除两个分割线，复原」。
+ *   所以这里从「必须存在」翻成「必须不存在」——
+ *   防止以后有人又把那段加回去。
+ */
+check('已结清 tab 不再有分割标注', /class="episode-divider/.test(PAGE), false)
+check('分割段落的样式也已删除', /\.episode-divider/.test(PAGE), false)
+check('结清日期文案仍由 api 提供（页面暂不用）', /已结清 · \$\{prevDay\}/.test(LOAN), true)
 check('折叠状态按 人员+段序号 记 key', /`\$\{person \|\| ''\}#\$\{index\}`/.test(PAGE), true)
 check('刷新后清理失效的折叠 key', /pruneEpisodeStates\(groups\.value\)/.test(PAGE), true)
 check('段内流水倒序渲染（最近的在前）', /v-for="t in episodeTxns\(ep\)"/.test(PAGE), true)
 /* 样式必须走 CSS 变量，不能写死深浅色 */
 /*
- * ★ 分割标注改成「上横线 / 文字 / 下横线」三行竖排（用户本轮第 4 条）★
- *   用户原话「中间的已结清+日期的上下都应该有分割线，不应该只有下方有」。
- *   以前是 `线 · 文字 · 线` 横向夹着（`flex:1` 的两条短线），
- *   视觉上只有文字两侧伸出一小段，像只有下面有线。
- *   现在两条线都是通栏，竖排上下各一条。
+ * ★ 已结清段的金额要划删除线（本轮第 6 条）★
+ *   用户原话「已结清的借出/借入价钱上也添加删除线」。
+ *   已结清 = 这笔账已两清、不再计入「当前借出」，
+ *   划掉金额和报销单里「已报销的原支出」是同一个视觉语言。
  */
 check(
-  '分割线用 --app-line',
-  /\.episode-divider-rule\s*\{[^}]*var\(--app-line\)/.test(PAGE),
+  '已结清段的金额划删除线',
+  /v-if="ep\.settled"[\s\S]{0,120}?amount-settled-strike/.test(PAGE),
   true
 )
 check(
-  '分割标注上下各有一条横线',
-  (PAGE.match(/episode-divider-rule/g) || []).length >= 3,
+  '删除线样式用 text-decoration',
+  /\.amount-settled-strike\s*\{[^}]*text-decoration:\s*line-through/.test(PAGE),
   true
 )
 check(
@@ -483,9 +490,9 @@ check(
   [0, 1]
 )
 check(
-  '已结清 tab：全部展开，段与段之间画分割标注',
+  '已结清 tab：全部展开，不再画分割标注',
   buildLoanEpisodeView(EPS_THREE, { status: 'settled' }).map((v) => [v.collapsed, !!v.showDividerBefore]),
-  [[false, false], [false, true]]
+  [[false, false], [false, false]]
 )
 check(
   '分割标注日期取上一段的收口日',

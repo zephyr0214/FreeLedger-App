@@ -1236,15 +1236,30 @@ export async function getPeriodComparison(range, opt = {}) {
    *   一列柱子看着像同一类被拆成好几个，所以按序取互不相同的颜色。
    */
   const catOf = async (startDay, endDay) => {
-    const groupCol = level === 'sub' ? 't.category_id' : 'COALESCE(c.parent_id, c.id)'
+    /*
+     * ★ 一级模式下的名字/颜色必须取**父分类**的（本轮第 9a 条）★
+     *   用户反馈「一级二级分类切换逻辑有误，现实的分类很杂乱」。
+     *   根因：原来无论哪个层级都用 `c.name / c.color`（c = 交易挂的**叶子**分类），
+     *   而分组键是 `COALESCE(c.parent_id, c.id)`。
+     *   于是一级模式下「餐饮食品」这一组的名字，取到的是该组里
+     *   某一笔交易碰巧用的那个二级名（「午餐」「外卖」「奶茶」…随 SQL 返回顺序），
+     *   同一个一级分类在不同区间会显示成不同的名字 —— 看着就是「很杂乱」。
+     *   现在额外 LEFT JOIN 父分类 p：一级模式取 p.name/p.color，
+     *   二级模式仍取叶子自己的。（和统计页「分类统计」的取法统一。）
+     */
+    const isRoot = level !== 'sub'
+    const groupCol = isRoot ? 'COALESCE(c.parent_id, c.id)' : 't.category_id'
+    const nameExpr = isRoot ? "COALESCE(p.name, c.name, '未分类')" : "COALESCE(c.name, '未分类')"
+    const colorExpr = isRoot ? "COALESCE(p.color, c.color, '#969799')" : "COALESCE(c.color, '#969799')"
     const rows = await query(
       `SELECT ${groupCol} AS root_id,
-              COALESCE(c.name, '未分类') AS name,
-              COALESCE(c.color, '#969799') AS color,
+              ${nameExpr} AS name,
+              ${colorExpr} AS color,
               SUM(t.amount_cents) AS amt,
               COUNT(*) AS cnt
        FROM txn t
        LEFT JOIN category c ON c.id = t.category_id
+       LEFT JOIN category p ON p.id = c.parent_id
        WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}
          AND t.occurred_day >= ? AND t.occurred_day <= ?
        GROUP BY root_id`,

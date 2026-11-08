@@ -227,16 +227,13 @@
               </view>
 
               <view class="txn-info">
-                <view class="txn-name-row">
-                  <text class="txn-name ellipsis">{{ d.category_name }}</text>
-                  <!--
-                    ★ 标注「不计入笔数」★
-                      用户明确要求「报销返还/盈余/坏账也列入下方报销单，
-                      但不计入报销笔数」。不标的话，卡头写 3 笔、
-                      下面列了 4 行，会让人以为笔数算错了。
-                  -->
-                  <text class="derived-tag">不计入笔数</text>
-                </view>
+                <!--
+                  ★ 不再标「不计入笔数」（本轮用户第 1 条）★
+                    用户原话「不要显示不计入笔数」。
+                    笔数只在卡头出现一次，明细行不必逐条解释自己算不算 ——
+                    这几行本来就是「这次报销产生的结果」，语义已经清楚了。
+                -->
+                <text class="txn-name ellipsis">{{ d.category_name }}</text>
                 <text class="txn-sub ellipsis">{{ txnSub(d) }}</text>
               </view>
 
@@ -1041,14 +1038,6 @@ export default {
   color: var(--app-text);
 }
 
-/* 派生流水那一行：分类名 + 「不计入笔数」标签横排 */
-.txn-name-row {
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-  min-width: 0;
-}
-
 .txn-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
@@ -1248,19 +1237,17 @@ export default {
 }
 
 /* 派生流水那一行：整行略微退后一档，视觉上从属于这张单 */
+/*
+ * 派生流水（报销到账 / 盈余 / 坏账）
+ *
+ * ★ 底色和普通流水一致（本轮用户第 1 条）★
+ *   用户原话「底色与正常流水一致，不要灰色」。
+ *   以前给了一档 --app-card-2 的浅灰，本意是「这行不是普通支出」，
+ *   但同一张单里一半灰一半白，反而像加载中的占位行。
+ *   现在只靠分类名（报销到账/盈余/坏账）和金额颜色区分，底色统一。
+ */
 .txn-item-derived {
-  background-color: var(--app-card-2);
-}
-
-/* 「不计入笔数」标签：低调的小胶囊，和「历史」标签同一套做法 */
-.derived-tag {
-  font-size: 18rpx;
-  line-height: 1;
-  padding: 4rpx 10rpx;
-  border-radius: 8rpx;
-  color: var(--app-text-3);
   background-color: var(--app-card);
-  flex-shrink: 0;
 }
 
 /* 单里没有明细时的兜底（明细被删光 / 备份被裁过） */

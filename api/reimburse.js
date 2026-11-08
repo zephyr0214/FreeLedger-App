@@ -319,7 +319,21 @@ export async function reimburseTxns(input) {
       ]
     )
 
-    // 2) 差额 → 坏账 / 盈余
+    /*
+     * 2) 差额 → 坏账 / 盈余
+     *
+     * ★ 这一笔要占预算（本轮用户第 5 条）★
+     *   用户原话「借出坏账 / 借入利息 / 报销坏账这三类要默认计入预算」。
+     *   报销坏账是实实在在的损失，占用了这个月的可花额度；
+     *   以前给它 exclude_from_budget = 1（当成「不是消费」），
+     *   结果预算里的「已用」比实际感受少一块 —— 用户能感觉到不对劲。
+     *   报销盈余是收入，本来就不进预算的分子，标记成 0 也无副作用。
+     *
+     * ★ 「报销到账」保持 exclude_from_budget = 1 ★
+     *   它只是把钱从公司挪回自己账户（income），不是新挣的钱；
+     *   预算只统计支出，对 income 那两个值本来就没有影响，
+     *   这里不改是为了让「到账这一笔不参与任何预算口径」这个语义更明确。
+     */
     let badDebtCents = 0
     let surplusCents = 0
     const diff = totalCents - originCents
@@ -336,7 +350,7 @@ export async function reimburseTxns(input) {
           created_at, updated_at, deleted_at, cycle_id, via_combo_id,
           original_currency, original_amount_cents, exchange_rate,
           exclude_from_budget, exclude_from_stats, reimburse_status, batch_id
-        ) VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,NULL,NULL,NULL,NULL,NULL,NULL,1,0,0,?)`,
+        ) VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,NULL,NULL,NULL,NULL,NULL,NULL,0,0,0,?)`,
         [
           prefixedId('txn'),
           isBadDebt ? 'expense' : 'income',

@@ -1,20 +1,29 @@
 <template>
   <view class="card">
+    <!--
+      ★ 标题 + 对比说明同一行（本轮用户第 9b 条）★
+        用户原话「「对比...」后面的两个括号及其内容删除，保持现有字号
+        显示在同比变化和环比变化之后，同行」。
+        所以「对比 10/01~10/08」跟在标题后面、同字号同色，不再单独占一行。
+    -->
     <view class="card-head">
-      <text class="card-title">{{ title }}</text>
+      <view class="card-head-left">
+        <text class="card-title">{{ title }}</text>
+        <text class="cmp-range-hint">{{ rangeHint }}</text>
+      </view>
       <view class="card-head-right">
-        <!-- ★ 一级/二级分类切换：与分类统计同款，放左边 ★ -->
+        <!-- ★ 一级/二级切换：一级在前、默认选中一级（本轮第 11 条）★ -->
         <view class="seg-toggle seg-toggle--sm">
-          <text
-            class="seg-item"
-            :class="{ active: level === 'sub' }"
-            @click="pickLevel('sub')"
-          >二级</text>
           <text
             class="seg-item"
             :class="{ active: level === 'root' }"
             @click="pickLevel('root')"
           >一级</text>
+          <text
+            class="seg-item"
+            :class="{ active: level === 'sub' }"
+            @click="pickLevel('sub')"
+          >二级</text>
         </view>
         <view class="seg-toggle seg-toggle--sm">
           <text
@@ -31,9 +40,6 @@
       </view>
     </view>
 
-    <!-- 对比窗口说明：区间被今天截断时把「到今天」写清楚 -->
-    <text class="cmp-range-hint">{{ rangeHint }}</text>
-
     <template v-if="comparison">
       <!--
         上半：两项变化并排
@@ -42,39 +48,51 @@
           并排后一眼能对照着看（花了更多但结余反而更多 = 收入涨得更凶）；
           上下堆会让第二项掉出首屏，用户只看到一半。
       -->
+      <!--
+        上半两项（本轮用户第 9c 条）
+        ★ 不显示正负号，改用上下箭头 ★
+          带符号的 -1234.00 要先看符号再看数，箭头一眼就知道方向。
+        ★ 百分比字号大、金额字号小 ★
+          百分比是「变化多剧烈」的结论，金额是补充证据。
+        ★ 本期 / 上期分两行 ★
+          金额不带符号、不带颜色语义：又带箭头又带正负号会重复表达。
+      -->
       <view class="cmp-top">
         <view class="cmp-top-item">
           <text class="cmp-top-label">{{ type === 'expense' ? '支出变化' : '收入变化' }}</text>
-          <view class="cmp-top-values">
+          <view class="cmp-top-main">
             <text class="cmp-top-pct" :style="{ color: top1.color }">{{ top1.pctText }}</text>
-            <MoneyText
-              :cents="top1.diff"
-              variant="balance"
-              :size="30"
-              :weight="600"
-            />
+            <text class="cmp-top-arrow" :style="{ color: top1.color }">{{ top1.arrow }}</text>
           </view>
-          <text class="cmp-top-sub">{{ top1.subText }}</text>
+          <view class="cmp-top-amounts">
+            <text class="cmp-top-amount">本期 ¥{{ top1.curText }}</text>
+            <text class="cmp-top-amount">上期 ¥{{ top1.prevText }}</text>
+          </view>
         </view>
 
         <view class="cmp-top-line" />
 
         <view class="cmp-top-item">
           <text class="cmp-top-label">结余变化</text>
-          <view class="cmp-top-values">
+          <view class="cmp-top-main">
             <text class="cmp-top-pct" :style="{ color: balancePart.color }">{{ balancePart.pctText }}</text>
-            <MoneyText
-              :cents="balanceDiff"
-              variant="balance"
-              :size="30"
-              :weight="600"
-            />
+            <text class="cmp-top-arrow" :style="{ color: balancePart.color }">{{ balancePart.arrow }}</text>
           </view>
-          <text class="cmp-top-sub">{{ balancePart.subText }}</text>
+          <view class="cmp-top-amounts">
+            <text class="cmp-top-amount">本期 ¥{{ balancePart.curText }}</text>
+            <text class="cmp-top-amount">上期 ¥{{ balancePart.prevText }}</text>
+          </view>
         </view>
       </view>
 
-      <!-- 下半：各分类变化（一行一个分类，紧凑） -->
+      <!--
+        下半：每个分类一行（本轮用户第 9d 条）
+        ★ 金额 / 百分比 / 柱状图左边缘都要对齐 ★
+          三列都用固定宽度 + 左对齐，不再按内容长度各自浮动。
+        ★ 柱状图宽度缩短 ★
+          原来柱子 flex:1 吃掉剩余全部宽度，窄屏上数字被挤没；
+          现在给一个固定上限宽度。
+      -->
       <view v-if="comparison.categories.length === 0" class="card-empty">
         <text class="empty-text">这两段时间都没有可比的{{ type === 'expense' ? '支出' : '收入' }}</text>
       </view>
@@ -86,17 +104,14 @@
         >
           <view class="rank-dot" :style="{ backgroundColor: c.color }" />
           <text class="cmp-row-name ellipsis">{{ c.name }}</text>
-          <!-- 变化金额 + 百分比同一格，右对齐，扫视时数字成列 -->
-          <view class="cmp-row-num">
-            <text
-              class="cmp-row-diff"
-              :style="{ color: diffColor(c.diff) }"
-            >{{ diffText(c.diff) }}</text>
-            <text
-              class="cmp-row-pct"
-              :style="{ color: diffColor(c.diff) }"
-            >{{ percentText(c.pct, c.current) }}</text>
-          </view>
+          <text
+            class="cmp-row-diff"
+            :style="{ color: diffColor(c.diff) }"
+          >{{ diffText(c.diff) }}</text>
+          <text
+            class="cmp-row-pct"
+            :style="{ color: diffColor(c.diff) }"
+          >{{ percentText(c.pct, c.current) }}</text>
           <!-- 双向柱：中线固定在中点，向右多、向左少 -->
           <view class="cmp-row-bar">
             <view class="cmp-axis" />
@@ -112,6 +127,7 @@
           </view>
         </view>
       </view>
+
     </template>
 
     <view v-else class="card-empty">
@@ -150,7 +166,7 @@ export default {
      */
     comparison: { type: Object, default: null },
     /** 分类层级：'sub' 二级 / 'root' 一级 */
-    level: { type: String, default: 'sub' },
+    level: { type: String, default: 'root' },
     /** 收支方向：'expense' / 'income' */
     type: { type: String, default: 'expense' }
   },
@@ -199,7 +215,9 @@ export default {
     const top1 = computed(() => {
       const c = props.comparison
       const isExp = props.type === 'expense'
-      if (!c) return { diff: 0, pctText: '—', color: 'var(--app-text-3)', subText: '' }
+      if (!c) {
+        return { diff: 0, pctText: '—', arrow: '', color: 'var(--app-text-3)', curText: '0.00', prevText: '0.00' }
+      }
       const cur = isExp ? c.current.expense : c.current.income
       const prev = isExp ? c.previous.expense : c.previous.income
       const diff = cur - prev
@@ -208,15 +226,24 @@ export default {
       return {
         diff,
         pctText: percentText(pct, cur),
+        /*
+         * ★ 用箭头代替正负号（用户第 9c 条）★
+         *   上升 ↑ / 下降 ↓ / 持平—。与百分比同色，
+         *   因为它们表达的是同一件事（方向 + 幅度）。
+         */
+        arrow: diff > 0 ? '↑' : diff < 0 ? '↓' : '—',
         color: diffColor(diff),
-        subText: `本期 ¥${(cur / 100).toFixed(2)} · 上期 ¥${(prev / 100).toFixed(2)}`
+        curText: (cur / 100).toFixed(2),
+        prevText: (prev / 100).toFixed(2)
       }
     })
 
     /** 上半第二项：结余变化 */
     const balancePart = computed(() => {
       const c = props.comparison
-      if (!c) return { pctText: '—', color: 'var(--app-text-3)', subText: '' }
+      if (!c) {
+        return { pctText: '—', arrow: '', color: 'var(--app-text-3)', curText: '0.00', prevText: '0.00' }
+      }
       /*
        * ★ 结余的百分比要单独算 ★
        *   结余可以是负数，用普通百分比公式时分母为负会把方向翻反
@@ -226,10 +253,12 @@ export default {
       const pct = balanceChangePercent(c.current.balance, c.previous.balance)
       return {
         pctText: percentOnly(pct),
+        arrow: balanceDiff.value > 0 ? '↑' : balanceDiff.value < 0 ? '↓' : '—',
         color: balanceDiff.value > 0
           ? 'var(--app-success)'
           : balanceDiff.value < 0 ? 'var(--app-danger)' : 'var(--app-text-3)',
-        subText: `本期 ¥${(c.current.balance / 100).toFixed(2)} · 上期 ¥${(c.previous.balance / 100).toFixed(2)}`
+        curText: (c.current.balance / 100).toFixed(2),
+        prevText: (c.previous.balance / 100).toFixed(2)
       }
     })
 
@@ -285,12 +314,12 @@ export default {
 </script>
 
 <style scoped>
-/* 对比窗口说明（区间被今天截断时也写清楚） */
+/* 对比窗口说明：跟在标题后面、同行、同字号（用户第 9b 条） */
 .cmp-range-hint {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  display: block;
-  padding-bottom: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-left: 12rpx;
 }
 
 /*
@@ -301,7 +330,7 @@ export default {
 .cmp-top {
   display: flex;
   align-items: stretch;
-  padding: 8rpx 0 20rpx;
+  padding: 12rpx 0 24rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 
@@ -309,7 +338,7 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8rpx;
+  gap: 6rpx;
   min-width: 0;
 }
 
@@ -326,37 +355,46 @@ export default {
   color: var(--app-text-3);
 }
 
-.cmp-top-values {
+/* 百分比 + 箭头：字号大（用户要求「比例字号要大」） */
+.cmp-top-main {
   display: flex;
   align-items: baseline;
-  gap: 10rpx;
-  flex-wrap: wrap;
+  gap: 6rpx;
 }
 
-/* 百分比跟在金额旁边，字号小一号但同色 —— 两者是一件事的两种说法 */
 .cmp-top-pct {
-  font-size: 26rpx;
+  font-size: 40rpx;
   font-weight: 600;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
 }
 
-/* 本期 / 上期的绝对值：小字，回答「从多少变到多少」 */
-.cmp-top-sub {
+.cmp-top-arrow {
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* 本期 / 上期：两行小字（用户要求「金额字号要小」） */
+.cmp-top-amounts {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+}
+
+.cmp-top-amount {
   font-size: 20rpx;
   color: var(--app-text-3);
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /*
  * 下半：每个分类一行（用户要求「紧凑」）
  *
- * ★ 一行装下四样东西 ★
- *   色点 + 分类名 + （变化金额 / 百分比）+ 双向柱。
- *   原来名称和金额一行、柱子另起一行，几个分类就要占双倍行数。
+ * ★ 四列都左对齐、固定宽度 ★
+ *   用户原话「不同行的金额和百分比、柱状图左侧都左对齐」。
+ *   固定宽度才能让每一行的同一列落在同一个 x 坐标上；
+ *   用 flex 自适应的话，长名字那行会把后面三列往右挤。
  */
 .cmp-chart {
   display: flex;
@@ -368,52 +406,44 @@ export default {
 .cmp-row {
   display: flex;
   align-items: center;
-  gap: 12rpx;
+  gap: 10rpx;
   min-width: 0;
 }
 
+/* 分类名：超长省略（已有 .ellipsis），宽度固定 */
 .cmp-row-name {
   font-size: 24rpx;
   color: var(--app-text-2);
-  /*
-   * ★ 固定宽度而不是 flex:1 ★
-   *   让所有行的「金额 + 百分比」落在同一列上，扫视时数字成列；
-   *   flex:1 会让长名字那一行把数字挤到右边、短的又缩回来，参差不齐。
-   */
-  width: 180rpx;
+  width: 170rpx;
   flex-shrink: 0;
 }
 
-/* 变化金额 + 百分比：右对齐成两列数字 */
-.cmp-row-num {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 10rpx;
-  width: 200rpx;
-  flex-shrink: 0;
-}
-
+/* 变化金额：左对齐、固定宽，让每行的数字成列 */
 .cmp-row-diff {
   font-size: 24rpx;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  width: 130rpx;
+  flex-shrink: 0;
 }
 
+/* 百分比：左对齐、固定宽 */
 .cmp-row-pct {
-  font-size: 20rpx;
+  font-size: 22rpx;
   font-variant-numeric: tabular-nums;
-  opacity: 0.85;
+  width: 110rpx;
+  flex-shrink: 0;
 }
 
 /*
- * 柱状槽：高 14rpx，中线在 50%
- * 柱子用绝对定位往左/往右长，正数向右、负数向左。
+ * 柱状槽：宽度缩短（用户第 9d 条）
+ *   原来 flex:1 吃掉剩余全部宽度，窄屏上数字被挤没。
+ *   现在给一个固定上限宽度，对齐右侧但不再拉满。
  */
 .cmp-row-bar {
   position: relative;
-  flex: 1;
-  min-width: 100rpx;
+  width: 180rpx;
+  flex-shrink: 0;
   height: 14rpx;
   background-color: var(--app-card-2);
   border-radius: 7rpx;
@@ -450,6 +480,15 @@ export default {
   align-items: center;
   gap: 12rpx;
   flex-shrink: 0;
+}
+
+/* 左侧：标题 + 对比说明同行，长度不够时自己缩（不挤右侧切换器） */
+.card-head-left {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .card-title {
