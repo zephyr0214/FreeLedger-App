@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.23.5'
+export const APP_VERSION = '1.23.6'
 
 /**
  * 三段式版本号（兜底补零）
@@ -142,6 +142,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *     v1.23.3 schema 23   徽标顺序统一、已结清标注复原、顶部渐变对齐首页
  *     v1.23.4 schema 23   人名卡/个人信息卡渐变、同比环比排版细化
  *     v1.23.5 schema 23   修复报销页多选入口、tab 样式统一、暗色卡片分层
+ *     v1.23.6 schema 23   删除预算结转、预算执行口径修正
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -152,6 +153,27 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.23.6',
+    date: '2026-11-08',
+    schemaVersion: 23,
+    sections: [
+      {
+        title: '调整',
+        items: [
+          '删除预算结转功能：预算页的「未用完的预算结转到下一月」勾选框已移除，每个月的可用额度就是月预算本身',
+          '统计页「预算执行情况」：总额度只算月预算，不再把子预算也加进去'
+        ]
+      },
+      {
+        title: '修复',
+        items: [
+          '预算执行情况的额度虚高、执行率偏低（子预算花的就是月预算那同一笔钱，不能当成两份额度）',
+          '预算执行情况下方的明细里又列了一遍月预算，现在只列子预算'
+        ]
+      }
+    ]
+  },
   {
     version: '1.23.5',
     date: '2026-11-08',
