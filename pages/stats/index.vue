@@ -345,6 +345,118 @@
         </view>
       </view>
 
+      <!--
+        ③d 储蓄率
+
+        ★ 为什么用「结余 ÷ 收入」★
+          这是「赚的钱里存下了多少」最直白的定义。
+          支出占比、结余绝对值都回答不了这个问题 ——
+          月入 2 万花 1.5 万（存 25%）和月入 5 千花 4 千（存 20%），
+          光看花多少完全分不出谁更会存。
+
+        ★ 收入为 0 时不给百分比 ★
+          「没收入」和「一分没存」是两件事，显示 0% 会误导。
+          API 在这种情况下返回 rate: null，这里显示「—」+ 说明。
+      -->
+      <view
+        v-if="panelVisible('savings')"
+        class="card"
+        :style="panelOrderStyle('savings')"
+      >
+        <view class="card-head">
+          <text class="card-title">储蓄率</text>
+          <text class="card-sub">结余占收入的比例</text>
+        </view>
+
+        <view v-if="savings.income === 0" class="card-empty">
+          <text class="empty-text">这段时间没有收入，算不出储蓄率</text>
+        </view>
+        <view v-else class="savings-body">
+          <view class="savings-main">
+            <text class="savings-value" :style="{ color: savingsColor }">{{ savings.rate }}<text class="savings-unit">%</text></text>
+            <text class="savings-level" :style="{ color: savingsColor }">{{ savingsHint }}</text>
+          </view>
+          <view class="savings-rows">
+            <view class="savings-row">
+              <text class="savings-row-label">收入</text>
+              <text class="savings-row-value">¥{{ (savings.income / 100).toFixed(2) }}</text>
+            </view>
+            <view class="savings-row">
+              <text class="savings-row-label">支出</text>
+              <text class="savings-row-value">¥{{ (savings.expense / 100).toFixed(2) }}</text>
+            </view>
+            <view class="savings-row">
+              <text class="savings-row-label">结余</text>
+              <text class="savings-row-value">¥{{ (savings.balance / 100).toFixed(2) }}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!--
+        ③e 预算执行情况
+
+        ★ 只看「守住了没有」，不重复预算页的明细 ★
+          预算页负责编辑和管理，这里只回答「这段时间的额度用得怎么样」。
+          数据直接复用 getBudgetUsageRange（口径与预算页逐字一致），
+          不在统计层重写一遍算法 —— 两个地方各写一份，迟早一份漏了
+          「不计入预算」那个条件，用户就会看到两个不一样的百分比。
+      -->
+      <view
+        v-if="panelVisible('budget')"
+        class="card"
+        :style="panelOrderStyle('budget')"
+      >
+        <view class="card-head">
+          <text class="card-title">预算执行情况</text>
+          <text class="card-sub">{{ budgetExecution.over ? '已超支' : '未超支' }}</text>
+        </view>
+
+        <view v-if="!budgetExecution.hasBudget" class="card-empty">
+          <text class="empty-text">还没设预算，去「预算管理」加一个</text>
+        </view>
+        <view v-else>
+          <view class="budget-top">
+            <text class="budget-used" :style="{ color: budgetExecution.over ? 'var(--app-danger)' : 'var(--app-text)' }">
+              ¥{{ (budgetExecution.used / 100).toFixed(2) }}
+            </text>
+            <text class="budget-limit">/ ¥{{ (budgetExecution.limit / 100).toFixed(2) }}</text>
+            <text
+              class="budget-percent"
+              :style="{ color: budgetExecution.over ? 'var(--app-danger)' : 'var(--app-text-2)' }"
+            >{{ budgetExecution.percent }}%</text>
+          </view>
+          <view class="budget-bar">
+            <view
+              class="budget-bar-fill"
+              :style="{
+                width: Math.min(budgetExecution.percent, 100) + '%',
+                backgroundColor: budgetExecution.over ? 'var(--app-danger)' : primaryColor
+              }"
+            />
+          </view>
+
+          <view class="budget-list">
+            <view v-for="b in budgetExecution.items" :key="b.id" class="budget-item">
+              <text class="budget-item-name ellipsis">{{ b.name }}</text>
+              <view class="budget-item-bar">
+                <view
+                  class="budget-item-fill"
+                  :style="{
+                    width: Math.min(b.percent, 100) + '%',
+                    backgroundColor: b.over ? 'var(--app-danger)' : primaryColor
+                  }"
+                />
+              </view>
+              <text
+                class="budget-item-pct"
+                :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-2)' }"
+              >{{ b.percent }}%</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
       <!-- ④ 平均值：总体 + 各分类 -->
       <view v-if="panelVisible('average')" class="card" :style="panelOrderStyle('average')">
         <view class="card-head">
@@ -504,7 +616,7 @@ import {
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
   getSubCategoryAveragesRange,
   getDailyTrendRange, getAveragesRange, getTopExpensesRange,
-  getPeriodComparison, getEngelCoefficient,
+  getPeriodComparison, getEngelCoefficient, getSavingsRate, getBudgetExecution,
   PIE_PALETTE
 } from '@/api/stats.js'
 import { getEngelFoodIds } from '@/api/engel.js'
@@ -704,6 +816,34 @@ export default {
      *   返回结构完全一样，所以能共用同一个展示组件。
      */
     const momComparison = ref(null)
+
+    /** 储蓄率（null/0 收入时 rate 为 null，页面显示「—」） */
+    const savings = ref({ income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 })
+    /** 预算执行情况（hasBudget=false 显示空态） */
+    const budgetExecution = ref({ hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] })
+
+    /**
+     * 储蓄率的配色与一句人话
+     *
+     * ★ 三档而不是连续渐变 ★
+     *   储蓄率不是越精确越好，用户要的是「我这段时间算不算会存钱」这个判断，
+     *   三档（不错 / 一般 / 花超了）比一个精确到小数点的百分数更好用。
+     */
+    const savingsColor = computed(() => {
+      const r = savings.value.rate
+      if (r === null) return 'var(--app-text-3)'
+      if (r >= 30) return 'var(--app-success)'
+      if (r < 0) return 'var(--app-danger)'
+      return 'var(--app-text-2)'
+    })
+
+    const savingsHint = computed(() => {
+      const r = savings.value.rate
+      if (r === null) return '没有收入'
+      if (r >= 30) return '存得不错'
+      if (r < 0) return '花超了'
+      return '还算稳'
+    })
 
     async function switchComparisonType(type) {
       if (comparisonType.value === type) return
@@ -1018,6 +1158,29 @@ export default {
       } catch (e) {
         console.warn('[stats] 环比计算失败:', e && e.message)
         momComparison.value = null
+      }
+
+      /*
+       * 1c) 储蓄率（纯本地聚合，一次查询）
+       *
+       * ★ 放在 loadExtras 而不是主链 ★
+       *   它坏了只是少一块面板，不该让整页统计白屏。
+       */
+      try {
+        savings.value = await getSavingsRate(r)
+      } catch (e) {
+        console.warn('[stats] 储蓄率计算失败:', e && e.message)
+        savings.value = { income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 }
+      }
+
+      /*
+       * 1d) 预算执行情况
+       */
+      try {
+        budgetExecution.value = await getBudgetExecution(r)
+      } catch (e) {
+        console.warn('[stats] 预算执行计算失败:', e && e.message)
+        budgetExecution.value = { hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] }
       }
 
       /*
@@ -1362,6 +1525,7 @@ export default {
       statsPanels, visiblePanels, panelVisible, panelOrderStyle,
       // 同比 / 环比（两块共用 components/StatsComparePanel.vue）
       comparison, comparisonType, comparisonLevel, momComparison, momLevel, momType,
+      savings, savingsColor, savingsHint, budgetExecution,
       // 恩格尔系数
       engel, engelLevel, engelColor, engelFoodNames,
       onRangeChange,
@@ -1395,6 +1559,154 @@ export default {
 .panel-flow {
   display: flex;
   flex-direction: column;
+}
+
+/* ------------------------------------------------ 储蓄率 */
+
+.savings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.savings-main {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+
+.savings-value {
+  font-size: 64rpx;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-unit {
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.savings-level {
+  font-size: 24rpx;
+}
+
+.savings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--app-line);
+}
+
+.savings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.savings-row-label {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
+.savings-row-value {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------ 预算执行 */
+
+.budget-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+  margin-bottom: 14rpx;
+}
+
+.budget-used {
+  font-size: 40rpx;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-limit {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
+  flex: 1;
+}
+
+.budget-percent {
+  font-size: 26rpx;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.budget-bar {
+  position: relative;
+  height: 14rpx;
+  border-radius: 7rpx;
+  background-color: var(--app-card-2);
+  overflow: hidden;
+}
+
+.budget-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 7rpx;
+}
+
+/* 逐条预算：名字 + 迷你进度条 + 百分比，一行一条 */
+.budget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.budget-item {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.budget-item-name {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  width: 160rpx;
+  flex-shrink: 0;
+}
+
+.budget-item-bar {
+  position: relative;
+  flex: 1;
+  min-width: 80rpx;
+  height: 10rpx;
+  border-radius: 5rpx;
+  background-color: var(--app-card-2);
+  overflow: hidden;
+}
+
+.budget-item-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 5rpx;
+}
+
+.budget-item-pct {
+  font-size: 22rpx;
+  font-variant-numeric: tabular-nums;
+  width: 90rpx;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 /* ------------------------------------------------ 恩格尔系数 */
