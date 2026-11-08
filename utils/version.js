@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.23.4'
+export const APP_VERSION = '1.23.5'
 
 /**
  * 三段式版本号（兜底补零）
@@ -141,6 +141,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *     v1.23.2 schema 23   同比环比面板重做、恩格尔与储蓄率双列、不计收支徽标
  *     v1.23.3 schema 23   徽标顺序统一、已结清标注复原、顶部渐变对齐首页
  *     v1.23.4 schema 23   人名卡/个人信息卡渐变、同比环比排版细化
+ *     v1.23.5 schema 23   修复报销页多选入口、tab 样式统一、暗色卡片分层
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -151,6 +152,21 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.23.5',
+    date: '2026-11-08',
+    schemaVersion: 23,
+    sections: [
+      {
+        title: '修复',
+        items: [
+          '报销待报销页右上角「多选」入口不显示（判断条件引用了不存在的变量）',
+          '同比变化 / 环比变化右上角的切换按钮和「分类统计」长得不一样',
+          '暗色模式下借入借出的人名栏、报销单的应报实报栏看不清（层次不够）'
+        ]
+      }
+    ]
+  },
   {
     version: '1.23.4',
     date: '2026-11-08',

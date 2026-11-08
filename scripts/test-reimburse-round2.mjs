@@ -230,8 +230,8 @@ check(
 )
 check('备份导入也带上这两列', /exclude_from_budget, reimburse_status\)\s*\n\s*VALUES/.test(BACKUP), true)
 
-check('版本号是 1.23.4', APP_VERSION, '1.23.4')
-check('更新日志最新一条是 1.23.4', RELEASES[0].version, '1.23.4')
+check('版本号是 1.23.5', APP_VERSION, '1.23.5')
+check('更新日志最新一条是 1.23.5', RELEASES[0].version, '1.23.5')
 check('更新日志的 schemaVersion 与迁移对齐', RELEASES[0].schemaVersion, SCHEMA_VERSION)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

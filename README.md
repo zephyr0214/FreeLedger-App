@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.23.4-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.23.5-orange)](#)
 
 [中文](#中文) | [English](#english)
 
