@@ -254,142 +254,39 @@
       </view>
 
       <!--
-        ③b 同比变化
+        ③b 同比变化 / ③b2 环比变化
 
-        ★ 对比窗口（本轮用户第 2 条）★
-          「选中本月，应该是 11.1-今天 同比 10 月最后相同天的变化，
-           如果选中的范围全部有收支则全部同比」——
-          即**上月同期**（同一段号）、整年走去年同期、跨多月的自定义段走
-          紧挨着的等长区间；区间终点晚于今天时先截到今天。
-          换算全在 utils/compareRange.js（有单测），页面只负责展示。
+        ★ 两个面板共用组件 components/StatsComparePanel.vue ★
+          数据形状完全一样，只有对比窗口不同（同比=上月同期/去年同期，
+          环比=紧邻的上一段等长区间）。UI 写两份迟早长歪。
 
-        ★ 上半部分两项（用户原话「上方显示收入/结余或支出/结余二项」）★
-          支出模式 → 支出变化 + 结余变化
-          收入模式 → 收入变化 + 结余变化
-          结余永远在，因为「这段到底是更宽松还是更紧了」才是用户的真问题；
-          第一项跟着右上角切换走，想看「花得多了还是少了」就切支出。
-
-        ★ 两项都要**同时**显示百分比与金额（用户明确要求）★
-          百分比回答「相对变化多剧烈」，金额回答「实际差多少钱」，
-          缺一个就得自己心算 —— 而心算正是用户不想干的事。
-
-        ★ 下半部分：每个分类一行（用户要求「紧凑」）★
-          分类名 + 变化值 + 双向柱状图全在同一行，不再占两行。
-          向右 = 比上期多，向左 = 比上期少。
+        ★ 对比窗口怎么算 ★
+          全部在 utils/compareRange.js 的 buildCompareRange(range, today, mode)，
+          有 scripts/test-compare-range.mjs 逐条钉住（月末夹取 / 闰年 / 跨年 / 今天截断）。
       -->
-      <view v-if="panelVisible('comparison')" class="card" :style="panelOrderStyle('comparison')">
-        <view class="card-head">
-          <text class="card-title">同比变化</text>
-          <view class="card-head-right">
-            <!-- ★ 一级/二级分类切换：与分类统计同款，放左边（用户要求）★ -->
-            <view class="seg-toggle seg-toggle--sm">
-              <text
-                class="seg-item"
-                :class="{ active: comparisonLevel === 'sub' }"
-                @click="switchComparisonLevel('sub')"
-              >二级</text>
-              <text
-                class="seg-item"
-                :class="{ active: comparisonLevel === 'root' }"
-                @click="switchComparisonLevel('root')"
-              >一级</text>
-            </view>
-            <view class="seg-toggle seg-toggle--sm">
-              <text
-                class="seg-item"
-                :class="{ active: comparisonType === 'expense' }"
-                @click="switchComparisonType('expense')"
-              >支出</text>
-              <text
-                class="seg-item"
-                :class="{ active: comparisonType === 'income' }"
-                @click="switchComparisonType('income')"
-              >收入</text>
-            </view>
-          </view>
-        </view>
+      <StatsComparePanel
+        v-if="panelVisible('comparison')"
+        :style="panelOrderStyle('comparison')"
+        class="card"
+        title="同比变化"
+        :comparison="comparison"
+        :level="comparisonLevel"
+        :type="comparisonType"
+        @update:level="switchComparisonLevel"
+        @update:type="switchComparisonType"
+      />
 
-        <!-- 对比窗口说明：区间被今天截断时把「到今天」写清楚 -->
-        <text class="cmp-range-hint">{{ comparisonSub }}</text>
-
-        <template v-if="comparison">
-          <!-- 上半：两项同比（第一项跟支出/收入切换，第二项恒为结余） -->
-          <view class="cmp-top">
-            <view class="cmp-top-item">
-              <text class="cmp-top-label">{{ comparisonType === 'expense' ? '支出变化' : '收入变化' }}</text>
-              <view class="cmp-top-values">
-                <text class="cmp-top-pct" :style="{ color: cmpTop1.color }">{{ cmpTop1.pctText }}</text>
-                <MoneyText
-                  :cents="cmpTop1.diff"
-                  variant="balance"
-                  :size="30"
-                  :weight="600"
-                />
-              </view>
-              <text class="cmp-top-sub">{{ cmpTop1.subText }}</text>
-            </view>
-
-            <view class="cmp-top-line" />
-
-            <view class="cmp-top-item">
-              <text class="cmp-top-label">结余变化</text>
-              <view class="cmp-top-values">
-                <text class="cmp-top-pct" :style="{ color: cmpBalance.color }">{{ cmpBalance.pctText }}</text>
-                <MoneyText
-                  :cents="balanceDiff"
-                  variant="balance"
-                  :size="30"
-                  :weight="600"
-                />
-              </view>
-              <text class="cmp-top-sub">{{ cmpBalance.subText }}</text>
-            </view>
-          </view>
-
-          <!-- 下半：各分类同比（一行一个分类，紧凑） -->
-          <view v-if="comparison.categories.length === 0" class="card-empty">
-            <text class="empty-text">这两段时间都没有可比的{{ comparisonType === 'expense' ? '支出' : '收入' }}</text>
-          </view>
-          <view v-else class="cmp-chart">
-            <view
-              v-for="c in comparison.categories"
-              :key="c.id"
-              class="cmp-row"
-            >
-              <view class="rank-dot" :style="{ backgroundColor: c.color }" />
-              <text class="cmp-row-name ellipsis">{{ c.name }}</text>
-              <!-- 变化金额 + 百分比同一格，右对齐，扫视时数字成列 -->
-              <view class="cmp-row-num">
-                <text
-                  class="cmp-row-diff"
-                  :style="{ color: cmpDiffColor(c.diff) }"
-                >{{ cmpDiffText(c.diff) }}</text>
-                <text
-                  class="cmp-row-pct"
-                  :style="{ color: cmpDiffColor(c.diff) }"
-                >{{ percentText(c.pct, c.current) }}</text>
-              </view>
-              <!-- 双向柱：中线固定在中点，向右多、向左少 -->
-              <view class="cmp-row-bar">
-                <view class="cmp-axis" />
-                <view
-                  v-if="c.diff !== 0"
-                  class="cmp-bar"
-                  :style="{
-                    width: cmpBarWidth(c.diff) + '%',
-                    backgroundColor: cmpDiffColor(c.diff),
-                    left: c.diff > 0 ? '50%' : (50 - cmpBarWidth(c.diff)) + '%'
-                  }"
-                />
-              </view>
-            </view>
-          </view>
-        </template>
-
-        <view v-else class="card-empty">
-          <text class="empty-text">这段区间没有可对比的上一段</text>
-        </view>
-      </view>
+      <StatsComparePanel
+        v-if="panelVisible('mom')"
+        :style="panelOrderStyle('mom')"
+        class="card"
+        title="环比变化"
+        :comparison="momComparison"
+        :level="momLevel"
+        :type="momType"
+        @update:level="switchMomLevel"
+        @update:type="switchMomType"
+      />
 
       <!--
         ③c 恩格尔系数
@@ -591,6 +488,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
+import StatsComparePanel from '@/components/StatsComparePanel.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import DateFilterBar from '@/components/DateFilterBar.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
@@ -635,7 +533,7 @@ import {
 } from '@/utils/compareRange.js'
 
 export default {
-  components: { AppHeader, MoneyText, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog },
+  components: { AppHeader, MoneyText, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog, StatsComparePanel },
   setup() {
     const settingStore = useSettingStore()
     const uiStore = useUiStore()
@@ -786,130 +684,74 @@ export default {
 
     /* -------------------------------------------------- 同比面板 */
 
-    /**
-     * 对比窗口说明
-     *
-     * ★ 为什么文案由 utils/compareRange.js 生成 ★
-     *   「对比 10/01~10/08（上月同期）」这种话要跟着对齐方式变
-     *   （去年同期 / 上月同期 / 等长区间），
-     *   而且跨年时还得把年份带出来 —— 这属于纯字符串逻辑，单测更划算。
-     */
-    const comparisonSub = computed(() => {
-      const c = comparison.value
-      if (!c) return ''
-      const base = compareRangeLabel(c)
-      /*
-       * ★ 区间被今天截断时必须说明 ★
-       *   用户选「本月」，实际比的是「11/1~11/8」，
-       *   不写清楚会让人以为对比窗口算错了。
-       */
-      return c.clipped ? `${base}（本段到今天）` : base
-    })
-
-    /** 结余变化（正 = 比上一段更宽松） */
-    const balanceDiff = computed(() => {
-      const c = comparison.value
-      if (!c) return 0
-      return (c.current.balance || 0) - (c.previous.balance || 0)
-    })
+    /* -------------------------------------------------- 环比面板 */
 
     /**
-     * 上半第一项：支出 / 收入的变化
+     * 环比 / 同比各自的维度状态
      *
-     * ★ 百分比与金额都给（用户明确要求）★
-     *   百分比说明「相对变化多剧烈」，金额说明「实际差多少钱」，
-     *   只看一个都得自己心算。
+     * ★ 为什么分成两套 ★
+     *   两个面板在页面上同时存在，用户可能想看「支出的同比」+「收入的环比」。
+     *   共用一个 level/type 会让两个面板互相牵制 ——
+     *   切同比的「收入」，环比也跟着变，完全不符合直觉。
      */
-    const cmpTop1 = computed(() => {
-      const c = comparison.value
-      const isExp = comparisonType.value === 'expense'
-      if (!c) {
-        return { diff: 0, pctText: '—', color: 'var(--app-text-3)', subText: '' }
+    const momLevel = ref('sub')
+    const momType = ref('expense')
+
+    /**
+     * 环比数据（null = 还没加载 / 该区间算不出对比）
+     *
+     * ★ 与同比唯一的区别是 mode='mom' ★
+     *   返回结构完全一样，所以能共用同一个展示组件。
+     */
+    const momComparison = ref(null)
+
+    async function switchComparisonType(type) {
+      if (comparisonType.value === type) return
+      comparisonType.value = type
+      await reloadComparison()
+    }
+
+    async function switchComparisonLevel(level) {
+      if (comparisonLevel.value === level) return
+      comparisonLevel.value = level
+      await reloadComparison()
+    }
+
+    async function switchMomType(type) {
+      if (momType.value === type) return
+      momType.value = type
+      await reloadMom()
+    }
+
+    async function switchMomLevel(level) {
+      if (momLevel.value === level) return
+      momLevel.value = level
+      await reloadMom()
+    }
+
+    /** 重查同比（切换维度后调用，失败保持上一次的值） */
+    async function reloadComparison() {
+      try {
+        comparison.value = await getPeriodComparison(range.value, {
+          level: comparisonLevel.value,
+          type: comparisonType.value
+        })
+      } catch (e) {
+        console.warn('[stats] 同比重查失败:', e && e.message)
       }
-      const cur = isExp ? c.current.expense : c.current.income
-      const prev = isExp ? c.previous.expense : c.previous.income
-      const diff = cur - prev
-      const pct = changePercentSafe(cur, prev)
-      const label = isExp ? '支出' : '收入'
-      return {
-        diff,
-        pctText: percentText(pct, cur),
-        color: cmpColorOf(diff, isExp),
-        subText: `本期 ¥${(cur / 100).toFixed(2)} · 上期 ¥${(prev / 100).toFixed(2)}`
+    }
+
+    /** 重查环比（同上） */
+    async function reloadMom() {
+      try {
+        momComparison.value = await getPeriodComparison(range.value, {
+          level: momLevel.value,
+          type: momType.value,
+          mode: 'mom'
+        })
+      } catch (e) {
+        console.warn('[stats] 环比重查失败:', e && e.message)
       }
-    })
-
-    /** 上半第二项：结余变化 */
-    const cmpBalance = computed(() => {
-      const c = comparison.value
-      if (!c) return { pctText: '—', color: 'var(--app-text-3)', subText: '' }
-      /*
-       * ★ 结余的百分比要单独算 ★
-       *   结余可以是负数，用普通百分比公式时分母为负会把方向翻反
-       *   （上期 -100、本期 +50 会算成 -150%，明明是变好）。
-       *   所以上期结余 <= 0 时不给百分比，见 utils/compareRange.js。
-       */
-      const pct = balanceChangePercent(c.current.balance, c.previous.balance)
-      return {
-        pctText: percentOnly(pct),
-        color: balanceDiff.value > 0
-          ? 'var(--app-success)'
-          : balanceDiff.value < 0 ? 'var(--app-danger)' : 'var(--app-text-3)',
-        subText: `本期 ¥${(c.current.balance / 100).toFixed(2)} · 上期 ¥${(c.previous.balance / 100).toFixed(2)}`
-      }
-    })
-
-    /**
-     * 双向柱子的长度（百分比）
-     *
-     * ★ 为什么要除以最大值 ★
-     *   各分类的金额差可能相差两个数量级（房租涨 500、奶茶涨 5），
-     *   直接按金额画，小的那几根全是看不见的细线。
-     *   除以最大绝对值后，长短只表达「相对变化强弱」——
-     *   绝对金额已经写在每行左边了。
-     */
-    const cmpMaxAbs = computed(() => {
-      const c = comparison.value
-      if (!c || !c.categories.length) return 1
-      return Math.max(1, ...c.categories.map((x) => Math.abs(x.diff)))
-    })
-
-    function cmpBarWidth(diff) {
-      // 半幅最多 48%，留一点边距不让柱子顶到框
-      return Math.min(48, Math.round((Math.abs(diff) / cmpMaxAbs.value) * 48))
-    }
-
-    /**
-     * 分类行的颜色
-     *
-     * ★ 支出与收入的方向语义相反 ★
-     *   支出变多是「坏」（红），收入变多是「好」（绿）；
-     *   所以同一个 +100，支出行是红的、收入行是绿的。
-     *   直接写死「正数红」会让收入面板看起来全在报警。
-     */
-    function cmpColorOf(diff, isExpense) {
-      if (diff === 0) return 'var(--app-text-3)'
-      const good = isExpense ? diff < 0 : diff > 0
-      return good ? 'var(--app-success)' : 'var(--app-danger)'
-    }
-
-    /** 分类行的颜色（跟当前面板的支出/收入方向走） */
-    function cmpDiffColor(diff) {
-      return cmpColorOf(diff, comparisonType.value === 'expense')
-    }
-
-    /** 分类行的变化金额文案：+¥12.00 / -¥8.50 */
-    function cmpDiffText(diff) {
-      const abs = Math.abs(Number(diff) || 0) / 100
-      const sign = diff > 0 ? '+' : diff < 0 ? '-' : ''
-      return `${sign}¥${abs.toFixed(2)}`
-    }
-
-    /** 百分比（上期为 0 时返回 null，由 percentText 显示「新增」） */
-    function changePercentSafe(cur, prev) {
-      const p = Number(prev) || 0
-      if (p === 0) return null
-      return Math.round(((Number(cur) || 0) - p) / p * 1000) / 10
     }
 
     /* -------------------------------------------------- 恩格尔系数 */
@@ -1159,6 +1001,23 @@ export default {
       } catch (e) {
         console.warn('[stats] 同比计算失败:', e && e.message)
         comparison.value = null
+      }
+
+      /*
+       * 1b) 环比（同样的数据，对比窗口换成「紧邻的上一段等长区间」）
+       *
+       * ★ 单独 try/catch ★
+       *   和同比各坏各的：一个算不出来不该让另一个也空着。
+       */
+      try {
+        momComparison.value = await getPeriodComparison(r, {
+          level: momLevel.value,
+          type: momType.value,
+          mode: 'mom'
+        })
+      } catch (e) {
+        console.warn('[stats] 环比计算失败:', e && e.message)
+        momComparison.value = null
       }
 
       /*
@@ -1501,16 +1360,14 @@ export default {
       barHeight, shortDay,
       // 组件管理（面板顺序与显隐）
       statsPanels, visiblePanels, panelVisible, panelOrderStyle,
-      // 同比变化
-      comparison, comparisonSub, balanceDiff, cmpBarWidth,
-      comparisonType, comparisonLevel,
-      cmpTop1, cmpBalance, cmpDiffColor, cmpDiffText, percentText,
+      // 同比 / 环比（两块共用 components/StatsComparePanel.vue）
+      comparison, comparisonType, comparisonLevel, momComparison, momLevel, momType,
       // 恩格尔系数
       engel, engelLevel, engelColor, engelFoodNames,
       onRangeChange,
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
-      switchComparisonType, switchComparisonLevel,
+      switchComparisonType, switchComparisonLevel, switchMomType, switchMomLevel,
       onAddTap, onAddHoldEnd,
       goTxnDetail, goPanelManage, goProfile
     }
@@ -1538,168 +1395,6 @@ export default {
 .panel-flow {
   display: flex;
   flex-direction: column;
-}
-
-/* ------------------------------------------------ 同比变化 */
-
-/* 对比窗口说明（区间被今天截断时也写清楚） */
-.cmp-range-hint {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  display: block;
-  padding-bottom: 16rpx;
-}
-
-/*
- * 上半：两项同比并排
- *
- * ★ 为什么并排而不是上下堆 ★
- *   「支出变化」和「结余变化」是同一层的两个结论，
- *   并排后一眼能对照着看（花了更多但结余反而更多 = 收入涨得更凶）；
- *   上下堆会让第二项掉出首屏，用户只看到一半。
- */
-.cmp-top {
-  display: flex;
-  align-items: stretch;
-  padding: 8rpx 0 20rpx;
-  border-bottom: 1rpx solid var(--app-line);
-}
-
-.cmp-top-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  min-width: 0;
-}
-
-/* 中间竖分隔：和「不计入预算 ｜ 待报销」同一套视觉语言 */
-.cmp-top-line {
-  width: 1rpx;
-  background-color: var(--app-line);
-  margin: 4rpx 20rpx;
-  flex-shrink: 0;
-}
-
-.cmp-top-label {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
-.cmp-top-values {
-  display: flex;
-  align-items: baseline;
-  gap: 10rpx;
-  flex-wrap: wrap;
-}
-
-/* 百分比跟在金额旁边，字号小一号但同色 —— 两者是一件事的两种说法 */
-.cmp-top-pct {
-  font-size: 26rpx;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-
-/* 本期 / 上期的绝对值：小字，回答「从多少变到多少」 */
-.cmp-top-sub {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/*
- * 下半：每个分类一行（用户要求「紧凑」）
- *
- * ★ 一行装下四样东西 ★
- *   色点 + 分类名 + （变化金额 / 百分比）+ 双向柱。
- *   原来名称和金额一行、柱子另起一行，7 个分类就要占 14 行；
- *   现在 7 行看完，滚动距离减半。
- */
-.cmp-chart {
-  display: flex;
-  flex-direction: column;
-  gap: 14rpx;
-  margin-top: 20rpx;
-}
-
-.cmp-row {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  min-width: 0;
-}
-
-.cmp-row-name {
-  font-size: 24rpx;
-  color: var(--app-text-2);
-  /*
-   * ★ 固定宽度而不是 flex:1 ★
-   *   让所有行的「金额 + 百分比」落在同一列上，扫视时数字成列；
-   *   flex:1 会让长名字那一行把数字挤到右边、短的又缩回来，参差不齐。
-   */
-  width: 180rpx;
-  flex-shrink: 0;
-}
-
-/* 变化金额 + 百分比：右对齐成两列数字 */
-.cmp-row-num {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 10rpx;
-  width: 200rpx;
-  flex-shrink: 0;
-}
-
-.cmp-row-diff {
-  font-size: 24rpx;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.cmp-row-pct {
-  font-size: 20rpx;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-
-/*
- * 柱状槽：高 14rpx，中线在 50%
- * 柱子用绝对定位往左/往右长，正数向右、负数向左。
- */
-.cmp-row-bar {
-  position: relative;
-  flex: 1;
-  min-width: 100rpx;
-  height: 14rpx;
-  background-color: var(--app-card-2);
-  border-radius: 7rpx;
-  overflow: hidden;
-}
-
-.cmp-axis {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1rpx;
-  background-color: var(--app-line);
-}
-
-.cmp-bar {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: 7rpx;
-}
-
-/* 所有面板都被隐藏时的提示 */
-.empty-panels {
-  text-align: center;
 }
 
 /* ------------------------------------------------ 恩格尔系数 */
