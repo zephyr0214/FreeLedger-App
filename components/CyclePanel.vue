@@ -162,7 +162,16 @@
             所以右格按 recurrence 换成「周三」，一行到底。
         -->
         <view class="form-row form-row-split">
-          <view class="form-cell" @click="openRecurrencePicker">
+          <!--
+            ★ 「每天」时右格不存在 ★
+              这时左格必须占满整行（cell-full），否则会空出右半边，
+              看着像「有一项没加载出来」。
+          -->
+          <view
+            class="form-cell"
+            :class="{ 'cell-full': form.recurrence === 'daily' }"
+            @click="openRecurrencePicker"
+          >
             <text class="cell-label">周期</text>
             <view class="cell-value">
               <text class="cell-text">{{ recurrenceLabel }}</text>
@@ -1303,6 +1312,12 @@ export default {
   gap: 8rpx;
   min-height: 88rpx;
   min-width: 0;
+}
+
+/* 只有一格时占满整行（如「每天」没有「几号」） */
+.form-cell.cell-full {
+  width: 100%;
+  flex: 0 0 100%;
 }
 
 /* 右半格：左边一条竖分隔，视觉上分成两栏 */
