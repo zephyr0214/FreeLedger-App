@@ -90,6 +90,7 @@ import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { listTags } from '@/api/tag.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
+import { reimburseBadge } from '@/utils/reimburseBadge.js'
 import { useSettingStore } from '@/stores/setting.js'
 
 export default {
@@ -211,6 +212,16 @@ export default {
         const c = primaryColor.value
         list.push({ key: '__person__', name: txn.note, color: c, bg: c + '22', border: c })
       }
+
+      /*
+       * ★ 报销状态徽标（用户要求）★
+       *   待报销 / 已报销都要在流水里一眼可见 ——
+       *   否则用户得点进详情页才知道这笔归在哪一档。
+       *   放在人员徽标之后、用户标签之前：
+       *   「谁」比「状态」更贴身，自定义标签排最后。
+       */
+      const rb = reimburseBadge(txn)
+      if (rb) list.push(rb)
 
       // 用户标签
       const ids = txn && txn.tag_ids

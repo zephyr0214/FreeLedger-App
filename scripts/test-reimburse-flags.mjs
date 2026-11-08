@@ -92,6 +92,12 @@ check(
 )
 check('行本身居中', /\.flag-row\s*\{[\s\S]{0,200}?justify-content:\s*center/.test(FLAGS), true)
 check('文案是「不计入预算」', /不计入预算/.test(FLAGS), true)
+check('每项都是「勾选框 + 文字」（改回勾选框）', /class="flag-box"/.test(FLAGS), true)
+check(
+  '勾选框有主题色实底',
+  /\.flag-box\.on\s*\{[\s\S]{0,200}?background-color:\s*var\(--app-primary\)/.test(FLAGS),
+  true
+)
 check('文案是「待报销」', /待报销/.test(FLAGS), true)
 
 console.log('=== 1c. 记账面板同样形态 ===')
@@ -114,7 +120,26 @@ check(
   /\.qa-chip-box\s*\{[\s\S]{0,200}?border:\s*2rpx solid var\(--app-primary\)/.test(QUICK),
   true
 )
-check('胶囊触摸时保活输入条', /@touchstart\.stop="holdInputAlive"/.test(QUICK), true)
+/*
+ * ★ 触摸必须 .prevent ★
+ *   只 stop 不 prevent 时，原生输入框还是会先失焦、键盘照样收起 ——
+ *   这正是本轮用户反馈的「点胶囊输入法缩回」。
+ */
+check(
+  '胶囊触摸时阻止夺焦并保活输入条',
+  /@touchstart\.stop\.prevent="holdInputAlive"/.test(QUICK),
+  true
+)
+check(
+  '触摸结束时立刻处理点按（不等 300ms 的 click）',
+  /@touchend\.stop="onChipTap\('reimburse'\)"/.test(QUICK),
+  true
+)
+check(
+  'click 只作兜底且去重',
+  /function onChipClick\(which\)/.test(QUICK) && /chipTouchedAt/.test(QUICK),
+  true
+)
 check('有保活窗口', /keepAliveUntil/.test(QUICK), true)
 check(
   '键盘归零时先看保活窗口再决定关闭',
@@ -247,7 +272,14 @@ check('engel.js 提供重判接口', /export async function refreshEngelFoodCate
 console.log('=== 8. 深浅色模式适配（只用 CSS 变量）===')
 
 const flagStyle = FLAGS.slice(FLAGS.indexOf('<style scoped>'))
-check('ExcludeFlags 样式不用硬编码白/黑', /#fff\b|#ffffff/i.test(flagStyle), false)
+/*
+ * ★ 对勾是白色 ★
+ *   主题色实底上的对勾必须是白色（和预算页结转勾选、报销多选圈一致），
+ *   这是唯一允许的硬编码色值；正文/分隔线/底色都必须走 CSS 变量。
+ */
+const flagStyleNoTick = flagStyle.replace(/\.flag-tick\s*\{[\s\S]*?\}/, '')
+check('除了对勾外不用硬编码白/黑', /#fff\b|#ffffff/i.test(flagStyleNoTick), false)
+check('对勾是白色（主题实底上唯一允许的写死色）', /color:\s*#ffffff/.test(flagStyle), true)
 check('ExcludeFlags 用主题变量取色', /var\(--app-primary\)/.test(flagStyle), true)
 check('ExcludeFlags 分割线用 --app-line', /var\(--app-line\)/.test(flagStyle), true)
 

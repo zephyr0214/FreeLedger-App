@@ -3,29 +3,27 @@
     不计入预算 ｜ 待报销 —— 一行两栏，中间一条竖分割线
 
     ★ 为什么抽成组件 ★
-      这套选框出现在三个地方：交易详情页、记账面板、AI 速记条。
-      三处各写一份的后果是「某处改了、另一处没改」——
+      这套选框出现在四个地方：交易详情页、记账面板、周期面板、AI 速记条。
+      各写一份的后果是「某处改了、另一处没改」——
       而它们表达的是同一个业务规则（勾待报销要自动勾上不计入预算并锁死），
       规则写在组件里就只有一处会错。
 
-    ★ 为什么不用勾选框了（本轮用户要求）★
-      用户原话：不要「报销与预算」这种标题和说明文字，
-      「直接一个竖的分割线，左边显示不计入预算，右边显示待报销，视觉居中」。
-      所以这里去掉小方块勾选框，改成两个可点的文字；
-      选中态用主题色表达（见样式里的 .checked），一眼能看出开没开。
-
-    ★ 为什么保留可点击 ★
-      用户明确说「仍可点击切换，选中态用主题色表示」——
-      这条行既是状态展示，也是手动开关，三处行为必须一致。
+    ★ 为什么用勾选框而不是纯文字（用户要求）★
+      布局上保留用户认可的「一条竖分割线居中、左右各一项」，
+      但每一项必须由**勾选框 + 文字**组成 ——
+      纯文字变色的样式看着像按钮，用户明确否掉了。
   -->
   <view class="flag-row">
     <!-- 不计入预算 -->
     <view
       class="flag-item"
-      :class="{ checked: budgetChecked, locked: budgetLocked }"
+      :class="{ locked: budgetLocked }"
       @click="onToggleBudget"
     >
-      <text class="flag-label">不计入预算</text>
+      <view class="flag-box" :class="{ on: budgetChecked, dim: budgetLocked }">
+        <text v-if="budgetChecked" class="flag-tick">✓</text>
+      </view>
+      <text class="flag-label" :class="{ on: budgetChecked }">不计入预算</text>
     </view>
 
     <!-- 竖分割线：只有两个选项都在时才画 -->
@@ -35,10 +33,15 @@
     <view
       v-if="canReimburse"
       class="flag-item"
-      :class="{ checked: reimburseChecked, locked: reimburseLocked }"
+      :class="{ locked: reimburseLocked }"
       @click="onToggleReimburse"
     >
-      <text class="flag-label">{{ reimburseChecked ? reimburseLabel : '待报销' }}</text>
+      <view class="flag-box" :class="{ on: reimburseChecked, dim: reimburseLocked }">
+        <text v-if="reimburseChecked" class="flag-tick">✓</text>
+      </view>
+      <text class="flag-label" :class="{ on: reimburseChecked }">
+        {{ reimburseChecked ? reimburseLabel : '待报销' }}
+      </text>
     </view>
   </view>
 </template>
@@ -47,7 +50,7 @@
 import { computed } from 'vue'
 
 /**
- * 不计入预算 ｜ 待报销 双栏行
+ * 不计入预算 ｜ 待报销 双栏勾选行
  *
  * 用法：
  *   <ExcludeFlags
@@ -59,7 +62,7 @@ import { computed } from 'vue'
  *
  * 事件载荷：{ excludeBudget: boolean, reimburseStatus: 0|1|2 }
  *
- * ★ 规则（用户本轮第 3 条）★
+ * ★ 联动规则 ★
  *   勾上「待报销」→ 自动勾上「不计入预算」并把它锁死（不可点）；
  *   取消「待报销」→ **同时取消**「不计入预算」并解锁（可点）。
  *
@@ -97,10 +100,9 @@ export default {
       emit('update', {
         reimburseStatus: next,
         /*
-         * ★ 双向联动（用户本轮第 3 条）★
+         * ★ 双向联动 ★
          *   勾上 → 自动勾上不计入预算；
          *   取消 → 一起取消，并恢复「不计入预算」可点。
-         *   （旧版取消时保留了不计入预算，用户明确否掉了这种半联动。）
          */
         excludeBudget: next === 1
       })
@@ -147,13 +149,49 @@ export default {
    * ★ 为什么要 flex:1 ★
    *   「不计入预算」5 个字、「待报销」3 个字，不撑开的话两栏宽度不等，
    *   竖分割线就不在正中间了（用户要求「视觉居中」）。
-   *   等宽 + 各自居中后，分割线落在行正中，左右两块文字各自水平居中。
+   *   等宽 + 各自居中后，分割线落在行正中，左右两块各自水平居中。
    */
   flex: 1;
   padding: 10rpx 8rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 12rpx;
+}
+
+/*
+ * 自绘勾选框
+ *
+ * 和预算页的结转勾选、报销管理页的多选圈是同一套视觉语言：
+ * 方框 + 主题色实底 + 白色对勾。不用 wd-checkbox ——
+ * 组件库那套配色/尺寸和项目其它自绘勾选框不一致。
+ */
+.flag-box {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid var(--app-line);
+  background-color: var(--app-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.flag-box.on {
+  background-color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+/* 锁死态：勾还在，但压暗一点表示「现在不能取消」 */
+.flag-box.dim {
+  opacity: 0.6;
+}
+
+.flag-tick {
+  font-size: 22rpx;
+  color: #ffffff;
+  line-height: 1;
 }
 
 .flag-label {
@@ -162,16 +200,14 @@ export default {
   line-height: 1.2;
 }
 
-/* 选中态：主题色文字 + 半粗，不额外加底色（避免和卡片底色打架） */
-.flag-item.checked .flag-label {
-  color: var(--app-primary);
-  font-weight: 500;
+/* 选中态：文字跟着浓郁一点 */
+.flag-label.on {
+  color: var(--app-text);
 }
 
-/* 锁死态：降到第三级文字色，表达「现在改不了」而不是「坏了」 */
+/* 锁死态整项降权，表达「不能改」而不是「坏了」 */
 .flag-item.locked .flag-label {
-  color: var(--app-primary);
-  opacity: 0.55;
+  color: var(--app-text-3);
 }
 
 /* 竖分割线：和详情卡里其它行用的是同一条 --app-line */

@@ -150,30 +150,35 @@
           </view>
         </view>
 
-        <!-- 周期：每天 / 每周周几 / 每月几号 -->
-        <view class="form-row" @click="openRecurrencePicker">
-          <text class="row-label">周期</text>
-          <view class="row-value">
-            <text class="row-text">{{ recurrenceLabel }}</text>
-            <text class="row-arrow">›</text>
-          </view>
-        </view>
+        <!--
+          周期 + 周几/几号：**同一行左右两格**（用户要求）
 
-        <!-- 周几（每周） -->
-        <view v-if="form.recurrence === 'weekly'" class="form-row" @click="openWeekdayPicker">
-          <text class="row-label">周几</text>
-          <view class="row-value">
-            <text class="row-text">{{ weekdayLabel }}</text>
-            <text class="row-arrow">›</text>
+          ★ 为什么要合并 ★
+            这两项是同一件事的两半（「每月」+「15 号」），
+            分成两整行既占高度、又看不出它们是一个组合。
+            左右并排后读起来就是「每月 / 15 号」。
+          ★ 每天 / 每周没有右格 ★
+            每天没有「几号」可言；每周的「周几」语义上和「每月 15 号」对等，
+            所以右格按 recurrence 换成「周三」，一行到底。
+        -->
+        <view class="form-row form-row-split">
+          <view class="form-cell" @click="openRecurrencePicker">
+            <text class="cell-label">周期</text>
+            <view class="cell-value">
+              <text class="cell-text">{{ recurrenceLabel }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
           </view>
-        </view>
-
-        <!-- 几号（每月） -->
-        <view v-if="form.recurrence === 'monthly'" class="form-row" @click="openDayPicker">
-          <text class="row-label">几号</text>
-          <view class="row-value">
-            <text class="row-text">{{ dayOfMonthLabel }}</text>
-            <text class="row-arrow">›</text>
+          <view
+            v-if="form.recurrence !== 'daily'"
+            class="form-cell cell-right"
+            @click="form.recurrence === 'weekly' ? openWeekdayPicker() : openDayPicker()"
+          >
+            <text class="cell-label">{{ form.recurrence === 'weekly' ? '周几' : '几号' }}</text>
+            <view class="cell-value">
+              <text class="cell-text">{{ form.recurrence === 'weekly' ? weekdayLabel : dayOfMonthLabel }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
           </view>
         </view>
 
@@ -187,6 +192,22 @@
             placeholder-class="note-placeholder"
             :maxlength="80"
             confirm-type="done"
+          />
+        </view>
+
+        <!--
+          ★ 不计入预算 ｜ 待报销（用户要求：备注下方）★
+            周期是模板，这两个标记会随每笔补记一起写进流水：
+            勾了「待报销」，以后自动补记的那几笔都是待报销状态。
+          ★ 只有支出才显示 ★
+            收入/转账既没有预算额度概念，也不可能「报销」。
+        -->
+        <view v-if="form.type === 'expense'" class="form-row form-row-flags">
+          <ExcludeFlags
+            :exclude-budget="form.excludeBudget"
+            :reimburse-status="form.reimburseStatus"
+            :can-reimburse="form.type === 'expense'"
+            @update="onFlagsUpdate"
           />
         </view>
       </view>
@@ -258,6 +279,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import NumberKeyboard from './NumberKeyboard.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import CategoryPickerSheet from '@/components/CategoryPickerSheet.vue'
+import ExcludeFlags from '@/components/ExcludeFlags.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -283,7 +305,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon },
+  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -327,7 +349,16 @@ export default {
       weekday: 1,
       day_of_month: 1,
       /** 外币：币种代码（CNY = 本位币），与记账面板一致 */
-      currency: 'CNY'
+      currency: 'CNY',
+      /*
+       * 报销与预算标记（v22）
+       *
+       * ★ 周期是模板，这两个标记跟着模板走 ★
+       *   周期自动补记时会一起写进流水，所以「每月 15 号房租、待报销」
+       *   这种场景不用每次补记都回去改一遍。
+       */
+      excludeBudget: false,
+      reimburseStatus: 0
     })
 
     /* ------------------------------------------------------ 外币与汇率 */
@@ -662,6 +693,9 @@ export default {
       form.weekday = 1
       form.day_of_month = 1
       form.to_account_id = ''
+      // 报销/预算标记是「这个周期」的属性，不粘到下一个周期
+      form.excludeBudget = false
+      form.reimburseStatus = 0
       // ★ 默认账户不能是组合账户 ★
       let def = settingStore.settings.defaultAccountId || ''
       const defAcc = accountStore.list.find((a) => a.id === def)
@@ -700,6 +734,20 @@ export default {
       form.recurrence = c.recurrence || 'monthly'
       form.weekday = Number(c.weekday) || 1
       form.day_of_month = Number(c.day_of_month) || 1
+      /* 报销/预算标记随周期回显（v22 起入库；老周期没有这两个字段就都是 false/0） */
+      form.excludeBudget = c.exclude_from_budget === true
+      form.reimburseStatus = Number(c.reimburse_status) || 0
+    }
+
+    /**
+     * 双栏状态变化（不计入预算 ｜ 待报销）
+     *
+     * 规则全在 ExcludeFlags 组件里，这里只把载荷写回 form，
+     * 不在面板里重复判断一遍（两处都判断迟早会打架）。
+     */
+    function onFlagsUpdate(next) {
+      form.excludeBudget = !!next.excludeBudget
+      form.reimburseStatus = Number(next.reimburseStatus) || 0
     }
 
     function onFinish(value) {
@@ -755,7 +803,15 @@ export default {
         day_of_month: form.recurrence === 'monthly' ? Number(form.day_of_month) : null,
         // 外币模板（人民币为 null）
         original_currency: isForeign.value ? form.currency : null,
-        original_amount_cents: isForeign.value ? cents : null
+        original_amount_cents: isForeign.value ? cents : null,
+        /*
+         * 报销/预算标记（v22）
+         * ★ 只有支出才有意义 ★
+         *   收入/转账既没有预算额度概念，也不可能报销，
+         *   硬存上去会让补记出来的流水带着无意义的标记。
+         */
+        exclude_from_budget: form.type === 'expense' ? !!form.excludeBudget : false,
+        reimburse_status: form.type === 'expense' ? (Number(form.reimburseStatus) || 0) : 0
       }
       try {
         if (props.editing) {
@@ -947,7 +1003,7 @@ export default {
       convertedPreview, onCurrencyChange, iconInk,
       currentAccountName, toAccountName, accountActions, toAccountActions,
       recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
-      dayActions, dayOfMonthLabel,
+      dayActions, dayOfMonthLabel, onFlagsUpdate,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
       showWeekdayPicker, showDayPicker,
       iconChar, catIconStyle, switchType, pickCategory,
@@ -1222,6 +1278,78 @@ export default {
   min-height: 88rpx;
   border-bottom: 1rpx solid var(--app-line);
   gap: 16rpx;
+}
+
+/* -------------------------------------------------- 周期 + 几号同一行 */
+
+/*
+ * 一行两格、等分（与记账面板的「账户 + 标签」同一套写法）
+ *
+ * ★ 为什么用 50% 而不是 flex:1 ★
+ *   「每月」和「15 号」长度差得不多，但固定等分能保证
+ *   「周期」「几号」两个标签始终对齐同一列，换语言/换文案也不会歪。
+ */
+.form-row-split {
+  padding: 0;
+  gap: 0;
+}
+
+.form-cell {
+  flex: 1;
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8rpx;
+  min-height: 88rpx;
+  min-width: 0;
+}
+
+/* 右半格：左边一条竖分隔，视觉上分成两栏 */
+.form-cell.cell-right {
+  padding-left: 20rpx;
+  margin-left: 20rpx;
+  border-left: 1rpx solid var(--app-line);
+}
+
+.cell-label {
+  font-size: 28rpx;
+  color: var(--app-text-2);
+  flex-shrink: 0;
+}
+
+.cell-value {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  min-width: 0;
+  justify-content: flex-end;
+  flex: 1;
+}
+
+.cell-text {
+  font-size: 28rpx;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-arrow {
+  font-size: 32rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+/*
+ * 「不计入预算 ｜ 待报销」那一行
+ *
+ * 和其它行同高、居中；ExcludeFlags 自己 flex:1 + 居中，
+ * 竖分割线才会落在面板可视区正中。
+ */
+.form-row-flags {
+  justify-content: center;
+  min-height: 84rpx;
 }
 
 .row-label {

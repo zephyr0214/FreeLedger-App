@@ -938,15 +938,24 @@ export async function importPayload(payload, opt = {}) {
         if (exists) { report.skipped++; continue }
         await execute(
           `INSERT INTO cycle (id, type, amount_cents, account_id, to_account_id, category_id, note,
-            recurrence, weekday, day_of_month, last_caught_up_day, created_at, updated_at, deleted_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            recurrence, weekday, day_of_month, last_caught_up_day, created_at, updated_at, deleted_at,
+            exclude_from_budget, reimburse_status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             cy.id, cy.type, cy.amount_cents, cy.account_id, cy.to_account_id || null,
             cy.category_id || null, cy.note || null,
             cy.recurrence || 'monthly', cy.weekday === undefined ? null : cy.weekday,
             cy.day_of_month === undefined ? null : cy.day_of_month,
             cy.last_caught_up_day || null,
-            cy.created_at || Date.now(), cy.updated_at || Date.now(), cy.deleted_at || null
+            cy.created_at || Date.now(), cy.updated_at || Date.now(), cy.deleted_at || null,
+            /*
+             * ★ 周期的报销 / 预算标记（v22）★
+             *   旧备份没有这两个字段 → 一律按「都不勾」，
+             *   与升级前的行为一致。只允许 0/1 的待报销，
+             *   已报销（2）不该出现在周期模板上，降级成 1。
+             */
+            Number(cy.exclude_from_budget) === 1 ? 1 : 0,
+            Number(cy.reimburse_status) === 1 ? 1 : 0
           ]
         )
         report.cycles++

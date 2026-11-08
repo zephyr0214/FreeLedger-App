@@ -446,6 +446,23 @@ const MIGRATIONS = [
      */
     version: 21,
     up: migrateReimburse
+  },
+  {
+    /*
+     * ★ v22 —— 周期的报销 / 预算标记 ★
+     *
+     *   用户在周期面板里也要能勾「不计入预算 / 待报销」：
+     *   周期是模板，勾上以后每次自动补记都带着这两个标记
+     *   （见 api/cycle.js 的 recordCycleForDay）。
+     *
+     * ★ 两列都带默认值 ★
+     *   老周期升级后是「都不勾」，与升级前行为完全一致，
+     *   不需要任何回填。
+     *
+     * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁）★
+     */
+    version: 22,
+    up: migrateCycleFlags
   }
 ]
 
@@ -2221,6 +2238,40 @@ async function migrateReimburse() {
        )`,
     [now, now, SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME]
   )
+}
+
+/**
+ * 迁移 v22 —— 周期的报销 / 预算标记
+ *
+ * 两个 0/1 列：
+ *   exclude_from_budget  这个周期记出来的流水不计入预算
+ *   reimburse_status     这个周期记出来的流水是待报销（只允许 0/1）
+ *
+ * ★ 为什么周期也需要它们 ★
+ *   典型场景：「每月 15 号房租 3000，公司补贴要报销」——
+ *   用户希望自动补记的那笔天然就是待报销，
+ *   而不是每个月补记完再回详情页勾一次。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateCycleFlags() {
+  const columns = [
+    'exclude_from_budget INTEGER NOT NULL DEFAULT 0',
+    'reimburse_status INTEGER NOT NULL DEFAULT 0'
+  ]
+  for (const col of columns) {
+    const name = col.split(' ')[0]
+    try {
+      await call('executeSql', {
+        name: DB_NAME,
+        sql: `ALTER TABLE cycle ADD COLUMN ${col}`
+      })
+      console.log(`[db] migration v22: cycle.${name} 已添加`)
+    } catch (e) {
+      // 字段已存在（重复执行 / 新装库由建表语句带上），忽略
+      console.log(`[db] migration v22: cycle.${name} 已存在，跳过`)
+    }
+  }
 }
 
 async function migrate() {

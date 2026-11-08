@@ -42,7 +42,15 @@ function normalizeCycle(row) {
     ...row,
     amount_cents: Number(row.amount_cents) || 0,
     weekday: row.weekday ? Number(row.weekday) : null,
-    day_of_month: row.day_of_month ? Number(row.day_of_month) : null
+    day_of_month: row.day_of_month ? Number(row.day_of_month) : null,
+    /*
+     * 报销 / 预算标记（v22）
+     * ★ 归一成布尔 + 数字 ★
+     *   库里是 0/1，组件要布尔；报销状态本来就是三态数字。
+     *   老周期没有这两列时按 0 处理，行为与升级前完全一致。
+     */
+    exclude_from_budget: Number(row.exclude_from_budget) === 1,
+    reimburse_status: Number(row.reimburse_status) || 0
   }
 }
 
@@ -128,8 +136,8 @@ export async function createCycle(input) {
     `INSERT INTO cycle (
       id, type, amount_cents, account_id, to_account_id, category_id, note,
       recurrence, weekday, day_of_month, created_at, updated_at, deleted_at,
-      last_caught_up_day
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
+      last_caught_up_day, exclude_from_budget, reimburse_status
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
     [
       id,
       input.type,
@@ -143,7 +151,15 @@ export async function createCycle(input) {
       input.recurrence === 'monthly' ? (Number(input.day_of_month) || 1) : null,
       now,
       now,
-      toDayKey() // 游标初始化为今天：创建当天是否记，交给弹窗决定；历史不回补
+      toDayKey(), // 游标初始化为今天：创建当天是否记，交给弹窗决定；历史不回补
+      /*
+       * 报销 / 预算标记（v22）
+       * ★ 只有支出才存 ★
+       *   收入/转账没有预算额度概念、也不可能报销；
+       *   硬存上去会让补记出来的流水带着无意义的标记。
+       */
+      input.type === 'expense' && input.exclude_from_budget ? 1 : 0,
+      input.type === 'expense' ? (Number(input.reimburse_status) || 0) : 0
     ]
   )
 
@@ -174,6 +190,19 @@ export async function updateCycle(id, patch) {
   if (patch.recurrence !== undefined) assign('recurrence', patch.recurrence)
   if (patch.weekday !== undefined) assign('weekday', patch.recurrence === 'weekly' ? (Number(patch.weekday) || 1) : null)
   if (patch.day_of_month !== undefined) assign('day_of_month', patch.recurrence === 'monthly' ? (Number(patch.day_of_month) || 1) : null)
+  /*
+   * 报销 / 预算标记（v22）
+   * ★ 只认支出的值 ★
+   *   切换成收入/转账时（patch.type 一起给的场景）要把它们清零，
+   *   否则「先建成支出、勾了待报销，再改成收入」会留下脏标记。
+   */
+  const mergedType = patch.type !== undefined ? patch.type : merged.type
+  if (patch.exclude_from_budget !== undefined) {
+    assign('exclude_from_budget', mergedType === 'expense' && patch.exclude_from_budget ? 1 : 0)
+  }
+  if (patch.reimburse_status !== undefined) {
+    assign('reimburse_status', mergedType === 'expense' ? (Number(patch.reimburse_status) || 0) : 0)
+  }
   assign('updated_at', Date.now())
   params.push(id)
 
@@ -209,7 +238,10 @@ export async function recordCycle(id) {
     category_id: c.type === 'transfer' ? null : c.category_id,
     note: c.note || '',
     occurred_day: day,
-    cycle_id: id
+    cycle_id: id,
+    // 报销 / 预算标记随周期一起带进流水（v22，理由见 recordCycleForDay）
+    exclude_from_budget: c.exclude_from_budget === true,
+    reimburse_status: Number(c.reimburse_status) === 1 ? 1 : 0
   })
 }
 
@@ -386,7 +418,21 @@ export async function recordCycleForDay(id, day) {
     // 外币快照（拿到汇率才写，否则保持 NULL = 人民币）
     original_currency: rate ? c.original_currency : null,
     original_amount_cents: rate ? c.amount_cents : null,
-    exchange_rate: rate
+    exchange_rate: rate,
+    /*
+     * ★ 报销 / 预算标记随周期一起记账（v22）★
+     *   周期模板上勾了「待报销」或「不计入预算」，
+     *   以后每次自动补记都应该带着这两个标记 ——
+     *   否则用户每补记一笔就得回去重新勾一次。
+     */
+    exclude_from_budget: c.exclude_from_budget === true,
+    /*
+     * ★ 只允许「待报销」，不允许「已报销」★
+     *   已报销要确认实报金额与到账账户，只能走报销管理页。
+     *   老数据里万一是 2（不该出现），这里降级成待报销，
+     *   而不是让补记直接失败。
+     */
+    reimburse_status: Number(c.reimburse_status) === 1 ? 1 : 0
   })
 }
 

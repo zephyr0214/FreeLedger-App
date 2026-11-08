@@ -151,6 +151,7 @@ import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } f
 import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import { reimburseBadge } from '@/utils/reimburseBadge.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
@@ -228,6 +229,9 @@ export default {
         if (t.via_combo_id) {
           list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
         }
+        // 报销状态徽标（待报销 / 已报销，与列表页同一个来源）
+        const rb = reimburseBadge(t)
+        if (rb) list.push(rb)
         // 用户标签
         if (t.tag_ids && t.tag_ids.length > 0) {
           const all = await getTxnTags(t.id)

@@ -41,8 +41,9 @@
       <view
         class="qa-chip"
         :class="{ on: pendingReimburse }"
-        @touchstart.stop="holdInputAlive"
-        @click.stop="togglePendingReimburse"
+        @touchstart.stop.prevent="holdInputAlive"
+        @touchend.stop="onChipTap('reimburse')"
+        @click.stop="onChipClick('reimburse')"
       >
         <view class="qa-chip-box" :class="{ on: pendingReimburse }">
           <text v-if="pendingReimburse" class="qa-chip-tick">✓</text>
@@ -53,8 +54,9 @@
       <view
         class="qa-chip"
         :class="{ on: excludeBudget || pendingReimburse, locked: pendingReimburse }"
-        @touchstart.stop="holdInputAlive"
-        @click.stop="toggleExcludeBudget"
+        @touchstart.stop.prevent="holdInputAlive"
+        @touchend.stop="onChipTap('budget')"
+        @click.stop="onChipClick('budget')"
       >
         <view class="qa-chip-box" :class="{ on: excludeBudget || pendingReimburse }">
           <text v-if="excludeBudget || pendingReimburse" class="qa-chip-tick">✓</text>
@@ -211,20 +213,48 @@ export default {
     }))
 
     function togglePendingReimburse() {
-      // 点胶囊前先开保活窗：别让这次点击把输入条/键盘收掉（本轮第 2 条）
-      holdInputAlive()
       pendingReimburse.value = !pendingReimburse.value
-      /* 勾上待报销 → 自动勾上不计入预算（用户第 3 条联动） */
+      /* 勾上待报销 → 自动勾上不计入预算（双向联动） */
       excludeBudget.value = pendingReimburse.value
     }
 
     function toggleExcludeBudget() {
-      holdInputAlive()
       if (pendingReimburse.value) {
         uni.showToast({ title: '待报销的账本来就不计入预算', icon: 'none' })
         return
       }
       excludeBudget.value = !excludeBudget.value
+    }
+
+    /*
+     * 胶囊的点按分发
+     *
+     * ★ 为什么不用现成的 @click（本轮用户第 2 条 bug 的根因）★
+     *   App 端 <view> 的 @click 是「300ms 后合成的 tap」。原生输入框在手指
+     *   按下时就先失焦、键盘开始收起；等 click 姗姗来迟时 focus() 追不上，
+     *   键盘就真的缩回去了。
+     *   现在 @touchstart 直接 .prevent（阻止默认的「夺焦」行为），
+     *   @touchend 立刻处理，@click 只作为 H5/无 touch 环境的兜底 ——
+     *   用 touchHandled 去重，避免一次点击切换两次。
+     */
+    let chipTouchedAt = 0
+
+    function onChipTap(which) {
+      chipTouchedAt = Date.now()
+      applyChip(which)
+    }
+
+    function onChipClick(which) {
+      // touchend 已经处理过（300ms 内）就不再处理
+      if (Date.now() - chipTouchedAt < 600) return
+      applyChip(which)
+    }
+
+    function applyChip(which) {
+      // 再兜一次保活窗：某些机型 prevent 也拦不住键盘收起
+      holdInputAlive()
+      if (which === 'reimburse') togglePendingReimburse()
+      else toggleExcludeBudget()
     }
 
     /**
@@ -288,7 +318,15 @@ export default {
     let refocusTimer = null
 
     function holdInputAlive() {
-      keepAliveUntil = Date.now() + 900
+      /*
+       * 保护窗开到 1.2 秒
+       *
+       * ★ 为什么不是 900ms ★
+       *   真机上「点胶囊 → 键盘收 → 我们抢回焦点 → 键盘再弹」
+       *   这一串可能超过 900ms（尤其低端机），窗口一过高度归零回调
+       *   仍会把输入条 close 掉。1.2 秒覆盖完整一轮，用户感知不到。
+       */
+      keepAliveUntil = Date.now() + 1200
       refocus()
     }
 
@@ -646,6 +684,17 @@ export default {
       closing = true
       visible.value = false
       draft.value = ''
+      /*
+       * ★ 关闭时就把两个胶囊清掉（用户反馈的 bug）★
+       *   上一版只在「下次打开」时重置。若某条退出路径没走到
+       *   watch(modelValue) 的 open 分支（比如父层直接把 v-model 置 false、
+       *   或侧滑返回走了弹层栈），勾选状态就会留到下一次，
+       *   表现成「上次勾了没发送，这次打开还是勾着」。
+       *   关闭时清一次 = 不管从哪条路退出都不会残留。
+       */
+      autoReimburse = false
+      pendingReimburse.value = false
+      excludeBudget.value = false
       autoFocus.value = false
       keyboardHeight.value = 0
       maskEnabled.value = false
@@ -699,6 +748,10 @@ export default {
           }
           unbindKeyboard()
           clearFocusTimers()
+          // 兜底：父层直接置 false 时也不留勾选状态（见 close() 的注释）
+          autoReimburse = false
+          pendingReimburse.value = false
+          excludeBudget.value = false
           return
         }
 
@@ -774,6 +827,7 @@ export default {
       primaryColor, canSend, barStyle,
       pendingReimburse, excludeBudget, flagsStyle,
       togglePendingReimburse, toggleExcludeBudget, holdInputAlive,
+      onChipTap, onChipClick,
       submit, close, onMaskClick, noop
     }
   }

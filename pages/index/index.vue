@@ -348,6 +348,7 @@ import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
+import { reimburseBadge } from '@/utils/reimburseBadge.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
@@ -683,6 +684,10 @@ export default {
         const c = primaryColor.value
         list.push({ key: '__person__', name: txn.note, color: c, bg: c + '22', border: c })
       }
+      // 报销状态徽标（待报销 / 已报销，见 utils/reimburseBadge.js）
+      const rb = reimburseBadge(txn)
+      if (rb) list.push(rb)
+
       // 用户标签
       const ids = txn.tag_ids
       if (ids && ids.length) {

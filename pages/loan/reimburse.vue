@@ -107,11 +107,13 @@
 
                 <view class="txn-right">
                   <!--
-                    ★ 待报销的金额画删除线（用户要求）★
-                      这笔钱「不算数」—— 它既不是我的支出（能报回来），
-                      也还没变成收入（钱没到）。删除线是最直观的表达。
+                    ★ 待报销：金额正常显示，不加删除线（用户要求）★
+                      删除线表达的是「这笔的数已经不作数了」，
+                      而待报销只是「还没报销」，金额本身没变，
+                      划掉反而让人以为这笔账被作废了。
+                      删除线挪到「已报销」那一档（见下面 done 分支）。
                   -->
-                  <view class="amount-strike">
+                  <view class="amount-pending">
                     <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
                   </view>
                   <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
@@ -127,10 +129,11 @@
           </view>
         </view>
 
-        <view class="tip-card">
-          <text class="tip-text">右滑单笔可以直接报销；长按进入多选，可以一次报掉好几笔。</text>
-        </view>
-
+        <!--
+          ★ 底部提示语已按用户要求删除 ★
+            操作方式（右滑 / 长按）在列表本身已经能试出来，
+            每次进页面都挂一段说明只是噪音。
+        -->
         <view class="bottom-space" />
       </view>
 
@@ -177,8 +180,23 @@
               </view>
 
               <view class="txn-right">
-                <!-- 已报销：显示实报金额；和原金额不同时把原金额划掉标在旁边 -->
+                <!--
+                  ★ 已报销：原支出金额划删除线 + 旁边显示实报金额（用户要求）★
+                    已报销之后「原支出」这个数就不作数了 ——
+                    真正的影响由实报金额（以及坏账/盈余）体现，
+                    所以把原金额划掉、把实报金额正常显示在它右边。
+                    实报为空（老数据没填）时只显示原金额，不划。
+                -->
                 <view class="amount-done">
+                  <!--
+                    ★ 照抄 MoneyText 的符号规则还是只显示金额？★
+                      这里划掉的是「原支出」，一个已经作废的数，
+                      再加 -/+ 反而让人以为它还在算收支；
+                      只留 ¥ 金额本身，配合删除线语义最清楚。
+                  -->
+                  <text v-if="hasDoneAmount(t)" class="amount-origin-strike">
+                    ¥{{ (t.amount_cents / 100).toFixed(2) }}
+                  </text>
                   <MoneyText
                     :cents="t.reimburse_amount_cents == null ? t.amount_cents : t.reimburse_amount_cents"
                     :type="t.type"
@@ -233,8 +251,12 @@
             <text class="sheet-value">¥{{ (sheet.originCents / 100).toFixed(2) }}</text>
           </view>
 
-          <!-- 报销金额 -->
-          <view class="sheet-row sheet-row-column">
+          <!--
+            ★ 实际报销金额：和上面两行同一种排版（左标签 / 右数值）★
+              用户要求「价签显示在右侧」，字号比普通行大一号，
+              输入框右对齐，读起来和「原支出合计」在同一列上。
+          -->
+          <view class="sheet-row sheet-row-amount">
             <text class="sheet-label">实际报销金额</text>
             <view class="amount-input-wrap">
               <text class="amount-symbol">¥</text>
@@ -246,7 +268,17 @@
                 placeholder-class="amount-placeholder"
               />
             </view>
-            <text class="amount-tip">{{ diffTip }}</text>
+          </view>
+
+          <!--
+            ★ 差额提示（用户要求：类似「修改账户余额」弹层的风格）★
+              左边说明「相对什么」，右边是带正负号的彩色差额。
+              多了 = 会记「报销盈余」（收入），少了 = 会记「报销坏账」（支出），
+              相等 = 不会有差额流水。
+          -->
+          <view class="sheet-diff">
+            <text class="sheet-diff-label">相对原支出</text>
+            <text class="sheet-diff-value" :style="{ color: diffColor }">{{ diffText }}</text>
           </view>
 
           <!-- 报销账户 -->
@@ -390,21 +422,38 @@ export default {
     )
 
     /**
-     * 差额提示
+     * 差额（分）：实报 - 原支出
+     *
+     * ★ 为什么单独抽出来 ★
+     *   文案（多了/少了/相等）和颜色（绿/红/灰）都要用它，
+     *   分两处各算一遍迟早会算出两个数。
+     */
+    const diffCents = computed(() => {
+      const cents = parseAmountCents(sheet.amountText)
+      if (!cents) return null // 还没填金额：不下结论
+      return cents - sheet.originCents
+    })
+
+    /**
+     * 差额提示（与「修改账户余额」弹层同一套写法）
      *
      * ★ 实时告诉用户「这一报会发生什么」★
-     *   用户改金额时最怕「不知道多报/少报会怎么记」。
-     *   这里提前算出差额并说明会生成哪一类，确认前就能想明白。
+     *   用户改金额时最怕「不知道多报/少报会怎么记」，
+     *   这里提前把结果说清楚，确认前就能想明白。
      */
-    const diffTip = computed(() => {
-      const cents = parseAmountCents(sheet.amountText)
-      if (!cents) return '填了金额才知道会不会有坏账/盈余'
-      const diff = cents - sheet.originCents
-      if (diff === 0) return '刚好等于原支出，不会有差额'
-      const yuan = (Math.abs(diff) / 100).toFixed(2)
-      return diff < 0
-        ? `少了 ¥${yuan}，会记一笔「报销坏账」（支出）`
-        : `多了 ¥${yuan}，会记一笔「报销盈余」（收入）`
+    const diffText = computed(() => {
+      const d = diffCents.value
+      if (d === null) return '填了金额才知道差额'
+      if (d === 0) return '刚好相等'
+      const yuan = (Math.abs(d) / 100).toFixed(2)
+      return d > 0 ? `多了 ¥${yuan}` : `少了 ¥${yuan}`
+    })
+
+    /** 差额颜色：多了绿（收入）、少了红（损失）、相等灰 */
+    const diffColor = computed(() => {
+      const d = diffCents.value
+      if (d === null || d === 0) return 'var(--app-text-3)'
+      return d > 0 ? 'var(--app-income, #07C160)' : 'var(--app-danger)'
     })
 
     /* ------------------------------------------------------ 工具 */
@@ -417,6 +466,20 @@ export default {
 
     function iconChar(t) {
       return ICON_FALLBACK[t && t.category_name] || '🧾'
+    }
+
+    /**
+     * 是否要显示「原金额（划掉）+ 实报金额」两个数
+     *
+     * ★ 什么时候只显示一个 ★
+     *   老数据可能没有 reimburse_amount_cents（v21 之前报销的账），
+     *   或者实报恰好等于原额 —— 这两种情况只显示一个数，
+     *   免得同一行出现两个一样的数字、还划掉一个，看着像出了 bug。
+     */
+    function hasDoneAmount(t) {
+      const done = t.reimburse_amount_cents
+      if (done === null || done === undefined) return false
+      return Number(done) !== Number(t.amount_cents)
     }
 
     /** 副标题：时间 · 账户 */
@@ -702,8 +765,8 @@ export default {
       settingStore, status, loading, groups, settleRows, summary,
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
       swipeStates, selectMode, selectedIds,
-      showSheet, showAccountPicker, sheet, accountName, accountActions, diffTip,
-      iconChar, txnSub, timeLabel, goTxnDetail, formatTime,
+      showSheet, showAccountPicker, sheet, accountName, accountActions, diffText, diffColor,
+      iconChar, txnSub, timeLabel, goTxnDetail, formatTime, hasDoneAmount,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
       onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountSelect,
       onConfirmReimburse, goBack
@@ -900,20 +963,30 @@ export default {
   flex-shrink: 0;
 }
 
-/*
- * 待报销金额画删除线（用户要求）
- *
- * ★ 为什么整块加而不是改 MoneyText 的 props ★
- *   MoneyText 是所有金额的统一出口，给它加删除线开关会污染其它调用点；
- *   用 text-decoration 包一层最省事，也不影响金额本身的符号/配色逻辑。
- */
-.amount-strike {
-  text-decoration: line-through;
-  opacity: 0.7;
+/* 待报销：金额正常显示（不划删除线） */
+.amount-pending {
+  display: flex;
+  align-items: baseline;
 }
 
+/*
+ * 已报销：原支出金额划删除线，实报金额正常显示在旁边
+ *
+ * ★ 为什么用 text-decoration 包一层而不是改 MoneyText ★
+ *   MoneyText 是所有金额的统一出口，给它加删除线开关会污染其它调用点。
+ */
 .amount-done {
-  /* 已报销：金额是「实际到账」，正常显示 */
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10rpx;
+}
+
+.amount-origin-strike {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  text-decoration: line-through;
+  font-variant-numeric: tabular-nums;
 }
 
 .txn-time {
@@ -1023,13 +1096,6 @@ export default {
   border-bottom: none;
 }
 
-.sheet-row-column {
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 24rpx 0;
-  gap: 12rpx;
-}
-
 .sheet-label {
   font-size: 28rpx;
   color: var(--app-text-2);
@@ -1053,23 +1119,44 @@ export default {
   color: var(--app-text-3);
 }
 
+/* 实际报销金额：和上面两行同一种「左标签 / 右数值」排版 */
+.sheet-row-amount {
+  align-items: center;
+}
+
 .amount-input-wrap {
   display: flex;
-  align-items: center;
-  gap: 8rpx;
-  width: 100%;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6rpx;
+  flex: 1;
+  min-width: 0;
 }
 
 .amount-symbol {
-  font-size: 38rpx;
-  color: var(--app-text);
+  font-size: 28rpx;
+  color: var(--app-text-2);
+  flex-shrink: 0;
 }
 
+/*
+ * 金额输入
+ *
+ * ★ 字号比普通行大一号（34rpx vs 28rpx）★
+ *   这是整个弹层唯一要用户填的地方，值得更醒目；
+ *   但又不能像余额弹层那样 56rpx —— 那会把「实际报销金额」
+ *   这一行的标签挤得换行。
+ * ★ 右对齐 ★
+ *   和上面「原支出合计」的数字落在同一列上，视线不用来回找。
+ */
 .amount-input {
   flex: 1;
-  font-size: 44rpx;
+  min-width: 0;
+  width: 0;
+  font-size: 34rpx;
   font-weight: 600;
   color: var(--app-text);
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1078,10 +1165,23 @@ export default {
   font-weight: 400;
 }
 
-.amount-tip {
-  font-size: 22rpx;
+/* 差额提示：与「修改账户余额」弹层同一套排版（左说明 / 右彩色差值） */
+.sheet-diff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0 8rpx;
+}
+
+.sheet-diff-label {
+  font-size: 24rpx;
   color: var(--app-text-3);
-  line-height: 1.4;
+}
+
+.sheet-diff-value {
+  font-size: 26rpx;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 空态卡片 */
@@ -1089,19 +1189,6 @@ export default {
   background-color: var(--app-card);
   border-radius: 20rpx;
   margin-top: 16rpx;
-}
-
-.tip-card {
-  background-color: var(--app-card);
-  border-radius: 20rpx;
-  padding: 20rpx 24rpx;
-  margin-top: 20rpx;
-}
-
-.tip-text {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.6;
 }
 
 .ellipsis {

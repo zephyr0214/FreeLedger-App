@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.21.0-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.22.0-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -34,7 +34,8 @@
 
 **账务管理**
 - 二级分类（自定义图标）、标签、预算（月预算 + 子预算，支持结转与多类别）
-- 周期账：按天 / 周 / 月自动补记，手动删掉的日期不会被重复补上
+- 周期账：按天 / 周 / 月自动补记，手动删掉的日期不会被重复补上；周期也能预设「不计入预算 / 待报销」
+- 报销台账：支出标记「待报销」，收到钱后一键报销，差额自动记坏账或盈余；流水上直接显示「待报销 / 已报销」徽标
 - 借入借出按人员管理：未结清 / 已结清分组，借出可手动结清（差额自动记坏账或利息）
 
 **统计与 AI 问答**
@@ -46,7 +47,7 @@
 - 每日自动备份 + JSON 导出 / 导入
 - 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色
-- 数据库结构化迁移（当前 schema v17），升级不丢数据
+- 数据库结构化迁移（当前 schema v22），升级不丢数据
 
 ## 技术栈与工程化
 
@@ -71,7 +72,7 @@ npm run test      # 全部测试（20+ 个测试文件，数百条断言）
 
 ## 版本规则
 
-- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v17 → v1.17.x）
+- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v22 → v1.22.x）
 - 无迁移 → 递增修订号（1.17.0 → 1.17.1）
 - 每个版本的用户可见变化见 App 内「我的 → 更新日志」
 
@@ -145,7 +146,8 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 
 **Management**
 - Two-level categories (custom icons), tags, budgets (total + per-category)
-- Recurring transactions auto-posted by day / week / month; days you deliberately deleted are never re-posted
+- Recurring transactions auto-posted by day / week / month; days you deliberately deleted are never re-posted — a cycle can preset "exclude from budget / to be reimbursed"
+- Reimbursement ledger: mark an expense as pending, settle it in one tap, and the difference is auto-booked as bad debt or surplus; "pending / reimbursed" badges show up right in the transaction list
 
 **Insights & AI chat**
 - Hand-drawn SVG charts: category donut, trend lines, calendar heatmap, account stats
@@ -155,7 +157,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 **Data & appearance**
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors
-- Structured database migrations (schema v16) — upgrades never lose data
+- Structured database migrations (schema v22) — upgrades never lose data
 
 ## Tech & engineering
 
@@ -180,7 +182,7 @@ npm run test      # full test suite (20+ files, hundreds of assertions)
 
 ## Versioning
 
-- With a DB migration → minor version follows the schema version (schema v16 → v1.16.x)
+- With a DB migration → minor version follows the schema version (schema v22 → v1.22.x)
 - Without one → patch bump (1.16.2 → 1.16.3)
 - User-facing changes per version: in-app *Mine → Changelog*
 
