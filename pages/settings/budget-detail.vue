@@ -167,12 +167,7 @@ export default {
      */
     const scopeLabel = computed(() => {
       if (!usage.value) return ''
-      if (usage.value.scope === 'total') {
-        return usage.value.carryover > 0
-          ? `月预算（含结转 ¥${(usage.value.carryover / 100).toFixed(2)}）`
-          : '月预算'
-      }
-      return '子预算'
+      return usage.value.scope === 'total' ? '月预算' : '子预算'
     })
 
     /**

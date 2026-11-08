@@ -44,7 +44,6 @@ function normalizeBudget(row) {
   return {
     ...row,
     amount_cents: Number(row.amount_cents) || 0,
-    rollover: Number(row.rollover) === 1,
     name: row.name || '',
     // 子预算挂的类别 id 列表（v18 之前是单列 category_id，这里统一成数组）
     categoryIds: []
@@ -96,7 +95,6 @@ async function attachCategories(list) {
  *   category_ids 子预算挂的类别 id 数组
  *   category_id  旧字段（兼容老调用方，等价于 category_ids=[category_id]）
  *   start_month  'YYYY-MM'，预算从哪个月开始生效
- *   rollover     仅月预算：未用完是否结转到下一月
  */
 export async function createBudget(input) {
   const amount = Math.round(Number(input.amount_cents))
@@ -126,8 +124,8 @@ export async function createBudget(input) {
     await detachCategories(categoryIds, null)
 
     await execute(
-      `INSERT INTO budget (id, scope, category_id, name, period, amount_cents, start_month, rollover, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO budget (id, scope, category_id, name, period, amount_cents, start_month, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       [
         id,
         scope,
@@ -137,7 +135,6 @@ export async function createBudget(input) {
         input.period || 'month',
         amount,
         startMonth,
-        scope === SCOPE_TOTAL && input.rollover ? 1 : 0,
         now,
         now
       ]
@@ -154,7 +151,7 @@ export async function createBudget(input) {
 /**
  * 修改预算
  *
- * 支持 amount_cents / rollover / start_month / name / category_ids。
+ * 支持 amount_cents / start_month / name / category_ids。
  * category 相关的归一化与「类别唯一」处理与新建一致。
  */
 export async function updateBudget(id, patch) {
@@ -183,7 +180,6 @@ export async function updateBudget(id, patch) {
   if (patch.amount_cents !== undefined) {
     assign('amount_cents', Math.round(Number(patch.amount_cents)))
   }
-  if (patch.rollover !== undefined && scope === SCOPE_TOTAL) assign('rollover', patch.rollover ? 1 : 0)
   if (patch.start_month !== undefined) assign('start_month', patch.start_month)
   if (patch.name !== undefined && scope === SCOPE_CATEGORY) {
     assign('name', String(patch.name || '').trim() || null)
@@ -375,60 +371,16 @@ async function assertMonthCoversSubBudgets(amount, excludeId) {
   void excludeId
 }
 
-/* ------------------------------------------------ 结转（逐月累计） */
-
-/** 'YYYY-MM' 递增一个月（本地实现，避免和 date.js 的 shiftMonth 语义耦合） */
-function nextMonth(monthKey) {
-  let y = Number(String(monthKey).slice(0, 4)) || 0
-  let m = Number(String(monthKey).slice(5, 7)) || 0
-  m += 1
-  if (m > 12) { m = 1; y += 1 }
-  return `${y}-${String(m).padStart(2, '0')}`
-}
-
-/**
- * 月预算在某个月的「可用额度」= 本月额度 + 上期结转。
+/*
+ * ★ 预算结转已删除（用户要求）★
+ *   用户原话：「删除预算结转的选框及其背后的逻辑，不要结转功能」。
  *
- * ★ 结转口径（用户指定）★
- *   「逐月累计结转，且只结转正数」
- *     每月可用 = 月额度 + 上期结转
- *     本期结转 = max(0, 本期可用 - 本期已用)
- *   也就是说：没花完结转到下月；超支则结转 0，**不透支下月的额度**。
- *   从预算的 start_month 开始算，之前不存在的月份不参与。
- *
- * ★ 为什么要逐月累计而不是只看上一月 ★
- *   用户可能连续几个月都花得少，那些额度应该一直在账上；
- *   只看上一月的话，第二个月没花完的部分会在第三个月被静默丢弃。
- *
- * @param {object} opt
- *   monthly    月额度（分）
- *   startMonth 预算起始月 'YYYY-MM'
- *   monthKey   要算的月份
- *   usedByMonth { 'YYYY-MM': 已用分 } 从 startMonth 到 monthKey 的每月支出
- *   rollover   是否开启结转
- * @returns {{ carryover:number, available:number }}
+ *   之前这里有一套「逐月累计、只结转正数」的算法
+ *   （computeMonthAvailability）：每月可用 = 月额度 + 上期结转，
+ *   超支则结转 0。它需要每次把起始月到目标月的支出全部查出来重算，
+ *   一旦改了月预算额度，历史月份的结转也会跟着变 —— 用户很难理解。
+ *   现在去掉：每个月的可用额度就是月预算本身，没有任何隐式叠加。
  */
-export function computeMonthAvailability(opt) {
-  const monthly = Math.max(0, Number(opt.monthly) || 0)
-  const startMonth = String(opt.startMonth || '')
-  const monthKey = String(opt.monthKey || '')
-  const usedByMonth = opt.usedByMonth || {}
-  const rollover = !!opt.rollover
-
-  if (!rollover || !startMonth || !monthKey || startMonth > monthKey) {
-    return { carryover: 0, available: monthly }
-  }
-
-  let carry = 0
-  let m = startMonth
-  // 只滚到 monthKey 的**前一个月**：target 月的结转来自之前各月
-  while (m < monthKey) {
-    const used = Number(usedByMonth[m]) || 0
-    carry = Math.max(0, carry + monthly - used)
-    m = nextMonth(m)
-  }
-  return { carryover: carry, available: monthly + carry }
-}
 
 /* ------------------------------------------------------------ 额度分配 */
 
@@ -456,9 +408,11 @@ export function summarizeAllocation(usages) {
   const total = list.find((b) => b.scope === SCOPE_TOTAL) || null
   const categories = list.filter((b) => b.scope === SCOPE_CATEGORY)
 
-  // 月预算的「可分配额度」用 baseLimit（不含结转）：
-  // 结转是「本月能花多少」，不是「能分配给子预算多少」——
-  // 把结转也算进来，子预算额度会随着月份莫名其妙地变大。
+  /*
+   * ★ 可分配池 = 月预算的本月额度 ★
+   *   结转删掉之后，limit 本身就是本月额度（不再有隐式叠加），
+   *   所以直接取 limit；baseLimit 保留兜底是为了兼容调用方传入的老对象。
+   */
   const totalLimit = total ? Number(total.baseLimit !== undefined ? total.baseLimit : total.limit) || 0 : 0
   const allocated = categories.reduce((sum, b) => sum + (Number(b.limit) || 0), 0)
 
@@ -497,6 +451,7 @@ export function checkCategoryAllocation(usages, newLimit, excludeId) {
   const total = (Array.isArray(usages) ? usages : []).find((b) => b.scope === SCOPE_TOTAL) || null
 
   const allocated = list.reduce((sum, b) => sum + (Number(b.limit) || 0), 0)
+  // 口径与 summarizeAllocation 一致：可分配池 = 月预算额度
   const totalLimit = total ? Number(total.baseLimit !== undefined ? total.baseLimit : total.limit) || 0 : 0
   const amount = Number(newLimit) || 0
   const newTotal = allocated + amount

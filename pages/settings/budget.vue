@@ -59,36 +59,12 @@
             </view>
           </view>
 
-          <!--
-            ★ 结转的展示 ★
-              开了结转、且上月确实有结余时，把「本月额度 = 月预算 + 结转」讲清楚，
-              否则用户看到可用额度比自己设的数字大，会以为算错了。
-          -->
-          <text v-if="totalBudget.carryover > 0" class="carry-hint">
-            本月含上月结转 ¥{{ (totalBudget.carryover / 100).toFixed(2) }}（月预算 ¥{{ (totalBudget.monthly / 100).toFixed(2) }}）
-          </text>
         </view>
 
         <view v-else class="empty-hint" @click="editTotalBudget">
           <text class="empty-hint-text">未设置月预算，点击设置</text>
         </view>
 
-        <!--
-          ★ 「未用完的预算结转到下一月」勾选框 ★
-            默认不勾（数据库默认值是 0）。
-            直接放在月预算卡里而不是编辑弹层里：
-            这是一个「长期生效的开关」，不是每次设预算都要重填的字段，
-            放在每天都能看到的卡片上才知道自己有没有开；
-            改一下立即存库，不用再点开弹层。
-        -->
-        <view v-if="totalBudget" class="check-row" @click="toggleRollover">
-          <view class="check-box" :class="{ checked: !!totalBudget.rollover }">
-            <text v-if="totalBudget.rollover" class="check-tick">✓</text>
-          </view>
-          <view class="check-text-wrap">
-            <text class="check-text">未用完的预算结转到下一月</text>
-          </view>
-        </view>
       </view>
 
       <!-- 已分配合计（月预算的分配情况） -->
@@ -650,18 +626,6 @@ export default {
       editorCatIds.value = Array.isArray(ids) ? ids.slice() : []
     }
 
-    /** 切换「未用完的预算结转到下一月」——改完立即存库 */
-    async function toggleRollover() {
-      const b = totalBudget.value
-      if (!b) return
-      try {
-        await updateBudget(b.id, { rollover: !b.rollover })
-        await load()
-      } catch (e) {
-        await alertDialog({ title: '保存失败', content: e.message })
-      }
-    }
-
     /**
      * 保存预算
      *
@@ -874,7 +838,7 @@ export default {
       totalBudget, subBudgets, allocation, categorySubTitle,
       usedCatIds, disabledCatIds, expenseCategories, selectedCats, catsLabel, editorTitle, catPickLabel,
       load, editTotalBudget, editCategoryBudget, openCategoryPicker,
-      goBudgetDetail, openCatPickerSheet, onCatConfirm, toggleRollover,
+      goBudgetDetail, openCatPickerSheet, onCatConfirm,
       saveBudget, removeBudget, onDeleteFromEditor,
       closeEditor, closeAllSwipes, goBack, settingStore
     }
@@ -986,13 +950,6 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-/* 结转提示：本月额度比月预算大的原因 */
-.carry-hint {
-  font-size: 22rpx;
-  color: var(--app-primary);
-  line-height: 1.5;
-}
-
 /* 已分配合计 */
 .alloc {
   display: flex;
@@ -1052,60 +1009,6 @@ export default {
 .empty-hint-text {
   font-size: 25rpx;
   color: var(--app-text-3);
-}
-
-/* 勾选框（自绘，深浅色都跟主题走，不依赖组件库的默认色） */
-.check-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 16rpx;
-  margin-top: 24rpx;
-  padding-top: 24rpx;
-  border-top: 1rpx solid var(--app-line);
-}
-
-.check-box {
-  width: 36rpx;
-  height: 36rpx;
-  border-radius: 10rpx;
-  border: 2rpx solid var(--app-line);
-  background-color: var(--app-card-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 2rpx;
-}
-
-/* 勾选后填充主题色：比「只画一个勾」更容易在浅色底上被看见 */
-.check-box.checked {
-  border-color: var(--app-primary);
-  background-color: var(--app-primary);
-}
-
-.check-tick {
-  font-size: 22rpx;
-  color: #ffffff;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.check-text-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  flex: 1;
-}
-
-.check-text {
-  font-size: 26rpx;
-  color: var(--app-text);
-}
-
-.check-sub {
-  font-size: 21rpx;
-  color: var(--app-text-3);
-  line-height: 1.5;
 }
 
 /* 子预算 */

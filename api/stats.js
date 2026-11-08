@@ -34,7 +34,6 @@ import { buildCompareRange, changePercent } from '../utils/compareRange.js'
 import { ACCOUNT_TYPES } from './account.js'
 // 结转口径只定义在 api/budget.js 一处，统计层复用同一个纯函数 ——
 // 两边各写一遍算法，迟早会出现「预算页说到这月还剩 100、详情页说 90」。
-import { computeMonthAvailability } from './budget.js'
 
 /* ============================================================ 区间基础 */
 
@@ -1438,9 +1437,17 @@ export async function getSavingsRate(range) {
  *   自己再写一遍「已用 / 额度」的话，统计页说用了 80%、预算页说 85%，
  *   用户会以为哪边算错了 —— 而实际上只是两处漏了同一个「不计入预算」条件。
  *
- * ★ 返回的是「精简后的执行摘要」★
- *   面板上只需要：总额度、已用、占比、超没超、还剩多少；
- *   再加上逐条预算的执行率（最多 5 条，按执行率降序，最该看的排前面）。
+ * ★ 总额度只算月预算，不再把子预算加进来（用户本轮要求）★
+ *   用户原话：「修改统计页面的预算执行情况逻辑，应该只加和月预算，
+ *   为什么要加和子预算，而且预算下方应该只显示子预算而不显示月预算」。
+ *
+ *   以前是「各条预算额度直接求和」，那样会算成「月预算 + 所有子预算」——
+ *   可子预算花的就是月预算那同一笔钱，两者是**包含关系**不是并列关系。
+ *   月预算 3000、子预算 1000+800，旧算法得出「总额度 4800」，
+ *   那是个根本不存在的数字，用户看到的执行率也因此永远偏低。
+ *
+ *   现在：总额度 = 月预算那一条的额度；已用 = 月预算那一条的已用。
+ *   子预算只出现在下方的明细列表里，各自看各自的执行率。
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @returns {Promise<{hasBudget:boolean,limit:number,used:number,
@@ -1455,23 +1462,25 @@ export async function getBudgetExecution(range) {
     list = []
   }
   const arr = Array.isArray(list) ? list : []
-  if (arr.length === 0) {
+
+  /*
+   * 月预算与子预算分开两份
+   *
+   * ★ 没有月预算就不算「有预算」★
+   *   子预算是月预算的子额度（createBudget 里有硬校验：
+   *   没设月预算不允许建子预算），所以正常情况下不会出现
+   *   「有子预算没月预算」。真出现了（老数据/导入异常）也不
+   *   拿子预算去凑总数 —— 那又会回到「把包含关系当并列」的老问题。
+   */
+  const totalRow = arr.find((b) => b.scope === 'total') || null
+  const subRows = arr.filter((b) => b.scope === 'category')
+
+  if (!totalRow) {
     return { hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] }
   }
 
-  /*
-   * ★ 总额度 = 各条预算额度之和 ★
-   *   注意「总预算」和「子预算」在预算页里是包含关系（子预算花的是同一笔钱），
-   *   但这里的「执行情况」看的是**每条预算各自守没守住**，
-   *   所以求和是各条的额度，不构成重复计算 —— 因为它只用于展示
-   *   「一共设了多少额度、其中用掉多少」，不做任何账务判断。
-   */
-  let limit = 0
-  let used = 0
-  for (const b of arr) {
-    limit += Number(b.limit) || 0
-    used += Number(b.used) || 0
-  }
+  const limit = Number(totalRow.limit) || 0
+  const used = Number(totalRow.used) || 0
   const remaining = limit - used
 
   return {
@@ -1482,11 +1491,15 @@ export async function getBudgetExecution(range) {
     percent: limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0,
     over: used > limit,
     /*
+     * ★ 下方明细只列子预算，不含月预算本身 ★
+     *   上面的「已用 / 总额度」讲的就是月预算，
+     *   下面再重复一遍月预算那一行是冗余信息，还容易让人以为
+     *   总额度是「月预算 + 那行月预算」。
+     *
      * ★ 逐条按执行率降序 ★
      *   最可能超支的排最上面，用户一眼看到该管哪一条。
-     *   额度为 0 的（新设还没生效）执行率算 0，排后面。
      */
-    items: arr
+    items: subRows
       .map((b) => ({
         id: b.id,
         name: b.name,
@@ -1495,8 +1508,7 @@ export async function getBudgetExecution(range) {
         used: Number(b.used) || 0,
         remaining: Number(b.remaining) || 0,
         percent: Number(b.percent) || 0,
-        over: !!b.over,
-        scope: b.scope
+        over: !!b.over
       }))
       .sort((a, b) => b.percent - a.percent)
       .slice(0, 5)
@@ -1590,95 +1602,14 @@ function budgetDisplayName(b, cats) {
   return `${names[0]}、${names[1]} 等${names.length}项`
 }
 
-/**
- * 某段月份区间内「每个月计入预算的支出」。
- *
- * ★ 为什么结转要查这么多月 ★
- *   结转是逐月累计的：要算 2026-10 的结转，得知道 2026-03（起始月）
- *   到 2026-09 每个月各花了多少。只查目标月永远只能得到 0 结转。
- *
- * @param {string} fromMonth 含（'YYYY-MM'）
- * @param {string} toMonth   不含（'YYYY-MM'）
- * @returns {Promise<Object<string, number>>}
+/*
+ * ★ 预算结转已删除（用户要求）★
+ *   之前这里有 monthlyBudgetExpenseMap / totalBudgetMonthlyAvailability /
+ *   totalBudgetCarryover 三个函数，专门为「逐月累计结转」
+ *   去查起始月到目标月的每月支出。
+ *   现在预算不结转：每个月的可用额度就是月预算本身，
+ *   因此也不需要去回溯历史月份的支出。
  */
-async function monthlyBudgetExpenseMap(fromMonth, toMonth) {
-  const map = {}
-  if (!fromMonth || !toMonth || fromMonth >= toMonth) return map
-
-  const rows = await query(
-    `SELECT month_key AS mk, COALESCE(SUM(amount_cents),0) AS amt
-     FROM txn
-     WHERE deleted_at IS NULL AND type = 'expense'
-       AND COALESCE(exclude_from_budget, 0) = 0
-       AND month_key >= ? AND month_key < ?
-     GROUP BY month_key`,
-    [fromMonth, toMonth]
-  )
-  rows.forEach((r) => { map[r.mk] = Number(r.amt) || 0 })
-  return map
-}
-
-/** 'YYYY-MM' 递增一个月 */
-function nextMonthKey(monthKey) {
-  let y = Number(String(monthKey).slice(0, 4)) || 0
-  let m = Number(String(monthKey).slice(5, 7)) || 0
-  m += 1
-  if (m > 12) { m = 1; y += 1 }
-  return `${y}-${String(m).padStart(2, '0')}`
-}
-
-/**
- * 月预算在若干个月份里各自的「可用额度」（月额度 + 上期结转）。
- *
- * 口径见 api/budget.js 的 computeMonthAvailability（逐月累计、只结转正数）：
- *   每月可用 = 月额度 + 上期结转
- *   本期结转 = max(0, 本期可用 - 本期已用)
- * 超支时结转 0，不透支下月额度。
- *
- * @param {object} totalRow budget 表里 scope='total' 的行
- * @param {string[]} months 升序月份列表
- * @returns {Promise<Object<string, number>>} monthKey -> 可用额度（分）
- */
-async function totalBudgetMonthlyAvailability(totalRow, months) {
-  const monthly = Number(totalRow.amount_cents) || 0
-  const startMonth = totalRow.start_month || ''
-  const rollover = Number(totalRow.rollover) === 1
-  const out = {}
-
-  if (!rollover || !startMonth || months.length === 0) {
-    months.forEach((m) => { out[m] = monthly })
-    return out
-  }
-
-  const wanted = new Set(months)
-  const last = months[months.length - 1]
-  const usedByMonth = await monthlyBudgetExpenseMap(startMonth, nextMonthKey(last))
-
-  let carry = 0
-  let m = startMonth
-  while (m <= last) {
-    if (wanted.has(m)) out[m] = monthly + carry
-    carry = Math.max(0, carry + monthly - (Number(usedByMonth[m]) || 0))
-    m = nextMonthKey(m)
-  }
-  return out
-}
-
-/** 月预算在单独某个月的结转额（没开结转/尚未开始 -> 0） */
-async function totalBudgetCarryover(totalRow, targetMonth) {
-  if (!totalRow || Number(totalRow.rollover) !== 1) return 0
-  const startMonth = totalRow.start_month || ''
-  if (!startMonth || startMonth >= targetMonth) return 0
-
-  const usedByMonth = await monthlyBudgetExpenseMap(startMonth, targetMonth)
-  return computeMonthAvailability({
-    monthly: Number(totalRow.amount_cents) || 0,
-    startMonth,
-    monthKey: targetMonth,
-    usedByMonth,
-    rollover: true
-  }).carryover
-}
 
 export async function getBudgetUsage(monthKey) {
   const mk = monthKey || toMonthKey()
@@ -1761,8 +1692,6 @@ export async function getBudgetUsage(monthKey) {
   }
 
   const catInfo = await loadBudgetCategories(budgets)
-  const totalRowBudget = budgets.find((b) => b.scope === 'total') || null
-  const carryover = await totalBudgetCarryover(totalRowBudget, mk)
 
   return budgets.map((b) => {
     const monthly = Number(b.amount_cents) || 0
@@ -1770,15 +1699,13 @@ export async function getBudgetUsage(monthKey) {
     const isTotal = b.scope === 'total'
 
     /*
-     * ★ limit 与 baseLimit 的区别 ★
-     *   limit     本月**实际可用**（月额度 + 上期结转）—— 进度条、剩余都按它算
-     *   baseLimit 本月**本来是多少**（不含结转）—— 「月预算 → 子预算」的额度
-     *             分配按它算；把结转也算进可分配池，子预算能设的额度会随
-     *             月份莫名其妙变大，用户完全没法理解。
+     * ★ 本月可用额度 = 月预算额度（不再有结转）★
+     *   之前这里分了 limit（含结转）和 baseLimit（不含结转）两个值，
+     *   现在结转删了，两者恒等。baseLimit 保留下来是为了不改各处调用方，
+     *   但它不再承担「不含结转」这个语义。
      */
     const baseLimit = monthly
-    const carry = isTotal ? carryover : 0
-    const limit = monthly + carry
+    const limit = monthly
 
     // 子预算的「已用」= 它挂的所有类别的支出之和。
     // （api/budget.js 保证不会同时挂一级和它自己的二级，所以不会重复计算。）
@@ -1809,10 +1736,7 @@ export async function getBudgetUsage(monthKey) {
       icon: isTotal ? 'chart' : ((cats[0] && cats[0].icon) || 'more'),
       limit,
       baseLimit,
-      carryover: carry,
       monthly,
-      // 是否开启了「未用完结转到下一月」（只有月预算可能为 true）
-      rollover: isTotal && Number(b.rollover) === 1,
       used,
       remaining,
       percent: pct,
@@ -1988,12 +1912,6 @@ export async function getBudgetUsageRange(range) {
   }
   const cal = rangeCalendar(kind, e, firstDay)
 
-  const totalRowBudget = budgets.find((b) => b.scope === 'total') || null
-  // 月预算各月的可用额度（含结转），只算一次，所有预算共用
-  const totalAvailability = totalRowBudget
-    ? await totalBudgetMonthlyAvailability(totalRowBudget, months)
-    : {}
-
   const out = []
   for (const b of budgets) {
     const startMonth = b.start_month || ''
@@ -2009,16 +1927,14 @@ export async function getBudgetUsageRange(range) {
     const cats = catInfo[b.id] || []
 
     /*
-     * 额度：
-     *   月预算     -> 各生效月可用额度之和（结转逐月展开，见上方说明）
-     *   子预算     -> 月额度 × 生效月数（子预算不参与结转）
+     * 额度：月预算与子预算都是「月额度 × 生效月数」
+     *
+     * ★ 为什么不再区分两种算法 ★
+     *   以前月预算要逐月展开结转，所以要单独累加「各月可用额度」；
+     *   现在没有结转，月预算的可用额度就是它自己，
+     *   所以两者同一个公式。
      */
-    let limit = 0
-    if (isTotal) {
-      for (const m of effective) limit += totalAvailability[m] !== undefined ? totalAvailability[m] : monthly
-    } else {
-      limit = monthly * effective.length
-    }
+    const limit = monthly * effective.length
 
     let used = 0
     if (isTotal) {
@@ -2051,9 +1967,7 @@ export async function getBudgetUsageRange(range) {
       icon: isTotal ? 'chart' : ((cats[0] && cats[0].icon) || 'more'),
       limit,
       baseLimit: monthly * effective.length,
-      carryover: isTotal ? limit - monthly * effective.length : 0,
       monthly,
-      rollover: isTotal && Number(b.rollover) === 1,
       used,
       remaining,
       percent: pct,

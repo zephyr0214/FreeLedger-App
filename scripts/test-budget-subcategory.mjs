@@ -24,7 +24,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
-import { computeMonthAvailability, summarizeAllocation, checkCategoryAllocation } from '../api/budget.js'
+import { summarizeAllocation, checkCategoryAllocation } from '../api/budget.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -44,144 +44,38 @@ function check(name, actual, expected) {
   }
 }
 
-/* ================================================== 1. 结转：逐月累计 */
+/* ============================================ 1. 结转功能已删除（回归） */
 
-console.log('=== 结转：逐月累计、只结转正数 ===')
-
-{
-  // 3 月起始，每月额度 1000 元
-  const monthly = 100000
-
-  // 每月都花光 -> 结转始终 0
-  check(
-    '每月花光：结转 0',
-    computeMonthAvailability({
-      monthly,
-      startMonth: '2026-03',
-      monthKey: '2026-04',
-      usedByMonth: { '2026-03': monthly },
-      rollover: true
-    }),
-    { carryover: 0, available: monthly }
-  )
-
-  // 3 月只花 200 -> 结余 800 带到 4 月
-  check(
-    '上月结余结转到本月',
-    computeMonthAvailability({
-      monthly,
-      startMonth: '2026-03',
-      monthKey: '2026-04',
-      usedByMonth: { '2026-03': 20000 },
-      rollover: true
-    }),
-    { carryover: 80000, available: 180000 }
-  )
-
-  // 3 月超支 500 -> 结转 0，绝不透支 4 月
-  check(
-    '超支只结转 0（不透支下月）',
-    computeMonthAvailability({
-      monthly,
-      startMonth: '2026-03',
-      monthKey: '2026-04',
-      usedByMonth: { '2026-03': 150000 },
-      rollover: true
-    }),
-    { carryover: 0, available: monthly }
-  )
-
-  // 连续三个月都只花一半 -> 累计结转（只看上一月的话只会剩 50000）
-  check(
-    '连续多月的结余一直累计',
-    computeMonthAvailability({
-      monthly,
-      startMonth: '2026-01',
-      monthKey: '2026-04',
-      usedByMonth: {
-        '2026-01': 50000,
-        '2026-02': 50000,
-        '2026-03': 50000
-      },
-      rollover: true
-    }),
-    { carryover: 150000, available: monthly + 150000 }
-  )
-
-  // 中间某月超支，把之前攒的额度吃掉，但不产生负结转
-  check(
-    '中间超支先吃掉已攒额度，不吃成负数',
-    computeMonthAvailability({
-      monthly,
-      startMonth: '2026-01',
-      monthKey: '2026-04',
-      usedByMonth: {
-        '2026-01': 20000,  // 结余 80000
-        '2026-02': 150000, // 80000+100000-150000 = 30000（吃掉攒的额度，不吃成负数）
-        '2026-03': 0       // 30000+100000-0 = 130000
-      },
-      rollover: true
-    }),
-    { carryover: 130000, available: monthly + 130000 }
-  )
-}
-
-console.log('=== 结转：不开启 / 未到起始月 ===')
+console.log('=== 预算结转已删除：不再提供结转计算 ===')
 
 {
-  check(
-    '没开结转：永远 0',
-    computeMonthAvailability({
-      monthly: 100000,
-      startMonth: '2026-01',
-      monthKey: '2026-06',
-      usedByMonth: { '2026-01': 0 },
-      rollover: false
-    }),
-    { carryover: 0, available: 100000 }
-  )
+  /*
+   * ★ 用户本轮要求★
+   *   「删除预算结转的选框及其背后的逻辑，不要结转功能」。
+   *   所以这里从「验证结转算法正确」翻成「验证结转代码确实不存在」——
+   *   防止以后有人把它加回去。
+   */
+  const budgetSrc = read('api/budget.js')
+  const statsSrc = read('api/stats.js')
+  const budgetPage = read('pages/settings/budget.vue')
 
-  check(
-    '起始月本身没有结转',
-    computeMonthAvailability({
-      monthly: 100000,
-      startMonth: '2026-03',
-      monthKey: '2026-03',
-      usedByMonth: {},
-      rollover: true
-    }),
-    { carryover: 0, available: 100000 }
-  )
+  /*
+   * ★ 断言必须先剥掉注释 ★
+   *   删除结转时我在源码里写了一段说明注释，里面直接提到了
+   *   totalBudgetCarryover / totalBudgetMonthlyAvailability 这些名字。
+   *   不剥注释的话，「不再有该函数」这条断言会被自己的注释命中（假失败）。
+   */
+  const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+  const budgetNoCmt = stripComments(budgetSrc)
+  const statsNoCmt = stripComments(statsSrc)
 
-  check(
-    '目标月早于起始月：当作没结转',
-    computeMonthAvailability({
-      monthly: 100000,
-      startMonth: '2026-05',
-      monthKey: '2026-04',
-      usedByMonth: {},
-      rollover: true
-    }),
-    { carryover: 0, available: 100000 }
-  )
-
-  check(
-    '跨年结转（12 月 -> 次年 1 月）',
-    computeMonthAvailability({
-      monthly: 100000,
-      startMonth: '2025-12',
-      monthKey: '2026-01',
-      usedByMonth: { '2025-12': 30000 },
-      rollover: true
-    }),
-    { carryover: 70000, available: 170000 }
-  )
-
-  check(
-    '空输入不炸',
-    computeMonthAvailability({}).available,
-    0
-  )
+  check('api/budget.js 不再导出 computeMonthAvailability', /export function computeMonthAvailability/.test(budgetNoCmt), false)
+  check('api/budget.js 不再写 rollover 字段', /patch\.rollover|input\.rollover/.test(budgetNoCmt), false)
+  check('api/stats.js 不再有结转查询函数', /function totalBudgetCarryover|function totalBudgetMonthlyAvailability/.test(statsNoCmt), false)
+  check('预算页没有结转勾选框', /未用完的预算结转到下一月/.test(budgetPage), false)
+  check('预算页没有 toggleRollover', /toggleRollover/.test(budgetPage), false)
 }
 
 /* ======================================== 2. 多类别子预算的「已用」口径 */
@@ -452,9 +346,9 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
   check('不再出现「总预算」标题', /class="card-title">总预算</.test(budgetPage), false)
   check('不再出现「分类预算」标题', /class="card-title">分类预算</.test(budgetPage), false)
   check(
-    '有结转勾选框',
+    '结转勾选框已删除',
     /未用完的预算结转到下一月/.test(budgetPage),
-    true
+    false
   )
   check(
     '未设月预算时隐藏子预算卡（v-if="allocation.hasTotal"）',
@@ -510,7 +404,14 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
   check('保存超月预算时硬拦', /checkCategoryAllocation\(usages\.value/.test(budgetPage), true)
 
   const detail = read('pages/settings/budget-detail.vue')
-  check('详情页文案用「月预算 / 子预算」', /return '子预算'/.test(detail), true)
+  /*
+   * ★ 详情页的小标题不再拼「含结转」★
+   *   之前是 `carryover > 0 ? '月预算（含结转 ¥xx）' : '月预算'`，
+   *   现在直接返回固定两个字 —— 所以断言要同时看
+   *   「有子预算」和「没有含结转」两面。
+   */
+  check('详情页文案区分月预算 / 子预算', /'子预算'/.test(detail), true)
+  check('详情页不再拼「含结转」', /carryover/.test(detail), false)
   check('详情页支持多类别跳转', /categoryIds=\$\{catIds\.join\(','\)\}/.test(detail), true)
 
   const idx = read('pages/index/index.vue')

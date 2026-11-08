@@ -984,10 +984,16 @@ export async function importPayload(payload, opt = {}) {
         const exists = mode === 'merge' ? await queryOne('SELECT id FROM budget WHERE id = ?', [b.id]) : null
         if (exists) { report.skipped++; continue }
         await execute(
-          `INSERT INTO budget (id, scope, category_id, name, period, amount_cents, start_month, rollover, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`,
-          [b.id, b.scope, b.category_id || null, b.name || null, b.period || 'month', b.amount_cents,
-           b.start_month, b.rollover || 0, b.created_at || Date.now(), b.updated_at || Date.now()]
+          /*
+           * ★ 不再写 rollover 列（用户要求删掉结转）★
+           *   列本身还在表上（不动结构、不加迁移），
+           *   但已经没有任何代码读写它，用默认值 0 即可。
+           *   老备份里带的 rollover 字段也直接忽略 —— 导入不报错。
+           */
+          `INSERT INTO budget (id, scope, category_id, name, period, amount_cents, start_month, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          [b.id, b.scope, b.category_id || null, b.name || null, b.period || 'month',
+           b.amount_cents, b.start_month, b.created_at || Date.now(), b.updated_at || Date.now()]
         )
         report.budgets++
       }
