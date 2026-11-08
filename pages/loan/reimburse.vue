@@ -165,73 +165,52 @@
       -->
       <view v-else class="batch-list">
         <view v-for="b in batches" :key="b.id" class="batch-card">
-          <!-- 卡头 -->
+          <!--
+            卡头（用户本轮第 6 条重排）
+            ★ 修订后布局 ★
+              第一行左：报销时间
+              第一行右：上方小字「应报 ¥x」、下方「实报 ¥y」（金额前带「实报」二字）
+              第二行左：到账账户 · N 笔（报销笔数并进来，不再单独一行）
+            ★ 为什么把「笔数」并到账户后面 ★
+              以前卡身有「报销笔数 / 报销金额」两行，各占一行高度却都只有一个数；
+              笔数是「这一单的规模」，和账户同属「这单的抬头信息」，并成一行就够。
+              「应报金额」挪到实报金额上方做小字 —— 两个数是同一件事的两个口径
+              （该报多少、实报多少），上下紧挨着才比得出来。
+          -->
           <view class="batch-head">
             <view class="batch-head-left">
               <view class="batch-day-row">
                 <text class="batch-day">{{ dayTitle(b.day) }}</text>
                 <text v-if="b.isLegacy" class="batch-legacy-tag">历史</text>
               </view>
-              <text class="batch-account ellipsis">{{ b.accountName || '无账户' }}</text>
+              <text class="batch-account ellipsis">
+                {{ b.accountName || '无账户' }}
+                <text class="batch-count">· {{ b.txnCount }} 笔</text>
+              </text>
             </view>
             <view class="batch-head-right">
-              <text class="batch-done-label">实报</text>
-              <MoneyText
-                class="batch-done-amount"
-                :cents="b.doneCents"
-                :size="44"
-                :weight="600"
-              />
+              <!-- 应报金额：小字压在实报上面，两个数一上一下才比得出来 -->
+              <text class="batch-origin-label">应报 ¥{{ yuan(b.originCents) }}</text>
+              <view class="batch-done-row">
+                <text class="batch-done-label">实报</text>
+                <MoneyText
+                  class="batch-done-amount"
+                  :cents="b.doneCents"
+                  :size="44"
+                  :weight="600"
+                />
+              </view>
             </view>
           </view>
 
-          <!-- 卡身：两行小字 -->
-          <view class="batch-meta">
-            <view class="batch-meta-row">
-              <text class="batch-meta-label">报销笔数</text>
-              <text class="batch-meta-value">{{ b.txnCount }} 笔</text>
-            </view>
-            <view class="batch-meta-row">
-              <text class="batch-meta-label">报销金额</text>
-              <text class="batch-meta-value">¥{{ yuan(b.originCents) }}</text>
-            </view>
-          </view>
-
-          <!-- 明细：被报销的原始支出 -->
+          <!-- 明细：派生流水在前（这张单的真实影响），被报销的原流水在后 -->
           <view class="batch-items">
-            <view
-              v-for="t in b.items"
-              :key="t.id"
-              class="txn-item"
-              @click="goTxnDetail(t.id)"
-            >
-              <view
-                class="txn-icon"
-                :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
-              >
-                <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
-                  {{ iconChar(t) }}
-                </text>
-              </view>
-
-              <view class="txn-info">
-                <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
-                <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
-              </view>
-
-              <view class="txn-right">
-                <!--
-                  ★ 只划掉原金额，不显示实报金额（用户要求）★
-                    原支出这个数在报销之后就不作数了 —— 真正的影响由卡头的
-                    实报金额和下面的坏账/盈余表达，所以这里只留一个划掉的数。
-                    实报为空（老数据）时也照划：这张单的结论已经在卡头了。
-                -->
-                <text class="batch-origin-strike">¥{{ yuan(t.amount_cents) }}</text>
-                <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
-              </view>
-            </view>
-
-            <!-- 明细：派生流水（不计入笔数） -->
+            <!--
+              ★ 派生流水放在最前（用户本轮第 6 条）★
+                报销到账 / 盈余 / 坏账是**这次报销产生的结果**，
+                原支出那几笔是「输入」。先看结果再回头核对输入，
+                比先翻 5 笔原流水再滑到底看结果要顺手。
+            -->
             <view
               v-for="d in b.derived"
               :key="d.id"
@@ -265,6 +244,39 @@
                 <!-- 派生流水正常显示金额（不加删除线）：它们是这张单的真实影响 -->
                 <MoneyText :cents="d.amount_cents" :type="d.type" :size="28" :weight="500" />
                 <text class="txn-time">{{ timeLabel(d.occurred_at) }}</text>
+              </view>
+            </view>
+
+            <!-- 被报销的原始支出（原金额划删除线） -->
+            <view
+              v-for="t in b.items"
+              :key="t.id"
+              class="txn-item"
+              @click="goTxnDetail(t.id)"
+            >
+              <view
+                class="txn-icon"
+                :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
+              >
+                <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
+                  {{ iconChar(t) }}
+                </text>
+              </view>
+
+              <view class="txn-info">
+                <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
+                <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
+              </view>
+
+              <view class="txn-right">
+                <!--
+                  ★ 只划掉原金额，不显示实报金额（用户要求）★
+                    原支出这个数在报销之后就不作数了 —— 真正的影响由卡头的
+                    实报金额和下面的坏账/盈余表达，所以这里只留一个划掉的数。
+                    实报为空（老数据）时也照划：这张单的结论已经在卡头了。
+                -->
+                <text class="batch-origin-strike">¥{{ yuan(t.amount_cents) }}</text>
+                <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
               </view>
             </view>
 
@@ -1093,8 +1105,17 @@ export default {
  *   用户说的「类似于借款人那样的界面」就是这个意思：
  *   一块区域里先把「结论」给出来，下面才是支撑这个结论的流水。
  */
+/*
+ * 报销单卡片
+ *
+ * ★ 为什么加一圈描边（用户本轮第 6 条：卡片和背景融为一体）★
+ *   浅色下 --app-card（纯白）与页面底色 --app-bg（#F7F8FA）都是近白，
+ *   只靠 --app-shadow 那点柔光分不出边界；补 1rpx --app-line 描边后，
+ *   深浅色模式下轮廓都清楚（阴影负责层次，描边负责轮廓）。
+ */
 .batch-card {
   background-color: var(--app-card);
+  border: 1rpx solid var(--app-line);
   border-radius: 20rpx;
   overflow: hidden;
   box-shadow: var(--app-shadow);
@@ -1147,17 +1168,30 @@ export default {
   flex-shrink: 0;
 }
 
+/*
+ * 到账账户 + 报销笔数同一行
+ *
+ * ★ 为什么笔数并到账户后面（用户本轮第 6 条）★
+ *   用户原话「报销笔数直接显示在账户后面 · X 笔」。
+ *   笔数和账户同属「这单的抬头信息」，各占一行只是浪费高度。
+ */
 .batch-account {
   font-size: 22rpx;
   color: var(--app-text-3);
 }
 
+.batch-count {
+  /* 和账户名同色但略微压暗一点，读起来是「账户 · 3 笔」一个整体 */
+  opacity: 0.85;
+}
+
 /*
- * 卡头右列：标签 + 大号实报金额
+ * 卡头右列：应报（小字）在上、实报（大号）在下
  *
- * ★ 实报金额是全卡最大的数 ★
- *   这一单「最后到账多少」是用户唯一真正关心的结论，
- *   原支出合计反而是过程数据（放卡身小字）。
+ * ★ 为什么两个数都要有、而且一上一下 ★
+ *   用户原话「实报两个字显示在金额前，上方小小的写上应报金额」。
+ *   应报和实报是同一件事的两个口径（该报多少 / 实际到账多少），
+ *   上下紧挨着，差值一眼就能看出来，不用去翻明细加总。
  */
 .batch-head-right {
   display: flex;
@@ -1167,35 +1201,24 @@ export default {
   flex-shrink: 0;
 }
 
-.batch-done-label {
+/* 应报金额：小字，弱化（它是「原来的数」，结论是下面那行） */
+.batch-origin-label {
   font-size: 20rpx;
   color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
 }
 
-/* 卡身：两行小字（报销笔数 / 报销金额） */
-.batch-meta {
-  padding: 16rpx 24rpx;
+/* 「实报」二字 + 金额同一行，字在钱前面 */
+.batch-done-row {
   display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  border-bottom: 1rpx solid var(--app-line);
+  align-items: baseline;
+  gap: 6rpx;
 }
 
-.batch-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.batch-meta-label {
+.batch-done-label {
   font-size: 22rpx;
   color: var(--app-text-3);
-}
-
-.batch-meta-value {
-  font-size: 24rpx;
-  color: var(--app-text-2);
-  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 /* 明细容器：卡片底色，无内边距（行自己带） */

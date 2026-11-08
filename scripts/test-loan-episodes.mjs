@@ -419,9 +419,21 @@ check('折叠状态按 人员+段序号 记 key', /`\$\{person \|\| ''\}#\$\{ind
 check('刷新后清理失效的折叠 key', /pruneEpisodeStates\(groups\.value\)/.test(PAGE), true)
 check('段内流水倒序渲染（最近的在前）', /v-for="t in episodeTxns\(ep\)"/.test(PAGE), true)
 /* 样式必须走 CSS 变量，不能写死深浅色 */
+/*
+ * ★ 分割标注改成「上横线 / 文字 / 下横线」三行竖排（用户本轮第 4 条）★
+ *   用户原话「中间的已结清+日期的上下都应该有分割线，不应该只有下方有」。
+ *   以前是 `线 · 文字 · 线` 横向夹着（`flex:1` 的两条短线），
+ *   视觉上只有文字两侧伸出一小段，像只有下面有线。
+ *   现在两条线都是通栏，竖排上下各一条。
+ */
 check(
   '分割线用 --app-line',
-  /\.episode-divider-line\s*\{[^}]*var\(--app-line\)/.test(PAGE),
+  /\.episode-divider-rule\s*\{[^}]*var\(--app-line\)/.test(PAGE),
+  true
+)
+check(
+  '分割标注上下各有一条横线',
+  (PAGE.match(/episode-divider-rule/g) || []).length >= 3,
   true
 )
 check(
@@ -445,18 +457,30 @@ const EPS_THREE = splitLoanEpisodes([
   txn('p3', LEND.mainId, 300, '2026-03-02')
 ], LEND)
 
+/*
+ * ★ 未结清 tab 的段序反过来了（用户本轮第 4 条）★
+ *   用户原话「未结清页面，已结清流水展开应该显示在当前流水下方而不是上方」。
+ *   splitLoanEpisodes 给的是时间正序（旧→新），页面上要「现在在上、历史在下」，
+ *   所以 buildLoanEpisodeView 在 status='open' 时先反序再算折叠/分割。
+ *   于是反序后 idx 0 = 当前的未结清段（不折叠），idx 1 = 历史已结清段（折叠）。
+ */
 check(
-  '未结清 tab：历史已结清段折叠',
+  '未结清 tab：当前段在上、历史已结清段在下且折叠',
   buildLoanEpisodeView(EPS_THREE, { status: 'open' }).map((v) => [v.collapsed, !!v.showDividerBefore, !!v.showCollapseBtn]),
-  [[true, false, false], [false, false, false]]
+  [[false, false, false], [true, false, false]]
 )
 check(
-  '未结清 tab：手动展开过后不折叠、并给收起入口',
+  '未结清 tab：手动展开的折叠条（反序后是 idx 1）不折叠且给收起入口',
   buildLoanEpisodeView(EPS_THREE, {
     status: 'open',
-    isExpanded: (i) => i === 0
+    isExpanded: (i) => i === 1
   }).map((v) => [v.collapsed, !!v.showCollapseBtn]),
-  [[false, true], [false, false]]
+  [[false, false], [false, true]]
+)
+check(
+  '未结清 tab：反序后 rowIndex 跟着新顺序（否则展开会点错段）',
+  buildLoanEpisodeView(EPS_THREE, { status: 'open' }).map((v) => v.rowIndex),
+  [0, 1]
 )
 check(
   '已结清 tab：全部展开，段与段之间画分割标注',

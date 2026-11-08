@@ -163,10 +163,19 @@
                 分割线压在「那段结束」的位置，才读得通「这笔结清于哪天」。
                 未结清 tab 不画：那边的已结清段本身就是折叠条，再画一条是重复信息。
               -->
+              <!--
+                已结清分割标注（用户本轮第 4 条）
+                ★ 上下都要有分割线 ★
+                  用户原话「中间的已结清+日期的上下都应该有分割线，
+                  不应该只有下方有」。原来渲染的是「线 · 文字 · 线」这种
+                  **中间夹着**的形态，看着只有文字左右两条线；
+                  现在改成「整条横线 + 居中文字 + 整条横线」上下两行 ——
+                  上一条压住上一段的末尾，下一条开启下一段。
+              -->
               <view v-if="ep.showDividerBefore" class="episode-divider">
-                <view class="episode-divider-line" />
+                <view class="episode-divider-rule" />
                 <text class="episode-divider-text">{{ ep.dividerText }}</text>
-                <view class="episode-divider-line" />
+                <view class="episode-divider-rule" />
               </view>
 
               <!--
@@ -796,8 +805,23 @@ const ICON_FALLBACK = {
  *   一旦这里覆盖，分段控件又会和记账页、筛选条长得不一样 ——
  *   那正是这轮要消灭的问题。
  */
+/*
+ * 未结清 / 已结清 分段条
+ *
+ * ★ 为什么要单独覆盖底色（用户本轮第 6 条）★
+ *   全局 .seg-toggle 的底槽用的是 `var(--app-line)`（浅色下 #EBEDF0），
+ *   和页面底色 `var(--app-bg)`（#F7F8FA）几乎一样亮 ——
+ *   整条分段控件看上去像「浮在页面上的灰块」，和背景融成一片，
+ *   用户截图里那块灰底就是这么来的。
+ *   这里改成 `--app-card-2`（浅色下 #F7F8FA 之上再压一档）+ 一圈描边，
+ *   让它明确是「一条控件」，而不是页面的一部分。
+ *   ★ 深色下同样成立 ★
+ *     --app-card-2 (#2C2C2E) 比 --app-bg (#000) 亮两档，边界清楚。
+ */
 .status-toggle {
   margin: 24rpx 0 8rpx;
+  background-color: var(--app-card-2);
+  border: 1rpx solid var(--app-line);
 }
 
 /* ------------------------------------------------------- 人员分组 */
@@ -816,8 +840,19 @@ const ICON_FALLBACK = {
  * 下面的流水是卡片底色，两者用圆角套着 ——
  * 和首页「按日期分组」的观感一致（日期条 → 当天流水）。
  */
+/*
+ * 人员分组卡片
+ *
+ * ★ 为什么加一圈描边（用户本轮第 6 条）★
+ *   浅色下 `--app-card` 是纯白、页面底色 #F7F8FA 也是近白，
+ *   只靠 16rpx 模糊半径的阴影几乎看不出边界 ——
+ *   尤其在窄边框手机上，卡片像是直接画在背景上。
+ *   补一条 `--app-line` 的 1rpx 描边，深浅色模式下边界都明确。
+ *   （阴影保留：它负责「浮起」的层次，描边负责「轮廓」。两者作用不同。）
+ */
 .person-group {
   background-color: var(--app-card);
+  border: 1rpx solid var(--app-line);
   border-radius: 20rpx;
   overflow: hidden;
   box-shadow: var(--app-shadow);
@@ -1026,23 +1061,35 @@ const ICON_FALLBACK = {
  *   加一层 --app-card-2 会在深色模式里变成一道明显的色带，
  *   看起来像「这两笔之间缺了一块」。
  */
+/*
+ * 已结清分割标注：上横线 / 居中文字 / 下横线
+ *
+ * ★ 为什么用「三行竖排」而不是「文字左右各一条短横线」★
+ *   之前是 `.episode-divider { display:flex }` + 两条 `flex:1` 的短横线，
+ *   视觉上只有文字两侧各伸出一小段 —— 用户看到的截图里就是
+ *   「已结清 · 2026-11-08」下面有一条线、上面没有。
+ *   现在改成纵向排列的两条**通栏**横线，上一条压住上一段的末尾、
+ *   下一条开启下一段，「一次结清到此为止」的分界感才出来。
+ */
 .episode-divider {
   display: flex;
-  align-items: center;
-  gap: 16rpx;
-  padding: 18rpx 24rpx 6rpx;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10rpx;
+  padding: 20rpx 24rpx;
 }
 
-.episode-divider-line {
-  flex: 1;
+.episode-divider-rule {
   height: 1rpx;
   background-color: var(--app-line);
 }
 
+/* 文字居中，两侧留白不做成线 —— 线已经是整条通栏了 */
 .episode-divider-text {
   font-size: 20rpx;
   color: var(--app-text-3);
   font-variant-numeric: tabular-nums;
+  text-align: center;
   flex-shrink: 0;
 }
 

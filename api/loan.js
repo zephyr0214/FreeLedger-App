@@ -635,10 +635,26 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
   const eps = Array.isArray(episodes) ? episodes : []
   const status = opt.status === 'settled' ? 'settled' : 'open'
   const isExpanded = typeof opt.isExpanded === 'function' ? opt.isExpanded : () => false
+
+  /*
+   * ★ 未结清 tab：段序倒过来（用户本轮第 4 条）★
+   *   splitLoanEpisodes 给的是时间正序（旧的已结清段在前、当前未结清段在后），
+   *   但页面从上往下读，「现在正在进行的账」应该在最上面，
+   *   历史已结清的折叠条压在最下面 —— 用户原话：
+   *   「未结清页面，已结清流水展开应该显示在当前流水下方而不是上方」。
+   *   已结清 tab 保持时间正序（那是「历史沿革」的读法）。
+   *
+   * ★ 倒序要在算分割线之前做 ★
+   *   分割线标注的是「上一段收口于哪天」，段序一变，上一段也跟着变 ——
+   *   先反序再算，标注才对得上屏幕上看到的相邻关系。
+   *   （已结清 tab 本来就不倒序，所以不受影响。）
+   */
+  const ordered = status === 'open' ? eps.slice().reverse() : eps
+
   const out = []
 
-  for (let i = 0; i < eps.length; i++) {
-    const ep = eps[i]
+  for (let i = 0; i < ordered.length; i++) {
+    const ep = ordered[i]
     if (!ep || !Array.isArray(ep.txns) || ep.txns.length === 0) continue
 
     /*
@@ -649,7 +665,7 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
      *   只在已结清 tab 画：未结清 tab 里历史段本身有折叠条，
      *   再画一条线是重复信息。
      */
-    const prev = i > 0 ? eps[i - 1] : null
+    const prev = i > 0 ? ordered[i - 1] : null
     const prevDay = (prev && prev.closingDay) || ''
     const showDividerBefore = status === 'settled' && i > 0
 
@@ -662,6 +678,12 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
 
     out.push({
       ...ep,
+      /*
+       * ★ rowIndex 必须用「反序后的下标」★
+       *   页面的展开状态是按 `person#rowIndex` 记的（episodeOpen）。
+       *   如果这里给原始下标，反序后「点开下面那条折叠条」会把上面
+       *   另一段的状态改掉 —— 用户会看到「点了 A，B 展开了」。
+       */
       rowIndex: i,
       collapsed,
       showDividerBefore,
