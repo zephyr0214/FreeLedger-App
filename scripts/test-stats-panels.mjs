@@ -9,7 +9,7 @@
  *   **AI 识别食品分类的逻辑全部删除**，改成纯 storage。
  *
  * 检查项：
- *   1. utils/statsPanels.js：7 个面板定义 key 齐全且唯一、默认顺序一致
+ *   1. utils/statsPanels.js：面板定义 key 齐全且唯一、默认顺序一致
  *   2. normalizeStatsPanels 容错（未知 key / 缺字段 / 脏数据 / 重复）
  *   3. moveStatPanel 越界不动、同分组内换位（隐藏项不占用户的视觉顺序）
  *   4. toggleStatPanel 勾选/取消
@@ -75,14 +75,30 @@ function codeOf(src) {
 
 /* ==================================== 1. 面板定义 */
 
-console.log('=== 1. 面板定义：7 个 key 齐全且唯一 ===')
+console.log('=== 1. 面板定义：key 齐全且唯一 ===')
 
 const KEYS = STATS_PANEL_DEFS.map((d) => d.key)
+/*
+ * ★ 面板清单会随需求增长，不写死数量 ★
+ *   原来这里钉的是 7 个（第一版统计页的 7 块），
+ *   本轮加了环比 / 储蓄率 / 预算执行三块，写死的断言就全废了。
+ *   真正要守的是「定义顺序 = 默认渲染顺序」「key 唯一」「每个都有 name/desc」，
+ *   数量本身没有意义 —— 改成一个下限断言，防止误删。
+ */
 const EXPECTED_KEYS = [
-  'category', 'account', 'trend', 'comparison', 'engel', 'average', 'top'
+  'category', 'account', 'trend', 'comparison', 'mom', 'engel',
+  'savings', 'budget', 'average', 'top'
 ]
 
-check('面板数量 7 个', STATS_PANEL_DEFS.length, 7)
+check('面板数量与预期清单一致', STATS_PANEL_DEFS.length, EXPECTED_KEYS.length)
+
+/*
+ * ★ 期望值从 EXPECTED_KEYS 推导，不手抄整串 ★
+ *   面板清单会增长（本轮从 7 加到 10），手抄的整串每加一块就要改一遍。
+ *   这里只断言「用户排的两个在前、其余按默认顺序补齐、总数不变」。
+ */
+const trailingExpected = ['top', 'category']
+  .concat(EXPECTED_KEYS.filter((k) => k !== 'top' && k !== 'category'))
 check('key 顺序与统计页渲染顺序一致', KEYS, EXPECTED_KEYS)
 check('key 无重复', new Set(KEYS).size, KEYS.length)
 check('DEFAULT_PANEL_ORDER 与定义一致', DEFAULT_PANEL_ORDER, KEYS)
@@ -106,7 +122,7 @@ const dirty = normalizeStatsPanels({
   order: ['top', 'unknown_key', 'top', '', null, 42, 'category'],
   hidden: ['engel', 'engel', 'bogus', null]
 })
-check('剔除未知 key / 非字符串', dirty.order, ['top', 'category', 'account', 'trend', 'comparison', 'engel', 'average'])
+check('剔除未知 key / 非字符串', dirty.order, trailingExpected)
 check('hidden 只保留合法 key 且去重', dirty.hidden, ['engel'])
 
 check('raw 是数组 → 走默认值', normalizeStatsPanels([]).order, EXPECTED_KEYS)
@@ -119,7 +135,7 @@ check('order 为空数组 → 补齐默认顺序', normalizeStatsPanels({ order:
 check(
   '缺的 key 追加在尾部（不打乱用户排序）',
   normalizeStatsPanels({ order: ['top', 'category'] }).order,
-  ['top', 'category', 'account', 'trend', 'comparison', 'engel', 'average']
+  trailingExpected
 )
 
 // 不能修改入参
@@ -196,16 +212,16 @@ check('未知 key 勾选无效', toggleStatPanel(null, 'nope', false).hidden, []
 
 console.log('\n=== 5. visibleStatsPanels / hiddenStatsPanels ===')
 
-check('默认显示 7 个', visibleStatsPanels(null).map((p) => p.key), EXPECTED_KEYS)
+check('默认全显示', visibleStatsPanels(null).map((p) => p.key), EXPECTED_KEYS)
 check(
   '隐藏一个后少一个',
   visibleStatsPanels({ order: [], hidden: ['trend'] }).map((p) => p.key),
-  ['category', 'account', 'comparison', 'engel', 'average', 'top']
+  EXPECTED_KEYS.filter((k) => k !== 'trend')
 )
 check(
   '按用户排的顺序返回',
   visibleStatsPanels({ order: ['top', 'category'], hidden: [] }).map((p) => p.key),
-  ['top', 'category', 'account', 'trend', 'comparison', 'engel', 'average']
+  trailingExpected
 )
 check(
   '返回的是带 key 的 def（统计页 panelVisible 依赖）',
@@ -214,10 +230,10 @@ check(
 )
 check('hiddenStatsPanels 与可见项互补', hiddenStatsPanels({ order: [], hidden: ['engel'] }).map((p) => p.key), ['engel'])
 check(
-  '可见 + 隐藏 = 全量 7 个',
+  '可见 + 隐藏 = 全量面板',
   visibleStatsPanels({ order: [], hidden: ['engel'] }).length +
     hiddenStatsPanels({ order: [], hidden: ['engel'] }).length,
-  7
+  STATS_PANEL_DEFS.length
 )
 
 /* ==================================== 6. api/engel.js 纯存储 */
