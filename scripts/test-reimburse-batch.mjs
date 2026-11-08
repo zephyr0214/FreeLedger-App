@@ -158,9 +158,20 @@ function dropBatchIdColumn(db) {
  *   userVersion      库头版本号
  */
 function makeFakePlus(opt = {}) {
-  const { legacyTxnSchema = false, userVersion = SCHEMA_VERSION } = opt
+  const { legacyTxnSchema = false, userVersion = SCHEMA_VERSION, emptyDb = false } = opt
   const db = new DatabaseSync(':memory:')
   db.exec(`PRAGMA user_version = ${userVersion}`)
+
+  /*
+   * ★ emptyDb = 全新安装的现场 ★
+   *   全空的库（连表都没有）+ user_version = 0，
+   *   这样 openDb() 会真的从 v1 一条条跑到 v23 ——
+   *   这才是新装用户拿到新表的真实路径。
+   *   下面「预先建好表」的脚手架模拟的是老库升级，两条路都要守。
+   */
+  if (emptyDb) {
+    return { fake: makeFakeSqlite(db), db }
+  }
 
   // 1) SCHEMA_V1 的建表语句
   for (const sql of SCHEMA_V1) {
@@ -224,6 +235,18 @@ function makeFakePlus(opt = {}) {
    *   每条 begin 都真发 BEGIN 会报 "cannot start a transaction within a transaction"，
    *   而这跟被测行为毫无关系。只在最外层真发 BEGIN/COMMIT/ROLLBACK。
    */
+  return { fake: makeFakeSqlite(db), db }
+}
+
+/**
+ * 把 node:sqlite 包成假的 plus.sqlite。
+ *
+ * ★ 事务按层数模拟 ★
+ *   importPayload / reimburseTxns 自己开事务，里面还会套 seed / ensurePreset，
+ *   每条 begin 都真发 BEGIN 会报 "cannot start a transaction within a transaction"，
+ *   而这跟被测行为无关。只在最外层真发 BEGIN/COMMIT/ROLLBACK。
+ */
+function makeFakeSqlite(db) {
   let depth = 0
 
   const fake = {
@@ -270,7 +293,7 @@ function makeFakePlus(opt = {}) {
       }
     }
   }
-  return { fake, db }
+  return fake
 }
 
 /** 每次全新模块实例（模块里有 opened / opening 缓存，换库必须换实例） */
@@ -379,6 +402,39 @@ console.log('=== 3. 迁移 v23 在 v22 的库上 ===')
   /* user_version 被推进到 23 */
   const ver = db.prepare('PRAGMA user_version').get().user_version
   check('user_version 推进到 23', Number(ver), 23)
+}
+
+/* ==================== 3b. 全新安装：从 0 跑到 23 也要有表 */
+
+console.log('=== 3b. 全新安装（空库 + user_version=0）跑完整迁移链 ===')
+
+{
+  /*
+   * ★ 这条守的是「新装用户」这条路 ★
+   *   reimburse_batch 没写进 SCHEMA_V1（和 cycle / cycle_skip / exchange_rate 一样），
+   *   新装库全靠迁移建出来。如果哪天有人把它从迁移里挪走、
+   *   或者迁移顺序写错（v23 在 v22 之前跑之类），
+   *   新用户装完就是一个「点开报销页报 no such table」的 App ——
+   *   而老用户升级上来的库反而是好的，最难排查的一类问题。
+   */
+  const { fake, db } = makeFakePlus({ emptyDb: true, userVersion: 0 })
+  const { dbMod } = await loadModules(fake)
+
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name)
+  ok('全新安装后存在 reimburse_batch 表', tables.includes('reimburse_batch'))
+  ok('全新安装后存在 txn 表', tables.includes('txn'))
+  ok('全新安装后存在 cycle 表（对照：同为迁移建的表）', tables.includes('cycle'))
+
+  const cols = db.prepare('PRAGMA table_info(txn)').all().map((c) => c.name)
+  ok('全新安装的 txn 有 batch_id 列', cols.includes('batch_id'))
+
+  const ver = db.prepare('PRAGMA user_version').get().user_version
+  check('全新安装后 user_version = 23', Number(ver), 23)
+
+  /* 索引也建出来了（列表页排序要它） */
+  const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name)
+  ok('有 idx_txn_batch 索引', idx.includes('idx_txn_batch'))
+  ok('有 idx_batch_day 索引', idx.includes('idx_batch_day'))
 }
 
 /* ============================ 4. 单笔报销 → 一张单 */
