@@ -114,9 +114,18 @@ function isWholeYear(startDay, endDay) {
  *   rangeStart:string, rangeEnd:string  // 原始（未截断）区间，用于文案
  * }}
  */
-export function buildCompareRange(range, today = toDayKey()) {
+export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
   const e = expandRange(range)
   const todayKey = String(today || toDayKey())
+  /*
+   * ★ 两种对比口径（本轮新增「环比」）★
+   *   'yoy'（同比，默认）：整年→去年同期、一个月以内→上月同期、
+   *        跨多月→等长区间。回答「和去年同期/上月同期比怎么样」。
+   *   'mom'（环比）：一律用**紧挨着的上一段等长区间**。
+   *        回答「和刚过去的那段时间比怎么样」，是趋势判断更常用的口径。
+   *   两者共用下面的「今天截断」逻辑，只是最后选哪个窗口不同。
+   */
+  const isMom = mode === 'mom'
 
   // 1) 不限时间（全部）—— 没有「上一段」可言，直接不给对比
   if (!e.startDay || !e.endDay) return null
@@ -144,7 +153,19 @@ export function buildCompareRange(range, today = toDayKey()) {
     rangeEnd: e.endDay
   }
 
-  // 4) 整年 → 上一年同期
+  // 4) 环比：跳过所有日历对齐，直接走等长区间
+  if (isMom) {
+    const span = daySpanInclusive(curStart, curEnd)
+    const prevEnd = shiftDays(curStart, -1)
+    return {
+      ...base,
+      prevStart: shiftDays(prevEnd, -(span - 1)),
+      prevEnd,
+      align: 'span'
+    }
+  }
+
+  // 5) 整年 → 上一年同期
   if (isWholeYear(e.startDay, e.endDay)) {
     return {
       ...base,
@@ -155,7 +176,7 @@ export function buildCompareRange(range, today = toDayKey()) {
   }
 
   /*
-   * 5) 一个月以内 → 上一个月同期（同一段号）
+   * 6) 一个月以内 → 上一个月同期（同一段号）
    *
    *   11/1~11/8   → 10/1~10/8
    *   10/1~10/31  → 9/1~9/30（整月对整月，天数不同但段号一致）
@@ -176,7 +197,7 @@ export function buildCompareRange(range, today = toDayKey()) {
   }
 
   /*
-   * 6) 跨多月的自定义区间 → 紧挨着的上一个等长区间
+   * 7) 跨多月的自定义区间 → 紧挨着的上一个等长区间
    *
    *   ★ 为什么这里不再按段号对齐 ★
    *     9/15~11/8 如果整体前移一个月会变成 8/15~10/8，

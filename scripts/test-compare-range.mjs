@@ -156,6 +156,44 @@ check('算不出且本期为 0 → 破折号', percentText(null, 0), '—')
   check('整年文案带年份', /去年同期/.test(compareRangeLabel(cr)), true)
 }
 
+console.log('=== 8. 环比模式（紧邻等长区间）===')
+{
+  // 本月到今天：环比应该是「紧挨着的前 8 天」= 10/24~10/31
+  const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'mom')
+  check('环比：当前终点截到今天', cr.curEnd, '2026-11-08')
+  check('环比：对比紧邻前 8 天起点', cr.prevStart, '2026-10-24')
+  check('环比：对比紧邻前 8 天终点', cr.prevEnd, '2026-10-31')
+  check('环比标记为等长区间', cr.align, 'span')
+  check('环比长度与当前一致', daySpanInclusive(cr.prevStart, cr.prevEnd), daySpanInclusive(cr.curStart, cr.curEnd))
+}
+{
+  // 整年环比：紧邻的前一年同长度（不是去年同期 —— 去年同期属于同比）
+  const cr = buildCompareRange({ startDay: '2025-01-01', endDay: '2025-12-31' }, TODAY, 'mom')
+  check('整年环比也是等长区间', cr.align, 'span')
+  /*
+   * ★ 2025 是 365 天，2024 是 366 天（闰年）★
+   *   等长区间往前推 365 天，终点 2024-12-31、起点就是 2024-01-02 ——
+   *   这就是「等长」的定义（宁可两边差一天边界，也不让窗口长度不等）。
+   *   写死成 2024-01-01 反而是错的（那样多了 366 天）。
+   */
+  check('整年环比紧邻前一年（闰年差一天）', cr.prevStart, '2024-01-02')
+  check('整年环比终点', cr.prevEnd, '2024-12-31')
+  check('整年环比长度不超当前区间', daySpanInclusive(cr.prevStart, cr.prevEnd) <= daySpanInclusive(cr.curStart, cr.curEnd), true)
+}
+{
+  // 单日环比 = 前一天
+  const cr = buildCompareRange({ startDay: '2026-11-08', endDay: '2026-11-08' }, TODAY, 'mom')
+  check('单日环比对比昨天', cr.prevStart, '2026-11-07')
+  check('单日环比终点也是昨天', cr.prevEnd, '2026-11-07')
+}
+{
+  // 同比默认行为不能被影响
+  const yoy = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY)
+  const yoy2 = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'yoy')
+  check('不传 mode 时等价于 yoy', JSON.stringify(yoy), JSON.stringify(yoy2))
+  check('yoy 仍是上月同期', yoy.prevStart, '2026-10-01')
+}
+
 console.log('=== 7. 结余百分比的方向 ===')
 
 /*

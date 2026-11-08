@@ -417,6 +417,16 @@ export default {
 
       // 解析期间先收起输入态，让用户能看到列表里的占位行
       const pendingText = text
+      /*
+       * ★ 勾选状态必须在 close() 之前拍照（用户反馈的 bug）★
+       *   close() 会清空 pendingReimburse / excludeBudget（那是「每次打开
+       *   都默认不勾」的实现方式）。而下面原来是在 close() **之后**才读
+       *   这两个 ref —— 读到的永远是刚被清掉的 false，
+       *   于是「勾了待报销再发」记出来的账 reimburse_status 恒为 0。
+       *   拍照挪到这里：取「点发送那一刻」用户真实勾了什么。
+       */
+      const wantPendingReimburse = pendingReimburse.value
+      const wantExcludeBudget = excludeBudget.value || wantPendingReimburse
       close()
 
       try {
@@ -451,16 +461,13 @@ export default {
         const people = await listLoanPeople().catch(() => [])
 
         /*
-         * 胶囊状态快照
+         * 胶囊状态快照已经在上面（close() 之前）拍好了。
          *
-         * ★ 为什么要拍照 ★
+         * ★ 为什么不能在这里读 ★
          *   解析要等网络，等待期间用户还能继续勾/取消；
-         *   用解析完那一刻的值会让「点了确定又去改」的时序变得诡异。
-         *   取「点发送那一刻」的意图最符合直觉。
+         *   更关键的是 close() 已经把这两个 ref 清空了 ——
+         *   在这里读只会拿到 false（这就是「勾了待报销却没生效」的根因）。
          */
-        const wantPendingReimburse = pendingReimburse.value
-        const wantExcludeBudget = excludeBudget.value || wantPendingReimburse
-
         const result = await parseMessageToTransactions(pendingText, {
           categories,
           accounts: accountStore.list,
