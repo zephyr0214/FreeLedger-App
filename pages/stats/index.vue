@@ -2,8 +2,13 @@
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader @avatar-click="goProfile">
       <template #right>
-        <!-- 右上角入口：全部交易（原先是 AI 助手，按需求改为交易列表） -->
-        <HeaderAction @action-click="goAllTxn">全部交易</HeaderAction>
+        <!--
+          ★ 右上角入口：组件管理（本轮用户第 3 条）★
+            原先是「全部交易」，用户要求改成组件管理的入口：
+            在那一页可以排序、勾选显隐统计页的各个面板，
+            恩格尔系数面板还能展开设置「哪些分类算食品」。
+        -->
+        <HeaderAction @action-click="goPanelManage">组件管理</HeaderAction>
       </template>
     </AppHeader>
 
@@ -51,7 +56,7 @@
       </view>
 
       <!-- ① 分类统计 -->
-      <view class="card">
+      <view v-if="panelVisible('category')" class="card">
         <view class="card-head">
           <text class="card-title">分类统计</text>
           <view class="card-head-right">
@@ -127,7 +132,7 @@
       </view>
 
       <!-- ② 账户统计（按账户 / 按账户类别，合并为一个面板） -->
-      <view class="card">
+      <view v-if="panelVisible('account')" class="card">
         <view class="card-head">
           <text class="card-title">账户统计</text>
           <view class="card-head-right">
@@ -193,7 +198,7 @@
       </view>
 
       <!-- ③ 趋势 -->
-      <view class="card">
+      <view v-if="panelVisible('trend')" class="card">
         <view class="card-head">
           <text class="card-title">{{ trendTitle }}</text>
           <text class="card-sub">{{ trendSubtitle }}</text>
@@ -235,84 +240,151 @@
       </view>
 
       <!--
-        ③b 同比变化（用户要求：比较所选时间相对于前同一段时间的变化）
+        ③b 同比变化
 
-        ★ 「前一段」不是去年同期，是紧挨着的上一个等长区间 ★
-          用户原话「相对于前同一段时间」，指的是时间轴上前一段。
-          选了 11/1~11/7 就对比 10/25~10/31，由 api/stats.js 的
-          getPeriodComparison() 算好直接给。
+        ★ 对比窗口（本轮用户第 2 条）★
+          「选中本月，应该是 11.1-今天 同比 10 月最后相同天的变化，
+           如果选中的范围全部有收支则全部同比」——
+          即**上月同期**（同一段号）、整年走去年同期、跨多月的自定义段走
+          紧挨着的等长区间；区间终点晚于今天时先截到今天。
+          换算全在 utils/compareRange.js（有单测），页面只负责展示。
 
-        ★ 数字只显示「总收支结余的变化」★
-          支出/收入各自的变化容易把人绕晕，结余（收入-支出）才是
-          「这段时间我到底是更宽松了还是更紧了」的唯一答案。
+        ★ 上半部分两项（用户原话「上方显示收入/结余或支出/结余二项」）★
+          支出模式 → 支出变化 + 结余变化
+          收入模式 → 收入变化 + 结余变化
+          结余永远在，因为「这段到底是更宽松还是更紧了」才是用户的真问题；
+          第一项跟着右上角切换走，想看「花得多了还是少了」就切支出。
 
-        ★ 双向柱状图 ★
-          每个分类一根柱子，向右 = 比上期多花，向左 = 比上期少花。
-          这样「哪一类涨得最凶」不用看数字，看一眼长度就知道。
+        ★ 两项都要**同时**显示百分比与金额（用户明确要求）★
+          百分比回答「相对变化多剧烈」，金额回答「实际差多少钱」，
+          缺一个就得自己心算 —— 而心算正是用户不想干的事。
+
+        ★ 下半部分：每个分类一行（用户要求「紧凑」）★
+          分类名 + 变化值 + 双向柱状图全在同一行，不再占两行。
+          向右 = 比上期多，向左 = 比上期少。
       -->
-      <view v-if="comparison" class="card">
+      <view v-if="panelVisible('comparison')" class="card">
         <view class="card-head">
           <text class="card-title">同比变化</text>
-          <text class="card-sub">{{ comparisonSub }}</text>
-        </view>
-
-        <!-- 结余变化大数字 -->
-        <view class="cmp-summary">
-          <text class="cmp-label">结余变化</text>
-          <view class="cmp-value-row">
-            <text
-              class="cmp-arrow"
-              :style="{ color: balanceDiff >= 0 ? 'var(--app-success)' : 'var(--app-danger)' }"
-            >{{ balanceDiff >= 0 ? '↑' : '↓' }}</text>
-            <!--
-              ★ 颜色交给 MoneyText 的 variant="balance" 规则 ★
-                正数绿、负数红、0 无色，这是全 App 统一的一套；
-                以前这里手写三元表达式，同一个数在别的页面就是另一个色。
-            -->
-            <MoneyText
-              :cents="balanceDiff"
-              variant="balance"
-              :size="48"
-              :weight="600"
-            />
+          <view class="card-head-right">
+            <!-- ★ 一级/二级分类切换：与分类统计同款，放左边（用户要求）★ -->
+            <view class="seg-toggle seg-toggle--sm">
+              <text
+                class="seg-item"
+                :class="{ active: comparisonLevel === 'sub' }"
+                @click="switchComparisonLevel('sub')"
+              >二级</text>
+              <text
+                class="seg-item"
+                :class="{ active: comparisonLevel === 'root' }"
+                @click="switchComparisonLevel('root')"
+              >一级</text>
+            </view>
+            <view class="seg-toggle seg-toggle--sm">
+              <text
+                class="seg-item"
+                :class="{ active: comparisonType === 'expense' }"
+                @click="switchComparisonType('expense')"
+              >支出</text>
+              <text
+                class="seg-item"
+                :class="{ active: comparisonType === 'income' }"
+                @click="switchComparisonType('income')"
+              >收入</text>
+            </view>
           </view>
-          <text class="cmp-hint">{{ balanceDiffHint }}</text>
         </view>
 
-        <!-- 双向柱状图：各分类增减 -->
-        <view v-if="comparison.categories.length === 0" class="card-empty">
-          <text class="empty-text">这两段时间都没有可比的支出</text>
-        </view>
-        <view v-else class="cmp-chart">
-          <view
-            v-for="c in comparison.categories"
-            :key="c.id"
-            class="cmp-row"
-          >
-            <view class="cmp-row-left">
+        <!-- 对比窗口说明：区间被今天截断时把「到今天」写清楚 -->
+        <text class="cmp-range-hint">{{ comparisonSub }}</text>
+
+        <template v-if="comparison">
+          <!-- 上半：两项同比（第一项跟支出/收入切换，第二项恒为结余） -->
+          <view class="cmp-top">
+            <view class="cmp-top-item">
+              <text class="cmp-top-label">{{ comparisonType === 'expense' ? '支出变化' : '收入变化' }}</text>
+              <view class="cmp-top-values">
+                <text class="cmp-top-pct" :style="{ color: cmpTop1.color }">{{ cmpTop1.pctText }}</text>
+                <MoneyText
+                  :cents="cmpTop1.diff"
+                  variant="balance"
+                  :size="30"
+                  :weight="600"
+                />
+              </view>
+              <text class="cmp-top-sub">{{ cmpTop1.subText }}</text>
+            </view>
+
+            <view class="cmp-top-line" />
+
+            <view class="cmp-top-item">
+              <text class="cmp-top-label">结余变化</text>
+              <view class="cmp-top-values">
+                <text class="cmp-top-pct" :style="{ color: cmpBalance.color }">{{ cmpBalance.pctText }}</text>
+                <MoneyText
+                  :cents="balanceDiff"
+                  variant="balance"
+                  :size="30"
+                  :weight="600"
+                />
+              </view>
+              <text class="cmp-top-sub">{{ cmpBalance.subText }}</text>
+            </view>
+          </view>
+
+          <!-- 下半：各分类同比（一行一个分类，紧凑） -->
+          <view v-if="comparison.categories.length === 0" class="card-empty">
+            <text class="empty-text">这两段时间都没有可比的{{ comparisonType === 'expense' ? '支出' : '收入' }}</text>
+          </view>
+          <view v-else class="cmp-chart">
+            <view
+              v-for="c in comparison.categories"
+              :key="c.id"
+              class="cmp-row"
+            >
+              <view class="rank-dot" :style="{ backgroundColor: c.color }" />
               <text class="cmp-row-name ellipsis">{{ c.name }}</text>
-              <text class="cmp-row-diff" :style="{ color: c.diff >= 0 ? 'var(--app-danger)' : 'var(--app-success)' }">
-                {{ c.diff >= 0 ? '+' : '-' }}{{ (Math.abs(c.diff) / 100).toFixed(2) }}
-              </text>
-            </view>
-            <view class="cmp-row-bar">
-              <view class="cmp-axis" />
-              <view
-                v-if="c.diff !== 0"
-                class="cmp-bar"
-                :style="{
-                  width: cmpBarWidth(c.diff) + '%',
-                  backgroundColor: c.diff > 0 ? 'var(--app-danger)' : 'var(--app-success)',
-                  left: c.diff > 0 ? '50%' : (50 - cmpBarWidth(c.diff)) + '%'
-                }"
-              />
+              <!-- 变化金额 + 百分比同一格，右对齐，扫视时数字成列 -->
+              <view class="cmp-row-num">
+                <text
+                  class="cmp-row-diff"
+                  :style="{ color: cmpDiffColor(c.diff) }"
+                >{{ cmpDiffText(c.diff) }}</text>
+                <text
+                  class="cmp-row-pct"
+                  :style="{ color: cmpDiffColor(c.diff) }"
+                >{{ percentText(c.pct, c.current) }}</text>
+              </view>
+              <!-- 双向柱：中线固定在中点，向右多、向左少 -->
+              <view class="cmp-row-bar">
+                <view class="cmp-axis" />
+                <view
+                  v-if="c.diff !== 0"
+                  class="cmp-bar"
+                  :style="{
+                    width: cmpBarWidth(c.diff) + '%',
+                    backgroundColor: cmpDiffColor(c.diff),
+                    left: c.diff > 0 ? '50%' : (50 - cmpBarWidth(c.diff)) + '%'
+                  }"
+                />
+              </view>
             </view>
           </view>
+        </template>
+
+        <view v-else class="card-empty">
+          <text class="empty-text">这段区间没有可对比的上一段</text>
         </view>
       </view>
 
       <!--
-        ③c 恩格尔系数（用户要求：AI 判断哪些是「吃掉的分类」）
+        ③c 恩格尔系数
+
+        ★ 「哪些分类算食品」由用户自己选（本轮第 3 条）★
+          入口在统计页右上角「组件管理」→ 恩格尔系数面板的展开设置，
+          用多选分类弹层手选。原来的「AI 识别食品分类」逻辑已全部删除。
+          没选任何分类时这里显示一句引导，而不是 0% ——
+          0% 会被误读成「我没在吃饭上花钱」。
 
         ★ 为什么要在页面上解释这个数 ★
           恩格尔系数是个学术名词，绝大多数用户没见过。
@@ -321,28 +393,23 @@
         ★ 拿不到分类缓存时怎么办 ★
           显示「还没算出来」而不是 0%。0% 会被误读成「我没在吃饭上花钱」。
       -->
-      <view v-if="engel || engelLoading" class="card">
+      <view v-if="panelVisible('engel')" class="card">
         <view class="card-head">
           <text class="card-title">恩格尔系数</text>
           <text class="card-sub">食品支出占总支出的比例</text>
         </view>
 
-        <!--
-          ★ 本轮用户第 7 条：进页面就检查，没有记录立即调 AI ★
-            判定期间卡片不能空着（用户会以为坏了），
-            这里给一行「正在识别」的占位文案。
-        -->
-        <view v-if="engelLoading" class="card-empty">
-          <text class="empty-text">正在识别食品分类…</text>
-        </view>
-        <view v-else-if="!engel" class="card-empty">
-          <text class="empty-text">暂时算不出来，稍后再试</text>
+        <view v-if="!engel" class="card-empty">
+          <text class="empty-text">正在计算…</text>
         </view>
         <view v-else-if="engel.total === 0" class="card-empty">
           <text class="empty-text">这段时间没有支出</text>
         </view>
-        <view v-else-if="engel.ratio === 0 && engel.foodIds.length === 0" class="card-empty">
-          <text class="empty-text">食品分类还没识别出来，记一笔账后再来看</text>
+        <view v-else-if="engel.foodIds.length === 0" class="card-empty">
+          <text class="empty-text">还没选食品分类，去右上角「组件管理」里选一下</text>
+        </view>
+        <view v-else-if="engel.food === 0" class="card-empty">
+          <text class="empty-text">这段时间在选中的食品分类上没有支出</text>
         </view>
         <view v-else class="engel-body">
           <view class="engel-main">
@@ -359,7 +426,7 @@
               <text class="engel-row-value">¥{{ (engel.total / 100).toFixed(2) }}</text>
             </view>
           </view>
-          <!-- 判定为「吃」的分类名，让人知道这个数是怎么来的 -->
+          <!-- 用户选中的食品分类名，让人知道这个数是怎么来的 -->
           <view v-if="engelFoodNames.length" class="engel-tags">
             <text
               v-for="n in engelFoodNames"
@@ -371,7 +438,7 @@
       </view>
 
       <!-- ④ 平均值：总体 + 各分类 -->
-      <view class="card">
+      <view v-if="panelVisible('average')" class="card">
         <view class="card-head">
           <text class="card-title">平均值</text>
           <view class="card-head-right">
@@ -448,7 +515,7 @@
       </view>
 
       <!-- ⑦ Top 10 -->
-      <view class="card">
+      <view v-if="panelVisible('top')" class="card">
         <view class="card-head">
           <text class="card-title">最高的 10 笔消费</text>
         </view>
@@ -478,6 +545,15 @@
             </view>
           </view>
         </view>
+      </view>
+
+      <!--
+        ★ 所有面板都被隐藏时的空态 ★
+          否则用户取消勾选全部 7 个面板后，这页只剩一个收支摘要，
+          看着像页面坏了 —— 给一句话指路回组件管理。
+      -->
+      <view v-if="visiblePanels.length === 0" class="card empty-panels">
+        <text class="empty-text">所有面板都被隐藏了，去右上角「组件管理」里打开几个</text>
       </view>
 
       <view class="tabbar-space" />
@@ -521,13 +597,30 @@ import {
   getPeriodComparison, getEngelCoefficient,
   PIE_PALETTE
 } from '@/api/stats.js'
-import { ensureEngelFoodCategories, getEngelCacheState } from '@/api/engel.js'
+import { getEngelFoodIds } from '@/api/engel.js'
 import { listCategories } from '@/api/category.js'
 import {
   selectionToRange, defaultSelection, selectionLabel,
   customToRange, customRangeLabel, defaultCustomRange, toDayKey,
   trendBucketOf
 } from '@/utils/date.js'
+/*
+ * 组件管理（面板排序 / 显隐）
+ *
+ * ★ 面板定义与顺序归一化收在 utils/statsPanels.js ★
+ *   统计页与「组件管理」页必须用同一份定义 ——
+ *   一边加了新面板、另一边不认识它，用户就会在管理页看到一项空白。
+ */
+import { visibleStatsPanels, normalizeStatsPanels } from '@/utils/statsPanels.js'
+import { getSetting } from '@/api/settings.js'
+/*
+ * 同比窗口换算与百分比文案
+ * ★ 见 utils/compareRange.js：月末夹取、闰年、跨年、整年、超长区间
+ *   五六个分支都在那里，且有 scripts/test-compare-range.mjs 钉着。
+ */
+import {
+  compareRangeLabel, percentText, percentOnly, balanceChangePercent
+} from '@/utils/compareRange.js'
 
 export default {
   components: { AppHeader, MoneyText, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog },
@@ -560,6 +653,15 @@ export default {
     const categoryStatType = ref('expense')
     const accountStatType = ref('expense')
     const averageStatType = ref('expense')
+    /*
+     * 同比变化面板的「支出/收入」与「一级/二级」
+     *
+     * ★ 独立于分类统计 ★
+     *   用户可能想看「支出的分类构成」同时看「收入的同比」，
+     *   共用一个开关会把两件事绑死。
+     */
+    const comparisonType = ref('expense')
+    const comparisonLevel = ref('sub')
 
     /*
      * ★ 账户统计视图：按账户 / 按账户类别 ★
@@ -590,21 +692,17 @@ export default {
 
     /** 同比对比结果（null = 还没加载完 / 该区间算不出对比） */
     const comparison = ref(null)
+    /** 组件管理里的面板顺序与隐藏项（统计页只读，改动在管理页） */
+    const statsPanels = ref({ order: [], hidden: [] })
     /** 恩格尔系数结果 */
     const engel = ref(null)
-    /** 正在让 AI 判定食品分类（卡片上显示「识别中」） */
-    const engelLoading = ref(false)
     /**
-     * 本次进入页面已经自动判过一轮了吗
+     * 用户选中的「算食品」的一级支出分类 id 与名字
      *
-     * ★ 为什么需要它 ★
-     *   「没有判定记录就立即调 AI」只在**每次点进统计页**时做一次；
-     *   页面里切换日期区间会反复走 loadAll()，若不设这个标记，
-     *   判定失败（AI 挂了）时用户每切一次区间就再烧一次请求。
-     *   每次 onShow 会把它清零，所以下次进页面仍会重试。
+     * ★ 由用户手选，不再由 AI 判定（本轮第 3 条）★
+     *   设置入口在「组件管理」页的恩格尔系数面板里，
+     *   存在 setting 的 engelFoodCategories 键上。
      */
-    const engelAutoTried = ref(false)
-    /** 被判定为「吃」的一级分类 id 与名字（名字用于下面那排标签） */
     const engelFoodIds = ref([])
     const engelFoodNames = ref([])
     const overview = ref({ expense: 0, income: 0, balance: 0 })
@@ -632,33 +730,96 @@ export default {
         : selectionLabel(dateRange.value)
     )
 
-    /* -------------------------------------------------- 同比面板 */
-
-    /** 对比区间的说明文字：「对比 10/25~10/31」 */
-    const comparisonSub = computed(() => {
-      const c = comparison.value
-      if (!c || !c.range || !c.range.prevStart) return '所选区间与上一段等长区间比'
-      const f = (d) => String(d || '').slice(5).replace('-', '/')
-      return `对比 ${f(c.range.prevStart)}~${f(c.range.prevEnd)}`
-    })
+    /* -------------------------------------------------- 组件管理 */
 
     /**
-     * 结余变化（正 = 比上一段更宽松）
+     * 面板显隐判断
      *
-     * ★ 用「结余」而不是「支出」★
-     *   支出涨了不代表日子更紧（收入涨得更多），
-     *   结余（收入 - 支出）的变化才是用户能直接感受到的那件事。
+     * ★ 用 key 判断而不是在模板里写 7 个 v-if="statsPanels.xxx" ★
+     *   面板清单以 utils/statsPanels.js 为唯一来源，
+     *   以后新增面板只要在那边加一条 + 模板里加一个 v-if="panelVisible('新key')"，
+     *   管理页会自动多出一行，不需要两处各维护一份清单。
      */
+    function panelVisible(key) {
+      return visiblePanels.value.some((p) => p.key === key)
+    }
+
+    /** 当前该显示的面板（按用户排好的顺序） */
+    const visiblePanels = computed(() => visibleStatsPanels(statsPanels.value))
+
+    /* -------------------------------------------------- 同比面板 */
+
+    /**
+     * 对比窗口说明
+     *
+     * ★ 为什么文案由 utils/compareRange.js 生成 ★
+     *   「对比 10/01~10/08（上月同期）」这种话要跟着对齐方式变
+     *   （去年同期 / 上月同期 / 等长区间），
+     *   而且跨年时还得把年份带出来 —— 这属于纯字符串逻辑，单测更划算。
+     */
+    const comparisonSub = computed(() => {
+      const c = comparison.value
+      if (!c) return ''
+      const base = compareRangeLabel(c)
+      /*
+       * ★ 区间被今天截断时必须说明 ★
+       *   用户选「本月」，实际比的是「11/1~11/8」，
+       *   不写清楚会让人以为对比窗口算错了。
+       */
+      return c.clipped ? `${base}（本段到今天）` : base
+    })
+
+    /** 结余变化（正 = 比上一段更宽松） */
     const balanceDiff = computed(() => {
       const c = comparison.value
       if (!c) return 0
       return (c.current.balance || 0) - (c.previous.balance || 0)
     })
 
-    const balanceDiffHint = computed(() => {
-      if (balanceDiff.value > 0) return '这段比上一段存下的更多'
-      if (balanceDiff.value < 0) return '这段比上一段花得更凶'
-      return '和上一段基本持平'
+    /**
+     * 上半第一项：支出 / 收入的变化
+     *
+     * ★ 百分比与金额都给（用户明确要求）★
+     *   百分比说明「相对变化多剧烈」，金额说明「实际差多少钱」，
+     *   只看一个都得自己心算。
+     */
+    const cmpTop1 = computed(() => {
+      const c = comparison.value
+      const isExp = comparisonType.value === 'expense'
+      if (!c) {
+        return { diff: 0, pctText: '—', color: 'var(--app-text-3)', subText: '' }
+      }
+      const cur = isExp ? c.current.expense : c.current.income
+      const prev = isExp ? c.previous.expense : c.previous.income
+      const diff = cur - prev
+      const pct = changePercentSafe(cur, prev)
+      const label = isExp ? '支出' : '收入'
+      return {
+        diff,
+        pctText: percentText(pct, cur),
+        color: cmpColorOf(diff, isExp),
+        subText: `本期 ¥${(cur / 100).toFixed(2)} · 上期 ¥${(prev / 100).toFixed(2)}`
+      }
+    })
+
+    /** 上半第二项：结余变化 */
+    const cmpBalance = computed(() => {
+      const c = comparison.value
+      if (!c) return { pctText: '—', color: 'var(--app-text-3)', subText: '' }
+      /*
+       * ★ 结余的百分比要单独算 ★
+       *   结余可以是负数，用普通百分比公式时分母为负会把方向翻反
+       *   （上期 -100、本期 +50 会算成 -150%，明明是变好）。
+       *   所以上期结余 <= 0 时不给百分比，见 utils/compareRange.js。
+       */
+      const pct = balanceChangePercent(c.current.balance, c.previous.balance)
+      return {
+        pctText: percentOnly(pct),
+        color: balanceDiff.value > 0
+          ? 'var(--app-success)'
+          : balanceDiff.value < 0 ? 'var(--app-danger)' : 'var(--app-text-3)',
+        subText: `本期 ¥${(c.current.balance / 100).toFixed(2)} · 上期 ¥${(c.previous.balance / 100).toFixed(2)}`
+      }
     })
 
     /**
@@ -679,6 +840,39 @@ export default {
     function cmpBarWidth(diff) {
       // 半幅最多 48%，留一点边距不让柱子顶到框
       return Math.min(48, Math.round((Math.abs(diff) / cmpMaxAbs.value) * 48))
+    }
+
+    /**
+     * 分类行的颜色
+     *
+     * ★ 支出与收入的方向语义相反 ★
+     *   支出变多是「坏」（红），收入变多是「好」（绿）；
+     *   所以同一个 +100，支出行是红的、收入行是绿的。
+     *   直接写死「正数红」会让收入面板看起来全在报警。
+     */
+    function cmpColorOf(diff, isExpense) {
+      if (diff === 0) return 'var(--app-text-3)'
+      const good = isExpense ? diff < 0 : diff > 0
+      return good ? 'var(--app-success)' : 'var(--app-danger)'
+    }
+
+    /** 分类行的颜色（跟当前面板的支出/收入方向走） */
+    function cmpDiffColor(diff) {
+      return cmpColorOf(diff, comparisonType.value === 'expense')
+    }
+
+    /** 分类行的变化金额文案：+¥12.00 / -¥8.50 */
+    function cmpDiffText(diff) {
+      const abs = Math.abs(Number(diff) || 0) / 100
+      const sign = diff > 0 ? '+' : diff < 0 ? '-' : ''
+      return `${sign}¥${abs.toFixed(2)}`
+    }
+
+    /** 百分比（上期为 0 时返回 null，由 percentText 显示「新增」） */
+    function changePercentSafe(cur, prev) {
+      const p = Number(prev) || 0
+      if (p === 0) return null
+      return Math.round(((Number(cur) || 0) - p) / p * 1000) / 10
     }
 
     /* -------------------------------------------------- 恩格尔系数 */
@@ -897,11 +1091,11 @@ export default {
         await refreshEngelFoodNames()
 
         /*
-         * ★ 同比 / 恩格尔放在主统计之后（本轮用户第 7 条）★
-         *   恩格尔判定要看「这段区间到底有没有支出」，
+         * ★ 同比 / 恩格尔放在主统计之后 ★
+         *   恩格尔系数要用「这段区间的总支出」做分母，
          *   而那个数刚由上面的 overview 拿到 ——
          *   所以必须等主统计回来再跑，不能和它并发。
-         *   仍然各用各的 catch，坏了一边不拖垮另一边。
+         *   两者各用各的 catch，坏了一边不拖垮另一边。
          */
         loadExtras(r)
       } catch (e) {
@@ -914,71 +1108,36 @@ export default {
      * 加载「同比变化」与「恩格尔系数」两块
      *
      * ★ 为什么不并进上面那个 Promise.all ★
-     *   同比较依赖区间换算、恩格尔要读 AI 分类缓存，
+     *   同比较依赖窗口换算、恩格尔要查分类表，
      *   两者都可能失败；合进主链会因为一个失败把整页统计都清空。
      *   这里各自 catch，坏了就保持上一次的值。
      */
     async function loadExtras(r) {
-      // 1) 同比
+      // 1) 同比（跟着面板自己的支出/收入 与 一级/二级 走）
       try {
-        comparison.value = await getPeriodComparison(r)
+        comparison.value = await getPeriodComparison(r, {
+          level: comparisonLevel.value,
+          type: comparisonType.value
+        })
       } catch (e) {
         console.warn('[stats] 同比计算失败:', e && e.message)
         comparison.value = null
       }
 
       /*
-       * 2) 恩格尔系数（本轮用户第 7 条的核心改动）
+       * 2) 恩格尔系数
        *
-       * ★ 旧行为 ★
-       *   每次 AI 记账结束后顺手判一次分类（已从 QuickAddBar 移除）。
-       * ★ 新行为 ★
-       *   只在这一页检查：
-       *     · 已有判定记录（缓存）→ 直接用，不发请求；
-       *     · 还没有记录，且这段区间有支出 → 立即调 AI 判定一次，
-       *       卡片上显示「正在识别食品分类…」；
-       *     · 还没有记录、也没有支出 → 不调 AI（没数据可算）——
-       *       否则用户每月初打开统计页都会白烧一次请求。
+       * ★ 「哪些分类算食品」完全由用户在组件管理页手选 ★
+       *   本轮第 3 条明确要求删掉 AI 识别逻辑，
+       *   这里只读 setting 里的 id 数组，一次网络请求都不发。
+       *   没选分类时 getEngelCoefficient 会返回 foodIds: []，
+       *   卡片上显示引导文案而不是 0%。
        */
       try {
-        const cache = await getEngelCacheState()
-        if (cache.exists) {
-          engelFoodIds.value = cache.ids
-          await refreshEngelFoodNames()
-          await refreshEngel()
-          return
-        }
-
-        const hasExpense = Number(overview.value.expense) > 0
-        if (!hasExpense) {
-          engelFoodIds.value = []
-          engel.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
-          return
-        }
-
-        // 本次进页面已经判过（可能失败了）：不重复烧请求，等下次进页面再说
-        if (engelAutoTried.value) {
-          const state = await getEngelCacheState()
-          engelFoodIds.value = state.ids
-          await refreshEngelFoodNames()
-          await refreshEngel()
-          return
-        }
-        engelAutoTried.value = true
-
-        engelLoading.value = true
-        let ids = []
-        try {
-          ids = await ensureEngelFoodCategories()
-        } finally {
-          engelLoading.value = false
-        }
-        engelFoodIds.value = ids
-        // 判定结果换了，下面那排「吃掉的分类」标签要跟着换
+        engelFoodIds.value = await getEngelFoodIds()
         await refreshEngelFoodNames()
         await refreshEngel()
       } catch (e) {
-        engelLoading.value = false
         console.warn('[stats] 恩格尔系数计算失败:', e && e.message)
         engel.value = null
       }
@@ -1061,8 +1220,34 @@ export default {
     }
 
     /** 全部交易（右上角入口） */
-    function goAllTxn() {
-      uni.navigateTo({ url: '/pages/txn/list' })
+    /**
+     * 右上角「组件管理」入口
+     *
+     * ★ 原先是「全部交易」，本轮第 3 条改成组件管理 ★
+     *   用户要求「统计页面右上方改成组件管理的入口」。
+     */
+    function goPanelManage() {
+      uni.navigateTo({ url: '/pages/settings/stats-panels' })
+    }
+
+    /**
+     * 读组件管理里的面板配置与食品分类
+     *
+     * ★ 两件事一起读 ★
+     *   它们都只影响「显示什么」，不涉及统计查询；
+     *   放在 loadAll 之前读，避免先按旧配置渲染一遍再跳一下。
+     */
+    async function loadPanelSettings() {
+      try {
+        const [cfg, foodIds] = await Promise.all([
+          getSetting('statsPanels', null),
+          getEngelFoodIds()
+        ])
+        statsPanels.value = normalizeStatsPanels(cfg)
+        engelFoodIds.value = foodIds
+      } catch (e) {
+        console.warn('[stats] 读组件配置失败:', e && e.message)
+      }
     }
 
     function goProfile() {
@@ -1083,13 +1268,21 @@ export default {
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
+      await loadPanelSettings()
       await loadAll()
     })
 
     onShow(async () => {
-      // 每次进入统计页都允许重新触发一次「没有记录就立即判定」
-      engelAutoTried.value = false
-      if (settingStore.loaded) await loadAll()
+      if (settingStore.loaded) {
+        /*
+         * ★ 每次回到本页都要重读面板配置与食品分类 ★
+         *   用户可能刚在「组件管理」里改了顺序、隐藏了面板、
+         *   或重选了食品分类 —— 不重读就得杀进程才生效。
+         *   读 setting 是纯内存/一次 KV 查询，代价可以忽略。
+         */
+        await loadPanelSettings()
+        await loadAll()
+      }
       settingStore.syncSystemTheme()
       // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
       // 主题设置页改完主题后要靠这里把颜色刷回来
@@ -1196,6 +1389,38 @@ export default {
       }
     }
 
+    /**
+     * 同比变化：切换支出/收入
+     *
+     * ★ 只重查同比这一块 ★
+     *   这是面板自己的维度，和分类统计、账户统计都无关，
+     *   为它跑一次全量 loadAll 会让整页闪一下。
+     */
+    async function switchComparisonType(type) {
+      if (comparisonType.value === type) return
+      comparisonType.value = type
+      await reloadComparison()
+    }
+
+    /** 同比变化：切换一级/二级分类 */
+    async function switchComparisonLevel(level) {
+      if (comparisonLevel.value === level) return
+      comparisonLevel.value = level
+      await reloadComparison()
+    }
+
+    /** 重查同比（切换维度后调用，失败保持上一次的值） */
+    async function reloadComparison() {
+      try {
+        comparison.value = await getPeriodComparison(range.value, {
+          level: comparisonLevel.value,
+          type: comparisonType.value
+        })
+      } catch (e) {
+        console.warn('[stats] 同比重查失败:', e && e.message)
+      }
+    }
+
     /** 平均值：切换一级/二级分类 */
     async function switchAverageLevel(level) {
       if (averageLevel.value === level) return
@@ -1237,15 +1462,20 @@ export default {
       accountViewList, accountViewDonutUri,
       dailyExtremes,
       barHeight, shortDay,
+      // 组件管理（面板顺序与显隐）
+      statsPanels, visiblePanels, panelVisible,
       // 同比变化
-      comparison, comparisonSub, balanceDiff, balanceDiffHint, cmpBarWidth,
+      comparison, comparisonSub, balanceDiff, cmpBarWidth,
+      comparisonType, comparisonLevel,
+      cmpTop1, cmpBalance, cmpDiffColor, cmpDiffText, percentText,
       // 恩格尔系数
-      engel, engelLoading, engelLevel, engelColor, engelFoodNames,
+      engel, engelLevel, engelColor, engelFoodNames,
       onRangeChange,
       switchCategoryType, switchAccountType, switchAverageType,
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
+      switchComparisonType, switchComparisonLevel,
       onAddTap, onAddHoldEnd,
-      goTxnDetail, goAllTxn, goProfile
+      goTxnDetail, goPanelManage, goProfile
     }
   }
 }
@@ -1258,78 +1488,139 @@ export default {
 
 /* ------------------------------------------------ 同比变化 */
 
-.cmp-summary {
+/* 对比窗口说明（区间被今天截断时也写清楚） */
+.cmp-range-hint {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  display: block;
+  padding-bottom: 16rpx;
+}
+
+/*
+ * 上半：两项同比并排
+ *
+ * ★ 为什么并排而不是上下堆 ★
+ *   「支出变化」和「结余变化」是同一层的两个结论，
+ *   并排后一眼能对照着看（花了更多但结余反而更多 = 收入涨得更凶）；
+ *   上下堆会让第二项掉出首屏，用户只看到一半。
+ */
+.cmp-top {
   display: flex;
-  flex-direction: column;
-  gap: 8rpx;
+  align-items: stretch;
   padding: 8rpx 0 20rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 
-.cmp-label {
+.cmp-top-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  min-width: 0;
+}
+
+/* 中间竖分隔：和「不计入预算 ｜ 待报销」同一套视觉语言 */
+.cmp-top-line {
+  width: 1rpx;
+  background-color: var(--app-line);
+  margin: 4rpx 20rpx;
+  flex-shrink: 0;
+}
+
+.cmp-top-label {
   font-size: 22rpx;
   color: var(--app-text-3);
 }
 
-.cmp-value-row {
+.cmp-top-values {
   display: flex;
   align-items: baseline;
-  gap: 8rpx;
+  gap: 10rpx;
+  flex-wrap: wrap;
 }
 
-/* 升降箭头：和数字同色，一眼看出方向 */
-.cmp-arrow {
-  font-size: 40rpx;
+/* 百分比跟在金额旁边，字号小一号但同色 —— 两者是一件事的两种说法 */
+.cmp-top-pct {
+  font-size: 26rpx;
   font-weight: 600;
-  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
-.cmp-hint {
-  font-size: 22rpx;
+/* 本期 / 上期的绝对值：小字，回答「从多少变到多少」 */
+.cmp-top-sub {
+  font-size: 20rpx;
   color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 双向柱：每行左名称右金额，中间一根以 50% 为原点的横柱 */
+/*
+ * 下半：每个分类一行（用户要求「紧凑」）
+ *
+ * ★ 一行装下四样东西 ★
+ *   色点 + 分类名 + （变化金额 / 百分比）+ 双向柱。
+ *   原来名称和金额一行、柱子另起一行，7 个分类就要占 14 行；
+ *   现在 7 行看完，滚动距离减半。
+ */
 .cmp-chart {
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 14rpx;
   margin-top: 20rpx;
 }
 
 .cmp-row {
   display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.cmp-row-left {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 12rpx;
+  min-width: 0;
 }
 
 .cmp-row-name {
   font-size: 24rpx;
   color: var(--app-text-2);
-  flex: 1;
-  min-width: 0;
+  /*
+   * ★ 固定宽度而不是 flex:1 ★
+   *   让所有行的「金额 + 百分比」落在同一列上，扫视时数字成列；
+   *   flex:1 会让长名字那一行把数字挤到右边、短的又缩回来，参差不齐。
+   */
+  width: 180rpx;
+  flex-shrink: 0;
+}
+
+/* 变化金额 + 百分比：右对齐成两列数字 */
+.cmp-row-num {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10rpx;
+  width: 200rpx;
+  flex-shrink: 0;
 }
 
 .cmp-row-diff {
   font-size: 24rpx;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+}
+
+.cmp-row-pct {
+  font-size: 20rpx;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 
 /*
  * 柱状槽：高 14rpx，中线在 50%
- * 柱子用绝对定位往左/往右长，正数向右（多花）、负数向左（少花）。
+ * 柱子用绝对定位往左/往右长，正数向右、负数向左。
  */
 .cmp-row-bar {
   position: relative;
+  flex: 1;
+  min-width: 100rpx;
   height: 14rpx;
   background-color: var(--app-card-2);
   border-radius: 7rpx;
@@ -1350,6 +1641,11 @@ export default {
   top: 0;
   bottom: 0;
   border-radius: 7rpx;
+}
+
+/* 所有面板都被隐藏时的提示 */
+.empty-panels {
+  text-align: center;
 }
 
 /* ------------------------------------------------ 恩格尔系数 */

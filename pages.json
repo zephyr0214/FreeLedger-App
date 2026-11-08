@@ -168,6 +168,13 @@
 			}
 		},
 		{
+			"path": "pages/settings/stats-panels",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "组件管理"
+			}
+		},
+		{
 			"path": "pages/ai/chat",
 			"style": {
 				"navigationStyle": "custom",

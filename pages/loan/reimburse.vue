@@ -3,6 +3,12 @@
     <!--
       报销管理
 
+      ★ 两个 tab 现在是两套读法 ★
+        待报销 = 流水列表（还没成为一张单）：右滑单笔报销、长按多选批量报销。
+        已报销 = 报销单卡片列表（v23 起）：一次报销就是一张单，
+                 单头是「什么时候报的 / 报到哪个账户 / 实报多少」，
+                 单里是被报销的那几笔 + 自动生成的到账/坏账/盈余。
+
       ★ 右上角「报销」只在多选模式出现 ★
         日常是「右滑单条报销」，批量时才是「勾几条一起报销」。
         两种入口都留着，但一次只让用户看见一个 ——
@@ -43,7 +49,7 @@
           </view>
           <view class="summary-row">
             <text class="summary-row-label">累计已报销</text>
-            <text class="summary-row-value">¥{{ (summary.doneAmount / 100).toFixed(2) }}</text>
+            <text class="summary-row-value">¥{{ yuan(summary.doneAmount) }}</text>
           </view>
         </view>
       </view>
@@ -60,7 +66,7 @@
       </view>
 
       <!-- 空态 -->
-      <view v-if="!loading && groups.length === 0" class="empty-wrap">
+      <view v-if="!loading && isEmpty" class="empty-wrap">
         <EmptyState emoji="🧾" :title="emptyTitle" :desc="emptyDesc" />
       </view>
 
@@ -111,7 +117,7 @@
                       删除线表达的是「这笔的数已经不作数了」，
                       而待报销只是「还没报销」，金额本身没变，
                       划掉反而让人以为这笔账被作废了。
-                      删除线挪到「已报销」那一档（见下面 done 分支）。
+                      删除线只出现在下面「已报销」的单里。
                   -->
                   <view class="amount-pending">
                     <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
@@ -138,33 +144,67 @@
       </view>
 
       <!--
-        已报销：按「报销日期」分组（不是支出日期）
+        已报销：报销单卡片列表（v23）
 
-        ★ 用户的读法 ★
-          报销是一次「收款事件」，同一天报了好几笔就该归在一起，
-          和它们原本发生在哪天无关。所以这里用 reimburse_day 分组。
-        ★ 坏账/盈余置顶 ★
-          它们不是「报了哪一笔」，而是这次报销的差额结果，
-          放在最前面才能第一眼看到「这次亏了/赚了多少」。
+        ★ 用户原话 ★
+          「每次选择报销时，自动创建一个报销单，类似于借款人那样的界面，
+           显示报销金额，实报金额，报销时间，报销笔数；
+           报销返还/盈余/坏账也列入下方报销单，但不计入报销笔数。」
+
+        ★ 卡头 / 卡身 / 明细三层 ★
+          卡头：报销时间 + 到账账户（左），实报金额（右，大号）—— 这一单的结论。
+          卡身：报销笔数 + 原支出合计（两行小字）—— 这一单的规模。
+          明细：被报销的 N 笔（原金额划删除线）+ 派生流水（正常金额、标注不计入笔数）。
+            明细里**不再**重复显示实报金额：它已经在卡头上了，
+            每行再来一个就成了同一张单里四五个一样的数字（用户明确要求去掉）。
+
+        ★ 老数据（batch_id 为空）怎么办 ★
+          v23 迁移故意不回填，列表由 api/reimburse.js 按
+          「报销日 + 到账账户 + 实报金额」只读地拼成历史卡片，
+          isLegacy 的卡片挂一个「历史」小标，又不写库也不造单。
       -->
-      <view v-else class="group-list">
-        <!-- 报销坏账 / 报销盈余（如果有） -->
-        <view v-if="settleRows.length > 0" class="settle-card">
-          <text class="settle-title">报销差额</text>
-          <view v-for="s in settleRows" :key="s.id" class="settle-row">
-            <view class="settle-left">
-              <text class="settle-name">{{ s.category_name }}</text>
-              <text class="settle-day">{{ s.occurred_day }}</text>
+      <view v-else class="batch-list">
+        <view v-for="b in batches" :key="b.id" class="batch-card">
+          <!-- 卡头 -->
+          <view class="batch-head">
+            <view class="batch-head-left">
+              <view class="batch-day-row">
+                <text class="batch-day">{{ dayTitle(b.day) }}</text>
+                <text v-if="b.isLegacy" class="batch-legacy-tag">历史</text>
+              </view>
+              <text class="batch-account ellipsis">{{ b.accountName || '无账户' }}</text>
             </view>
-            <MoneyText :cents="s.amount_cents" :type="s.type" :size="28" :weight="500" />
+            <view class="batch-head-right">
+              <text class="batch-done-label">实报</text>
+              <MoneyText
+                class="batch-done-amount"
+                :cents="b.doneCents"
+                :size="44"
+                :weight="600"
+              />
+            </view>
           </view>
-        </view>
 
-        <view v-for="g in groups" :key="g.day" class="day-group">
-          <text class="day-title">{{ g.title }}</text>
+          <!-- 卡身：两行小字 -->
+          <view class="batch-meta">
+            <view class="batch-meta-row">
+              <text class="batch-meta-label">报销笔数</text>
+              <text class="batch-meta-value">{{ b.txnCount }} 笔</text>
+            </view>
+            <view class="batch-meta-row">
+              <text class="batch-meta-label">报销金额</text>
+              <text class="batch-meta-value">¥{{ yuan(b.originCents) }}</text>
+            </view>
+          </view>
 
-          <view class="day-card">
-            <view v-for="t in g.list" :key="t.id" class="txn-item" @click="goTxnDetail(t.id)">
+          <!-- 明细：被报销的原始支出 -->
+          <view class="batch-items">
+            <view
+              v-for="t in b.items"
+              :key="t.id"
+              class="txn-item"
+              @click="goTxnDetail(t.id)"
+            >
               <view
                 class="txn-icon"
                 :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
@@ -181,37 +221,58 @@
 
               <view class="txn-right">
                 <!--
-                  ★ 已报销：原支出金额划删除线 + 旁边显示实报金额（用户要求）★
-                    已报销之后「原支出」这个数就不作数了 ——
-                    真正的影响由实报金额（以及坏账/盈余）体现，
-                    所以把原金额划掉、把实报金额正常显示在它右边。
-                    实报为空（老数据没填）时只显示原金额，不划。
+                  ★ 只划掉原金额，不显示实报金额（用户要求）★
+                    原支出这个数在报销之后就不作数了 —— 真正的影响由卡头的
+                    实报金额和下面的坏账/盈余表达，所以这里只留一个划掉的数。
+                    实报为空（老数据）时也照划：这张单的结论已经在卡头了。
                 -->
-                <view class="amount-done">
-                  <!--
-                    ★ 照抄 MoneyText 的符号规则还是只显示金额？★
-                      这里划掉的是「原支出」，一个已经作废的数，
-                      再加 -/+ 反而让人以为它还在算收支；
-                      只留 ¥ 金额本身，配合删除线语义最清楚。
-                  -->
-                  <text v-if="hasDoneAmount(t)" class="amount-origin-strike">
-                    ¥{{ (t.amount_cents / 100).toFixed(2) }}
-                  </text>
-                  <MoneyText
-                    :cents="t.reimburse_amount_cents == null ? t.amount_cents : t.reimburse_amount_cents"
-                    :type="t.type"
-                    :size="28"
-                    :weight="500"
-                  />
-                </view>
+                <text class="batch-origin-strike">¥{{ yuan(t.amount_cents) }}</text>
                 <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
               </view>
             </view>
-          </view>
-        </view>
 
-        <view v-if="groups.length === 0 && settleRows.length === 0" class="empty-wrap">
-          <EmptyState emoji="✅" title="还没有报销记录" desc="报销完成之后这里会按到账日期归组" />
+            <!-- 明细：派生流水（不计入笔数） -->
+            <view
+              v-for="d in b.derived"
+              :key="d.id"
+              class="txn-item txn-item-derived"
+              @click="goTxnDetail(d.id)"
+            >
+              <view
+                class="txn-icon"
+                :style="{ backgroundColor: (d.category_color || '#969799') + '22' }"
+              >
+                <text class="txn-icon-text" :style="{ color: d.category_color || '#969799' }">
+                  {{ iconChar(d) }}
+                </text>
+              </view>
+
+              <view class="txn-info">
+                <view class="txn-name-row">
+                  <text class="txn-name ellipsis">{{ d.category_name }}</text>
+                  <!--
+                    ★ 标注「不计入笔数」★
+                      用户明确要求「报销返还/盈余/坏账也列入下方报销单，
+                      但不计入报销笔数」。不标的话，卡头写 3 笔、
+                      下面列了 4 行，会让人以为笔数算错了。
+                  -->
+                  <text class="derived-tag">不计入笔数</text>
+                </view>
+                <text class="txn-sub ellipsis">{{ txnSub(d) }}</text>
+              </view>
+
+              <view class="txn-right">
+                <!-- 派生流水正常显示金额（不加删除线）：它们是这张单的真实影响 -->
+                <MoneyText :cents="d.amount_cents" :type="d.type" :size="28" :weight="500" />
+                <text class="txn-time">{{ timeLabel(d.occurred_at) }}</text>
+              </view>
+            </view>
+
+            <!-- 单里一笔明细都没有（备份被裁过 / 明细被删光）：至少别显示成空白卡 -->
+            <view v-if="b.items.length === 0 && b.derived.length === 0" class="batch-empty">
+              <text class="batch-empty-text">这张单的流水已被删除</text>
+            </view>
+          </view>
         </view>
 
         <view class="bottom-space" />
@@ -248,7 +309,7 @@
 
           <view class="sheet-row">
             <text class="sheet-label">原支出合计</text>
-            <text class="sheet-value">¥{{ (sheet.originCents / 100).toFixed(2) }}</text>
+            <text class="sheet-value">¥{{ yuan(sheet.originCents) }}</text>
           </view>
 
           <!--
@@ -322,14 +383,22 @@
  *
  * ★ 报销时到底发生什么 ★
  *   全部在 api/reimburse.js 的 reimburseTxns 里：
+ *     0) 先建一张报销单（reimburse_batch）
  *     1) 记一笔「报销到账」收入进到账账户（不计收支）
  *     2) 实报 ≠ 原支出时，差额记「报销坏账」（支出）或「报销盈余」（收入）
  *     3) 把这些流水标成已报销（reimburse_status=2 + 报销日期/金额/账户）
+ *     4) 上述所有流水都挂上这一单的 batch_id
  *   页面只负责收集「哪几笔 + 报了多少钱 + 报哪个账户」。
  *
  * ★ 为什么不在这里自己算差额 ★
  *   坏账/盈余的金额、分类、账户都要和台账保持唯一口径；
  *   放页面里算，换个入口（以后可能从详情页报销）就会算出两份不同的数。
+ *
+ * ★ 为什么「已报销」读的是单、不是流水 ★
+ *   流水列表看不出「哪几笔是一次报的」。用户要的是「报销单」：
+ *   一张单一个到账时间、一个实报总额、一笔笔原始支出。
+ *   所以已报销 tab 用 listReimburseBatches()（单 + 单内明细），
+ *   待报销 tab 仍然用 listReimburseTxns('pending')（它本来就是流水）。
  */
 import { ref, computed, reactive, watch } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
@@ -340,7 +409,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { listReimburseTxns, getReimburseSummary, reimburseTxns } from '@/api/reimburse.js'
+import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns } from '@/api/reimburse.js'
 import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { formatDayHeader, formatTime, toDayKey } from '@/utils/date.js'
@@ -361,13 +430,13 @@ export default {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
 
-    /** 'pending' 待报销 / 'done' 已报销 */
+    /** 'pending' 待报销 / 'done' 已报销（按报销单） */
     const status = ref('pending')
     const loading = ref(true)
-    /** 当前 tab 的分组（按日期聚合后的列表） */
+    /** 待报销 tab 的分组（按支出日期聚合后的流水） */
     const groups = ref([])
-    /** 已报销 tab 里置顶的坏账/盈余行 */
-    const settleRows = ref([])
+    /** 已报销 tab 的报销单列表 */
+    const batches = ref([])
     const summary = ref({ pendingCount: 0, pendingAmount: 0, doneCount: 0, doneAmount: 0 })
 
     /** 右滑展开状态（每行一个） */
@@ -400,13 +469,24 @@ export default {
       { key: 'done', name: '已报销' }
     ]
 
+    /**
+     * 当前 tab 是不是空的
+     *
+     * ★ 两个 tab 的数据结构不同，空态判断也必须分开 ★
+     *   待报销看 groups，已报销看 batches ——
+     *   合并成一个布尔会在切换 tab 的瞬间误判（旧数据还在 ref 里）。
+     */
+    const isEmpty = computed(() =>
+      status.value === 'pending' ? groups.value.length === 0 : batches.value.length === 0
+    )
+
     const emptyTitle = computed(() =>
       status.value === 'pending' ? '没有待报销的账' : '还没有报销记录'
     )
     const emptyDesc = computed(() =>
       status.value === 'pending'
         ? '在交易详情或记账面板里勾上「待报销」，那笔就会出现在这里'
-        : '报销完成之后这里会按到账日期归组'
+        : '报销完成之后这里会按报销单展示：实报金额、报销笔数、每一笔原始支出'
     )
 
     /** 到账账户名 */
@@ -445,8 +525,8 @@ export default {
       const d = diffCents.value
       if (d === null) return '填了金额才知道差额'
       if (d === 0) return '刚好相等'
-      const yuan = (Math.abs(d) / 100).toFixed(2)
-      return d > 0 ? `多了 ¥${yuan}` : `少了 ¥${yuan}`
+      const value = (Math.abs(d) / 100).toFixed(2)
+      return d > 0 ? `多了 ¥${value}` : `少了 ¥${value}`
     })
 
     /** 差额颜色：多了绿（收入）、少了红（损失）、相等灰 */
@@ -464,22 +544,24 @@ export default {
       return Math.round(n * 100)
     }
 
+    /**
+     * 分 → 「123.45」字符串
+     *
+     * ★ 页面里只保留这一处金额格式化 ★
+     *   卡片头、卡身、明细的删除线金额都是纯文本（不是 MoneyText），
+     *   各写一句 (x/100).toFixed(2) 的话，以后改精度就要满页面找。
+     */
+    function yuan(cents) {
+      return ((Number(cents) || 0) / 100).toFixed(2)
+    }
+
     function iconChar(t) {
       return ICON_FALLBACK[t && t.category_name] || '🧾'
     }
 
-    /**
-     * 是否要显示「原金额（划掉）+ 实报金额」两个数
-     *
-     * ★ 什么时候只显示一个 ★
-     *   老数据可能没有 reimburse_amount_cents（v21 之前报销的账），
-     *   或者实报恰好等于原额 —— 这两种情况只显示一个数，
-     *   免得同一行出现两个一样的数字、还划掉一个，看着像出了 bug。
-     */
-    function hasDoneAmount(t) {
-      const done = t.reimburse_amount_cents
-      if (done === null || done === undefined) return false
-      return Number(done) !== Number(t.amount_cents)
+    /** 报销单卡头的日期：和流水列表的日期条同一套文案（今天/昨天 + 月日 周几） */
+    function dayTitle(day) {
+      return day ? formatDayHeader(day) : '未记录日期'
     }
 
     /** 副标题：时间 · 账户 */
@@ -501,9 +583,9 @@ export default {
     /**
      * 把流水按日期分组
      *
-     * ★ 待报销用支出日期、已报销用报销日期 ★
-     *   同一份数据两种读法：待报销关心「什么时候花的」，
-     *   已报销关心「什么时候报下来的」。
+     * ★ 待报销用支出日期 ★
+     *   待报销关心「什么时候花的」；已报销已经按报销单展示了，
+     *   所以这个函数现在只服务待报销 tab。
      */
     function groupBy(list, dayField) {
       const map = new Map()
@@ -523,26 +605,23 @@ export default {
       loading.value = true
       try {
         await accountStore.load()
-        const [pending, done, sum] = await Promise.all([
+        const [pending, batchList, sum] = await Promise.all([
           listReimburseTxns('pending'),
-          listReimburseTxns('done'),
+          /*
+           * ★ 只有已报销 tab 需要单 ★
+           *   待报销 tab 用不到它，但两个一起查能少一次切换 tab 时的白屏；
+           *   数据量小（默认最多 300 单），代价可以接受。
+           */
+          listReimburseBatches(),
           getReimburseSummary()
         ])
         summary.value = sum
+        batches.value = batchList || []
 
         if (status.value === 'pending') {
           groups.value = groupBy(pending, 'occurred_day')
-          settleRows.value = []
         } else {
-          /*
-           * 已报销 tab 里，坏账/盈余要从「已报销流水」里拆出来置顶：
-           * 它们的 reimburse_status 是 0（它们是报销动作的产物，不是被报销的流水），
-           * 所以不在这份 done 列表里 —— 单独按分类名捞。
-           */
-          const settleNames = ['报销坏账', '报销盈余']
-          settleRows.value = done.filter((t) => settleNames.includes(t.category_name))
-          const normal = done.filter((t) => !settleNames.includes(t.category_name))
-          groups.value = groupBy(normal, 'reimburse_day')
+          groups.value = []
         }
 
         // 清掉已经不存在的行的右滑状态，避免状态泄漏
@@ -553,7 +632,7 @@ export default {
       } catch (e) {
         console.warn('[reimburse] 加载失败:', e && e.message)
         groups.value = []
-        settleRows.value = []
+        batches.value = []
       } finally {
         loading.value = false
       }
@@ -762,11 +841,11 @@ export default {
     })
 
     return {
-      settingStore, status, loading, groups, settleRows, summary,
+      settingStore, status, loading, groups, batches, summary, isEmpty,
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
       swipeStates, selectMode, selectedIds,
       showSheet, showAccountPicker, sheet, accountName, accountActions, diffText, diffColor,
-      iconChar, txnSub, timeLabel, goTxnDetail, formatTime, hasDoneAmount,
+      iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
       onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountSelect,
       onConfirmReimburse, goBack
@@ -950,6 +1029,14 @@ export default {
   color: var(--app-text);
 }
 
+/* 派生流水那一行：分类名 + 「不计入笔数」标签横排 */
+.txn-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
 .txn-sub {
   font-size: 22rpx;
   color: var(--app-text-3);
@@ -967,26 +1054,6 @@ export default {
 .amount-pending {
   display: flex;
   align-items: baseline;
-}
-
-/*
- * 已报销：原支出金额划删除线，实报金额正常显示在旁边
- *
- * ★ 为什么用 text-decoration 包一层而不是改 MoneyText ★
- *   MoneyText 是所有金额的统一出口，给它加删除线开关会污染其它调用点。
- */
-.amount-done {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 10rpx;
-}
-
-.amount-origin-strike {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  text-decoration: line-through;
-  font-variant-numeric: tabular-nums;
 }
 
 .txn-time {
@@ -1009,43 +1076,175 @@ export default {
   color: #ffffff;
 }
 
-/* ---------------------------------------------------- 报销差额置顶卡 */
+/* ---------------------------------------------------- 报销单卡片 */
 
-.settle-card {
+.batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  margin-top: 16rpx;
+}
+
+/*
+ * 一张报销单 = 卡头 + 卡身 + 明细
+ *
+ * ★ 形制照借入借出管理页的人员分组 ★
+ *   卡头用浅一层底（--app-card-2），明细用卡片底色，圆角套着 ——
+ *   用户说的「类似于借款人那样的界面」就是这个意思：
+ *   一块区域里先把「结论」给出来，下面才是支撑这个结论的流水。
+ */
+.batch-card {
   background-color: var(--app-card);
   border-radius: 20rpx;
-  padding: 20rpx 24rpx;
+  overflow: hidden;
   box-shadow: var(--app-shadow);
 }
 
-.settle-title {
-  font-size: 24rpx;
-  color: var(--app-text-3);
-  display: block;
-  margin-bottom: 12rpx;
-}
-
-.settle-row {
+.batch-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12rpx 0;
-  border-top: 1rpx solid var(--app-line);
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  background-color: var(--app-card-2);
 }
 
-.settle-left {
+.batch-head-left {
   display: flex;
-  align-items: baseline;
-  gap: 12rpx;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 0;
+  flex: 1;
+}
+
+.batch-day-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
   min-width: 0;
 }
 
-.settle-name {
+/* 报销时间：卡头第一行，字号和流水列表的日期条一致 */
+.batch-day {
   font-size: 28rpx;
+  font-weight: 500;
   color: var(--app-text);
 }
 
-.settle-day {
+/*
+ * 「历史」小标：v23 之前报销的单没有 batch_id，是列表按
+ * 「报销日 + 到账账户 + 实报金额」只读拼出来的。
+ * 标出来是为了诚实 —— 这些单的笔数/金额口径和老数据完全一致，
+ * 但它们的「单」是展示层兜底，不是库里真有一行。
+ */
+.batch-legacy-tag {
+  font-size: 20rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-text-3);
+  background-color: var(--app-card);
+  flex-shrink: 0;
+}
+
+.batch-account {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+/*
+ * 卡头右列：标签 + 大号实报金额
+ *
+ * ★ 实报金额是全卡最大的数 ★
+ *   这一单「最后到账多少」是用户唯一真正关心的结论，
+ *   原支出合计反而是过程数据（放卡身小字）。
+ */
+.batch-head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2rpx;
+  flex-shrink: 0;
+}
+
+.batch-done-label {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+}
+
+/* 卡身：两行小字（报销笔数 / 报销金额） */
+.batch-meta {
+  padding: 16rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.batch-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.batch-meta-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.batch-meta-value {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 明细容器：卡片底色，无内边距（行自己带） */
+.batch-items {
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * 被报销的原始支出：只显示划掉的原金额
+ *
+ * ★ 为什么不是 MoneyText ★
+ *   MoneyText 是所有金额的统一出口，给它加删除线开关会污染其它调用点
+ *   （同样的理由见下面 amount-done 的历史注释）。
+ *   这里是一个纯文本 + text-decoration，符号规则固定为 ¥ 金额，
+ *   因为「划过」的数不该再带 +/- 号（那会让人以为它还在算收支）。
+ */
+.batch-origin-strike {
+  font-size: 26rpx;
+  color: var(--app-text-3);
+  text-decoration: line-through;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 派生流水那一行：整行略微退后一档，视觉上从属于这张单 */
+.txn-item-derived {
+  background-color: var(--app-card-2);
+}
+
+/* 「不计入笔数」标签：主题色 13% 底，和徽标同一套做法 */
+.derived-tag {
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-text-3);
+  background-color: var(--app-card);
+  flex-shrink: 0;
+}
+
+/* 单里没有明细时的兜底（明细被删光 / 备份被裁过） */
+.batch-empty {
+  padding: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.batch-empty-text {
   font-size: 22rpx;
   color: var(--app-text-3);
 }

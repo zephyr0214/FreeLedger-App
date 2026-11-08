@@ -104,6 +104,34 @@ export const DEFAULT_SETTINGS = {
     timeoutMs: 120000
   },
 
+  /**
+   * 统计页「组件管理」—— 面板顺序与显隐
+   *
+   * ★ 结构 ★
+   *   order   面板 key 的全量顺序（含被隐藏的，隐藏项也占位，勾回来不会跳位置）
+   *   hidden  被取消勾选的 key 数组
+   *
+   * ★ 为什么默认 order 是空数组、不写死 7 个 key ★
+   *   「空 = 用代码里的默认顺序」。
+   *   面板清单唯一来源是 utils/statsPanels.js 的 DEFAULT_PANEL_ORDER ——
+   *   以后加面板不用发 DB 迁移去改老用户库里的 order，
+   *   normalizeStatsPanels() 会自动把缺的 key 补在尾部。
+   *   反过来若这里写死 7 个 key，新增面板时老用户的 order 里就没有它。
+   */
+  statsPanels: { order: [], hidden: [] },
+
+  /**
+   * 恩格尔系数「算食品」的一级支出分类 id 数组
+   *
+   * ★ 语义变了：从 AI 判定的缓存 → 用户手选 ★
+   *   旧版本这个键存的是 AI 判定的结果（缓存），本轮用户明确要求
+   *   「复用多选分类弹层让用户自己选」，所以它现在是**用户配置**，不再是缓存：
+   *   没有任何代码会去覆盖它，也不会因为分类改名而失效重算。
+   *   键名保持不变（engelFoodCategories）是为了老用户的判定结果还能直接用，
+   *   升级后至少不是空的 —— 用户想改再去组件管理页勾。
+   */
+  engelFoodCategories: [],
+
   // 数据
   autoBackup: true,
   lastBackupAt: 0
@@ -223,9 +251,35 @@ export async function getAllSettings() {
   // 对象型字段做浅合并，防止旧版本缺少新字段
   out.ai = { ...DEFAULT_SETTINGS.ai, ...(out.ai || {}) }
   out.aiChat = { ...DEFAULT_SETTINGS.aiChat, ...(out.aiChat || {}) }
+  /*
+   * ★ statsPanels 也必须是对象展开合并，不能直接覆盖 ★
+   *   库里存的可能是 `{ order: [...] }`（未来版本少写了 hidden），
+   *   也可能是一份手改/导入的脏值（null / 字符串 / 数组）。
+   *   不合并的话：hidden 会变成 undefined，
+   *   统计页 normalizeStatsPanels 虽然能兜住，但「默认值丢失」这种坑
+   *   一旦出现在别的读取点就很难查 —— 和 aiChat 一样在这里统一兜。
+   */
+  out.statsPanels = mergeObjectSetting(out.statsPanels, DEFAULT_SETTINGS.statsPanels)
   // 旧版 ai.temperature 迁移到 aiChat.temperature
   migrateAiSettings(out, raw.aiChat)
   return out
+}
+
+/**
+ * 对象型设置项的浅合并（库里存了半个对象时补上默认字段）
+ *
+ * ★ 只认「普通对象」★
+ *   数组、null、字符串都算脏数据，一律回落到默认值。
+ *   JSON 里数组也是 object，不单独排除的话 `{ ...[] }` 会安静地变成 {}，
+ *   问题被吞掉、更难定位。
+ *
+ * @param {any} stored 库里存的值
+ * @param {object} defaults 默认值对象
+ * @returns {object} 合并后的新对象
+ */
+function mergeObjectSetting(stored, defaults) {
+  const ok = stored && typeof stored === 'object' && !Array.isArray(stored)
+  return ok ? { ...defaults, ...stored } : { ...defaults }
 }
 
 /** 读单项 */

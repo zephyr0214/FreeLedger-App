@@ -463,6 +463,40 @@ const MIGRATIONS = [
      */
     version: 22,
     up: migrateCycleFlags
+  },
+  {
+    /*
+     * ★ v23 —— 报销单（reimburse_batch）★
+     *
+     *   1. 建 reimburse_batch 表：一次报销 = 一张单，
+     *      单头存「原支出合计 / 实报金额 / 报销笔数 / 报销日期 / 到账账户」。
+     *   2. txn 加 batch_id 列：单里的每一笔流水
+     *      （被报销的原始支出 + 自动生成的到账/坏账/盈余）都挂到这张单上。
+     *
+     * ★ 为什么老数据一律不回填（这是本条迁移最关键的取舍）★
+     *   v23 之前的报销没有单，只能从不完整的痕迹里反推：
+     *   同一报销日 + 同一到账账户 + 同一实报金额的一组流水，
+     *   看起来像一次报销。但有两个坑证明这种反推**一定会造出错单**：
+     *     1) 同一天、同一账户、同一实报金额的两次独立报销，
+     *        数据上完全不可区分，合成一张单就会把笔数和原支出合计算错；
+     *     2) 报销后用户只要编辑过其中任意一笔流水（改备注、改分类），
+     *        那一笔的 updated_at 就会变，而同一张单里其它笔不会变 ——
+     *        靠「同一次报销的 updated_at 相同」去切分也会把一张单切成两张。
+     *   而错了的报销单用户几乎无法发现（数字看着都合理），比「没有单」危险得多。
+     *   所以迁移只做结构，不回填 batch_id；
+     *   api/reimburse.js 的 listReimburseBatches() 会把 batch_id 为空的
+     *   已报销流水按「报销日 + 到账账户 + 实报金额」**只读**地拼成历史卡片展示，
+     *   既不写库也不影响任何账目数字。
+     *
+     * ★ 新装库也要有这张表 ★
+     *   reimburse_batch 没有写进 SCHEMA_V1（和 cycle / cycle_skip / exchange_rate
+     *   一样只由迁移创建）。SCHEMA_V1 是 v1 时点的结构快照，新装的库同样会从
+     *   user_version=0 依次跑完所有迁移，所以 CREATE TABLE IF NOT EXISTS 能建出来。
+     *
+     * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+     */
+    version: 23,
+    up: migrateReimburseBatch
   }
 ]
 
@@ -2274,6 +2308,70 @@ async function migrateCycleFlags() {
   }
 }
 
+/**
+ * 迁移 v23 —— 报销单
+ *
+ * 结构两件事，都不碰任何已有数据：
+ *   1. 建 reimburse_batch 表（报销单头）
+ *   2. txn 加 batch_id 列（可空，NULL = v23 之前报销的老流水）
+ *
+ * ★ 为什么不做老数据回填 ★
+ *   见 MIGRATIONS 数组里 v23 的注释：靠「同一天 + 同账户 + 同实报金额」
+ *   反推会把两次独立报销合并成一张、把编辑过的单拆成两张，
+ *   而错单在界面上看不出异常。宁可不回填 ——
+ *   listReimburseBatches() 会把无单的老流水按同样的分组口径**只读**拼成
+ *   「历史报销」卡片，不落库、不影响账，用户看到的东西一样完整。
+ *
+ * ★ 幂等 ★
+ *   CREATE TABLE IF NOT EXISTS + ALTER 失败即跳过（新装库/重跑都安全）。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateReimburseBatch() {
+  const run = async (sql) => {
+    try {
+      await call('executeSql', { name: DB_NAME, sql })
+      return true
+    } catch (e) {
+      console.warn('[db] migration v23 exec failed:', e && e.message)
+      return false
+    }
+  }
+
+  await run(`CREATE TABLE IF NOT EXISTS reimburse_batch (
+    id                 TEXT PRIMARY KEY,
+    total_origin_cents INTEGER NOT NULL DEFAULT 0,
+    total_done_cents   INTEGER NOT NULL DEFAULT 0,
+    txn_count          INTEGER NOT NULL DEFAULT 0,
+    day                TEXT,
+    account_id         TEXT,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL,
+    deleted_at         INTEGER
+  )`)
+
+  try {
+    await call('executeSql', {
+      name: DB_NAME,
+      sql: 'ALTER TABLE txn ADD COLUMN batch_id TEXT'
+    })
+    console.log('[db] migration v23: txn.batch_id 已添加')
+  } catch (e) {
+    // 字段已存在（新装库由 SCHEMA_V1 建出来 / 迁移重跑），忽略
+    console.log('[db] migration v23: txn.batch_id 已存在，跳过')
+  }
+
+  /*
+   * 按报销日期倒序取单 —— 列表页的主查询就是 ORDER BY day DESC, created_at DESC，
+   * 这一个复合索引正好覆盖；batch_id 上再单独建一个，用于「按单捞明细」。
+   * 索引建失败不影响主流程（老内核偶发不支持某些语法）。
+   */
+  await run('CREATE INDEX IF NOT EXISTS idx_batch_day ON reimburse_batch(day, created_at)')
+  await run('CREATE INDEX IF NOT EXISTS idx_txn_batch ON txn(batch_id)')
+
+  console.log('[db] migration v23: reimburse_batch 表已就绪（老数据不回填，见注释）')
+}
+
 async function migrate() {
   const current = await readUserVersion()
   if (current >= SCHEMA_VERSION) return
@@ -2416,7 +2514,8 @@ export async function transaction(fn) {
  *   漏一张的表现不是报错，而是「点了清空，某块数据还在」——
  *   比如漏掉 cycle_skip，清空后新建的周期会把用户早先删掉的补记又记一遍。
  *   所以清单从「所有建表语句」里推：SCHEMA_V1 的 11 张
- *   + 只在迁移里建的 cycle（v7）/ cycle_skip（v9）/ exchange_rate（v17）。
+ *   + 只在迁移里建的 cycle（v7）/ cycle_skip（v9）/ exchange_rate（v17）/
+ *     reimburse_batch（v23）。
  *   scripts/test-clear-all.mjs 会逐张断言，加了新表忘了这里会被测试挡住。
  *
  * ★ 为什么要逐表 try 住，而不是一把梭 ★
@@ -2440,6 +2539,14 @@ export async function truncateAll() {
     'txn_tag', 'txn', 'account_snapshot', 'budget_category', 'budget',
     'cycle', 'cycle_skip',
     'category', 'tag', 'account', 'account_combo_member', 'exchange_rate',
+    /*
+     * ★ reimburse_batch（v23）★
+     *   它是只在迁移里建的表，和 cycle / cycle_skip / exchange_rate 一样，
+     *   漏掉它的表现是「点了清空，已报销 tab 里还挂着一堆空单」——
+     *   单头还在、明细已经被清空，点进去一片空白。
+     *   和 txn 一起清，保证「清空后没有孤儿单头」。
+     */
+    'reimburse_batch',
     'setting', 'app_meta'
   ]
 

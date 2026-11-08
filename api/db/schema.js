@@ -8,7 +8,7 @@
  *   - 删除一律软删除 deleted_at，用于撤销与恢复
  */
 
-export const SCHEMA_VERSION = 22
+export const SCHEMA_VERSION = 23
 
 /**
  * 「对账」固定分类（v4 起）
@@ -597,7 +597,24 @@ export const SCHEMA_V1 = [
     /** 实际报销到账金额（分，仅 status=2）；与原支出金额的差额就是坏账/盈余 */
     reimburse_amount_cents INTEGER,
     /** 报销到账账户（仅 status=2）；钱打回了哪张卡 */
-    reimburse_account_id TEXT
+    reimburse_account_id TEXT,
+    /*
+     * ★ 报销单（v23）★
+     *   「这一次报销」是哪一张单。一次报销（右滑单笔 / 多选批量）写一张单：
+     *     reimburse_batch 表存单头（原支出合计 / 实报金额 / 笔数 / 日期 / 到账账户），
+     *     单里的每一笔流水 —— 被报销的原始支出，以及自动生成的
+     *     报销到账 / 报销坏账 / 报销盈余 —— 都用 batch_id 挂到这张单上。
+     *
+     * ★ 为什么只加一列就够，不用把单头字段搬走 ★
+     *   下面那三个 reimburse_day / _amount_cents / _account_id 是「单头的冗余快照」，
+     *   留着它们，v23 之前的老代码（以及老备份）读到的信息一点不少；
+     *   同时旧数据没有 batch_id 也照样能按这三列兜底展示。
+     *   删列要重建表（SQLite 老内核不支持 DROP COLUMN），风险远大于收益。
+     *
+     * ★ NULL = 老数据（v23 之前报销的）★
+     *   迁移不回填，见 api/db/index.js 里 v23 的注释。
+     */
+    batch_id TEXT
   )`,
 
   // ------------------------------------------------------------ 交易-标签

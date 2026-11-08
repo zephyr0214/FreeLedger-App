@@ -410,7 +410,17 @@ console.log('=== 弹窗挂在每一个页面上（全局最上层）===')
     }
   })('pages')
 
-  check('页面数量', pageFiles.length, 27)
+  /*
+   * ★ 不再写死页面数量 ★
+   *   以前这里钉的是 27，每加一个页面就要来改一次 ——
+   *   而这句断言想表达的其实是「扫到的页面数 = pages.json 里注册的页面数」，
+   *   不是「本项目永远只有 27 个页面」。
+   *   改成和 pages.json 对账：漏注册的页面会被这条提前抓出来
+   *   （下面的 missingMount 本来也会抓，但少了这条就分不清
+   *    「少扫了文件」还是「页面真的没挂弹窗」）。
+   */
+  const declaredPages = JSON.parse(read('pages.json')).pages.length
+  check('页面数量与 pages.json 一致', pageFiles.length, declaredPages)
 
   const missingMount = []
   const missingImport = []

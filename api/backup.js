@@ -63,7 +63,7 @@ async function buildExportPayload(opt = {}) {
 
   const whereNotDeleted = includeDeleted ? '' : 'WHERE deleted_at IS NULL'
 
-  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, budgetCategories, cycles, comboMembers] = await Promise.all([
+  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, budgetCategories, cycles, comboMembers, reimburseBatches] = await Promise.all([
     query(`SELECT * FROM account ${whereNotDeleted} ORDER BY sort ASC`),
     query('SELECT * FROM account_snapshot ORDER BY day ASC'),
     query(`SELECT * FROM category ${whereNotDeleted} ORDER BY sort ASC`),
@@ -78,7 +78,22 @@ async function buildExportPayload(opt = {}) {
     query(`SELECT * FROM cycle ${whereNotDeleted} ORDER BY created_at ASC`),
     // ★ 组合账户的成员关系 ★
     //   不导出的话，恢复后组合账户会变成「空壳」，用户还得重新配一遍。
-    query('SELECT * FROM account_combo_member ORDER BY combo_id ASC, sort ASC')
+    query('SELECT * FROM account_combo_member ORDER BY combo_id ASC, sort ASC'),
+    /*
+     * ★ 报销单头（v23）★
+     *   单头是「原支出合计 / 实报金额 / 报销笔数 / 报销日 / 到账账户」的唯一权威来源，
+     *   明细靠 txn.batch_id 挂上来（SELECT * FROM txn 已经带上了这一列）。
+     *   不导出它的话，恢复后每张报销单都会退化成「无单老数据」——
+     *   页面还能靠「报销日 + 账户 + 实报金额」拼出来，但那只是兜底，
+     *   一旦有两次报销恰好同金额，卡片就会合并错。
+     *
+     * ★ 包一层 try ★
+     *   迁移失败是不阻断开库的（见 api/db/index.js 的 migrate()），
+     *   所以老设备上完全可能没有这张表。那时导出不该整份失败 ——
+     *   少一个可选段，用户其它数据照样能备份出去。
+     */
+    query(`SELECT * FROM reimburse_batch ${whereNotDeleted} ORDER BY day ASC, created_at ASC`)
+      .catch(() => [])
   ])
 
   return {
@@ -94,7 +109,8 @@ async function buildExportPayload(opt = {}) {
       budgets: budgets.length,
       budgetCategories: budgetCategories.length,
       cycles: cycles.length,
-      comboMembers: comboMembers.length
+      comboMembers: comboMembers.length,
+      reimburseBatches: reimburseBatches.length
     },
     settings: exportedSettings,
     accounts,
@@ -106,7 +122,8 @@ async function buildExportPayload(opt = {}) {
     budgets,
     budgetCategories,
     cycles,
-    comboMembers
+    comboMembers,
+    reimburseBatches
   }
 }
 
@@ -659,6 +676,7 @@ export async function importPayload(payload, opt = {}) {
   const report = {
     mode,
     accounts: 0, transactions: 0, categories: 0, tags: 0, budgets: 0, budgetCategories: 0, cycles: 0,
+    reimburseBatches: 0,
     skipped: 0, conflicts: 0, backupPath: null
   }
 
@@ -826,6 +844,64 @@ export async function importPayload(payload, opt = {}) {
       }
     }
 
+    // ---------- 报销单头（v23）
+    //
+    // ★ 为什么放在交易之前 ★
+    //   交易里带着 batch_id，先插单头，读库时任何时刻都不会出现
+    //   「明细指向一张还不存在的单」。表之间没建外键（全库一致，不建 FK），
+    //   但顺序上先单后明细，和写入方（reimburseTxns）的口径一致。
+    //
+    // ★ 老备份没有这一段 ★
+    //   payload.reimburseBatches 是 undefined → Array.isArray 守卫直接跳过，
+    //   导入后的老数据就是「batch_id 为空」，由 listReimburseBatches 只读兜底。
+    const knownBatchIds = new Set()
+    if (Array.isArray(payload.reimburseBatches)) {
+      for (const b of payload.reimburseBatches) {
+        if (!b || !b.id) continue
+        const exists = mode === 'merge' ? await queryOne('SELECT id FROM reimburse_batch WHERE id = ?', [b.id]) : null
+        if (exists) {
+          // 合并模式：库里已有这张单，交易照样可以挂到它上面
+          knownBatchIds.add(b.id)
+          report.skipped++
+          continue
+        }
+        await execute(
+          `INSERT INTO reimburse_batch (id, total_origin_cents, total_done_cents, txn_count,
+            day, account_id, created_at, updated_at, deleted_at)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          [
+            b.id,
+            Number(b.total_origin_cents) || 0,
+            Number(b.total_done_cents) || 0,
+            Number(b.txn_count) || 0,
+            b.day || null,
+            b.account_id || null,
+            b.created_at || Date.now(),
+            b.updated_at || Date.now(),
+            b.deleted_at || null
+          ]
+        )
+        knownBatchIds.add(b.id)
+        report.reimburseBatches++
+      }
+    }
+
+    /*
+     * ★ 合并模式下还要认「库里本来就有的单」★
+     *   增量导入（mode=merge）时 payload 里可能只有流水、没有单头，
+     *   而库里其实已经有这张单了 —— 这时不能把 batch_id 清掉，
+     *   否则同一张单的旧明细会从卡里消失。
+     *   查一次全表 id（单量级最多几百条），比逐条 queryOne 便宜。
+     */
+    if (mode === 'merge') {
+      try {
+        const rows = await query('SELECT id FROM reimburse_batch')
+        for (const r of rows) if (r && r.id) knownBatchIds.add(r.id)
+      } catch (e) {
+        // 表不存在（老设备迁移没跑成）：当作没有单，明细一律走无单兜底
+      }
+    }
+
     // ---------- 交易
     if (Array.isArray(payload.transactions)) {
       for (const t of payload.transactions) {
@@ -849,8 +925,9 @@ export async function importPayload(payload, opt = {}) {
             occurred_at, occurred_day, month_key, year_key, tz_offset,
             cycle_id, created_at, updated_at, deleted_at,
             exclude_from_budget, exclude_from_stats,
-            reimburse_status, reimburse_day, reimburse_amount_cents, reimburse_account_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            reimburse_status, reimburse_day, reimburse_amount_cents, reimburse_account_id,
+            batch_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             t.id, t.type, t.amount_cents, t.account_id, t.to_account_id || null,
             t.category_id || null, t.note || '',
@@ -869,7 +946,18 @@ export async function importPayload(payload, opt = {}) {
             t.reimburse_amount_cents === null || t.reimburse_amount_cents === undefined
               ? null
               : Number(t.reimburse_amount_cents),
-            t.reimburse_account_id || null
+            t.reimburse_account_id || null,
+            /*
+             * ★ batch_id（v23）★
+             *   老备份没有这一列 → undefined → 写成 NULL，
+             *   正好就是「无单老数据」，列表层会兜底展示。
+             *   ★ 只在单头真的存在时才保留 ★
+             *     备份包可能被用户手工裁过（单头被删、明细还在）。
+             *     留着悬空 batch_id 会让这张单看起来「明细查不到」——
+             *     卡片头还在（若有），明细却一片空白。
+             *     清掉它，这些流水会老实走无单兜底分支，至少看得见。
+             */
+            knownBatchIds.has(t.batch_id) ? t.batch_id : null
           ]
         )
         report.transactions++

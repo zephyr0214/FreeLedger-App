@@ -216,7 +216,19 @@ check('不再直接用 TxnPanel（这页不记账）', /<TxnPanel/.test(PAGE), f
 check('组头有人员姓名', /class="person-name/.test(PAGE), true)
 check('组头有金额', /class="person-balance"/.test(PAGE), true)
 check('组头有金额标签（待收回/待归还/多归还）', /balanceLabel\(g\)/.test(PAGE), true)
-check('组内有该人员的流水列表', /v-for="t in g\.txns"/.test(PAGE), true)
+/*
+ * ★ v1.23 起组内按「结清批次」分段渲染 ★
+ *   用户要求：结清过又新借的人，未结清里要能折叠旧段、已结清里每段之间
+ *   要有分割标注。分段算法与折叠规则都是纯函数（api/loan.js 的
+ *   splitLoanEpisodes / buildLoanEpisodeView），由 scripts/test-loan-episodes.mjs
+ *   逐条钉死；这里只钉「页面确实用上了它们、并把三种形态渲染出来」。
+ */
+check('组内按结清批次分段渲染', /v-for="\(ep, epIndex\) in episodeViewOf\(g\)"/.test(PAGE), true)
+check('段内流水由 episodeTxns 取倒序副本', /v-for="t in episodeTxns\(ep\)"/.test(PAGE), true)
+check('分段与折叠规则来自 api/loan.js', /buildLoanEpisodeView/.test(PAGE), true)
+check('普通流水行有兜底分支', /v-else class="episode-txns"/.test(PAGE), true)
+check('有「已结清」分段的分割标注', /class="episode-divider"/.test(PAGE), true)
+check('已结清旧段默认折叠可展开', /class="episode-collapsed"/.test(PAGE), true)
 check('不再有点开弹层看明细（showDetail/wd-popup）', /showDetail|<wd-popup/.test(PAGE), false)
 check(
   '未结清的人都给结清按钮（按钮在组头右列第二行）',

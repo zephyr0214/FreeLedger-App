@@ -244,28 +244,25 @@ check(
 
 console.log('=== 7. 恩格尔系数：不在记账时查，改在统计页 ===')
 
-check('AI 速记条不再检查恩格尔', /ensureEngelFoodCategories/.test(QUICK), false)
-check('统计页读取缓存状态', /getEngelCacheState/.test(STATS), true)
-check(
-  '没有记录且有支出时立即调 AI',
-  /if \(!hasExpense\)[\s\S]{0,900}?ensureEngelFoodCategories\(\)/.test(STATS),
-  true
-)
-check(
-  '每次进页面只自动判一次（失败不反复烧请求）',
-  /engelAutoTried/.test(STATS) && /onShow\(async \(\) => \{[\s\S]{0,200}?engelAutoTried\.value = false/.test(STATS),
-  true
-)
-check('判定期间有 loading 态', /engelLoading/.test(STATS), true)
-check(
-  '卡片里显示识别中文案',
-  /正在识别食品分类/.test(STATS),
-  true
-)
-check('分类保存后重新判定', /refreshEngelFoodCategories/.test(CATPAGE), true)
-check('删除分类也重新判定', /rejudgeEngel\(\)/.test(CATPAGE), true)
-check('engel.js 提供缓存状态接口', /export async function getEngelCacheState/.test(ENGEL), true)
-check('engel.js 提供重判接口', /export async function refreshEngelFoodCategories/.test(ENGEL), true)
+check('AI 速记条不再检查恩格尔', /ensureEngelFoodCategories|getEngelFoodIds/.test(QUICK), false)
+
+/*
+ * ★ 第 3 条改了口径：AI 识别食品分类的整套逻辑要删除 ★
+ *   用户原话：「让用户自行选择用于食物消费的支出分类来计算恩格尔系数，
+ *             之前添加的 ai 识别食物消费什么的逻辑全部删除」。
+ *   所以这一节从「钉 AI 的触发时机」翻成「钉 AI 已经不存在」。
+ */
+check('统计页不再读 AI 判定缓存', /getEngelCacheState/.test(STATS), false)
+check('统计页不再触发 AI 判定', /ensureEngelFoodCategories/.test(STATS), false)
+check('统计页不再有「自动判过一次」的标记', /engelAutoTried/.test(STATS), false)
+check('统计页不再有判定 loading 态', /engelLoading/.test(STATS), false)
+check('统计页不再显示「正在识别食品分类」', /正在识别食品分类/.test(STATS), false)
+check('统计页改成读用户手选的分类', /getEngelFoodIds/.test(STATS), true)
+check('没选分类时给引导文案', /还没选食品分类/.test(STATS), true)
+check('分类页不再重判恩格尔', /refreshEngelFoodCategories/.test(CATPAGE), false)
+check('分类页不再有 rejudgeEngel', /rejudgeEngel/.test(CATPAGE), false)
+check('engel.js 里没有 AI 调用', /await chat\(/.test(ENGEL), false)
+check('engel.js 提供手选读取接口', /export async function getEngelFoodIds/.test(ENGEL), true)
 
 /* ============================================= 8. 深浅色适配 */
 

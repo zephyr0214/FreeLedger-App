@@ -656,7 +656,28 @@ export default {
       return n
     })
 
-    /** 按天分组 */
+    /**
+     * 按天分组，并算每组的「支出 / 收入」小计。
+     *
+     * ★ 分组小计必须排除 exclude_from_stats 的流水（踩过的坑）★
+     *   借出 / 借入 / 借款归还 / 借款收回是资金往来，待报销、报销到账
+     *   也不是真实收支 —— 它们都带 exclude_from_stats = 1。
+     *   顶部 summary 走的是 api/transaction.js 的 sumTransactions，
+     *   那里用 `COALESCE(t.exclude_from_stats, 0) = 0` 把这几笔剔掉了。
+     *   以前这里只是无脑累加 type，结果同一天借出去 500，
+     *   顶部写「支出 0」，切到那天的分组头却写「支出 -500.00」，
+     *   两个数字对不上，用户以为哪边算错了。
+     *
+     * ★ 只影响汇总，不影响列表 ★
+     *   这些流水仍然 push 进 g.list 照常显示（用户要看到借款、待报销的记录），
+     *   只是不参与 g.expense / g.income。某天全部被排除时两个数都是 0，
+     *   模板里的 v-if="group.expense > 0" 会让组头干脆不显示金额 ——
+     *   而不是显示「支出 -0.00」。
+     *
+     * ★ transfer 也天然不进汇总 ★
+     *   下面只认 type === 'expense' / 'income'，转账的 type 是 'transfer'，
+     *   既不是支出也不是收入（钱只是从左口袋到右口袋），确认不用额外判断。
+     */
     const groups = computed(() => {
       const map = new Map()
       for (const txn of list.value) {
@@ -666,6 +687,8 @@ export default {
         }
         const g = map.get(day)
         g.list.push(txn)
+        // 不计入收支的流水只列出来，不进小计（口径对齐 sumTransactions）
+        if (txn.exclude_from_stats) continue
         if (txn.type === 'expense') g.expense += txn.amount_cents
         if (txn.type === 'income') g.income += txn.amount_cents
       }

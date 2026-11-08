@@ -288,7 +288,6 @@ import {
   isReconcileCategory, isFixedCategory, isPresetGroupCategory
 } from '@/api/category.js'
 import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
-import { refreshEngelFoodCategories } from '@/api/engel.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -520,28 +519,9 @@ export default {
         closeEditor()
         await load()
         uni.showToast({ title: '已保存', icon: 'success' })
-        /*
-         * ★ 分类一改，「哪些算吃掉的」就可能变了（本轮用户第 7 条）★
-         *   恩格尔系数的食品分类清单是 AI 按分类名判的，
-         *   改名/新增/删除之后旧结论会失真，所以这里直接重新判定一次。
-         *   ★ 不 await、不报错 ★
-         *     分类已经存好了，判定只是给统计页预热的展示型数据；
-         *     让用户等它、或者因为 AI 挂了弹个错，都是本末倒置。
-         */
-        rejudgeEngel()
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
       }
-    }
-
-    /**
-     * 分类变动后重判恩格尔食品分类（后台进行）
-     *
-     * ★ 失败完全静默 ★
-     *   分类保存是主流程，恩格尔判定是附带的缓存刷新。
-     */
-    function rejudgeEngel() {
-      refreshEngelFoodCategories().catch(() => {})
     }
 
     /**
@@ -579,8 +559,6 @@ export default {
         if (fromEditor) showEditor.value = false
         await load()
         uni.showToast({ title: '已删除', icon: 'success' })
-        // 删除分类同样会改变「哪些算吃掉的」，重新判定一次（静默）
-        rejudgeEngel()
       } catch (e) {
         await alertDialog({ title: '无法删除', content: e.message })
       }

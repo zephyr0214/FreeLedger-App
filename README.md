@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.22.0-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.23.0-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -47,7 +47,7 @@
 - 每日自动备份 + JSON 导出 / 导入
 - 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色
-- 数据库结构化迁移（当前 schema v22），升级不丢数据
+- 数据库结构化迁移（当前 schema v23），升级不丢数据
 
 ## 技术栈与工程化
 
@@ -72,7 +72,7 @@ npm run test      # 全部测试（20+ 个测试文件，数百条断言）
 
 ## 版本规则
 
-- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v22 → v1.22.x）
+- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v23 → v1.23.x）
 - 无迁移 → 递增修订号（1.17.0 → 1.17.1）
 - 每个版本的用户可见变化见 App 内「我的 → 更新日志」
 
@@ -157,7 +157,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 **Data & appearance**
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors
-- Structured database migrations (schema v22) — upgrades never lose data
+- Structured database migrations (schema v23) — upgrades never lose data
 
 ## Tech & engineering
 
@@ -182,7 +182,7 @@ npm run test      # full test suite (20+ files, hundreds of assertions)
 
 ## Versioning
 
-- With a DB migration → minor version follows the schema version (schema v22 → v1.22.x)
+- With a DB migration → minor version follows the schema version (schema v23 → v1.23.x)
 - Without one → patch bump (1.16.2 → 1.16.3)
 - User-facing changes per version: in-app *Mine → Changelog*
 

@@ -1,172 +1,108 @@
 /**
- * 恩格尔系数辅助 —— 判断哪些一级分类属于「吃掉的」
+ * 恩格尔系数「算食品」的分类 —— 纯存储
  *
- * ★ 为什么要用 AI 判断，而不是写死一张表 ★
- *   分类名是用户自己起的（「餐饮食品」「吃饭」「早餐」「食堂」…），
- *   写死一张表永远覆盖不全；用户明确要求「使用 ai 来判断哪些属于吃掉的分类」。
+ * ★ 为什么这里只剩读写，一点判定逻辑都没有 ★
+ *   旧版本用 AI 按分类名判断哪些一级分类属于「吃掉的」，结果缓存到
+ *   setting 的 engelFoodCategories 键上。用户本轮明确要求：
+ *   「复用多选分类弹层，让用户自行选择用于食物消费的支出分类来计算恩格尔系数，
+ *     之前添加的 ai 识别食物消费什么的逻辑全部删除。」
  *
- * ★ 为什么把结果缓存到 setting ★
- *   分类表很少变，AI 判定一次就能一直用；不缓存的话每打开统计页
- *   都要请求一次大模型（慢、费钱，还可能因为网络失败而空着）。
- *   缓存键 `engelFoodCategories`，值是分类 id 数组。
+ *   所以判定链路（chat 调用、提示词、refreshEngelFoodCategories /
+ *   ensureEngelFoodCategories / getEngelCacheState 等）整段删掉，
+ *   分类清单的唯一来源变成「用户在组件管理页手选的结果」。
  *
- * ★ 什么时候刷新（本轮用户第 7 条改了口径）★
- *   旧版是「每次 AI 记账结束后检查一次」，用户明确否掉了：
- *   **记账时什么都别查**。现在的规则是：
- *     1. 每次进入统计页时检查这份记录 —— 有缓存直接用，
- *        没有缓存且有支出记录时，立即（页面上显示加载中）调一次 AI；
- *        见 pages/stats/index.vue 的 loadExtras()。
- *     2. 分类增删改保存时直接重新判定一次 ——
- *        见 pages/settings/category.vue 的 rejudgeEngel()，
- *        它调的就是下面的 refreshEngelFoodCategories()。
+ * ★ 为什么本来也该这么改（不只是听用户话）★
+ *   1. AI 判定不稳定：同一个账本同一批分类，模型换个版本、换个温度，
+ *      判出来的清单可能就不一样，恩格尔曲线会莫名其妙地跳；
+ *   2. AI 判定解释不了：用户看到「食品支出 ¥800」时，最想问的是
+ *      「你把哪几个分类算进去了」—— 手选清单能直接答，
+ *      AI 判定的清单用户既看不懂也没法改。
+ *   3. 它还是唯一一处「为了展示一个百分比而发网络请求」的地方：
+ *      断网、Key 失效、额度用完，统计页就得干等或空着。
+ *
+ * ★ 键名为什么沿用 engelFoodCategories（没改名）★
+ *   老用户库里已经存着 AI 判定的结果，键名不变的话升级后清单不空，
+ *   统计页立刻能出数；用户想调整再去「组件管理 → 恩格尔系数 → 食品分类」改。
+ *   改名等于强制所有人重新配一遍，没有必要。
+ *
+ * ★ 只存 id，不存分类名 ★
+ *   分类可以改名，存名字的话统计页显示的还是旧名字。
+ *   id 是稳定主键，名字由页面用 listCategories 现查现拼。
  */
 
-import { listCategories } from './category.js'
 import { getSetting, setSetting } from './settings.js'
-import { chat } from './ai.js'
 
-/** setting 表里的缓存键 */
-export const ENGEL_CACHE_KEY = 'engelFoodCategories'
-
-/**
- * 读缓存（没有就返回空数组，不触发 AI）。
- *
- * @returns {Promise<string[]>} 一级分类 id 数组
- */
-export async function getCachedEngelFoodIds() {
-  const raw = await getSetting(ENGEL_CACHE_KEY, null)
-  return Array.isArray(raw) ? raw.filter(Boolean) : []
-}
-
-/** 让缓存失效（分类增删改后调用，下次会重新判定） */
-export async function clearEngelCache() {
-  await setSetting(ENGEL_CACHE_KEY, null)
-}
+/** setting 表里的键名（与 DEFAULT_SETTINGS.engelFoodCategories 一致） */
+export const ENGEL_FOOD_KEY = 'engelFoodCategories'
 
 /**
- * 缓存「有没有判过」。
+ * 归一化一份 id 数组：去空、去重、只留字符串。
  *
- * ★ 为什么要区分「没判过」和「判定结果为空」★
- *   getCachedEngelFoodIds() 两种情况都返回 []：
- *     · 从没判过（setting 里是 null）
- *     · 判过了，但用户一个食品分类都没有（存的是 []）
- *   统计页需要知道「要不要现在调 AI」，所以这里把原始值也带出来。
+ * ★ 为什么在这里也做一遍（写入时已经做过）★
+ *   这个函数同时给「读」用。库里可能是：
+ *     · 从没设过（默认值 []）
+ *     · 覆盖导入的一份老 JSON（里面可能带 null / 数字 / 重复项）
+ *     · 上一个版本 AI 写进去的结果（脏数据可能性更高）
+ *   读口不归一化，页面 v-for 就会渲染出空标签，或者 :key 重复报错。
  *
- * @returns {Promise<{exists:boolean, ids:string[]}>}
+ * @param {any} raw
+ * @returns {string[]} 全新的数组（不共享引用）
  */
-export async function getEngelCacheState() {
-  const raw = await getSetting(ENGEL_CACHE_KEY, null)
-  if (!Array.isArray(raw)) return { exists: false, ids: [] }
-  return { exists: true, ids: raw.filter(Boolean) }
-}
-
-/**
- * 清缓存 + 立即重新判定一次（分类增删改保存后调用）。
- *
- * ★ 失败不抛 ★
- *   恩格尔是展示型指标，分类已经存好了；AI 挂了不该让「已保存」变成报错。
- *
- * @returns {Promise<string[]>} 新的食品分类 id 数组（失败为空）
- */
-export async function refreshEngelFoodCategories() {
-  try {
-    await clearEngelCache()
-    return await ensureEngelFoodCategories({ force: true })
-  } catch (e) {
-    console.warn('[engel] 重新判定失败:', e && e.message)
-    return []
+function normalizeFoodIds(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const item of raw) {
+    // 只认字符串 id：数字 id 是脏数据（分类 id 是 'cat_xxx' 这种前缀串）
+    if (typeof item !== 'string') continue
+    const id = item.trim()
+    if (!id) continue
+    if (out.includes(id)) continue
+    out.push(id)
   }
+  return out
 }
 
 /**
- * 取「属于吃的」一级分类 id。
+ * 读用户手选的「算食品」的一级支出分类 id。
  *
- * ★ 缓存优先 ★
- *   有缓存直接返回，一次网络都不发；缓存为空才请求 AI。
+ * 永远返回数组（不返回 null / undefined），
+ * 统计页可以无脑 `.length` 判断「用户还没选过」。
  *
- * ★ AI 失败怎么办 ★
- *   抛错不往外传 —— 恩格尔系数是展示型指标，
- *   因为 AI 挂了让统计页整体报错不值得。失败时返回空数组，
- *   页面上显示「暂时算不出来」，用户下次数完账还会再试一次。
- *
- * @param {{force?:boolean}} [opt]
  * @returns {Promise<string[]>}
  */
-export async function ensureEngelFoodCategories(opt = {}) {
-  if (!opt.force) {
-    const cached = await getCachedEngelFoodIds()
-    if (cached.length > 0) return cached
-  }
-
-  // 取全部一级分类（支出方向）：恩格尔系数只看支出
-  const list = await listCategories('expense')
-  const roots = list.filter((c) => !c.parent_id)
-  if (roots.length === 0) return []
-
-  /*
-   * ★ 提示词只给一级分类名 ★
-   *   二级分类太细（「午餐」「奶茶」），模型容易挑花眼；
-   *   恩格尔系数的口径本来就是大类（食品支出 / 总支出）。
-   */
-  const names = roots.map((c) => c.name)
-  const systemPrompt = `你是一个记账 App 的分类助手。
-用户会给出他的支出分类名列表，请你判断哪些分类属于「食品/饮食消费」。
-
-判断标准：
-- 属于：正餐、零食、饮料、咖啡奶茶、外卖、买菜、食材、水果、食堂、聚餐
-- 不属于：烟酒（虽然是入口的，但统计口径上不算食品）、交通、购物、居住、娱乐、
-  医疗、教育、人情、通讯、宠物、旅行
-
-只输出 JSON 数组，元素是**用户给的分类名原文**，不要输出解释。
-没有属于食品的分类就输出 []。`
-
-  const userPrompt = `支出分类名列表：
-${names.map((n) => `- ${n}`).join('\n')}
-
-请输出属于食品/饮食消费的分类名数组。`
-
+export async function getEngelFoodIds() {
   try {
-    const res = await chat(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      { temperature: 0, maxTokens: 500, disableThinking: true }
-    )
-
-    /*
-     * ★ chat() 返回的是对象不是字符串 ★
-     *   形如 { text, reason, reasoning, truncated }（见 api/ai.js 的 extractContent）。
-     *   把整个对象当字符串用会得到 "[object Object]"，
-     *   于是永远解析不出分类 —— 这里必须取 .text。
-     */
-    const text = String(res && res.text ? res.text : '').trim()
-    // 从回复里抠出第一个 JSON 数组（模型可能包了 markdown 代码块）
-    const match = text.match(/\[[\s\S]*?\]/)
-    let picked = []
-    if (match) {
-      try {
-        const arr = JSON.parse(match[0])
-        if (Array.isArray(arr)) picked = arr.map((x) => String(x || '').trim()).filter(Boolean)
-      } catch (e) {
-        picked = []
-      }
-    }
-
-    // 名字 -> id（只认一级分类，忽略模型编出来的名字）
-    const idByName = {}
-    roots.forEach((c) => { idByName[c.name] = c.id })
-    const ids = picked.map((n) => idByName[n]).filter(Boolean)
-
-    await setSetting(ENGEL_CACHE_KEY, ids)
-    return ids
+    const raw = await getSetting(ENGEL_FOOD_KEY, [])
+    return normalizeFoodIds(raw)
   } catch (e) {
-    console.warn('[engel] AI 判定失败:', e && e.message)
-    /*
-     * ★ 失败不写缓存 ★
-     *   写空数组会让「没数据」和「判定结果是空」混为一谈，
-     *   下次就再也不会重试了。
-     */
+    // 设置读失败不该让统计页整体挂掉：恩格尔只是展示型指标
+    console.warn('[engel] 读食品分类失败:', e && e.message)
     return []
   }
+}
+
+/**
+ * 保存用户手选的「算食品」分类 id。
+ *
+ * 去空去重后写 setting —— 多选弹层回传的就是一串 id，
+ * 但用户在弹层里反复勾选/取消很容易带出重复项，这里统一收口。
+ *
+ * @param {string[]} ids 一级支出分类 id 数组
+ * @returns {Promise<string[]>} 实际写进去的数组（去重后的）
+ */
+export async function setEngelFoodIds(ids) {
+  const next = normalizeFoodIds(ids)
+  await setSetting(ENGEL_FOOD_KEY, next)
+  return next
+}
+
+/**
+ * 清空（用户想重新选时用；组件管理页的「清空」走弹层回传空数组，
+ * 这个函数留给将来可能的「重置」入口，语义更直白）。
+ *
+ * @returns {Promise<string[]>} 空数组
+ */
+export async function clearEngelFoodIds() {
+  await setSetting(ENGEL_FOOD_KEY, [])
+  return []
 }

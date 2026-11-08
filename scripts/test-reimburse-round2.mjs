@@ -154,20 +154,27 @@ check('公共列表组件挂了徽标', /reimburseBadge\(txn\)/.test(read('compo
 
 console.log('=== 4. 报销管理页删除线 ===')
 
-check('待报销行不再有删除线样式', /\.amount-strike\s*\{/.test(REIMB), false)
+check('待报销行没有删除线样式', /\.amount-strike\s*\{/.test(REIMB), false)
 check('待报销金额用正常样式', /class="amount-pending"/.test(REIMB), true)
-check('已报销才划掉原金额', /class="amount-origin-strike"/.test(REIMB), true)
+check('已报销才划掉原金额', /class="batch-origin-strike"/.test(REIMB), true)
 check(
   '划掉的是原支出金额',
-  /amount-origin-strike[\s\S]{0,200}?t\.amount_cents/.test(REIMB),
+  /class="batch-origin-strike">¥\{\{ yuan\(t\.amount_cents\) \}\}/.test(REIMB),
   true
 )
+/*
+ * ★ 第 5 条改了：明细里只划原金额，不再显示实报金额 ★
+ *   用户原话「只划掉原有金额，不显示实报金额」——
+ *   实报金额只在卡头出现一次（batch-done-amount），
+ *   明细行重复显示会让人误以为那是两笔不同的钱。
+ */
 check(
-  '旁边显示实报金额',
-  /reimburse_amount_cents == null \? t\.amount_cents : t\.reimburse_amount_cents/.test(REIMB),
-  true
+  '明细里不再重复显示实报金额',
+  /batch-origin-strike[\s\S]{0,400}?reimburse_amount_cents/.test(REIMB),
+  false
 )
-check('金额相同时不重复显示两个数', /function hasDoneAmount\(t\)/.test(REIMB), true)
+check('实报金额只在卡头出现', /class="batch-done-amount"/.test(REIMB), true)
+check('卡头有报销笔数', /报销笔数/.test(REIMB), true)
 
 /* ============== 5. 底部提示语 + 弹层金额右侧 */
 
@@ -197,7 +204,7 @@ check('差额文案分多了/少了/相等', /刚好相等/.test(REIMB) && /多�
 
 console.log('=== 6. 周期标记的数据库迁移 ===')
 
-check('SCHEMA_VERSION 是 22', SCHEMA_VERSION, 22)
+check('SCHEMA_VERSION 是 23（v23 报销单）', SCHEMA_VERSION, 23)
 check('有 v22 迁移', /version: 22,\s*\n\s*up: migrateCycleFlags/.test(DB), true)
 check('迁移建 exclude_from_budget 列', /migrateCycleFlags[\s\S]{0,900}'exclude_from_budget INTEGER NOT NULL DEFAULT 0'/.test(DB), true)
 check('迁移建 reimburse_status 列', /migrateCycleFlags[\s\S]{0,900}'reimburse_status INTEGER NOT NULL DEFAULT 0'/.test(DB), true)
@@ -217,8 +224,8 @@ check(
 )
 check('备份导入也带上这两列', /exclude_from_budget, reimburse_status\)\s*\n\s*VALUES/.test(BACKUP), true)
 
-check('版本号是 1.22.0', APP_VERSION, '1.22.0')
-check('更新日志最新一条是 1.22.0', RELEASES[0].version, '1.22.0')
+check('版本号是 1.23.0', APP_VERSION, '1.23.0')
+check('更新日志最新一条是 1.23.0', RELEASES[0].version, '1.23.0')
 check('更新日志的 schemaVersion 与迁移对齐', RELEASES[0].schemaVersion, SCHEMA_VERSION)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

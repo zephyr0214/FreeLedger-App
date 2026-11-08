@@ -21,6 +21,16 @@
 
 import { query, queryOne } from './db/index.js'
 import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey, monthSpan, TREND_DAY_MAX_MONTHS } from '../utils/date.js'
+/*
+ * 同比窗口的换算统一收在 utils/compareRange.js
+ *
+ * ★ 为什么不在本文件里算 ★
+ *   「本月到现在 → 上月同期」有月末夹取、闰年、跨年、整年、
+ *   超长自定义区间五六个分支，是纯日期算术，和 SQL 一点关系都没有。
+ *   抽成纯函数后可以拿固定日期把每个分支钉死（scripts/test-compare-range.mjs），
+ *   页面文案也能复用同一份 label 生成逻辑。
+ */
+import { buildCompareRange, changePercent } from '../utils/compareRange.js'
 import { ACCOUNT_TYPES } from './account.js'
 // 结转口径只定义在 api/budget.js 一处，统计层复用同一个纯函数 ——
 // 两边各写一遍算法，迟早会出现「预算页说到这月还剩 100、详情页说 90」。
@@ -1140,120 +1150,150 @@ async function topExpensesByScope(scope, limit) {
 }
 
 /**
- * 同比变化：所选区间 vs 前一个同长度区间
+ * 同比变化：所选区间 vs「上一段同期」
  *
- * ★ 「前一段」怎么算 ★
- *   不是「去年同期」，而是**紧挨着的上一个等长区间**
- *   （用户说的是「前同一段时间」，也就是时间轴上前一段，不是去年）。
- *   例：选了 11/1~11/7（7 天）→ 对比 10/25~10/31。
+ * ★ 对比窗口怎么算（本轮用户第 2 条重新定义）★
+ *   用户原话：「比如选中本月，应该是 11.1-今天同比 10 月最后相同天的变化，
+ *             如果选中的范围全部有收支则全部同比，以此类推」。
+ *   即：
+ *     · 整月 / 一个月以内 → **上月同期**（同一段号），11/1~11/8 ↔ 10/1~10/8
+ *     · 整年             → **去年同期**
+ *     · 跨多月的自定义段 → 紧挨着的等长区间（不前跳重叠）
+ *   具体换算全在 utils/compareRange.js 的 buildCompareRange()，
+ *   那里有完整分支与月末夹取，页面和测试共用同一份实现。
+ *
+ * ★ 「今天」和「没有数据的日子」★
+ *   区间终点晚于今天时先截到今天（否则「半个空月」比「整月」，
+ *   所有数字都会显示成暴跌）；截断后**对比窗口按截断后的长度对齐**。
+ *   区间里没有流水的那几天照样占窗口位置，不会因为「那天没记账」
+ *   就把窗口缩短 —— 同比的前提是时间等长，不是数据等量。
  *
  * ★ 为什么返回分类维度的数组 ★
- *   面板上除了数字，还要画「双向柱状图表示各分类变化」，
- *   那就必须给出每个一级分类在两段时间里的金额，
- *   前端才能算出每个分类的增减并画一根向左/向右的柱子。
+ *   面板下段要「每类别一行：分类名 + 变化值 + 百分比 + 双向柱状图」，
+ *   所以必须给出每个分类在两段里的金额，前端才能算增减、画左右柱子。
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
- * @returns {Promise<{current:{expense,income,balance,count},
- *   previous:{expense,income,balance,count},
- *   categories:Array<{id,name,color,current,previous,diff}>}>}
+ * @param {{level?:'root'|'sub', type?:'expense'|'income', today?:string}} [opt]
+ *   level = 一级（默认，按一级分类归并）/ 二级（按二级分类，没有二级的归到自己）
+ *   type  = 支出（默认）/ 收入 —— 决定下方分类列表走哪个方向
+ *   today = 可注入的「今天」，测试用；不传给真实今天
+ * @returns {Promise<null|{
+ *   align:'year'|'month'|'span', clipped:boolean,
+ *   curStart:string, curEnd:string, prevStart:string, prevEnd:string,
+ *   current:{expense:number,income:number,balance:number,count:number},
+ *   previous:{expense:number,income:number,balance:number,count:number},
+ *   categories:Array<{id:string,name:string,color:string,
+ *     current:number,previous:number,diff:number,pct:number|null}>
+ * }>} null = 该区间算不出对比（不限时间 / 全在未来）
  */
-export async function getPeriodComparison(range) {
-  const e = expandRange(range)
-  const scope = rangeScope(range)
+export async function getPeriodComparison(range, opt = {}) {
+  const level = opt.level === 'sub' ? 'sub' : 'root'
+  const type = opt.type === 'income' ? 'income' : 'expense'
 
-  // 当前区间
-  const curRow = await queryOne(
-    `SELECT COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
-            COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
-            COUNT(*) AS cnt
-     FROM txn t
-     WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
-    scope.params
-  )
+  const cr = buildCompareRange(range, opt.today || toDayKey())
+  if (!cr) return null
 
-  /*
-   * 前一个等长区间
-   *
-   * ★ 没有起止日就没法算「上一段」★
-   *   用户选「全部时间」时往前推没有意义，直接返回空对比，
-   *   不编一个假区间出来。
-   */
-  let prevStart = ''
-  let prevEnd = ''
-  if (e.startDay && e.endDay) {
-    const span = dayDiffInclusive(e.startDay, e.endDay)
-    prevEnd = shiftDay(e.startDay, -1)
-    prevStart = shiftDay(prevEnd, -(span - 1))
-  }
-
-  let prevRow = { exp: 0, inc: 0, cnt: 0 }
-  if (prevStart && prevEnd) {
-    prevRow = await queryOne(
+  /* 两段各查一次总账（同一条 SQL，只换 where 参数） */
+  const sumOf = async (startDay, endDay) => {
+    const row = await queryOne(
       `SELECT COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
               COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
               COUNT(*) AS cnt
        FROM txn t
        WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}
          AND t.occurred_day >= ? AND t.occurred_day <= ?`,
-      [prevStart, prevEnd]
-    ) || { exp: 0, inc: 0, cnt: 0 }
+      [startDay, endDay]
+    )
+    const exp = Number(row ? row.exp : 0)
+    const inc = Number(row ? row.inc : 0)
+    return { expense: exp, income: inc, balance: inc - exp, count: Number(row ? row.cnt : 0) }
   }
 
-  // 分类维度：两段各查一次（按一级分类归并）
-  const catOf = async (whereSql, params) => {
+  const current = await sumOf(cr.curStart, cr.curEnd)
+  const previous = await sumOf(cr.prevStart, cr.prevEnd)
+
+  /*
+   * 分类维度
+   *
+   * ★ 一级 / 二级两种归并 ★
+   *   一级：COALESCE(c.parent_id, c.id) —— 二级都向上归并到一级，
+   *         交易没有分类时 root_id 为 NULL，统一落到「未分类」。
+   *   二级：直接按 t.category_id 分，没有二级的交易自然就是他那个分类本身，
+   *         和统计页「分类统计」的二级口径完全一致。
+   *
+   * ★ 二级的配色按序号取调色板 ★
+   *   二级分类种子里继承父级色，同一支下的几个二级是同一个颜色，
+   *   一列柱子看着像同一类被拆成好几个，所以按序取互不相同的颜色。
+   */
+  const catOf = async (startDay, endDay) => {
+    const groupCol = level === 'sub' ? 't.category_id' : 'COALESCE(c.parent_id, c.id)'
     const rows = await query(
-      `SELECT COALESCE(c.parent_id, c.id) AS root_id,
-              COALESCE(p.name, c.name, '未分类') AS name,
-              COALESCE(p.color, c.color, '#969799') AS color,
-              SUM(t.amount_cents) AS amt
+      `SELECT ${groupCol} AS root_id,
+              COALESCE(c.name, '未分类') AS name,
+              COALESCE(c.color, '#969799') AS color,
+              SUM(t.amount_cents) AS amt,
+              COUNT(*) AS cnt
        FROM txn t
        LEFT JOIN category c ON c.id = t.category_id
-       LEFT JOIN category p ON p.id = c.parent_id
-       WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}
-         ${whereSql}
+       WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}
+         AND t.occurred_day >= ? AND t.occurred_day <= ?
        GROUP BY root_id`,
-      params
+      [type, startDay, endDay]
     )
     const map = {}
     for (const r of rows) {
       const key = r.root_id || 'none'
-      map[key] = { id: key, name: r.name || '未分类', color: r.color || '#969799', amount: Number(r.amt) || 0 }
+      map[key] = {
+        id: key,
+        name: r.name || '未分类',
+        color: r.color || '#969799',
+        amount: Number(r.amt) || 0,
+        count: Number(r.cnt) || 0
+      }
     }
     return map
   }
 
-  const curCats = await catOf(`${withScope('', scope)}`, scope.params)
-  const prevCats = prevStart
-    ? await catOf('AND t.occurred_day >= ? AND t.occurred_day <= ?', [prevStart, prevEnd])
-    : {}
+  const curCats = await catOf(cr.curStart, cr.curEnd)
+  const prevCats = await catOf(cr.prevStart, cr.prevEnd)
 
-  // 合并两段的分类 key
   const allKeys = new Set([...Object.keys(curCats), ...Object.keys(prevCats)])
   const categories = Array.from(allKeys).map((key) => {
     const c = curCats[key] || prevCats[key]
-    const current = (curCats[key] || {}).amount || 0
-    const previous = (prevCats[key] || {}).amount || 0
+    const cur = (curCats[key] || {}).amount || 0
+    const prev = (prevCats[key] || {}).amount || 0
     return {
       id: key,
       name: c.name,
       color: c.color,
-      current,
-      previous,
-      diff: current - previous
+      current: cur,
+      previous: prev,
+      diff: cur - prev,
+      /*
+       * ★ 百分比在这里一次算好，不让页面各算各的 ★
+       *   上期为 0 时 changePercent 返回 null（页面显示「新增」），
+       *   两处各写一遍三元表达式，迟早一边算成 +100%、一边算成无限。
+       */
+      pct: changePercent(cur, prev)
     }
   })
-  // 按「变化绝对值」降序：变化最大的排前面，图上一眼看到重点
+  // 按「变化绝对值」降序：变化最大的排前面，扫一眼先看到重点
   categories.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
 
-  const curExp = Number(curRow ? curRow.exp : 0)
-  const curInc = Number(curRow ? curRow.inc : 0)
-  const prevExp = Number(prevRow ? prevRow.exp : 0)
-  const prevInc = Number(prevRow ? prevRow.inc : 0)
+  // ★ 二级配色：按当前顺序从调色板取，保证相邻两根柱子颜色不同 ★
+  if (level === 'sub') {
+    categories.forEach((c, i) => { c.color = PIE_PALETTE[i % PIE_PALETTE.length] })
+  }
 
   return {
-    current: { expense: curExp, income: curInc, balance: curInc - curExp, count: Number(curRow ? curRow.cnt : 0) },
-    previous: { expense: prevExp, income: prevInc, balance: prevInc - prevExp, count: Number(prevRow ? prevRow.cnt : 0) },
-    range: { startDay: e.startDay, endDay: e.endDay, prevStart, prevEnd },
+    align: cr.align,
+    clipped: cr.clipped,
+    curStart: cr.curStart,
+    curEnd: cr.curEnd,
+    prevStart: cr.prevStart,
+    prevEnd: cr.prevEnd,
+    current,
+    previous,
     categories: categories.slice(0, 20)
   }
 }
@@ -1261,14 +1301,13 @@ export async function getPeriodComparison(range) {
 /**
  * 恩格尔系数（食品支出 / 总支出）
  *
- * ★ 吃什么由 AI 判断，不写死 ★
- *   分类名千差万别（「餐饮食品」「吃饭」「早餐」…），
- *   写死一张表覆盖不全；用户明确要求「使用 ai 来判断哪些属于吃掉的分类」。
- *   判定结果缓存到 setting 表的 `engelFoodCategories`。
- *   ★ 什么时候判（本轮用户第 7 条改了口径）★
- *     记账时不再碰它（旧版是在 AI 记账结束后顺手判一次，已移除）；
- *     改为**每次进统计页**时检查：有记录直接用，没有记录且有支出就立即调 AI，
- *     另外分类保存/删除时会强制重判一次。见 pages/stats/index.vue 与 api/engel.js。
+ * ★ 「哪些算食品」由**用户自己在组件管理页选**（本轮第 3 条）★
+ *   早期版本是让 AI 按分类名猜，用户明确要求删掉那套逻辑：
+ *   AI 判定既不稳定（同样的分类名两次可能给不同答案），
+ *   也永远不如用户自己清楚「我这几个分类是吃饭花的」。
+ *   选择结果存在 setting 的 `engelFoodCategories`（一级分类 id 数组），
+ *   见 api/engel.js 与 pages/settings/stats-panels.vue。
+ *   这个函数只负责按给定的分类 id 算比例，不参与「选哪些」的判断。
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @param {string[]} foodCategoryIds 被认为是「吃」的一级分类 id

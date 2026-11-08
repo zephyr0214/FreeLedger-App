@@ -75,6 +75,12 @@
             组头：人名 + 待归还/多归还金额 + 一个按钮
             组内：这个人的每一笔流水，直接铺在下面
           这样「谁、欠多少、怎么欠的」在同一屏看完，不用再点开。
+
+        ★ v1.23：组内按「结清批次」分段 ★
+          同一个人结清过又新借时，历史已结清的流水不能和现在的欠款
+          混在一起平铺（用户要求「自动折叠之前已结清的流水，可展开」）。
+          分段（余额何时回到 0）全部由 api/loan.js 的 splitLoanEpisodes 算好，
+          页面只做展示，不在这边再推一遍余额 —— 公式只能有一份。
       -->
       <view v-else class="group-list">
         <view v-for="g in groups" :key="g.person" class="person-group">
@@ -135,33 +141,90 @@
             </view>
           </view>
 
-          <!-- 组内流水：按时间倒序，和交易列表同一套观感 -->
+          <!--
+            组内流水：按结清批次分段
+
+            ★ 段内顺序与交易列表一致 ★
+              切批次必须按时间正序走（余额何时回 0），所以
+              splitLoanEpisodes 每段给的都是正序；页面从上往下要
+              「最近的在前」，所以段内用 episodeTxns(ep) 取倒序副本。
+
+            ★ 折叠 / 分割标注的规则在 api/loan.js 的 buildLoanEpisodeView 里 ★
+              哪一段默认折叠、分割线画在哪一段前面、哪一段能收起，
+              全都只是纯判断、不依赖 DOM，放在 api 层可以直接单测
+              （node 跑不了 .vue）。页面只提供两样东西：
+              当前 tab（决定默认规则）和「用户手动展开过哪些段」。
+          -->
           <view class="group-txns">
-            <view
-              v-for="t in g.txns"
-              :key="t.id"
-              class="txn-item"
-              @click="goTxnDetail(t.id)"
-            >
+            <template v-for="(ep, epIndex) in episodeViewOf(g)" :key="g.person + '#' + epIndex">
+              <!--
+                已结清 tab：每两段之间画一条分割标注
+                文案里的日期是**上一段**收口那笔的 occurred_day ——
+                分割线压在「那段结束」的位置，才读得通「这笔结清于哪天」。
+                未结清 tab 不画：那边的已结清段本身就是折叠条，再画一条是重复信息。
+              -->
+              <view v-if="ep.showDividerBefore" class="episode-divider">
+                <view class="episode-divider-line" />
+                <text class="episode-divider-text">{{ ep.dividerText }}</text>
+                <view class="episode-divider-line" />
+              </view>
+
+              <!--
+                未结清 tab：历史已结清的段默认折叠成这一行
+                ★ 折叠时只占一行高度 ★
+                  点开才铺流水 —— 用户原话「自动折叠之前已结清的流水，可展开」。
+              -->
               <view
-                class="txn-icon"
-                :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
+                v-if="ep.collapsed"
+                class="episode-collapsed"
+                @click="toggleEpisode(g.person, ep.rowIndex)"
               >
-                <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
-                  {{ iconChar(t) }}
-                </text>
+                <text class="episode-collapsed-text">{{ ep.collapseText }}</text>
+                <text class="episode-collapsed-arrow">›</text>
               </view>
 
-              <view class="txn-info">
-                <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
-                <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
-              </view>
+              <view v-else class="episode-txns">
+                <view
+                  v-for="t in episodeTxns(ep)"
+                  :key="t.id"
+                  class="txn-item"
+                  @click="goTxnDetail(t.id)"
+                >
+                  <view
+                    class="txn-icon"
+                    :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
+                  >
+                    <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
+                      {{ iconChar(t) }}
+                    </text>
+                  </view>
 
-              <view class="txn-right">
-                <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
-                <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
+                  <view class="txn-info">
+                    <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
+                    <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
+                  </view>
+
+                  <view class="txn-right">
+                    <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
+                    <text class="txn-time">{{ timeLabel(t.occurred_at) }}</text>
+                  </view>
+                </view>
+
+                <!--
+                  展开后的已结清段给一个「收起」入口
+                  只有「未结清 tab 里手动展开过的段」会给（见 buildLoanEpisodeView），
+                  已结清 tab 默认全展开，再给收起等于让用户把主要信息折叠掉。
+                -->
+                <view
+                  v-if="ep.showCollapseBtn"
+                  class="episode-collapse-btn"
+                  @click="toggleEpisode(g.person, ep.rowIndex)"
+                >
+                  <text class="episode-collapse-text">收起已结清流水</text>
+                  <text class="episode-collapsed-arrow up">›</text>
+                </view>
               </view>
-            </view>
+            </template>
           </view>
         </view>
 
@@ -198,8 +261,19 @@
  * ★ 借出 / 借入两个方向完全对称 ★
  *   差别只有文案和「差额正负对应的分类」，都收敛在 api/loan.js 的 pairOf() 里。
  *   页面本身除 `isIncome` 影响文案外，逻辑一字不差。
+ *
+ * ★ 一个人的流水可能有很多「结清批次」（v1.23）★
+ *   同一个人借了还、结清，过一阵又借 —— 用户原话：
+ *   「若是某位用户已结清，又产生新的借入借出，则在未结清中，
+ *     自动折叠之前已结清的流水，可展开。
+ *     在已结清中默认全部展开，但每次结清的中间要做分割标注已结清。」
+ *   所以组内不再是「一个平铺列表」，而是按结清批次分段：
+ *     · 未结清 tab：历史已结清的段默认折叠成一行「已结清 N 笔 · 点击展开」
+ *     · 已结清 tab：全部展开，段与段之间画一条「—— 已结清 · 日期 ——」
+ *   分段逻辑（余额何时回 0）全在 api/loan.js 的 splitLoanEpisodes 里，
+ *   页面只负责「按 api 给的批次渲染 + 记折叠状态」，不再自己推余额。
  */
-import { ref, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -207,7 +281,9 @@ import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson } from '@/api/loan.js'
+import {
+  LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView
+} from '@/api/loan.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatTime } from '@/utils/date.js'
@@ -345,6 +421,115 @@ export default {
       uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
     }
 
+    /* ------------------------------------------------ 结清批次（分段展示） */
+
+    /**
+     * 折叠状态：key = `人员名#段序号`，值 true = 用户手动展开过。
+     *
+     * ★ 只记「展开」，不记「折叠」★
+     *   默认折叠是页面规则（未结清 tab 里历史已结清的段），
+     *   如果反过来记「折叠」，换 tab / 刷新后还要把默认值逐个补回去，
+     *   一旦漏补就会回到「上次的样子」，和用户预期不符。
+     *   现在「有没有这个 key」就是唯一真相：没有 = 按默认规则。
+     *
+     * ★ key 里必须带人员名 ★
+     *   段序号从 0 开始，每个人都有自己的第 0 段；
+     *   只用序号当 key 的话，展开张三的第 0 段会顺带展开李四的第 0 段。
+     */
+    const episodeOpen = reactive({})
+
+    /** 人员 + 段序号 → 折叠状态 key */
+    function episodeKey(person, index) {
+      return `${person || ''}#${index}`
+    }
+
+    /**
+     * 取某个人的分段。
+     *
+     * ★ 为什么要兜底 ★
+     *   分段是 api/loan.js 的 listLoanGroups 附带的字段（episodes）。
+     *   万一拿到的是旧数据 / 字段缺失，直接 v-for g.episodes 会什么都不渲染 ——
+     *   页面看着像「这人的流水丢了」。兜底成一整段「未结清」，
+     *   展示效果就退回到改造前的平铺，至少不丢信息。
+     */
+    function episodesOf(g) {
+      const eps = g && Array.isArray(g.episodes) ? g.episodes : []
+      if (eps.length > 0) return eps
+      return [{
+        settled: false,
+        txns: (g && Array.isArray(g.txns)) ? g.txns : [],
+        balance: Number(g && g.balance) || 0,
+        fromDay: '',
+        toDay: '',
+        closingDay: ''
+      }]
+    }
+
+    /**
+     * 某个人这一组的「段视图」：分段 + 折叠 / 分割标注的展示规则。
+     *
+     * ★ 规则全在 api/loan.js 的 buildLoanEpisodeView 里 ★
+     *   页面只提供两样东西：当前 tab（决定默认折叠规则）
+     *   和「用户手动展开过哪些段」（episodeOpen）。
+     *   这样「什么时候折叠、分割线画在哪」是纯函数，可以直接单测 ——
+     *   放在页面里就只能靠读源码断言，改坏了测试也发现不了。
+     *
+     * ★ 为什么用 computed 思路而不是在 load() 里算死 ★
+     *   折叠 / 展开是「点一下立刻变」的交互，只改 episodeOpen；
+     *   如果视图是 load 时算死的，点折叠条页面不会有任何反应。
+     *   这里做成 setup 内的普通函数 + 模板里直接调用：
+     *   episodeOpen 是 reactive 的，读它会建立依赖，改了就重渲染。
+     */
+    function episodeViewOf(g) {
+      return buildLoanEpisodeView(episodesOf(g), {
+        status: status.value,
+        isExpanded: (index) => !!episodeOpen[episodeKey(g.person, index)]
+      })
+    }
+
+    /**
+     * 段内流水按「最近的在前」返回。
+     *
+     * ★ 为什么倒序 ★
+     *   splitLoanEpisodes 必须按时间正序走才能判断「余额何时回 0」，
+     *   所以它返回的 txns 是正序的。但页面从上往下读，最近的一笔要在最上面
+     *   （和首页、交易列表一致）。这里只反转返回副本，不动 api 给的数组。
+     */
+    function episodeTxns(ep) {
+      const list = ep && Array.isArray(ep.txns) ? ep.txns : []
+      return list.slice().reverse()
+    }
+
+    /** 点折叠条 / 收起按钮：翻转这一段的展开状态 */
+    function toggleEpisode(person, index) {
+      const key = episodeKey(person, index)
+      if (episodeOpen[key]) delete episodeOpen[key]
+      else episodeOpen[key] = true
+    }
+
+    /**
+     * 清理已经不存在的折叠 key。
+     *
+     * ★ 为什么必须清 ★
+     *   用户点「手动结清」/ 删了一笔之后再刷新，分段会重新算 ——
+     *   原来 3 段可能变成 2 段。旧 key 留着不会报错，
+     *   但下次这个人又长出第 3 段时，会莫名其妙地保持「上次展开过」的状态，
+     *   用户没法解释为什么这一段的默认行为和别人不一样。
+     *   做法和本页别处清理 swipeStates 一样：只留当前数据里还活着的 key。
+     */
+    function pruneEpisodeStates(list) {
+      const alive = new Set()
+      for (const g of list) {
+        const eps = episodesOf(g)
+        for (let i = 0; i < eps.length; i++) {
+          if (eps[i].settled) alive.add(episodeKey(g.person, i))
+        }
+      }
+      for (const key of Object.keys(episodeOpen)) {
+        if (!alive.has(key)) delete episodeOpen[key]
+      }
+    }
+
     /**
      * 加载分组
      *
@@ -372,6 +557,11 @@ export default {
         openTotal.value = open.reduce((acc, g) => acc + Math.abs(g.balance), 0)
 
         groups.value = status.value === 'open' ? open : settled
+        /*
+         * 刷新后清理失效的折叠 key（做法与别处清理 swipeStates 一致）。
+         * 必须在 groups.value 赋值之后 —— 它的存活判断依赖刚拿到的分段。
+         */
+        pruneEpisodeStates(groups.value)
       } catch (e) {
         console.warn('[loan] 加载人员账目失败:', e && e.message)
         groups.value = []
@@ -383,6 +573,14 @@ export default {
       }
     }
 
+    /**
+     * 切换 未结清 / 已结清。
+     *
+     * ★ 切 tab 时折叠状态不清 ★
+     *   折叠的默认值本来就随 tab 变（已结清 tab 一律展开，见 buildLoanEpisodeView），
+     *   清掉反而会让用户「在未结清里展开过、切走再切回来」时又变回折叠。
+     *   这里只负责重新取数，失效的 key 由 load() 里的 pruneEpisodeStates 清。
+     */
     function switchStatus(key) {
       if (status.value === key) return
       status.value = key
@@ -483,6 +681,8 @@ export default {
       accentColor, statusTabs, emptyTitle, emptyDesc,
       avatarText, balanceText, balanceLabel, balanceColor,
       iconChar, txnSub, timeLabel, goTxnDetail,
+      // 结清批次分段：episodeViewOf 给出「分段 + 折叠 / 分割标注」的展示规则
+      episodeViewOf, episodeTxns, toggleEpisode,
       switchStatus, onSettle, goBack
     }
   }
@@ -746,6 +946,104 @@ const ICON_FALLBACK = {
 .group-txns {
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * 一批已结清的流水（一段）
+ *
+ * 本身不画任何边框 —— 段内的 .txn-item 自己带上边框，
+ * 这里只负责让段与段之间能塞下折叠条 / 分割标注。
+ */
+.episode-txns {
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * 折叠条：未结清 tab 里「之前已结清」的那几段
+ *
+ * ★ 高度要压到最低 ★
+ *   折叠的意义就是「不占地方」。这里只有一行小字 + 一个箭头，
+ *   上下 16rpx 内边距，视觉上接近一条分割线而不是一行列表项 ——
+ *   一眼能看出它是「折叠摘要」，不会误当成一笔流水。
+ *
+ * ★ 底色用 --app-card-2 ★
+ *   和组头同色，表示它是「组的附属信息」而不是明细；
+ *   深色模式下也是同一套变量，不用另写深色覆盖。
+ */
+.episode-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
+  border-top: 1rpx solid var(--app-line);
+  background-color: var(--app-card-2);
+}
+
+.episode-collapsed-text {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+/* 折叠箭头：展开时 rotate(90deg) 朝下，收起时朝右 */
+.episode-collapsed-arrow {
+  font-size: 26rpx;
+  color: var(--app-text-3);
+  line-height: 1;
+  transform: rotate(90deg);
+}
+
+.episode-collapsed-arrow.up {
+  transform: rotate(-90deg);
+}
+
+/* 展开后的「收起」入口：同样是低存在感的一行小字 */
+.episode-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 14rpx 24rpx;
+  border-top: 1rpx solid var(--app-line);
+}
+
+.episode-collapse-text {
+  font-size: 21rpx;
+  color: var(--app-text-3);
+}
+
+/*
+ * 「已结清」分割标注（只在已结清 tab、段与段之间）
+ *
+ * ★ 两侧细线 + 中间文字 ★
+ *   用户要求「每次结清的中间要做分割标注已结清」。
+ *   两边各一条 --app-line 的线，中间夹一行 --app-text-3 的小字，
+ *   和微信/支付宝账单里「以下为历史账单」那种分隔同一个观感。
+ *
+ * ★ 不给它加背景色 ★
+ *   它压在两段流水之间，底色跟着卡片走最自然；
+ *   加一层 --app-card-2 会在深色模式里变成一道明显的色带，
+ *   看起来像「这两笔之间缺了一块」。
+ */
+.episode-divider {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 18rpx 24rpx 6rpx;
+}
+
+.episode-divider-line {
+  flex: 1;
+  height: 1rpx;
+  background-color: var(--app-line);
+}
+
+.episode-divider-text {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 .txn-item {

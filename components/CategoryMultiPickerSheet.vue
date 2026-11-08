@@ -88,6 +88,12 @@
  *   预算页传 disabledIds：一个类别只能属于一条子预算，
  *   已经被别的子预算占着的现在就置灰并写明原因，
  *   而不是等用户勾完点保存才弹错误。
+ *
+ * ★ flat 平铺模式（本轮新增，恩格尔系数用）★
+ *   默认形态是「按一级分类分组、只让选叶子」；但恩格尔系数要选的正是
+ *   一级分类本身（食品支出按大类统计，不该让用户勾到「午餐」那么细）。
+ *   传 flat 后不分组、不出标题、每一项都是可选的一级分类。
+ *   默认 false，老调用方行为不变。
  */
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
@@ -104,6 +110,25 @@ export default {
     /** 禁用类别 id 数组（已在别处被占用） */
     disabledIds: { type: Array, default: () => [] },
     title: { type: String, default: '选择类别' },
+    /**
+     * 平铺模式：不分组、不出分组标题，传入的每一项都是可直接勾选项
+     *
+     * ★ 为什么需要它（恩格尔系数）★
+     *   默认形态下，「有二级的一级分类本身不作为选项」（见上方说明），
+     *   因为预算统计里父级 + 子级同时命中会把同一笔支出算两遍。
+     *   但恩格尔系数要选的**恰恰是一级分类**（食品支出 / 总支出是同一口径），
+     *   而且只看大类，不该让用户去勾「午餐」「奶茶」。
+     *
+     *   做法有两种：
+     *     a) 调用方只传一级分类，靠「传进来的没有子项」让组件把它们当普通项；
+     *     b) 给组件一个显式开关。
+     *   选了 b —— a 依赖「分组是按传入列表算的」这个实现细节，
+     *   以后谁改了分组逻辑（比如去查数据库里有没有子类），
+     *   恩格尔那边的选项会突然全变成不可选的父节点，而且不报错。
+     *
+     * ★ 默认 false，老调用方（预算页 / 全部交易筛选）行为完全不变 ★
+     */
+    flat: { type: Boolean, default: false },
     /**
      * 弹层层级
      *
@@ -157,10 +182,33 @@ export default {
      *
      * 顺序沿用传入列表的顺序（分类列表本身已按 sort 排好），
      * 只把子项收拢到各自的父分组里。
+     *
+     * ★ flat 模式（恩格尔系数用）★
+     *   不分组、不出标题，传入的每一项都按「一级分类本身」平铺成可选项。
+     *   title 恒为空串 → 模板里的 .group-head 不渲染，
+     *   「一键全选这一组」那套逻辑也就自然不生效（本来也不该生效）。
      */
     const groups = computed(() => {
       const list = props.categories || []
       const disabled = new Set(props.disabledIds || [])
+
+      if (props.flat) {
+        const out = []
+        for (const c of list) {
+          if (!c || !c.id) continue
+          out.push({
+            key: c.id,
+            title: '',
+            members: [{
+              id: c.id,
+              label: c.name,
+              disabled: disabled.has(c.id)
+            }]
+          })
+        }
+        return out
+      }
+
       const roots = list.filter((c) => !c.parent_id)
       const out = []
 
