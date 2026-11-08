@@ -353,10 +353,6 @@
                 <text class="engel-cost-value">¥{{ (engel.total / 100).toFixed(2) }}</text>
               </view>
             </view>
-            <!-- 占比轴：填充宽度 = 恩格尔系数本身 -->
-            <view class="engel-axis">
-              <view class="engel-axis-fill" :style="{ width: Math.min(engel.ratio, 100) + '%', backgroundColor: engelColor }" />
-            </view>
           </view>
 
           <view class="engel-split-line" />
@@ -375,9 +371,6 @@
                 <text class="engel-cost-label">总支出</text>
                 <text class="engel-cost-value">¥{{ (engelAll.total / 100).toFixed(2) }}</text>
               </view>
-            </view>
-            <view class="engel-axis">
-              <view class="engel-axis-fill" :style="{ width: Math.min(engelAll.ratio, 100) + '%', backgroundColor: engelAllColor }" />
             </view>
           </view>
         </view>
@@ -433,16 +426,6 @@
                 <text class="savings-cost-value">¥{{ (savings.income / 100).toFixed(2) }}</text>
               </view>
             </view>
-            <!-- 占比轴：填充宽度 = 储蓄率（负数时不填） -->
-            <view class="savings-axis">
-              <view
-                class="savings-axis-fill"
-                :style="{
-                  width: Math.min(Math.max(savings.rate || 0, 0), 100) + '%',
-                  backgroundColor: savingsColor
-                }"
-              />
-            </view>
           </view>
 
           <view class="savings-split-line" />
@@ -460,15 +443,6 @@
                 <text class="savings-cost-label">收入</text>
                 <text class="savings-cost-value">¥{{ (savingsAll.income / 100).toFixed(2) }}</text>
               </view>
-            </view>
-            <view class="savings-axis">
-              <view
-                class="savings-axis-fill"
-                :style="{
-                  width: Math.min(Math.max(savingsAll.rate || 0, 0), 100) + '%',
-                  backgroundColor: savingsAllColor
-                }"
-              />
             </view>
           </view>
         </view>
@@ -1790,24 +1764,6 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-.savings-axis {
-  position: relative;
-  width: 100%;
-  height: 8rpx;
-  border-radius: 4rpx;
-  background-color: var(--app-card-2);
-  overflow: hidden;
-  margin-top: 10rpx;
-}
-
-.savings-axis-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 4rpx;
-}
-
 /* ------------------------------------------------ 预算执行 */
 
 .budget-top {
@@ -1992,31 +1948,6 @@ export default {
   font-size: 20rpx;
   color: var(--app-text-2);
   font-variant-numeric: tabular-nums;
-}
-
-/*
- * 占比轴：一根细条形图，长度 = 恩格尔系数
- *
- * ★ 为什么要它 ★
- *   百分比数字（尤其 12.3%）看不出「大概占多少」，
- *   一根图条比一个数字永远更直观。
- */
-.engel-axis {
-  position: relative;
-  width: 100%;
-  height: 8rpx;
-  border-radius: 4rpx;
-  background-color: var(--app-card-2);
-  overflow: hidden;
-  margin-top: 10rpx;
-}
-
-.engel-axis-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 4rpx;
 }
 
 /* 时间范围选择 */

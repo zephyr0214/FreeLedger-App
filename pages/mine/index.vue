@@ -420,11 +420,22 @@ export default {
 }
 
 /* 个人信息卡 */
+/*
+ * 个人信息卡（头像 + 名称 + 签名）：主题色渐变
+ *
+ * ★ 用户本轮第 2 条 ★
+ *   用户原话「我的页面最上方的头像名称个签组件也添加渐变主题色，暗色删除」。
+ *   底色用和首页概览卡完全相同的那条 gradient（--app-hero-from → --app-card），
+ *   不另写一条：同一个设计语言写两次，迟早会一边改了另一边没改。
+ *   ★ 暗色下不显示渐变 ★
+ *     不需要这里写媒体查询：--app-hero-from 在暗色下等于 --app-card，
+ *     gradient 两端同色就是「没有渐变」。
+ */
 .profile-card {
   display: flex;
   align-items: center;
   gap: 24rpx;
-  background-color: var(--app-card);
+  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
   border-radius: 20rpx;
   padding: 32rpx 28rpx;
   margin-top: 8rpx;

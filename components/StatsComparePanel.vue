@@ -60,14 +60,25 @@
       <view class="cmp-top">
         <view class="cmp-top-item">
           <text class="cmp-top-label">{{ type === 'expense' ? '支出变化' : '收入变化' }}</text>
-          <!-- ★ 箭头在前、数字在后（用户本轮第 3 条）★ -->
+          <!--
+            ★ 上方两个大的变化居中（用户本轮第 2 条）★
+              用户原话「上方两个大的变化居中显示」。
+              箭头前置、百分比大字号，整块水平居中。
+          -->
           <view class="cmp-top-main">
             <text v-if="top1.arrow" class="cmp-top-arrow" :style="{ color: top1.color }">{{ top1.arrow }}</text>
             <text class="cmp-top-pct" :style="{ color: top1.color }">{{ top1.pctText }}</text>
           </view>
+          <!-- ★ 本期 / 上期左右对齐（像恩格尔那样：标签左、金额右）★ -->
           <view class="cmp-top-amounts">
-            <text class="cmp-top-amount">本期 ¥{{ top1.curText }}</text>
-            <text class="cmp-top-amount">上期 ¥{{ top1.prevText }}</text>
+            <view class="cmp-top-amount-row">
+              <text class="cmp-top-amount-label">本期</text>
+              <text class="cmp-top-amount-value">¥{{ top1.curText }}</text>
+            </view>
+            <view class="cmp-top-amount-row">
+              <text class="cmp-top-amount-label">上期</text>
+              <text class="cmp-top-amount-value">¥{{ top1.prevText }}</text>
+            </view>
           </view>
         </view>
 
@@ -80,8 +91,14 @@
             <text class="cmp-top-pct" :style="{ color: balancePart.color }">{{ balancePart.pctText }}</text>
           </view>
           <view class="cmp-top-amounts">
-            <text class="cmp-top-amount">本期 ¥{{ balancePart.curText }}</text>
-            <text class="cmp-top-amount">上期 ¥{{ balancePart.prevText }}</text>
+            <view class="cmp-top-amount-row">
+              <text class="cmp-top-amount-label">本期</text>
+              <text class="cmp-top-amount-value">¥{{ balancePart.curText }}</text>
+            </view>
+            <view class="cmp-top-amount-row">
+              <text class="cmp-top-amount-label">上期</text>
+              <text class="cmp-top-amount-value">¥{{ balancePart.prevText }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -105,14 +122,27 @@
         >
           <view class="rank-dot" :style="{ backgroundColor: c.color }" />
           <text class="cmp-row-name ellipsis">{{ c.name }}</text>
-          <text
-            class="cmp-row-diff"
-            :style="{ color: diffColor(c.diff) }"
-          >{{ diffText(c.diff) }}</text>
-          <text
-            class="cmp-row-pct"
-            :style="{ color: diffColor(c.diff) }"
-          >{{ percentText(c.pct, c.current) }}</text>
+          <!--
+            ★ 金额也不显示正负号，改用上下箭头（用户本轮第 2 条）★
+              箭头 + 绝对值，比「+¥12.00 / -¥8.50」少一个符号、多一个方向。
+          -->
+          <view class="cmp-row-num">
+            <text v-if="arrowOf(c.diff)" class="cmp-row-arrow" :style="{ color: diffColor(c.diff) }">{{ arrowOf(c.diff) }}</text>
+            <text
+              class="cmp-row-diff"
+              :style="{ color: diffColor(c.diff) }"
+            >{{ absDiffText(c.diff) }}</text>
+            <!--
+              ★ 百分比前面也要箭头（用户本轮第 1 条）★
+                两个数各自带一个箭头：金额和百分比是两个独立的量，
+                只给金额配箭头时，百分比那一列看上去是「无方向」的。
+            -->
+            <text v-if="arrowOf(c.diff)" class="cmp-row-arrow cmp-row-arrow-pct" :style="{ color: diffColor(c.diff) }">{{ arrowOf(c.diff) }}</text>
+            <text
+              class="cmp-row-pct"
+              :style="{ color: diffColor(c.diff) }"
+            >{{ absPercentText(c.pct, c.current) }}</text>
+          </view>
           <!-- 双向柱：中线固定在中点，向右多、向左少 -->
           <view class="cmp-row-bar">
             <view class="cmp-axis" />
@@ -192,11 +222,12 @@ export default {
       if (!c) return ''
       const base = compareRangeLabel(c)
       /*
-       * ★ 区间被今天截断时必须说明 ★
-       *   用户选「本月」，实际比的是「11/1~11/8」，
-       *   不写清楚会让人以为对比窗口算错了。
+       * ★ 不再追加「（本段到今天）」（用户本轮第 2 条）★
+       *   用户原话「同比环比不要显示（本段到今天）这种东西」。
+       *   「对比 10/01~10/08」已经把话说清了；
+       *   再挂一个括号说明只会把标题行撞得更长。
        */
-      return c.clipped ? `${base}（本段到今天）` : base
+      return base
     })
 
     /** 结余变化（正 = 比上一段更宽松） */
@@ -304,17 +335,42 @@ export default {
       return good ? 'var(--app-success)' : 'var(--app-danger)'
     }
 
-    /** 变化金额文案：+¥12.00 / -¥8.50 */
-    function diffText(diff) {
-      const abs = Math.abs(Number(diff) || 0) / 100
-      const sign = diff > 0 ? '+' : diff < 0 ? '-' : ''
-      return `${sign}¥${abs.toFixed(2)}`
+    /**
+     * 变化金额：**不带正负号**，只给绝对值（用户本轮第 2 条）
+     *
+     * ★ 为什么不带符号 ★
+     *   方向已经由前面那个 ↑/↓ 箭头表达了，
+     *   数字上再带一个 + / - 就是同一件事说两遍，而且两个符号一定会有一天对不上。
+     */
+    function absDiffText(diff) {
+      return `¥${(Math.abs(Number(diff) || 0) / 100).toFixed(2)}`
+    }
+
+    /** 百分比也去掉正负号（方向交给箭头） */
+    function absPercentText(pct, cur) {
+      if (pct === null || pct === undefined) return Number(cur) > 0 ? '新增' : '—'
+      const v = Math.abs(Number(pct))
+      return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}%`
+    }
+
+    /**
+     * 方向箭头（0 = 不显示）
+     *
+     * ★ 0 不给箭头，也不给破折号 ★
+     *   持平时画一个「—」会和数字挤在一起像负号；
+     *   不画反而最清楚。
+     */
+    function arrowOf(diff) {
+      const d = Number(diff) || 0
+      if (d === 0) return ''
+      return d > 0 ? '↑' : '↓'
     }
 
     return {
       pickLevel, pickType,
       rangeHint, balanceDiff, top1, balancePart,
-      barWidth, diffColor, diffText, percentText
+      barWidth, diffColor, percentText,
+      absDiffText, absPercentText, arrowOf
     }
   }
 }
@@ -368,10 +424,17 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 百分比 + 箭头：字号大（用户要求「比例字号要大」） */
+/*
+ * 百分比 + 箭头：居中、字号大（用户本轮第 2 条）
+ *
+ * ★ 居中而不是左对齐 ★
+ *   用户原话「上方两个大的变化居中显示」。
+ *   这两个数是整个面板的结论，居中看起来像「一个数字」而不是「一行文字」。
+ */
 .cmp-top-main {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 6rpx;
 }
 
@@ -389,15 +452,38 @@ export default {
 }
 
 /* 本期 / 上期：两行小字（用户要求「金额字号要小」） */
+/*
+ * 本期 / 上期：两行，标签左、金额右（用户本轮第 2 条）
+ *
+ * ★ 为什么要左右对齐 ★
+ *   用户原话「下方的本期上期左右对齐，类似于恩格尔系数一样」。
+ *   恩格尔那块就是「标签在左、数字在右」，
+ *   两行的数字落在同一列，才能上下直接相减。
+ */
 .cmp-top-amounts {
   display: flex;
   flex-direction: column;
-  gap: 2rpx;
+  gap: 4rpx;
+  width: 100%;
+  margin-top: 4rpx;
 }
 
-.cmp-top-amount {
+.cmp-top-amount-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8rpx;
+}
+
+.cmp-top-amount-label {
   font-size: 20rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.cmp-top-amount-value {
+  font-size: 22rpx;
+  color: var(--app-text-2);
   font-variant-numeric: tabular-nums;
 }
 
@@ -432,11 +518,43 @@ export default {
 }
 
 /* 变化金额：左对齐、固定宽，让每行的数字成列 */
+/*
+ * 变化金额 + 百分比（带前置箭头）
+ *
+ * ★ 左对齐、固定宽 ★
+ *   用户要求「不同行的金额和百分比、柱状图左侧都左对齐」。
+ *   固定宽才能让每一行的同一列落在同一个 x 坐标上。
+ */
+.cmp-row-num {
+  display: flex;
+  align-items: baseline;
+  gap: 4rpx;
+  /* 两个箭头 + 金额 + 百分比，宽度跟着加 */
+  width: 238rpx;
+  flex-shrink: 0;
+}
+
+/* 箭头：固定宽度，没有箭头的行也不会往左挪 */
+.cmp-row-arrow {
+  font-size: 22rpx;
+  font-weight: 600;
+  width: 22rpx;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+/* 百分比前面那个箭头：比金额前的再小一点，免得两个箭头争戏 */
+.cmp-row-arrow-pct {
+  font-size: 18rpx;
+  width: 18rpx;
+  opacity: 0.85;
+}
+
 .cmp-row-diff {
   font-size: 24rpx;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  width: 130rpx;
+  width: 118rpx;
   flex-shrink: 0;
 }
 
@@ -444,7 +562,7 @@ export default {
 .cmp-row-pct {
   font-size: 22rpx;
   font-variant-numeric: tabular-nums;
-  width: 110rpx;
+  width: 82rpx;
   flex-shrink: 0;
 }
 
@@ -455,7 +573,8 @@ export default {
  */
 .cmp-row-bar {
   position: relative;
-  width: 180rpx;
+  /* ★ 再缩短（用户本轮第 1 条）★ 它只表达「相对强弱」，不需要占满剩余宽度 */
+  width: 130rpx;
   flex-shrink: 0;
   height: 14rpx;
   background-color: var(--app-card-2);

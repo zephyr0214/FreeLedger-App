@@ -1286,13 +1286,22 @@ export default {
   box-shadow: var(--app-shadow);
 }
 
+/*
+ * 报销单卡头（应报 / 实报那一块）：主题色渐变
+ *
+ * ★ 用户本轮第 1 条指定的就是这一块 ★
+ *   用户原话「报销管理已报销的这个应报实报这个交易上方的面板」——
+ *   不是顶部汇总卡，而是每张单的卡头。
+ *   用和首页概览卡相同的那条 gradient（--app-hero-from → --app-card），
+ *   深浅色全由主题变量控制（暗色下 --app-hero-from = --app-card，等于不显示渐变）。
+ */
 .batch-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
   padding: 20rpx 24rpx;
-  background-color: var(--app-card-2);
+  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
 }
 
 .batch-head-left {

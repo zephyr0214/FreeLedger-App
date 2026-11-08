@@ -945,20 +945,15 @@ const ICON_FALLBACK = {
 /*
  * 未结清 / 已结清 分段条
  *
- * ★ 为什么要单独覆盖底色（用户本轮第 6 条）★
- *   全局 .seg-toggle 的底槽用的是 `var(--app-line)`（浅色下 #EBEDF0），
- *   和页面底色 `var(--app-bg)`（#F7F8FA）几乎一样亮 ——
- *   整条分段控件看上去像「浮在页面上的灰块」，和背景融成一片，
- *   用户截图里那块灰底就是这么来的。
- *   这里改成 `--app-card-2`（浅色下 #F7F8FA 之上再压一档）+ 一圈描边，
- *   让它明确是「一条控件」，而不是页面的一部分。
- *   ★ 深色下同样成立 ★
- *     --app-card-2 (#2C2C2E) 比 --app-bg (#000) 亮两档，边界清楚。
+ * ★ 只补外距，外观全部来自 App.vue 的全局 .seg-toggle（用户本轮第 3 条）★
+ *   用户反馈「借出/借入页面中间的 tab 切换和分类页/报销页样式不一致」。
+ *   根因就是这里曾经单独覆盖过底色（--app-card-2 + 描边），
+ *   而分类页 / 报销页用的是全局默认（--app-line 底槽 + 白块）——
+ *   三个页面三种长相。
+ *   现在把覆盖删掉，三处完全一致；以后要改就改 App.vue 一处。
  */
 .status-toggle {
   margin: 24rpx 0 8rpx;
-  background-color: var(--app-card-2);
-  border: 1rpx solid var(--app-line);
 }
 
 /* ------------------------------------------------------- 人员分组 */
@@ -995,13 +990,22 @@ const ICON_FALLBACK = {
   box-shadow: var(--app-shadow);
 }
 
+/*
+ * 组头（人名那一行）：主题色渐变
+ *
+ * ★ 用户本轮第 1 条指定的就是这一块 ★
+ *   用户原话「我指的添加渐变色的地方是借出借入页面的人名这个背景」——
+ *   不是顶部汇总卡（那张本来就有渐变），而是每个人的组头。
+ *   底色用和首页概览卡完全相同的那条 linear-gradient（--app-hero-from → --app-card），
+ *   深浅色都由主题变量控制（暗色下 --app-hero-from = --app-card，等于不显示渐变）。
+ */
 .group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
   padding: 20rpx 24rpx;
-  background-color: var(--app-card-2);
+  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
 }
 
 .group-head-left {
