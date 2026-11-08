@@ -1315,12 +1315,13 @@ export async function getPeriodComparison(range, opt = {}) {
  *   早期版本是让 AI 按分类名猜，用户明确要求删掉那套逻辑：
  *   AI 判定既不稳定（同样的分类名两次可能给不同答案），
  *   也永远不如用户自己清楚「我这几个分类是吃饭花的」。
- *   选择结果存在 setting 的 `engelFoodCategories`（一级分类 id 数组），
+ *   选择结果存在 setting 的 `engelFoodCategories`（分类 id 数组，
+ *   一级或二级都行 —— 勾二级就只算那个二级，勾一级就算整个大类），
  *   见 api/engel.js 与 pages/settings/stats-panels.vue。
  *   这个函数只负责按给定的分类 id 算比例，不参与「选哪些」的判断。
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
- * @param {string[]} foodCategoryIds 被认为是「吃」的一级分类 id
+ * @param {string[]} foodCategoryIds 被认为是「吃」的分类 id（一级或二级）
  */
 export async function getEngelCoefficient(range, foodCategoryIds = []) {
   const scope = rangeScope(range)
@@ -1339,13 +1340,28 @@ export async function getEngelCoefficient(range, foodCategoryIds = []) {
   if (ids.length === 0) return { total, food: 0, ratio: 0, foodIds: [] }
 
   const placeholders = ids.map(() => '?').join(',')
+  /*
+   * ★ 一级 id 和二级 id 都要能命中（本轮用户第 2 条）★
+   *   组件管理页现在复用「选二级分类」那个弹层，所以用户勾的是**二级分类**
+   *   （也可能勾到某个没有二级的一级分类）。
+   *   只写 COALESCE(c.parent_id, c.id) IN (...) 的话：
+   *     · 勾一级 id → 对二级流水得到 parent_id，命中；对直接挂一级的流水
+   *       得到自身 id，命中 → 等价于「选整个大类」，OK。
+   *     · 勾二级 id → 对那条二级流水却得到 **parent_id**，永远不等于二级 id
+   *       → 一分钱都不会被算进食品支出，恩格尔系数恒为 0。
+   *   所以补一个 `OR c.id IN (...)`：让「勾了哪一级就精确算哪一级」。
+   *
+   * ★ 为什么不会算两遍 ★
+   *   条件写在同一行的 WHERE 里，一行流水最多被 SUM 一次；
+   *   同时勾了父级和子级也只是让这行命中两个条件，不影响聚合结果。
+   */
   const foodRow = await queryOne(
     `SELECT COALESCE(SUM(t.amount_cents),0) AS food
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      WHERE t.deleted_at IS NULL AND t.type='expense' AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
-       AND COALESCE(c.parent_id, c.id) IN (${placeholders})`,
-    scope.params.concat(ids)
+       AND (COALESCE(c.parent_id, c.id) IN (${placeholders}) OR c.id IN (${placeholders}))`,
+    scope.params.concat(ids, ids)
   )
   const food = Number(foodRow ? foodRow.food : 0) || 0
   return {

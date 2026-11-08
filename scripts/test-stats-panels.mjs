@@ -304,12 +304,45 @@ check('末行 ↓ 置灰', /disabled:\s*idx === shownRows\.length - 1/.test(pane
 check('置灰态降透明度', /\.panel-op\.disabled\s*\{[\s\S]{0,120}?opacity:\s*0\.4/.test(panelStyle), true)
 check('有「已显示」分组', /已显示（/.test(panelTemplate), true)
 check('有「未显示」分组', /未显示（/.test(panelTemplate), true)
-check('只有 editable 面板才给展开箭头', /v-if="p\.editable"/.test(panelTemplate), true)
+check(
+  '只有 editable 面板才给展开箭头',
+  /v-if="p\.editable"[\s\S]{0,400}?chevronDown/.test(panelTemplate),
+  true
+)
 check('展开箭头是 chevronDown', /name="chevronDown"/.test(panelTemplate), true)
+/*
+ * ★ 箭头列必须永远占位（用户反馈的 bug）★
+ *   以前不可编辑的行不渲染这一格，导致唯一可编辑的「恩格尔系数」
+ *   那一行的 ↑↓ 被往左挤了一格，各行的上下箭头不在同一列。
+ *   现在无论有没有箭头，.panel-expand 这一格都渲染。
+ */
+check(
+  '展开箭头那一列始终占位（各行 ↑↓ 对齐）',
+  /\.panel-expand\s*\{[\s\S]{0,200}?width:\s*\d+rpx/.test(panelStyle),
+  true
+)
+check(
+  '不可编辑的行也渲染展开箭头占位',
+  /class="panel-expand"[\s\S]{0,200}?v-if="p\.editable"/.test(panelTemplate),
+  true
+)
 check('展开/收起有旋转态', /\.expand-icon\.open\s*\{[\s\S]{0,120}?rotate\(180deg\)/.test(panelStyle), true)
 check('设置区里有「食品分类」', /食品分类/.test(panelTemplate), true)
+check('顶部说明条已删除（用户要求）', /\.intro-card/.test(panelStyle), false)
+check('「选中分类…」提示词已删除', /\.config-hint/.test(panelStyle), false)
+check('设置区不再有那段说明文字', /只统计支出一级分类/.test(panelTemplate), false)
 check('接了多选分类弹层', /<CategoryMultiPickerSheet/.test(panelTemplate), true)
-check('弹层走 flat 平铺模式', /:flat="true"/.test(panelTemplate), true)
+/*
+ * ★ 第 2 条改了：复用「选二级分类」那个弹层的**默认形态** ★
+ *   用户原话「复用那个选择二级分类的弹层，为什么没有复用」——
+ *   所以要传完整分类列表、**不传 flat**（flat 是给一级分类平铺用的特例）。
+ */
+check('弹层不再走 flat 平铺模式', /:flat=/.test(panelTemplate), false)
+check(
+  '弹层传完整分类列表（由组件自己按 parent_id 分组）',
+  /:categories="foodPickerCategories"/.test(panelTemplate),
+  true
+)
 check('弹层标题「选择食品分类」', /title="选择食品分类"/.test(panelTemplate), true)
 check('选完写 setEngelFoodIds', /setEngelFoodIds\(/.test(PANEL_PAGE_RAW), true)
 check('顺序/显隐逻辑复用 utils/statsPanels.js', /from '@\/utils\/statsPanels\.js'/.test(PANEL_PAGE_RAW), true)

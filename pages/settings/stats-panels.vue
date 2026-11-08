@@ -3,16 +3,6 @@
     <PageNav title="组件管理" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <!--
-        说明条
-        ★ 为什么页面顶部要写这一句 ★
-          「勾选框取消 = 面板不显示」这层因果关系不写出来，
-          用户会以为是「这个组件被删掉了」，不敢点。
-      -->
-      <view class="intro-card">
-        <text class="intro-text">勾选决定统计页显示哪些面板；上下箭头调整它们的先后顺序。</text>
-      </view>
-
       <!-- ============================ 已显示 ============================ -->
       <view class="group">
         <text class="group-title">已显示（{{ shownRows.length }}）</text>
@@ -53,16 +43,25 @@
               </view>
 
               <!--
-                展开箭头：只有 editable 的面板才有
-                ★ 为什么不可编辑的面板不画箭头 ★
+                展开箭头：只有 editable 的面板才有内容
+                ★ 但这一列**永远占位**（用户反馈的 bug）★
+                  以前不可编辑的行不渲染这一格，于是「恩格尔系数」
+                  （唯一可编辑的那个）的 ↑↓ 被往左挤了一格，
+                  各行的上下箭头不在同一列上。
+                  现在无论有没有箭头，这一格都渲染，宽度固定 ——
+                  箭头列就永远对齐了。
+                ★ 为什么不可编辑的面板不给箭头 ★
                   点开一个空设置区比没有箭头更让人困惑。
               -->
               <view
-                v-if="p.editable"
                 class="panel-expand"
-                @click="toggleExpand(p.key)"
+                @click="p.editable && toggleExpand(p.key)"
               >
-                <view class="expand-icon" :class="{ open: expandedKey === p.key }">
+                <view
+                  v-if="p.editable"
+                  class="expand-icon"
+                  :class="{ open: expandedKey === p.key }"
+                >
                   <LineIcon name="chevronDown" :size="14" :color="iconInk" />
                 </view>
               </view>
@@ -77,10 +76,6 @@
                   <text class="config-arrow">›</text>
                 </view>
               </view>
-              <text class="config-hint">
-                选中的支出分类会被算作「食品支出」。恩格尔系数 = 食品支出 ÷ 总支出，
-                只统计支出一级分类（选父分类即可，不用选到二级）。
-              </text>
               <!--
                 已选分类的标签
                 ★ :key 用下标而不是分类名 ★
@@ -132,18 +127,21 @@
 
     <!--
       食品分类多选弹层
-      ★ flat 必须传 ★
-        默认形态下「有二级的一级分类本身不可选」，
-        而恩格尔要选的恰恰是一级分类，所以走平铺模式。
-        这个 prop 默认 false，不会影响预算页 / 全部交易筛选的现有行为。
-      ★ categories 传一级分类的扁平列表 ★
-        组件在 flat 模式下原样渲染传入项，不会再按 parent_id 找分组。
+      ★ 复用「选二级分类」那个弹层的默认形态（用户要求）★
+        按一级分类分组、勾选二级项，和预算页 / 全部交易筛选里一模一样。
+        不再传 flat —— 用户原话「复用那个选择二级分类的弹层，为什么没有复用」。
+      ★ categories 传完整的支出分类列表 ★
+        一级 + 二级都要给，组件自己按 parent_id 分组；
+        只传一级的话它会认为「这些一级都没有二级」，退化成平铺。
+      ★ 关闭 flat 之后，存的是二级分类 id ★
+        统计时才用 COALESCE(c.parent_id, c.id) 归并到一级，
+        所以「勾一个二级 = 只算这个二级」「勾某个一级下所有二级 = 算整个大类」，
+        口径交给用户在弹层里自己决定，比原来只能选一级更细。
     -->
     <CategoryMultiPickerSheet
       v-model="showFoodPicker"
       :categories="foodPickerCategories"
       :selected-ids="foodIds"
-      :flat="true"
       :z-index="110"
       title="选择食品分类"
       @picked="onFoodPicked"
@@ -240,32 +238,27 @@ export default {
     const hiddenRows = computed(() => hiddenStatsPanels(panelState.value))
 
     /**
-     * 弹层数据源：只取支出的一级分类
+     * 弹层数据源：完整的支出分类列表（一级 + 二级）
      *
-     * ★ 为什么排除内部口径分类 ★
+     * ★ 为什么不再 filter（用户本轮第 2 条）★
+     *   用户要求「复用那个选择二级分类的弹层」——
+     *   那个弹层的工作方式是：传完整列表，它自己按 parent_id 分组成
+     *   「一级分类标题 + 二级可勾选项」，并且**一级分类本身不可勾**
+     *   （避免父级和子级同时命中导致同一笔算两遍）。
+     *   以前这里只传一级分类、还传了 flat 走平铺，等于把那个弹层最有价值的
+     *   分组语义整个绕开了 —— 用户看到的就是一个「不像那个弹层」的平铺列表。
+     *
+     * ★ 只滤掉内部口径分类 ★
      *   报销坏账 / 报销盈余 这些是报销流程自动写的系统分类，
-     *   把它们勾成「食品」没有任何意义，只会让恩格尔系数更难解释。
-     *   判断逻辑复用 utils/categorySort.js 的 isInternalOnlyCategory，
+     *   勾成「食品」没有任何意义，只会让恩格尔系数更难解释。
+     *   判断复用 utils/categorySort.js 的 isInternalOnlyCategory，
      *   与记账面板挡掉它们的规则是同一份。
+     *   ★ 一级分类不在这里滤掉 ★
+     *     它们要作为分组标题留在列表里（组件靠它们分组）。
      */
     const foodPickerCategories = computed(() =>
-      categories.value
-        .filter((c) => !c.parent_id && !isInternalOnlyCategory(c))
-        .map((c) => ({
-          id: c.id,
-          parent_id: '',
-          name: c.name,
-          /*
-           * ★ 这里必须强制 false ★
-           *   listCategories 返回的一级分类 isParent 天然是 true；
-           *   但 flat 模式下组件不读 isParent，只按传入顺序平铺，
-           *   写成 false 是为了万一将来有人在 flat 分支里加了 isParent 判断时，
-           *   不会突然变回「父节点不可选」。
-           */
-          isParent: false
-        }))
+      categories.value.filter((c) => !isInternalOnlyCategory(c))
     )
-
     /** 「食品分类」这一行右侧的文案 */
     const foodPickedText = computed(() => {
       if (foodIds.value.length === 0) return '未选择'
@@ -391,20 +384,6 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
-}
-
-/* 顶部说明条 */
-.intro-card {
-  margin-top: 20rpx;
-  padding: 20rpx 24rpx;
-  border-radius: 16rpx;
-  background-color: var(--app-card-2);
-}
-
-.intro-text {
-  font-size: 22rpx;
-  line-height: 1.6;
-  color: var(--app-text-3);
 }
 
 .group {
@@ -602,14 +581,6 @@ export default {
 
 .config-arrow {
   font-size: 30rpx;
-  color: var(--app-text-3);
-}
-
-.config-hint {
-  display: block;
-  margin-top: 14rpx;
-  font-size: 21rpx;
-  line-height: 1.6;
   color: var(--app-text-3);
 }
 

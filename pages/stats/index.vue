@@ -32,8 +32,22 @@
     </view>
 
     <scroll-view class="page-scroll" scroll-y>
+      <!--
+        ★ 面板排序容器（本轮用户第 2 条）★
+          统计页的面板顺序必须跟随「组件管理」页里用户排的顺序。
+          uni-app 里没法动态渲染一堆 .vue 模板片段，所以这里用
+          CSS flex 的 `order` 做重排：模板顺序写死无所谓，
+          视觉顺序由每个子元素的 order 数值决定（小的在上）。
+          ★ 为什么套一层包裹 view ★
+            scroll-view 的内容需要单一容器，而且 flex 容器不能同时
+            承担滚动职责（部分安卓内核对 scroll-view 的 flex 支持不稳）。
+          ★ ov-summary / tabbar-space 也参与排序 ★
+            收支摘要固定 order:0（永远最上），占位块给 9999（永远最下），
+            否则它们会被面板的 order 挤到中间去。
+      -->
+      <view class="panel-flow">
       <!-- 收支摘要 -->
-      <view class="ov-summary">
+      <view class="ov-summary" :style="{ order: 0 }">
         <view class="ov-item">
           <text class="ov-label">支出</text>
           <MoneyText :cents="overview.expense" type="expense" :size="34" :weight="600" />
@@ -56,7 +70,7 @@
       </view>
 
       <!-- ① 分类统计 -->
-      <view v-if="panelVisible('category')" class="card">
+      <view v-if="panelVisible('category')" class="card" :style="panelOrderStyle('category')">
         <view class="card-head">
           <text class="card-title">分类统计</text>
           <view class="card-head-right">
@@ -132,7 +146,7 @@
       </view>
 
       <!-- ② 账户统计（按账户 / 按账户类别，合并为一个面板） -->
-      <view v-if="panelVisible('account')" class="card">
+      <view v-if="panelVisible('account')" class="card" :style="panelOrderStyle('account')">
         <view class="card-head">
           <text class="card-title">账户统计</text>
           <view class="card-head-right">
@@ -198,7 +212,7 @@
       </view>
 
       <!-- ③ 趋势 -->
-      <view v-if="panelVisible('trend')" class="card">
+      <view v-if="panelVisible('trend')" class="card" :style="panelOrderStyle('trend')">
         <view class="card-head">
           <text class="card-title">{{ trendTitle }}</text>
           <text class="card-sub">{{ trendSubtitle }}</text>
@@ -263,7 +277,7 @@
           分类名 + 变化值 + 双向柱状图全在同一行，不再占两行。
           向右 = 比上期多，向左 = 比上期少。
       -->
-      <view v-if="panelVisible('comparison')" class="card">
+      <view v-if="panelVisible('comparison')" class="card" :style="panelOrderStyle('comparison')">
         <view class="card-head">
           <text class="card-title">同比变化</text>
           <view class="card-head-right">
@@ -390,7 +404,7 @@
           恩格尔系数是个学术名词，绝大多数用户没见过。
           只给一个 32.5% 等于什么都没说 —— 必须配一句人话（见下面的等级文案）。
       -->
-      <view v-if="panelVisible('engel')" class="card">
+      <view v-if="panelVisible('engel')" class="card" :style="panelOrderStyle('engel')">
         <view class="card-head">
           <text class="card-title">恩格尔系数</text>
           <text class="card-sub">食品支出占总支出的比例</text>
@@ -435,7 +449,7 @@
       </view>
 
       <!-- ④ 平均值：总体 + 各分类 -->
-      <view v-if="panelVisible('average')" class="card">
+      <view v-if="panelVisible('average')" class="card" :style="panelOrderStyle('average')">
         <view class="card-head">
           <text class="card-title">平均值</text>
           <view class="card-head-right">
@@ -512,7 +526,7 @@
       </view>
 
       <!-- ⑦ Top 10 -->
-      <view v-if="panelVisible('top')" class="card">
+      <view v-if="panelVisible('top')" class="card" :style="panelOrderStyle('top')">
         <view class="card-head">
           <text class="card-title">最高的 10 笔消费</text>
         </view>
@@ -549,11 +563,12 @@
           否则用户取消勾选全部 7 个面板后，这页只剩一个收支摘要，
           看着像页面坏了 —— 给一句话指路回组件管理。
       -->
-      <view v-if="visiblePanels.length === 0" class="card empty-panels">
+      <view v-if="visiblePanels.length === 0" class="card empty-panels" :style="{ order: 99 }">
         <text class="empty-text">所有面板都被隐藏了，去右上角「组件管理」里打开几个</text>
       </view>
 
-      <view class="tabbar-space" />
+      <view class="tabbar-space" :style="{ order: 9999 }" />
+      </view>
     </scroll-view>
 
     <!-- 圆角悬浮底栏（与首页同一份组件） -->
@@ -739,6 +754,31 @@ export default {
      */
     function panelVisible(key) {
       return visiblePanels.value.some((p) => p.key === key)
+    }
+
+    /**
+     * 面板在统计页的排版序号（CSS flex order）
+     *
+     * ★ 为什么用 CSS order 而不是「按顺序渲染」★
+     *   7 块面板（现在 10 块）的模板是写死在 .vue 里的，
+     *   想按用户顺序渲染只能把它们抽成 10 个组件、再用 <component :is> 拼 ——
+     *   改动面巨大、还容易把各自的 props 传递写错。
+     *   CSS 的 `order` 正好是为「视觉排序 ≠ DOM 顺序」设计的：
+     *   模板照旧写，只给每个 card 一个数字，浏览器自己排。
+     *
+     * ★ 数值怎么定 ★
+     *   order 数组的下标 + 1（+1 是因为收支摘要占了 0）；
+     *   账单摘要 order:0 永远最上，空态 99、占位块 9999 永远最下。
+     *   拿不到（配置里没这个 key）时给 99 —— 宁可沉底，也不要插到用户
+     *   排好的顺序中间去。
+     *
+     * @param {string} key 面板 key（见 utils/statsPanels.js）
+     * @returns {{order:number}}
+     */
+    function panelOrderStyle(key) {
+      const order = (statsPanels.value && statsPanels.value.order) || []
+      const i = order.indexOf(key)
+      return { order: i < 0 ? 99 : i + 1 }
     }
 
     /** 当前该显示的面板（按用户排好的顺序） */
@@ -1460,7 +1500,7 @@ export default {
       dailyExtremes,
       barHeight, shortDay,
       // 组件管理（面板顺序与显隐）
-      statsPanels, visiblePanels, panelVisible,
+      statsPanels, visiblePanels, panelVisible, panelOrderStyle,
       // 同比变化
       comparison, comparisonSub, balanceDiff, cmpBarWidth,
       comparisonType, comparisonLevel,
@@ -1481,6 +1521,23 @@ export default {
 <style scoped>
 .page-scroll {
   padding: 0 32rpx;
+}
+
+/*
+ * 面板排序容器
+ *
+ * ★ 必须是 flex column ★
+ *   CSS 的 `order` 只在 flex / grid 容器里生效，
+ *   普通 block 容器里给子元素写 order 完全没反应 ——
+ *   这就是「组件管理里排了顺序、统计页却没变」最容易踩的坑。
+ *
+ * ★ 只影响「谁在前谁在后」，不影响子元素自身布局 ★
+ *   子元素仍是 block（.card / .ov-summary 自己定宽高），
+ *   flex column 会让它们默认 stretch 到 100% 宽，正好和原来一致。
+ */
+.panel-flow {
+  display: flex;
+  flex-direction: column;
 }
 
 /* ------------------------------------------------ 同比变化 */
