@@ -697,31 +697,15 @@ export default {
 
 /*
  * 分段切换（一级/二级、支出/收入）
- * ★ 全局 .seg-toggle 定义在 App.vue，scoped 样式拿不到 ★
- *   这里补一份最小实现，保证组件独立可用时不塌。
+ *
+ * ★ 不在这里重写样式（用户反馈：和分类统计的 tab 长得不一样）★
+ *   之前这个组件里拄了一份 .seg-toggle / .seg-item 的局部样式，
+ *   而 scoped 样式会被编译成 `.seg-toggle[data-v-xxx]`，
+ *   优先级高于 App.vue 里的全局 `.seg-toggle` ——
+ *   于是同一个控件在同一个页面（统计页）上模样不一致：
+ *   分类统计用全局那套（底槽 --app-line + 白块阴影），
+ *   同比环比用这套（底槽 --app-card-2、无阴影、尺寸偏小）。
+ *   删掉本地样式 = 两处用同一套，以后要改也只改 App.vue 一处。
  */
-.seg-toggle {
-  display: flex;
-  align-items: center;
-  background-color: var(--app-card-2);
-  border-radius: 12rpx;
-  padding: 3rpx;
-}
 
-.seg-toggle--sm .seg-item {
-  font-size: 20rpx;
-  padding: 4rpx 12rpx;
-  border-radius: 9rpx;
-}
-
-.seg-item {
-  color: var(--app-text-2);
-  line-height: 1.4;
-}
-
-.seg-item.active {
-  background-color: var(--app-card);
-  color: var(--app-text);
-  font-weight: 500;
-}
 </style>

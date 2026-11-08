@@ -996,8 +996,8 @@ const ICON_FALLBACK = {
  * ★ 用户本轮第 1 条指定的就是这一块 ★
  *   用户原话「我指的添加渐变色的地方是借出借入页面的人名这个背景」——
  *   不是顶部汇总卡（那张本来就有渐变），而是每个人的组头。
- *   底色用和首页概览卡完全相同的那条 linear-gradient（--app-hero-from → --app-card），
- *   深浅色都由主题变量控制（暗色下 --app-hero-from = --app-card，等于不显示渐变）。
+
+
  */
 .group-head {
   display: flex;
@@ -1005,7 +1005,14 @@ const ICON_FALLBACK = {
   justify-content: space-between;
   gap: 16rpx;
   padding: 20rpx 24rpx;
-  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
+  /*
+   * ★ 用「软渐变」而不是大卡片那条 ★
+   *   暗色下 --app-hero-from 等于卡片色（大卡片不显示渐变），
+   *   用在这一行会和下面的明细融在一起、分不出哪是头；
+   *   --app-hero-soft-from 在暗色下是「卡片次层色混主题色」，
+   *   比卡片亮一档且带主题色相 —— 这才看得出是一个「小标题栏」。
+   */
+  background: linear-gradient(135deg, var(--app-hero-soft-from), var(--app-card));
 }
 
 .group-head-left {

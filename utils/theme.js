@@ -412,6 +412,19 @@ export function buildCssVars(presetKey, dark) {
          *     卡片色的原因。）
          */
         '--app-hero-from': '#1C1C1E',
+        /*
+         * ★ 卡片内部「小标题栏」的起始色（人名 / 应报实报）★
+         *
+         * ★ 为什么要单独一个变量 ★
+         *   用户反馈「暗色模式下借出借入页面的人名背景、
+         *   报销管理已报销的应报实报面板不明显」。
+         *   顶部大卡片在暗色下用 --app-hero-from（= 卡片色，等于不显示渐变），
+         *   但这两处是**卡片里的一行标题**，它必须和卡片正文区分开，
+         *   否则整张卡看上去就是一块「真空」，分不出哪是头、哪是明细。
+         *   所以它在暗色下取「卡片次层色 #2C2C2E 混 16% 主题色」：
+         *   比卡片亮一档（能分出层级）且带主题色相。
+         */
+        '--app-hero-soft-from': mixHex('#2C2C2E', p.primary, 0.16),
         '--app-danger': '#FF453A',
         '--app-success': '#32D74B',
         '--app-warning': '#FFD60A',
@@ -452,6 +465,15 @@ export function buildCssVars(presetKey, dark) {
          *     上面的数字（尤其是绿色金额）就看不清了。
          */
         '--app-hero-from': mixHex('#FFFFFF', p.primary, 0.14),
+        /*
+         * 卡片内部小标题栏：比大卡片更淡一档的主题色
+         *
+         * ★ 为什么不直接用 --app-hero-from ★
+         *   大卡片的起始色要在整张卡上铺开看得出渐变，
+         *   而这一条只有 70rpx 高，同样浓度会看起来像一块深色色带。
+         *   所以混入比例降到 8%，浅浅一层「这是小标题」的暗示。
+         */
+        '--app-hero-soft-from': mixHex('#FFFFFF', p.primary, 0.08),
         '--app-danger': '#EE0A24',
         '--app-success': '#07C160',
         '--app-warning': '#FF976A',

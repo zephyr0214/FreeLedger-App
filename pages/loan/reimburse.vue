@@ -17,7 +17,15 @@
     <PageNav title="报销管理" @back="goBack">
       <template #right>
         <text v-if="selectMode" class="nav-done" @click="onBatchReimburse">报销</text>
-        <text v-else-if="pendingCount > 0" class="nav-done" @click="toggleSelectMode">多选</text>
+        <!--
+          ★ 这里必须写 summary.pendingCount ★
+            之前写成了裸的 pendingCount，而 setup() 的 return 里
+            根本没有这个变量（它在 summary 对象里）——
+            模板读不到它，每次渲染都会打一条
+            「Property "pendingCount" was accessed during render but is not defined」警告，
+            而且这个条件永远为 false，右上角的「多选」入口根本不会出现。
+        -->
+        <text v-else-if="summary.pendingCount > 0" class="nav-done" @click="toggleSelectMode">多选</text>
       </template>
     </PageNav>
 
@@ -1292,8 +1300,8 @@ export default {
  * ★ 用户本轮第 1 条指定的就是这一块 ★
  *   用户原话「报销管理已报销的这个应报实报这个交易上方的面板」——
  *   不是顶部汇总卡，而是每张单的卡头。
- *   用和首页概览卡相同的那条 gradient（--app-hero-from → --app-card），
- *   深浅色全由主题变量控制（暗色下 --app-hero-from = --app-card，等于不显示渐变）。
+
+
  */
 .batch-head {
   display: flex;
@@ -1301,7 +1309,8 @@ export default {
   justify-content: space-between;
   gap: 16rpx;
   padding: 20rpx 24rpx;
-  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
+  /* ★ 暗色下要和明细分开，所以用「软渐变」而不是大卡片那条（同 loan/manage.vue 的说明）★ */
+  background: linear-gradient(135deg, var(--app-hero-soft-from), var(--app-card));
 }
 
 .batch-head-left {
