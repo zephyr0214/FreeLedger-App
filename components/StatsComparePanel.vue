@@ -137,7 +137,17 @@
                 两个数各自带一个箭头：金额和百分比是两个独立的量，
                 只给金额配箭头时，百分比那一列看上去是「无方向」的。
             -->
-            <text v-if="arrowOf(c.diff)" class="cmp-row-arrow cmp-row-arrow-pct" :style="{ color: diffColor(c.diff) }">{{ arrowOf(c.diff) }}</text>
+            <!--
+              ★ 「新增」不加箭头（用户本轮反馈）★
+                上期为 0 时百分比算不出来，文案是「新增」——
+                从 0 到有不是「上涨多少%」，给箭头反而会让人以为涨了一个很大的比例。
+                金额那一列仍然按 diff 给箭头（金额是真实变化量）。
+            -->
+            <text
+              v-if="arrowOfPct(c)"
+              class="cmp-row-arrow cmp-row-arrow-pct"
+              :style="{ color: diffColor(c.diff) }"
+            >{{ arrowOfPct(c) }}</text>
             <text
               class="cmp-row-pct"
               :style="{ color: diffColor(c.diff) }"
@@ -366,11 +376,27 @@ export default {
       return d > 0 ? '↑' : '↓'
     }
 
+    /**
+     * 百分比前面的箭头
+     *
+     * ★ 为什么不直接用 arrowOf ★
+     *   上期为 0 时 pct 为 null、文案是「新增」。
+     *   这时候 diff 虽然不为 0，但「新增」本身就是结论，
+     *   再给一个 ↑ 会让人以为是「涨了一个很大的比例」。
+     *
+     * @param {{diff:number, pct:number|null}} c 分类行数据
+     * @returns {string} '↑' / '↓' / ''（不显示）
+     */
+    function arrowOfPct(c) {
+      if (!c || c.pct === null || c.pct === undefined) return ''
+      return arrowOf(c.diff)
+    }
+
     return {
       pickLevel, pickType,
       rangeHint, balanceDiff, top1, balancePart,
       barWidth, diffColor, percentText,
-      absDiffText, absPercentText, arrowOf
+      absDiffText, absPercentText, arrowOf, arrowOfPct
     }
   }
 }
@@ -407,6 +433,7 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 6rpx;
   min-width: 0;
 }
@@ -419,9 +446,11 @@ export default {
   flex-shrink: 0;
 }
 
+/* 四个标签（支出变化 / 结余变化…）也要跟数字一起居中（用户反馈） */
 .cmp-top-label {
   font-size: 22rpx;
   color: var(--app-text-3);
+  text-align: center;
 }
 
 /*
@@ -464,6 +493,12 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 4rpx;
+  /*
+   * ★ 必须占满整列宽度 ★
+   *   父级已 align-items: center，如果这里不给 100%，
+   *   它会被内容撑开成「两个数字宽度」，
+   *   左右对齐就变成了居中挤在一起，看不出对照关系。
+   */
   width: 100%;
   margin-top: 4rpx;
 }
@@ -573,8 +608,16 @@ export default {
  */
 .cmp-row-bar {
   position: relative;
-  /* ★ 再缩短（用户本轮第 1 条）★ 它只表达「相对强弱」，不需要占满剩余宽度 */
+  /*
+   * ★ 固定宽度 + 靠右 ★
+   *   用户反馈「双向柱状图为什么没有紧贴到右边？合理分散开」。
+   *   固定宽度是为了不让柱子随屏宽变长变短；
+   *   再用 margin-left: auto 把它推到行尾——
+   *   这样数字列和柱子之间的空白全部集中在中间，
+   *   两端各自靠边，色块才不会漂在半空中间。
+   */
   width: 130rpx;
+  margin-left: auto;
   flex-shrink: 0;
   height: 14rpx;
   background-color: var(--app-card-2);
