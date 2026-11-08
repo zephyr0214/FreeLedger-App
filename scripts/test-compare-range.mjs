@@ -144,7 +144,12 @@ check('小数部分为 0 时不显示 .0', percentText(50, 1500), '+50%')
 check('一位小数照常显示', percentText(23.4, 1234), '+23.4%')
 check('跌幅带负号', percentText(-20, 800), '-20%')
 check('持平', percentText(0, 1000), '0%')
-check('算不出且本期有数 → 新增', percentText(null, 500), '新增')
+/*
+ * ★ 不再显示「新增」（用户本轮）★
+ *   用户原话「不要显示新增了，就是上箭头100%」。
+ *   所以断言从 '新增' 改成 '100%'。
+ */
+check('算不出且本期有数 → 100%', percentText(null, 500), '100%')
 check('算不出且本期为 0 → 破折号', percentText(null, 0), '—')
 
 {

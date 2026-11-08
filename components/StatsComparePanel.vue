@@ -1,10 +1,11 @@
 <template>
   <view class="card">
     <!--
-      ★ 标题 + 对比说明同一行（本轮用户第 9b 条）★
-        用户原话「「对比...」后面的两个括号及其内容删除，保持现有字号
-        显示在同比变化和环比变化之后，同行」。
-        所以「对比 10/01~10/08」跟在标题后面、同字号同色，不再单独占一行。
+      ★ 「对比 xx/xx~xx/xx」改到标题下方（用户本轮）★
+        用户原话「把同比和环比中的对比xx-xx移动到环比变化/同比变化下方」。
+        之前它跟在标题同行，但标题右侧还挤着两组切换器，
+        屏宽一窄「对比 10/01~10/08」就被截断；
+        它本身又只是标题的注解，放到标题正下方最自然。
     -->
     <view class="card-head">
       <view class="card-head-left">
@@ -138,10 +139,9 @@
                 只给金额配箭头时，百分比那一列看上去是「无方向」的。
             -->
             <!--
-              ★ 「新增」不加箭头（用户本轮反馈）★
-                上期为 0 时百分比算不出来，文案是「新增」——
-                从 0 到有不是「上涨多少%」，给箭头反而会让人以为涨了一个很大的比例。
-                金额那一列仍然按 diff 给箭头（金额是真实变化量）。
+              ★ 上期为 0 也给箭头（用户本轮）★
+                之前这种情况显示「新增」且不给箭头；
+                现在改成正常显示「100%」，那就必须有箭头指方向。
             -->
             <text
               v-if="arrowOfPct(c)"
@@ -160,9 +160,9 @@
               v-if="c.diff !== 0"
               class="cmp-bar"
               :style="{
-                width: barWidth(c.diff) + '%',
+                width: barWidth(c) + '%',
                 backgroundColor: diffColor(c.diff),
-                left: c.diff > 0 ? '50%' : (50 - barWidth(c.diff)) + '%'
+                left: c.diff > 0 ? '50%' : (50 - barWidth(c)) + '%'
               }"
             />
           </view>
@@ -274,12 +274,12 @@ export default {
          *   因为它们表达的是同一件事（方向 + 幅度）。
          */
         /*
-         * ★ 「新增」不显示箭头（用户本轮第 3 条）★
-         *   上期为 0、本期有数 → 百分比算不出来，文案是「新增」。
-         *   这时候给一个 ↑ 是错的：从 0 到有 不是「上涨多少%」，
-         *   只是「上期没有这一项」。
+         * ★ 上期为 0 也要箭头（用户本轮）★
+         *   上期为 0、本期有数时，百分比已经显示为「100%」，
+         *   配一个 ↑ 才能读成「从 0 涨到有」。
+         *   持平时不画破折号（会和数字挤在一起像负号）。
          */
-        arrow: (pct === null) ? '' : (diff > 0 ? '↑' : diff < 0 ? '↓' : '—'),
+        arrow: diff > 0 ? '↑' : diff < 0 ? '↓' : '',
         color: diffColor(diff),
         curText: (cur / 100).toFixed(2),
         prevText: (prev / 100).toFixed(2)
@@ -301,7 +301,7 @@ export default {
       const pct = balanceChangePercent(c.current.balance, c.previous.balance)
       return {
         pctText: percentOnly(pct),
-        arrow: balanceDiff.value > 0 ? '↑' : balanceDiff.value < 0 ? '↓' : '—',
+        arrow: balanceDiff.value > 0 ? '↑' : balanceDiff.value < 0 ? '↓' : '',
         color: balanceDiff.value > 0
           ? 'var(--app-success)'
           : balanceDiff.value < 0 ? 'var(--app-danger)' : 'var(--app-text-3)',
@@ -311,23 +311,40 @@ export default {
     })
 
     /**
-     * 双向柱子的长度（百分比）
+     * 双向柱状图的刻度：固定 ±100%
      *
-     * ★ 为什么要除以最大值 ★
-     *   各分类的金额差可能相差两个数量级（房租涨 500、奶茶涨 5），
-     *   直接按金额画，小的那几根全是看不见的细线。
-     *   除以最大绝对值后，长短只表达「相对变化强弱」——
-     *   绝对金额已经写在每行左边了。
+     * ★ 按百分比绘制，不按金额（用户要求）★
+     *   按金额画时，房租涨 500 元的柱子比奶茶涨 5 元长 100 倍；
+     *   但「房租涨 5%、奶茶涨 50%」时，真正该被看见的反而是奶茶。
+     *   按比例画，柱长就是「这一项涨跌得有多凶」，和旁边那个百分比数字
+     *   表达的是同一件事。
+     *
+     * ★ 刻度固定在 ±100%，超出的一律截断（用户要求）★
+     *   用户原话「绘制时只取 -100% 到 100%，多余的或者少于的绘制为 -100% 到 100%」。
+     *
+     *   ★ 为什么不能用「除以本页最大值」★
+     *     之前是除以本页最大绝对值，长短只能表达「这一页里谁相对更大」——
+     *     换一个月、多一个分类，同一个 30% 就会变长变短，无法跨月对比。
+     *     固定到 ±100% 后，柱长只取决于它自己，看图就能知道「涨了一倍」还是「涨了一成」。
+     *
+     *   ★ 为什么要截断而不是缩放★
+     *     涨 500% 和涨 200% 都超出了一倍，对用户来说都是「翻了好几倍」，
+     *     再细分已经没意义；截断反而保住了 0~100% 区间的可读性（大多数分类在这里）。
+     *     具体百分比数字仍然完整显示在旁边，不会因截断而丢信息。
      */
-    const maxAbs = computed(() => {
-      const c = props.comparison
-      if (!c || !c.categories.length) return 1
-      return Math.max(1, ...c.categories.map((x) => Math.abs(x.diff)))
-    })
+    const PCT_CAP = 100
 
-    function barWidth(diff) {
-      // 半幅最多 48%，留一点边距不让柱子顶到框
-      return Math.min(48, Math.round((Math.abs(diff) / maxAbs.value) * 48))
+    /** 一行的变化幅度（百分比）：null（上期为 0）当 100 看 */
+    function pctOf(c) {
+      if (!c) return 0
+      if (c.pct === null || c.pct === undefined) return Number(c.current) > 0 ? PCT_CAP : 0
+      return Number(c.pct) || 0
+    }
+
+    function barWidth(row) {
+      // 先截断到 ±100%，再映射到半幅最多 48%（留边距不让柱子顶到框）
+      const v = Math.min(PCT_CAP, Math.abs(pctOf(row)))
+      return Math.round((v / PCT_CAP) * 48)
     }
 
     /**
@@ -356,9 +373,15 @@ export default {
       return `¥${(Math.abs(Number(diff) || 0) / 100).toFixed(2)}`
     }
 
-    /** 百分比也去掉正负号（方向交给箭头） */
+/**
+     * 百分比也去掉正负号（方向交给箭头）
+     *
+     * ★ 不再显示「新增」（用户本轮）★
+     *   用户原话「不要显示新增了，就是上箭头100%」。
+     *   上期为 0 → 从 0 到有，比例上就看作 100%，配一个 ↑ 一起读。
+     */
     function absPercentText(pct, cur) {
-      if (pct === null || pct === undefined) return Number(cur) > 0 ? '新增' : '—'
+      if (pct === null || pct === undefined) return Number(cur) > 0 ? '100%' : '—'
       const v = Math.abs(Number(pct))
       return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}%`
     }
@@ -379,16 +402,16 @@ export default {
     /**
      * 百分比前面的箭头
      *
-     * ★ 为什么不直接用 arrowOf ★
-     *   上期为 0 时 pct 为 null、文案是「新增」。
-     *   这时候 diff 虽然不为 0，但「新增」本身就是结论，
-     *   再给一个 ↑ 会让人以为是「涨了一个很大的比例」。
+     * ★ 上期为 0 也要箭头（用户本轮）★
+     *   之前它返回空字符串，因为当时文案是「新增」，
+     *   给箭头会重复表达。现在文案已改成「100%」，
+     *   没有箭头就不知道是涨还是跌了。
      *
      * @param {{diff:number, pct:number|null}} c 分类行数据
      * @returns {string} '↑' / '↓' / ''（不显示）
      */
     function arrowOfPct(c) {
-      if (!c || c.pct === null || c.pct === undefined) return ''
+      if (!c) return ''
       return arrowOf(c.diff)
     }
 
@@ -410,11 +433,19 @@ export default {
  *   它只是「这两个数是哪两段时间」的注解，
  *   和标题同级的黑字会让用户以为它也是一个标题。
  */
+/*
+ * 对比窗口说明（用户本轮：移到标题下方）
+ *
+ * ★ 小字号灰色 ★
+ *   它只是「这两个数是哪两段时间」的注解，
+ *   和标题同级的黑字会让用户以为它也是一个标题。
+ *   现在它在标题正下方，所以不需要 margin-left（那是同行时才要的间距）。
+ */
 .cmp-range-hint {
   font-size: 20rpx;
   font-weight: 400;
   color: var(--app-text-3);
-  margin-left: 10rpx;
+  line-height: 1.2;
 }
 
 /*
@@ -657,10 +688,19 @@ export default {
   flex-shrink: 0;
 }
 
-/* 左侧：标题 + 对比说明同行，长度不够时自己缩（不挤右侧切换器） */
+/*
+ * 左侧：标题 在上、对比说明 在下（用户本轮）
+ *
+ * ★ 为什么从「同行」改成「上下两行」 ★
+ *   标题右侧挤着两组切换器（一级/二级、支出/收入），
+ *   “对比 10/01~10/08”跟在标题后面时，屏宽一窄就被截断成“对比 10/0…”；
+ *   它又只是标题的注解，两行一直排下来更好读。
+ */
 .card-head-left {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
   min-width: 0;
   flex: 1;
   overflow: hidden;
