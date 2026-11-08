@@ -153,7 +153,7 @@ import { isSystemPresetName } from '@/api/category.js'
 import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
-import { reimburseBadge, notCountedBadge } from '@/utils/reimburseBadge.js'
+import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
@@ -173,7 +173,6 @@ export default {
 
     const primaryColor = computed(() => settingStore.primaryColor)
     /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
-    const COMBO_BADGE_COLOR = '#8B5CF6'
     const pageStyle = computed(() => settingStore.cssVars)
 
 
@@ -237,33 +236,20 @@ export default {
         }
         txn.value = t
 
-        const list = []
-        // 周期徽标
-        if (t.cycle_id) {
-          const c = primaryColor.value
-          list.push({ key: '__cycle__', name: '周期', color: c, bg: c + '22', border: c })
-        }
-        // 组合账户徽标（独立标记，不是标签）
-        if (t.via_combo_id) {
-          list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
-        }
-        // 报销状态徽标（待报销 / 已报销，与列表页同一个来源）
-        const rb = reimburseBadge(t)
-        if (rb) list.push(rb)
-        // 不计收支徽标（见 utils/reimburseBadge.js 的说明）
-        const nc = notCountedBadge(t)
-        if (nc) list.push(nc)
-        // 用户标签
-        if (t.tag_ids && t.tag_ids.length > 0) {
-          const all = await getTxnTags(t.id)
-          tags.value = all
-          for (const tg of all) {
-            const c = tg.color || 'var(--app-text-2)'
-            const bd = tg.color || 'var(--app-text-3)'
-            list.push({ key: tg.id, name: tg.name, color: c, bg: tg.color ? tg.color + '22' : 'var(--app-card-2)', border: bd })
-          }
-        }
-        badges.value = list
+        /*
+         * ★ 徽标顺序唯一来源：utils/txnBadges.js（用户第 1 条）★
+         *   用户标签 > 人员名称 > 待报销/已报销 > 周期 > 组合账户 > 不计收支
+         *   以前这里手写了一份顺序（周期最前、标签最后），
+         *   和列表页、首页都不一样 —— 同一笔账换个页面标签就换了顺序。
+         */
+        const all = t.tag_ids && t.tag_ids.length > 0 ? await getTxnTags(t.id) : []
+        tags.value = all
+        const tagMap = {}
+        for (const tg of all) tagMap[tg.id] = { name: tg.name, color: tg.color || '' }
+        badges.value = buildTxnBadges(t, {
+          primaryColor: primaryColor.value,
+          tagMap
+        })
       } catch (e) {
         loadingText.value = e.message
       }

@@ -414,28 +414,39 @@ check('折叠条渲染在页面里', /class="episode-collapsed"/.test(PAGE), tru
 check('折叠条可点开', /class="episode-collapsed"[\s\S]{0,200}?@click="toggleEpisode/.test(PAGE), true)
 check('展开后有收起入口', /class="episode-collapse-btn"/.test(PAGE), true)
 /*
- * ★ 分割标注已按用户要求删除（本轮第 8 条）★
- *   用户原话「已结清页面，如上一轮图所示，你给「已结清」上下都添加了
- *   分割线，现在删除两个分割线，复原」。
- *   所以这里从「必须存在」翻成「必须不存在」——
- *   防止以后有人又把那段加回去。
+ * ★ 分割标注：只删线、保留文字（用户第 2 条）★
+ *   用户原话「已结清页面，我说的是不添加上下分割线，
+ *   不是不添加已结清和结清日期，加回来」。
+ *   所以文字必须有、横线必须没有。
  */
-check('已结清 tab 不再有分割标注', /class="episode-divider/.test(PAGE), false)
-check('分割段落的样式也已删除', /\.episode-divider/.test(PAGE), false)
-check('结清日期文案仍由 api 提供（页面暂不用）', /已结清 · \$\{prevDay\}/.test(LOAN), true)
+check('已结清 tab 有「已结清 · 日期」文字标注', /class="episode-divider-text"/.test(PAGE), true)
+/*
+ * ★ 断言要剥注释 ★
+ *   页面里那段注释本身就写着「也不再有 .episode-divider-line 之类的元素」，
+ *   直接对原文断言「不含该字符串」会被自己的注释命中（同 test-loan-manage 的坑）。
+ */
+const PAGE_NO_COMMENT = PAGE
+  .replace(/<!--[\s\S]*?-->/g, '')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+check('标注里没有上下横线元素', /episode-divider-rule|episode-divider-line/.test(PAGE_NO_COMMENT), false)
+check('结清日期文案由 api 提供', /已结清 · \$\{prevDay\}/.test(LOAN), true)
 check('折叠状态按 人员+段序号 记 key', /`\$\{person \|\| ''\}#\$\{index\}`/.test(PAGE), true)
 check('刷新后清理失效的折叠 key', /pruneEpisodeStates\(groups\.value\)/.test(PAGE), true)
 check('段内流水倒序渲染（最近的在前）', /v-for="t in episodeTxns\(ep\)"/.test(PAGE), true)
 /* 样式必须走 CSS 变量，不能写死深浅色 */
 /*
- * ★ 已结清段的金额要划删除线（本轮第 6 条）★
- *   用户原话「已结清的借出/借入价钱上也添加删除线」。
- *   已结清 = 这笔账已两清、不再计入「当前借出」，
- *   划掉金额和报销单里「已报销的原支出」是同一个视觉语言。
+ * ★ 只有「借出 / 借入」本金划删除线（用户第 2 条收窄）★
+ *   用户原话「只借入和借出的删除线，其他和借入/借出有关的不用删除线」。
+ *   所以判定条件必须同时含 ep.settled 和 isLoanPrincipalCategory。
  */
 check(
-  '已结清段的金额划删除线',
-  /v-if="ep\.settled"[\s\S]{0,120}?amount-settled-strike/.test(PAGE),
+  '已结清段的金额划删除线（限定本金分类）',
+  /isLoanPrincipalCategory\(t\.category_name\)[\s\S]{0,200}?amount-settled-strike/.test(PAGE),
+  true
+)
+check(
+  '本金判定函数由 api/loan.js 提供',
+  /export function isLoanPrincipalCategory/.test(LOAN),
   true
 )
 check(
@@ -490,9 +501,9 @@ check(
   [0, 1]
 )
 check(
-  '已结清 tab：全部展开，不再画分割标注',
+  '已结清 tab：全部展开，段与段之间有「已结清 · 日期」标注',
   buildLoanEpisodeView(EPS_THREE, { status: 'settled' }).map((v) => [v.collapsed, !!v.showDividerBefore]),
-  [[false, false], [false, false]]
+  [[false, false], [false, true]]
 )
 check(
   '分割标注日期取上一段的收口日',

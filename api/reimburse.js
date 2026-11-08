@@ -97,6 +97,18 @@ function normalizeTxnRow(r) {
   return {
     ...r,
     amount_cents: Number(r.amount_cents) || 0,
+    /*
+     * ★ tag_ids 必须转成数组（本轮：报销页流水也要显示用户标签徽标）★
+     *   下面的 TXN_SELECT 用 GROUP_CONCAT 把标签拼成 `"tag_a,tag_b"` 这样的
+     *   **字符串**；而 utils/txnBadges.js 的 buildTxnBadges 是按数组遍历的
+     *   （`Array.isArray(t.tag_ids) ? t.tag_ids : []`）—— 直接把字符串传过去
+     *   它拿到空数组，标签徽标一个都不显示，而且不报错，最难查。
+     *   口径与 api/transaction.js 的 normalizeTxn 完全一致（split(',') 再 filter），
+     *   保证同一笔账在报销页和其它列表页拿到同一种 tag_ids。
+     */
+    tag_ids: r.tag_ids
+      ? String(r.tag_ids).split(',').filter(Boolean)
+      : [],
     reimburse_status: Number(r.reimburse_status) || 0,
     reimburse_amount_cents: r.reimburse_amount_cents === null || r.reimburse_amount_cents === undefined
       ? null
@@ -106,10 +118,20 @@ function normalizeTxnRow(r) {
   }
 }
 
-/** 带分类 / 账户名的流水 SELECT 片段（报销页三处查询共用，避免各写一份 JOIN 走样） */
+/**
+ * 带分类 / 账户名 / 标签 id 的流水 SELECT 片段（报销页四处查询共用，
+ * 避免各写一份 JOIN 与子查询走样）。
+ *
+ * ★ tag_ids 为什么用相关子查询而不是 JOIN txn_tag ★
+ *   JOIN 会把「一笔账挂两个标签」变成两行，笔数和金额都会翻倍。
+ *   子查询每行只出一个 GROUP_CONCAT 字符串，语义正好是「这笔账的标签集合」。
+ *   写法与 api/transaction.js 的 listTransactions / getTransaction 逐字一致 ——
+ *   同一个字段在哪个页面都得是同一种拼法，否则 normalize 层还要分两套。
+ */
 const TXN_SELECT = `t.*,
             c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
-            a.name AS account_name`
+            a.name AS account_name,
+            (SELECT GROUP_CONCAT(tt.tag_id) FROM txn_tag tt WHERE tt.txn_id = t.id) AS tag_ids`
 
 const TXN_JOINS = `LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN account  a ON a.id = t.account_id`

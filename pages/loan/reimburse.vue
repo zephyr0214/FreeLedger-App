@@ -108,6 +108,21 @@
 
                 <view class="txn-info">
                   <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
+                  <!--
+                    徽标：用户标签 / 人员 / 待报销 / 周期 / 组合账户 / 不计收支
+                    ★ 顺序唯一来源是 utils/txnBadges.js（用户第 1 条）★
+                      待报销这里除了「待报销」本身，还可能是「不计收支」
+                      （待报销必然不计收支）与用户标签、周期、组合账户 ——
+                      以前这一行只有一个分类名，用户看不出它挂了什么。
+                  -->
+                  <view v-if="badgesOf(t).length" class="txn-tag-list">
+                    <text
+                      v-for="b in badgesOf(t)"
+                      :key="b.key"
+                      class="txn-tag"
+                      :style="{ backgroundColor: b.bg, color: b.color, borderColor: b.border }"
+                    >{{ b.name }}</text>
+                  </view>
                   <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
                 </view>
 
@@ -234,6 +249,24 @@
                     这几行本来就是「这次报销产生的结果」，语义已经清楚了。
                 -->
                 <text class="txn-name ellipsis">{{ d.category_name }}</text>
+                <!--
+                  派生流水也挂徽标（本轮：所有流水都要有）
+                  ★ 为什么派生流水也可能有徽标 ★
+                    「报销到账 / 报销坏账 / 报销盈余」由 api/reimburse.js 用
+                    原始 SQL 写入，`exclude_from_stats` 的口径各不相同：
+                    到账那笔不计收支、坏账 / 盈余是真损益要计入。
+                    挂上「不计收支」徽标，用户才能一眼解释「为什么报销到账
+                    没进本月收入」。用户标签 / 周期则取决于这笔派生流水本身带没带。
+                    判定规则全在 utils/txnBadges.js，本页不参与判断。
+                -->
+                <view v-if="badgesOf(d).length" class="txn-tag-list">
+                  <text
+                    v-for="b in badgesOf(d)"
+                    :key="b.key"
+                    class="txn-tag"
+                    :style="{ backgroundColor: b.bg, color: b.color, borderColor: b.border }"
+                  >{{ b.name }}</text>
+                </view>
                 <text class="txn-sub ellipsis">{{ txnSub(d) }}</text>
               </view>
 
@@ -262,6 +295,22 @@
 
               <view class="txn-info">
                 <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
+                <!--
+                  被报销的原流水也挂徽标（本轮：所有流水都要有）
+                  ★ 这里会同时显示「已报销」和「不计收支」两个徽标 ★
+                    被报销的原支出 reimburse_status 已经是 2、exclude_from_stats 为 1；
+                    两个徽标并排正是用户要的「它现在处在报销流程的哪一步、
+                    以及它为什么没进统计」。删除线只表达「原金额不作数」，
+                    和这两个状态并不重复。
+                -->
+                <view v-if="badgesOf(t).length" class="txn-tag-list">
+                  <text
+                    v-for="b in badgesOf(t)"
+                    :key="b.key"
+                    class="txn-tag"
+                    :style="{ backgroundColor: b.bg, color: b.color, borderColor: b.border }"
+                  >{{ b.name }}</text>
+                </view>
                 <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
               </view>
 
@@ -408,6 +457,13 @@
  *   一张单一个到账时间、一个实报总额、一笔笔原始支出。
  *   所以已报销 tab 用 listReimburseBatches()（单 + 单内明细），
  *   待报销 tab 仍然用 listReimburseTxns('pending')（它本来就是流水）。
+ *
+ * ★ 所有流水都带徽标（本轮）★
+ *   用户原话：「tag 在要显示在借入/借出/报销页面的的所有流水上」。
+ *   徽标的**顺序与配色规则唯一来源**是 utils/txnBadges.js，
+ *   这里只负责加载标签表、把结果渲染成胶囊（和借入借出管理页同一套做法）。
+ *   三处明细都要加：待报销 tab 的流水行、报销单里的派生流水行、
+ *   报销单里被报销的原流水行 —— 用户说的是「所有」。
  */
 import { ref, computed, reactive, watch } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
@@ -419,6 +475,8 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns } from '@/api/reimburse.js'
+import { listTags } from '@/api/tag.js'
+import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { formatDayHeader, formatTime, toDayKey } from '@/utils/date.js'
@@ -468,6 +526,28 @@ export default {
     })
 
     let ready = false
+
+    /**
+     * 标签表（用户标签徽标要用）
+     *
+     * ★ 为什么这一页也要加载标签 ★
+     *   用户要求「tag 显示在借入/借出/报销页面的所有流水上」。
+     *   流水里只存了 tag_id，标签的名字和颜色必须靠标签表反查 ——
+     *   不加载的话 buildTxnBadges 查不到任何标签，徽标默默少一排，且不报错。
+     */
+    const tags = ref([])
+
+    /**
+     * 标签 id -> { name, color } 映射
+     *
+     * 与借入借出管理页 / 全部交易页同一套做法：
+     * 一次建 map，避免每行都去 list 里线性 find。
+     */
+    const tagMap = computed(() => {
+      const m = {}
+      for (const t of tags.value) m[t.id] = { name: t.name, color: t.color || '' }
+      return m
+    })
 
     const pageStyle = computed(() => settingStore.cssVars)
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -581,6 +661,52 @@ export default {
       return parts.join(' · ')
     }
 
+    /**
+     * 徽标缓存：txnId -> 徽标数组
+     *
+     * ★ 为什么缓存而不是模板里直接调 buildTxnBadges ★
+     *   模板里要同时用 `v-if="badgesOf(t).length"` 和 `v-for="b in badgesOf(t)"`，
+     *   同一个函数每行会被调用两次；这一页已报销 tab 一屏可能铺着
+     *   好几张单、每张单又有 N 笔明细，重复计算很没必要。
+     *   做成 computed：groups / batches / tags / 主题色任一变化时整体重算一次，
+     *   模板取的是 map 里现成的数组，渲染多少次都不再算。
+     *
+     * ★ 三处明细一次性收进来 ★
+     *   待报销的 g.list、报销单里的 b.items（被报销的原流水）、
+     *   b.derived（报销到账/坏账/盈余）—— 用户要求「所有流水」都有徽标。
+     *   用 id 当 key 是安全的：一笔流水只会出现在其中一个位置。
+     */
+    const badgeMap = computed(() => {
+      const m = {}
+      const put = (t) => {
+        if (t && t.id) {
+          m[t.id] = buildTxnBadges(t, {
+            primaryColor: primaryColor.value,
+            tagMap: tagMap.value
+          })
+        }
+      }
+      for (const g of groups.value) for (const t of g.list || []) put(t)
+      for (const b of batches.value) {
+        for (const t of b.items || []) put(t)
+        for (const d of b.derived || []) put(d)
+      }
+      return m
+    })
+
+    /**
+     * 取一笔流水的徽标（模板里用）
+     *
+     * 顺序与配色规则唯一来源是 utils/txnBadges.js，本页不参与判断；
+     * 这里只负责从缓存里取，拿不到时给空数组（模板的 .length 才不会报错）。
+     *
+     * @param {object} t 流水
+     * @returns {Array<{key:string,name:string,color:string,bg:string,border:string}>}
+     */
+    function badgesOf(t) {
+      return (t && badgeMap.value[t.id]) || []
+    }
+
     function timeLabel(ts) {
       return formatTime(ts)
     }
@@ -614,7 +740,14 @@ export default {
       loading.value = true
       try {
         await accountStore.load()
-        const [pending, batchList, sum] = await Promise.all([
+        /*
+         * ★ 标签表和账单一起查（本轮：所有流水都要显示用户标签徽标）★
+         *   四个查询互不依赖，并进同一个 Promise.all。
+         *   ★ 标签查失败不能拖垮整页 ★
+         *     报销单才是主体，标签只影响一排小胶囊，
+         *     所以单独 catch 成空数组（徽标里只是少「用户标签」那几项）。
+         */
+        const [pending, batchList, sum, tagList] = await Promise.all([
           listReimburseTxns('pending'),
           /*
            * ★ 只有已报销 tab 需要单 ★
@@ -622,8 +755,10 @@ export default {
            *   数据量小（默认最多 300 单），代价可以接受。
            */
           listReimburseBatches(),
-          getReimburseSummary()
+          getReimburseSummary(),
+          listTags().catch(() => [])
         ])
+        tags.value = tagList || []
         summary.value = sum
         batches.value = batchList || []
 
@@ -854,7 +989,8 @@ export default {
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
       swipeStates, selectMode, selectedIds,
       showSheet, showAccountPicker, sheet, accountName, accountActions, diffText, diffColor,
-      iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
+      // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
+      badgesOf, iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
       onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountSelect,
       onConfirmReimburse, goBack
@@ -1036,6 +1172,46 @@ export default {
 .txn-name {
   font-size: 28rpx;
   color: var(--app-text);
+}
+
+/*
+ * 徽标一行：可换行，全部展示（本轮新增）
+ *
+ * ★ 样式从 pages/txn/list.vue 原样复制 ★
+ *   用户第 1 条要求「tag 显示在借入/借出/报销页面的所有流水上」，
+ *   这一排胶囊必须和首页 / 全部交易页长得一模一样，
+ *   否则同一笔账换个页面颜色、圆角、字号就变了。
+ *   两处样式各自 scoped，没法共享，只能同步复制；
+ *   改这里时请顺手看一眼 pages/txn/list.vue 的 .txn-tag-list / .txn-tag
+ *   （那边是范本，这边是副本）。
+ */
+.txn-tag-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+/*
+ * 徽标胶囊：1rpx 实线描边 + 12% 同色浅底 + 同色文字
+ *
+ * ★ color / background-color / border-color 全部由模板内联覆盖 ★
+ *   这里写的是「标签没设颜色」时的中性灰兜底，与 utils/txnBadges.js
+ *   对无颜色标签返回的那一套（--app-text-2 / --app-card-2）一致。
+ *   ★ 全部走 CSS 变量 ★
+ *     深浅色模式由变量自己切换，这一页不写死任何色值。
+ */
+.txn-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-text-2);
+  background-color: var(--app-card-2);
+  border: 1rpx solid var(--app-text-3);
+  font-weight: 500;
 }
 
 .txn-sub {

@@ -60,9 +60,10 @@
       <view class="cmp-top">
         <view class="cmp-top-item">
           <text class="cmp-top-label">{{ type === 'expense' ? '支出变化' : '收入变化' }}</text>
+          <!-- ★ 箭头在前、数字在后（用户本轮第 3 条）★ -->
           <view class="cmp-top-main">
+            <text v-if="top1.arrow" class="cmp-top-arrow" :style="{ color: top1.color }">{{ top1.arrow }}</text>
             <text class="cmp-top-pct" :style="{ color: top1.color }">{{ top1.pctText }}</text>
-            <text class="cmp-top-arrow" :style="{ color: top1.color }">{{ top1.arrow }}</text>
           </view>
           <view class="cmp-top-amounts">
             <text class="cmp-top-amount">本期 ¥{{ top1.curText }}</text>
@@ -75,8 +76,8 @@
         <view class="cmp-top-item">
           <text class="cmp-top-label">结余变化</text>
           <view class="cmp-top-main">
+            <text v-if="balancePart.arrow" class="cmp-top-arrow" :style="{ color: balancePart.color }">{{ balancePart.arrow }}</text>
             <text class="cmp-top-pct" :style="{ color: balancePart.color }">{{ balancePart.pctText }}</text>
-            <text class="cmp-top-arrow" :style="{ color: balancePart.color }">{{ balancePart.arrow }}</text>
           </view>
           <view class="cmp-top-amounts">
             <text class="cmp-top-amount">本期 ¥{{ balancePart.curText }}</text>
@@ -231,7 +232,13 @@ export default {
          *   上升 ↑ / 下降 ↓ / 持平—。与百分比同色，
          *   因为它们表达的是同一件事（方向 + 幅度）。
          */
-        arrow: diff > 0 ? '↑' : diff < 0 ? '↓' : '—',
+        /*
+         * ★ 「新增」不显示箭头（用户本轮第 3 条）★
+         *   上期为 0、本期有数 → 百分比算不出来，文案是「新增」。
+         *   这时候给一个 ↑ 是错的：从 0 到有 不是「上涨多少%」，
+         *   只是「上期没有这一项」。
+         */
+        arrow: (pct === null) ? '' : (diff > 0 ? '↑' : diff < 0 ? '↓' : '—'),
         color: diffColor(diff),
         curText: (cur / 100).toFixed(2),
         prevText: (prev / 100).toFixed(2)
@@ -314,12 +321,18 @@ export default {
 </script>
 
 <style scoped>
-/* 对比窗口说明：跟在标题后面、同行、同字号（用户第 9b 条） */
+/*
+ * 对比窗口说明：跟在标题后面、同行、**小字号灰色**（用户本轮第 3 条）
+ *
+ * ★ 为什么要小字号灰色 ★
+ *   它只是「这两个数是哪两段时间」的注解，
+ *   和标题同级的黑字会让用户以为它也是一个标题。
+ */
 .cmp-range-hint {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: var(--app-text);
-  margin-left: 12rpx;
+  font-size: 20rpx;
+  font-weight: 400;
+  color: var(--app-text-3);
+  margin-left: 10rpx;
 }
 
 /*

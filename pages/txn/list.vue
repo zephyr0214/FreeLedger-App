@@ -344,7 +344,7 @@ import {
 } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
-import { reimburseBadge, notCountedBadge } from '@/utils/reimburseBadge.js'
+import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { parseAmountInput } from '@/utils/money.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -513,7 +513,6 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
 
     /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
-    const COMBO_BADGE_COLOR = '#8B5CF6'
     const pageStyle = computed(() => settingStore.cssVars)
 
     const rangeLabel = computed(() => {
@@ -1015,55 +1014,17 @@ export default {
      *   颜色/内容各不相同，但样式一致；全部跟在分类名下面。
      *   组合账户不是标签，是独立标记（来自 via_combo_id）。
      */
+    /**
+     * 一笔交易的徽标集合
+     *
+     * ★ 顺序唯一来源：utils/txnBadges.js（本轮用户第 1 条）★
+     *   用户标签 > 人员名称 > 待报销/已报销 > 周期 > 组合账户 > 不计收支
+     */
     function txnBadges(txn) {
-      const list = []
-      // 周期
-      if (txn.cycle_id) {
-        const c = primaryColor.value
-        list.push({ key: '__cycle__', name: '周期', color: c, bg: c + '22', border: c })
-      }
-      // 组合账户（独立标记，不是标签）
-      if (txn.via_combo_id) {
-        list.push({ key: '__combo__', name: '组合账户', color: COMBO_BADGE_COLOR, bg: COMBO_BADGE_COLOR + '22', border: COMBO_BADGE_COLOR })
-      }
-      /*
-       * ★ 借入借出的「人员」也渲染成徽标（用户要求）★
-       *   这六类的备注存的就是人名，业务上它不是「备注」而是「谁」。
-       *   混在副标题「现金 · 张三」里几乎不会被注意到，
-       *   提成胶囊后一眼就能看出这笔记在谁头上。
-       *
-       * ★ 只是显示成 tag，不写 tag 表 ★
-       *   用户明确要求不加标签记录 —— 写进去会污染标签统计。
-       */
-      if (txn.note && isLoanPersonCategory(txn.category_name)) {
-        const c = primaryColor.value
-        list.push({ key: '__person__', name: txn.note, color: c, bg: c + '22', border: c })
-      }
-
-      // 报销状态徽标（待报销 / 已报销，见 utils/reimburseBadge.js）
-      const rb = reimburseBadge(txn)
-      if (rb) list.push(rb)
-      /*
-       * ★ 不计收支徽标（本轮用户第 7 条）★
-       *   借款四类、待报销、报销到账/坏账/盈余都是 exclude_from_stats，
-       *   以前它们在列表里长得和普通流水一样，用户看不出「这笔没进统计」。
-       *   和报销徽标并排显示：一笔账可能同时是「待报销」+「不计收支」。
-       */
-      const nc = notCountedBadge(txn)
-      if (nc) list.push(nc)
-
-      // 用户标签
-      const ids = txn.tag_ids
-      if (ids && ids.length) {
-        for (const id of ids) {
-          const t = tagNameMap.value[id]
-          if (!t) continue
-          const c = t.color || 'var(--app-text-2)'
-          const bd = t.color || 'var(--app-text-3)'
-          list.push({ key: id, name: t.name, color: c, bg: t.color ? t.color + '22' : 'var(--app-card-2)', border: bd })
-        }
-      }
-      return list
+      return buildTxnBadges(txn, {
+        primaryColor: primaryColor.value,
+        tagMap: tagNameMap.value
+      })
     }
 
     function timeLabel(ts) {

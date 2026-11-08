@@ -214,5 +214,33 @@ check('上期结余为正、本期更少 → 负数', balanceChangePercent(500, 
 check('null 显示破折号', percentOnly(null), '—')
 check('0 显示 0%', percentOnly(0), '0%')
 
+console.log('=== 9. 徽标顺序（用户第 1 条）===')
+
+{
+  const B = await import('../utils/txnBadges.js')
+  const txn = {
+    tag_ids: ['t1', 't2'],
+    note: '张三',
+    category_name: '借出',
+    reimburse_status: 1,
+    cycle_id: 'cyc1',
+    via_combo_id: 'combo1',
+    exclude_from_stats: true
+  }
+  const badges = B.buildTxnBadges(txn, {
+    primaryColor: '#07C160',
+    tagMap: { t1: { name: '装修', color: '#FF0000' }, t2: { name: '工作', color: '' } }
+  })
+  check(
+    '徽标顺序：用户标签 > 人员 > 报销 > 周期 > 组合账户 > 不计收支',
+    badges.map((b) => b.name),
+    ['装修', '工作', '张三', '待报销', '周期', '组合账户', '不计收支']
+  )
+  check('没有任何标记时返回空数组', B.buildTxnBadges({}, {}), [])
+  check('已报销徽标文案', B.buildTxnBadges({ reimburse_status: 2 }, {}).map((b) => b.name), ['已报销'])
+  check('非借款类分类的备注不当人员徽标', B.buildTxnBadges({ note: '张三', category_name: '餐饮食品' }, {}), [])
+  check('借款八类名单覆盖', B.LOAN_CATEGORY_NAMES.length, 8)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

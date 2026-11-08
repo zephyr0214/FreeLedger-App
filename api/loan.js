@@ -102,6 +102,57 @@ const NAMES = {
 }
 
 /**
+ * 这个分类名是不是「借出 / 借入」**本金**。
+ *
+ * ★ 为什么需要这个判定（用户本轮第 2 条前半）★
+ *   用户原话：「只借入和借出的删除线，其他和借入/借出有关的不用删除线」。
+ *   上一轮偷懒，只要 `ep.settled` 就把**段内每一笔**金额都划了删除线 ——
+ *   于是「借款收回 / 借款归还 / 借出坏账 / 借出利息 / 借入未还 / 借入利息」
+ *   全被划掉。可那几笔恰恰是**让账平掉的原因**：
+ *   借款收回到账了、坏账核销了、利息记上了，它们是结清的证据，
+ *   划掉它们等于在说「这几笔不作数」，读起来自相矛盾。
+ *   只有本金那两笔（借出 / 借入）代表「当时真正借出去 / 借进来的钱」，
+ *   结清之后它才不该再算进「当前借出 / 当前借入」，需要划掉。
+ *
+ * ★ 按名字判断而不是按 id ★
+ *   与 isLoanPersonCategory 同一个理由：分类 id 会随「用户删掉分类后
+ *   系统重建」和「备份导入到另一台设备」而变化，名字才是稳定的语义。
+ *   删除线是纯展示判断，更不该依赖库里的 id。
+ *
+ * ★ 为什么写成两个显式字面量，而不是取 LOAN_CATEGORY_NAME_LIST 的子集 ★
+ *   那个数组是「业务名单」（八类都算借款流水），这里要的是「本金」这个
+ *   更窄的展示口径。直接拍在明面上，以后有人要改名单时能一眼看见
+ *   这里还有一处独立的判断，不会顺手带错。
+ *
+ * @param {string} name 分类名（txn.category_name）
+ * @returns {boolean}
+ */
+export function isLoanPrincipalCategory(name) {
+  const n = String(name || '')
+  return n === NAMES.lendOut || n === NAMES.borrowIn
+}
+
+/**
+ * 把 SQL 里 GROUP_CONCAT 出来的 tag_ids 转成数组。
+ *
+ * ★ 为什么必须在这一层转 ★
+ *   `SELECT ... GROUP_CONCAT(tt.tag_id) AS tag_ids` 出来的是 `"tag_a,tag_b"`
+ *   这样的**字符串**，而 utils/txnBadges.js 的 buildTxnBadges 需要数组，
+ *   逐个 id 去 tagMap 里反查标签名 —— 直接把字符串传过去，它会按字符拆，
+ *   一个标签徽标都出不来（而且不报错，只是默默没有标签）。
+ *   api/transaction.js 的 normalizeTxn 里也是同一个口径（split(',') 再 filter），
+ *   抄同一份实现是为了「同一笔账在哪个页面都拿到同一种 tag_ids」。
+ *
+ * @param {string|string[]|null|undefined} raw
+ * @returns {string[]}
+ */
+function splitTagIds(raw) {
+  if (Array.isArray(raw)) return raw
+  if (!raw) return []
+  return String(raw).split(',').filter(Boolean)
+}
+
+/**
  * 取八个分类的 id（幂等，分类不存在会自动补建）。
  *
  * @returns {Promise<{lendOutId:string, lendBackId:string, borrowInId:string,
@@ -318,9 +369,10 @@ export async function listLoanTxnsOfPerson(direction, person, limit = 50) {
   const catIds = [pair.mainId, pair.backId, pair.positiveId, pair.negativeId].filter(Boolean)
   if (catIds.length === 0) return []
 
-  return query(
+  const rows = await query(
     `SELECT t.*, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
-            a.name AS account_name
+            a.name AS account_name,
+            (SELECT GROUP_CONCAT(tt.tag_id) FROM txn_tag tt WHERE tt.txn_id = t.id) AS tag_ids
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN account  a ON a.id = t.account_id
@@ -331,6 +383,12 @@ export async function listLoanTxnsOfPerson(direction, person, limit = 50) {
      LIMIT ?`,
     [normalizePerson(person), ...catIds, Number(limit) || 50]
   )
+  /*
+   * ★ tag_ids 在 API 层就转成数组 ★
+   *   页面只负责 buildTxnBadges(t) 渲染，不该知道「库里是 GROUP_CONCAT 字符串」。
+   *   与 api/transaction.js 的 normalizeTxn 同一口径（见 splitTagIds 注释）。
+   */
+  return rows.map((r) => ({ ...r, tag_ids: splitTagIds(r.tag_ids) }))
 }
 
 /**
@@ -359,7 +417,8 @@ export async function listLoanGroups(direction, status = 'all') {
 
   const rows = await query(
     `SELECT t.*, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
-            a.name AS account_name
+            a.name AS account_name,
+            (SELECT GROUP_CONCAT(tt.tag_id) FROM txn_tag tt WHERE tt.txn_id = t.id) AS tag_ids
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN account  a ON a.id = t.account_id
@@ -401,7 +460,16 @@ export async function listLoanGroups(direction, status = 'all') {
     else if (r.category_id === pair.negativeId) g.total += amt
     g.count++
     if (!g.lastDay || String(r.occurred_day) > g.lastDay) g.lastDay = String(r.occurred_day)
-    g.txns.push(r)
+    /*
+     * ★ 明细行里带出 tag_ids（本轮：借入借出页每笔流水都要显示用户标签徽标）★
+     *   库里那条 SQL 用 GROUP_CONCAT 拼的是 `"tag_a,tag_b"` 字符串，
+     *   而 utils/txnBadges.js 的 buildTxnBadges 按数组遍历 ——
+     *   这里就地转成数组，页面拿到的东西和 api/transaction.js 的流水行同形。
+     *   放在「进分组」这一刻转，而不是渲染时转：
+     *   页面每帧都在渲染几十行，能省一次 split 就省一次；
+     *   而且 episodes / txns 共用同一批对象，转换只发生一次。
+     */
+    g.txns.push({ ...r, tag_ids: splitTagIds(r.tag_ids) })
   }
 
   const list = Array.from(map.values())
@@ -620,8 +688,10 @@ export function splitLoanEpisodes(txns, pair) {
  * 返回的每一项在原 segment 上多了几个字段：
  *   rowIndex            段序号（页面记折叠状态用）
  *   collapsed           这一段的流水是否折叠成一行摘要
- *   showDividerBefore   恒为 false（分割标注已按用户要求删除），保留字段是为了不破坏调用方
- *   dividerText         结清日期文案「已结清 · YYYY-MM-DD」（页面暂不使用）
+ *   showDividerBefore   是否在本段之前画「已结清 · 日期」标注
+ *                       （仅已结清 tab 的段与段之间为 true，见下面的说明）
+ *   dividerText         结清日期文案「已结清 · YYYY-MM-DD」；上一段没有收口日时
+ *                       退化成「已结清」
  *   collapseText        折叠条文案「已结清 N 笔 · 点击展开」
  *   showCollapseBtn     展开后是否给「收起」入口
  *
@@ -663,18 +733,24 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
      *   如果写在段尾（跟着上一段最后一笔），折叠时这条线会跟着消失 ——
      *   而它表达的正是「那一段已经结束了」这个结论，不能跟着没。
      *   只在已结清 tab 画：未结清 tab 里历史段本身有折叠条，
-     *   再画一条线是重复信息。
+     *   再画一条是重复信息。
      */
     const prev = i > 0 ? ordered[i - 1] : null
     const prevDay = (prev && prev.closingDay) || ''
     /*
-     * ★ 分割标注已按用户要求删除（本轮第 8 条）★
-     *   用户原话「已结清页面…你给「已结清」上下都添加了分割线，现在删除
-     *   两个分割线，复原」。所以这里不再产出 showDividerBefore。
-     *   dividerText 仍然保留在返回值里 —— 它不影响渲染，
-     *   但页面以后若要改成「在折叠条上显示结清日期」可以直接用。
+     * ★ 「已结清 · 日期」标注加回来了（用户本轮第 2 条后半）★
+     *   用户原话：「已结清页面，我说的是不添加上下分割线，不是不添加
+     *   已结清和结清日期，加回来」。
+     *   上一轮理解错成「整块删掉」，把文字和线一起删了 —— 删过头。
+     *   现在恢复成：**已结清 tab、段与段之间**要文字（画不画线由页面负责），
+     *   未结清 tab 不画（那边历史段本身就是折叠条，再标一次是重复信息）。
+     *
+     * ★ 为什么这里只决定「要不要显示」，不决定「有没有线」★
+     *   线是纯样式（用户明确不要上下分割线），属于页面；
+     *   而「第几段之前该出现这个标注」依赖分段与 tab，由这里算 ——
+     *   放页面里要重新数一遍段序，两处口径迟早对不上。
      */
-    const showDividerBefore = false
+    const showDividerBefore = status === 'settled' && i > 0
 
     /*
      * ★ 未结清 tab：历史已结清的段默认折叠 ★

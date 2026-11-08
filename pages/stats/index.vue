@@ -336,9 +336,26 @@
             <text class="engel-col-label">本区间</text>
             <text class="engel-value" :style="{ color: engelColor }">{{ engel.ratio }}<text class="engel-unit">%</text></text>
             <text class="engel-level" :style="{ color: engelColor }">{{ engelLevel }}</text>
+            <!--
+              ★ 食品 / 总额 分两行，下面画一条占比轴（用户本轮第 3 条）★
+                用户原话「下方的食品/总、结余/收入显示为两行，
+                并画一个轴显示占比」。
+                两行是因为两个数叠在一行时，长金额（总支出）会把短金额挤得看不清；
+                轴是因为百分比数字本身看不出「大概占多少」，一根条形图更直观。
+            -->
             <view class="engel-costs">
-              <text class="engel-cost">食品 ¥{{ (engel.food / 100).toFixed(2) }}</text>
-              <text class="engel-cost">总 ¥{{ (engel.total / 100).toFixed(2) }}</text>
+              <view class="engel-cost-row">
+                <text class="engel-cost-label">食品</text>
+                <text class="engel-cost-value">¥{{ (engel.food / 100).toFixed(2) }}</text>
+              </view>
+              <view class="engel-cost-row">
+                <text class="engel-cost-label">总支出</text>
+                <text class="engel-cost-value">¥{{ (engel.total / 100).toFixed(2) }}</text>
+              </view>
+            </view>
+            <!-- 占比轴：填充宽度 = 恩格尔系数本身 -->
+            <view class="engel-axis">
+              <view class="engel-axis-fill" :style="{ width: Math.min(engel.ratio, 100) + '%', backgroundColor: engelColor }" />
             </view>
           </view>
 
@@ -350,8 +367,17 @@
             <text class="engel-value" :style="{ color: engelAllColor }">{{ engelAllText }}<text class="engel-unit">%</text></text>
             <text class="engel-level" :style="{ color: engelAllColor }">{{ engelAllLevel }}</text>
             <view class="engel-costs">
-              <text class="engel-cost">食品 ¥{{ (engelAll.food / 100).toFixed(2) }}</text>
-              <text class="engel-cost">总 ¥{{ (engelAll.total / 100).toFixed(2) }}</text>
+              <view class="engel-cost-row">
+                <text class="engel-cost-label">食品</text>
+                <text class="engel-cost-value">¥{{ (engelAll.food / 100).toFixed(2) }}</text>
+              </view>
+              <view class="engel-cost-row">
+                <text class="engel-cost-label">总支出</text>
+                <text class="engel-cost-value">¥{{ (engelAll.total / 100).toFixed(2) }}</text>
+              </view>
+            </view>
+            <view class="engel-axis">
+              <view class="engel-axis-fill" :style="{ width: Math.min(engelAll.ratio, 100) + '%', backgroundColor: engelAllColor }" />
             </view>
           </view>
         </view>
@@ -396,9 +422,26 @@
             <text class="savings-col-label">本区间</text>
             <text class="savings-value" :style="{ color: savingsColor }">{{ savings.rate === null ? '—' : savings.rate }}<text v-if="savings.rate !== null" class="savings-unit">%</text></text>
             <text class="savings-level" :style="{ color: savingsColor }">{{ savingsHint }}</text>
+            <!-- ★ 结余 / 收入 分两行 + 占比轴（用户本轮第 3 条）★ -->
             <view class="savings-costs">
-              <text class="savings-cost">结余 ¥{{ (savings.balance / 100).toFixed(2) }}</text>
-              <text class="savings-cost">收入 ¥{{ (savings.income / 100).toFixed(2) }}</text>
+              <view class="savings-cost-row">
+                <text class="savings-cost-label">结余</text>
+                <text class="savings-cost-value">¥{{ (savings.balance / 100).toFixed(2) }}</text>
+              </view>
+              <view class="savings-cost-row">
+                <text class="savings-cost-label">收入</text>
+                <text class="savings-cost-value">¥{{ (savings.income / 100).toFixed(2) }}</text>
+              </view>
+            </view>
+            <!-- 占比轴：填充宽度 = 储蓄率（负数时不填） -->
+            <view class="savings-axis">
+              <view
+                class="savings-axis-fill"
+                :style="{
+                  width: Math.min(Math.max(savings.rate || 0, 0), 100) + '%',
+                  backgroundColor: savingsColor
+                }"
+              />
             </view>
           </view>
 
@@ -409,8 +452,23 @@
             <text class="savings-value" :style="{ color: savingsAllColor }">{{ savingsAll.rate === null ? '—' : savingsAll.rate }}<text v-if="savingsAll.rate !== null" class="savings-unit">%</text></text>
             <text class="savings-level" :style="{ color: savingsAllColor }">{{ savingsAllHint }}</text>
             <view class="savings-costs">
-              <text class="savings-cost">结余 ¥{{ (savingsAll.balance / 100).toFixed(2) }}</text>
-              <text class="savings-cost">收入 ¥{{ (savingsAll.income / 100).toFixed(2) }}</text>
+              <view class="savings-cost-row">
+                <text class="savings-cost-label">结余</text>
+                <text class="savings-cost-value">¥{{ (savingsAll.balance / 100).toFixed(2) }}</text>
+              </view>
+              <view class="savings-cost-row">
+                <text class="savings-cost-label">收入</text>
+                <text class="savings-cost-value">¥{{ (savingsAll.income / 100).toFixed(2) }}</text>
+              </view>
+            </view>
+            <view class="savings-axis">
+              <view
+                class="savings-axis-fill"
+                :style="{
+                  width: Math.min(Math.max(savingsAll.rate || 0, 0), 100) + '%',
+                  backgroundColor: savingsAllColor
+                }"
+              />
             </view>
           </view>
         </view>
@@ -1704,18 +1762,50 @@ export default {
   font-size: 22rpx;
 }
 
-/* 结余 / 收入：同一行小字 */
+/* 结余 / 收入：两行 + 占比轴（用户本轮第 3 条，与恩格尔同一套） */
 .savings-costs {
   display: flex;
-  align-items: center;
-  gap: 12rpx;
-  margin-top: 4rpx;
+  flex-direction: column;
+  gap: 6rpx;
+  margin-top: 10rpx;
+  width: 100%;
 }
 
-.savings-cost {
-  font-size: 20rpx;
+.savings-cost-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8rpx;
+}
+
+.savings-cost-label {
+  font-size: 18rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.savings-cost-value {
+  font-size: 20rpx;
+  color: var(--app-text-2);
   font-variant-numeric: tabular-nums;
+}
+
+.savings-axis {
+  position: relative;
+  width: 100%;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background-color: var(--app-card-2);
+  overflow: hidden;
+  margin-top: 10rpx;
+}
+
+.savings-axis-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 4rpx;
 }
 
 /* ------------------------------------------------ 预算执行 */
@@ -1870,18 +1960,63 @@ export default {
   font-weight: 500;
 }
 
-/* 食品 / 总额：同一行小字，省高度 */
+/*
+ * 食品 / 总支出：两行（用户本轮第 3 条）
+ *
+ * ★ 为什么从「同一行」改成两行 ★
+ *   总支出的数字天生比食品支出长（数量级不同），
+ *   挤在一行里时食品那个数会被压到换行，两行各自对齐才好读。
+ */
 .engel-costs {
   display: flex;
-  align-items: center;
-  gap: 12rpx;
-  margin-top: 4rpx;
+  flex-direction: column;
+  gap: 6rpx;
+  margin-top: 10rpx;
+  width: 100%;
 }
 
-.engel-cost {
-  font-size: 20rpx;
+.engel-cost-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8rpx;
+}
+
+.engel-cost-label {
+  font-size: 18rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.engel-cost-value {
+  font-size: 20rpx;
+  color: var(--app-text-2);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 占比轴：一根细条形图，长度 = 恩格尔系数
+ *
+ * ★ 为什么要它 ★
+ *   百分比数字（尤其 12.3%）看不出「大概占多少」，
+ *   一根图条比一个数字永远更直观。
+ */
+.engel-axis {
+  position: relative;
+  width: 100%;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background-color: var(--app-card-2);
+  overflow: hidden;
+  margin-top: 10rpx;
+}
+
+.engel-axis-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 4rpx;
 }
 
 /* 时间范围选择 */

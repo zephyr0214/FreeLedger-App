@@ -198,17 +198,25 @@ check('代码里没有「个标签」计数文案', /个标签/.test(codeNoComme
  */
 check('标签背景用标签自己的颜色（内联样式）', /backgroundColor:\s*t\.bg/.test(template), true)
 check('标签文字用标签本色（内联样式）', /color:\s*t\.color/.test(template), true)
-check('txnBadges 返回带 color 的对象', /color:\s*t\.color\s*\|\|/.test(code), true)
-check('背景色带 12% 透明度后缀', /\+\s*'22'/.test(code), true)
+/*
+ * ★ 徽标构建已抽到 utils/txnBadges.js（用户第 1 条）★
+ *   以前这些断言直接看 list.vue 的 txnBadges() 源码；
+ *   现在顺序与颜色规则都在 utils/txnBadges.js 里，五个页面共用一份 ——
+ *   断言跟着挪到那个文件，否则每次重构都会被「源码变了」这种假失败挡住。
+ */
+const BADGE_FILE = join(ROOT, 'utils', 'txnBadges.js')
+const badgeCode = readFileSync(BADGE_FILE, 'utf-8')
+
+check('徽标工厂返回带 color 的对象', /color:\s*tg\.color/.test(badgeCode), true)
+check('背景色带 12% 透明度后缀', /\$\{color\}22/.test(badgeCode), true)
 /*
  * 兜底：标签没设颜色时，bg 回落到 CSS 里的 --app-card-2。
- * v13 起兜底值写成 'var(--app-card-2)' 而不是空串 ——
  * 空串会让内联 backgroundColor 变成无效值，
  * 内联样式优先级高于 CSS，反而把 .txn-tag 的淡背景弄没了。
  */
 check(
   '无颜色时 bg 有兜底（--app-card-2）',
-  /bg:\s*t\.color\s*\?\s*t\.color\s*\+\s*'22'\s*:\s*'(var\(--app-card-2\)|)'/.test(code),
+  /bg:\s*'var\(--app-card-2\)'/.test(badgeCode),
   true
 )
 

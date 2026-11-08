@@ -228,11 +228,13 @@ check('段内流水由 episodeTxns 取倒序副本', /v-for="t in episodeTxns\(e
 check('分段与折叠规则来自 api/loan.js', /buildLoanEpisodeView/.test(PAGE), true)
 check('普通流水行有兜底分支', /v-else class="episode-txns"/.test(PAGE), true)
 /*
- * ★ 分割标注已按用户要求删除（本轮第 8 条）★
- *   用户原话「已结清页面…你给「已结清」上下都添加了分割线，
- *   现在删除两个分割线，复原」。所以断言翻成「必须不存在」。
+ * ★ 分割标注：只删线、保留文字（用户第 2 条）★
+ *   用户原话「已结清页面，我说的是不添加上下分割线，
+ *   不是不添加已结清和结清日期，加回来」。
+ *   所以文字必须在、但不能再有上下那两条横线。
  */
-check('已结清页不再有分割标注', /class="episode-divider/.test(PAGE), false)
+check('已结清页有「已结清 · 日期」文字标注', /class="episode-divider-text"/.test(PAGE), true)
+check('标注里没有上下分割线元素', /episode-divider-rule|episode-divider-line/.test(PAGE), false)
 check('已结清旧段默认折叠可展开', /class="episode-collapsed"/.test(PAGE), true)
 check('不再有点开弹层看明细（showDetail/wd-popup）', /showDetail|<wd-popup/.test(PAGE), false)
 check(
@@ -297,8 +299,13 @@ console.log('=== 流水列表把人员渲染成胶囊 ===')
 const RECENT = read('components/RecentTxnList.vue')
 const LIST = read('pages/txn/list.vue')
 
-check('最近流水有人员胶囊', /__person__/.test(RECENT), true)
-check('全部交易页有人员胶囊', /__person__/.test(LIST), true)
+/*
+ * ★ 人员胶囊已收归 utils/txnBadges.js（用户第 1 条）★
+ *   两个页面不再各自写 __person__，统一调 buildTxnBadges()。
+ *   顺序与 key 由 utils/txnBadges.js 的单测钉住。
+ */
+check('最近流水用统一徽标工厂', /buildTxnBadges/.test(RECENT), true)
+check('全部交易页用统一徽标工厂', /buildTxnBadges/.test(LIST), true)
 /*
  * ★ 只是显示成 tag，不能真的写进 tag 表 ★
  *   用户明确要求。写进去会污染「项目统计」。

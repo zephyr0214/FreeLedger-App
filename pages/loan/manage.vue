@@ -158,11 +158,23 @@
           <view class="group-txns">
             <template v-for="(ep, epIndex) in episodeViewOf(g)" :key="g.person + '#' + epIndex">
               <!--
-                已结清 tab：每两段之间画一条分割标注
+                已结清 tab：段与段之间标一行「已结清 · 日期」
                 文案里的日期是**上一段**收口那笔的 occurred_day ——
-                分割线压在「那段结束」的位置，才读得通「这笔结清于哪天」。
-                未结清 tab 不画：那边的已结清段本身就是折叠条，再画一条是重复信息。
+                这条标注压在「那段结束」的位置，才读得通「这笔结清于哪天」。
+                未结清 tab 不画：那边的已结清段本身就是折叠条，再标一次是重复信息。
               -->
+              <!--
+                ★ 只要文字，不要上下分割线（用户本轮第 2 条）★
+                  用户原话：「已结清页面，我说的是不添加上下分割线，
+                  不是不添加已结清和结清日期，加回来」。
+                  所以这一块里只有一段 .episode-divider-text，
+                  没有 line / rule 元素，样式里也没有 border-top/bottom。
+                  标注本身**必须有** —— 上一轮把整块删掉是删过头了。
+              -->
+              <view v-if="ep.showDividerBefore" class="episode-divider">
+                <text class="episode-divider-text">{{ ep.dividerText }}</text>
+              </view>
+
               <!--
                 未结清 tab：历史已结清的段默认折叠成这一行
                 ★ 折叠时只占一行高度 ★
@@ -195,21 +207,44 @@
 
                   <view class="txn-info">
                     <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
+                    <!--
+                      徽标：用户标签 / 人员 / 待报销 / 周期 / 组合账户 / 不计收支
+                      ★ 顺序唯一来源是 utils/txnBadges.js（用户第 1 条）★
+                        这一页以前一个徽标都没有 —— 用户在借入借出页看到的是
+                        「光秃秃的分类名 + 金额」，明明这些流水挂了标签、
+                        有些还是不计收支，却完全看不出来。
+                        这里直接复用首页 / 交易列表那一套描边胶囊，
+                        样式与 .txn-tag 一字不差，保证同一笔账在哪个页面都长一样。
+                    -->
+                    <view v-if="badgesOf(t).length" class="txn-tag-list">
+                      <text
+                        v-for="b in badgesOf(t)"
+                        :key="b.key"
+                        class="txn-tag"
+                        :style="{ backgroundColor: b.bg, color: b.color, borderColor: b.border }"
+                      >{{ b.name }}</text>
+                    </view>
                     <text class="txn-sub ellipsis">{{ txnSub(t) }}</text>
                   </view>
 
                   <view class="txn-right">
                     <!--
-                      ★ 已结清段的金额划删除线（本轮用户第 6 条）★
-                        用户原话「已结清的借出/借入价钱上也添加删除线」。
-                        已结清意味着这笔账已经两清、不再影响「当前借出」，
-                        划掉它和报销单里「已报销的原支出」是同一个视觉语言：
-                        **这个数已经不作数了**。
-                        ★ 只划金额，不划分类名和时间 ★
-                          划整行会像「这笔记录被作废」；划金额表达的才是
-                          「这个金额已结清」。
-                      -->
-                    <text v-if="ep.settled" class="amount-settled-strike">
+                      ★ 已结清段里只有「借出 / 借入」本金划删除线（用户本轮第 2 条）★
+                        用户原话：「只借入和借出的删除线，其他和借入/借出有关的
+                        不用删除线」。
+                        上一轮是 `v-if="ep.settled"` 一刀切，结果「借款收回 /
+                        借款归还 / 借出坏账 / 借出利息 / 借入未还 / 借入利息」
+                        也全被划掉了 —— 可那几笔恰恰是**让账平掉的原因**
+                        （钱收回来了、坏账核销了、利息记上了），
+                        划掉它们等于说「这几笔不作数」，读起来自相矛盾。
+                        只有本金那两笔在结清之后才不该再算进「当前借出 / 当前借入」。
+                        判定按**分类名**（isLoanPrincipalCategory），不按 id ——
+                        id 会随备份导入、分类重建而变化，名字才是稳定语义。
+                    -->
+                    <text
+                      v-if="ep.settled && isLoanPrincipalCategory(t.category_name)"
+                      class="amount-settled-strike"
+                    >
                       <MoneyText :cents="t.amount_cents" :type="t.type" :size="28" :weight="500" />
                     </text>
                     <MoneyText
@@ -282,9 +317,16 @@
  *     在已结清中默认全部展开，但每次结清的中间要做分割标注已结清。」
  *   所以组内不再是「一个平铺列表」，而是按结清批次分段：
  *     · 未结清 tab：历史已结清的段默认折叠成一行「已结清 N 笔 · 点击展开」
- *     · 已结清 tab：全部展开，段与段之间画一条「—— 已结清 · 日期 ——」
+ *     · 已结清 tab：全部展开，段与段之间标一行「已结清 · 日期」（只有文字，不画线）
  *   分段逻辑（余额何时回 0）全在 api/loan.js 的 splitLoanEpisodes 里，
  *   页面只负责「按 api 给的批次渲染 + 记折叠状态」，不再自己推余额。
+ *
+ * ★ 组内每一笔流水都带徽标（本轮）★
+ *   用户原话：「tag 在要显示在借入/借出/报销页面的的所有流水上」。
+ *   徽标的**顺序与颜色规则唯一来源**是 utils/txnBadges.js ——
+ *   首页、全部交易页、详情页、最近流水组件都在用同一个函数，
+ *   这一页如果自己再拼一份，同一笔账换个页面标签顺序就变了。
+ *   所以这里只做两件事：加载标签表建 tagMap、把 buildTxnBadges 的结果渲染成胶囊。
  */
 import { ref, reactive, computed } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
@@ -295,8 +337,11 @@ import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
-  LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView
+  LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView,
+  isLoanPrincipalCategory
 } from '@/api/loan.js'
+import { listTags } from '@/api/tag.js'
+import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatTime } from '@/utils/date.js'
@@ -325,6 +370,31 @@ export default {
 
     /** 首屏加载完成后，onShow 才需要再刷一次（避免和 onLoad 重复加载） */
     let ready = false
+
+    /**
+     * 标签表（用户标签徽标要用）
+     *
+     * ★ 为什么这一页也要加载标签 ★
+     *   用户要求「tag 显示在借入/借出页面的所有流水上」。
+     *   流水里只存了 tag_id，标签的名字和颜色必须靠标签表反查 ——
+     *   不加载的话 buildTxnBadges 会查不到任何标签，徽标默默少一排，
+     *   而且不报错，最难发现。
+     */
+    const tags = ref([])
+
+    /**
+     * 标签 id -> { name, color } 的映射
+     *
+     * ★ 建 map 而不是每行都去 list 里 find ★
+     *   一笔流水可能有多个标签、一页又有几十行，
+     *   线性查找是 O(行数 × 标签数)，map 是一次 O(标签数) 建好。
+     *   做法与全部交易页（pages/txn/list.vue 的 tagNameMap）一致。
+     */
+    const tagMap = computed(() => {
+      const m = {}
+      for (const t of tags.value) m[t.id] = { name: t.name, color: t.color || '' }
+      return m
+    })
 
     const pageStyle = computed(() => settingStore.cssVars)
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -424,6 +494,49 @@ export default {
       if (t.occurred_at) parts.push(formatTime(t.occurred_at))
       parts.push(t.account_name || '无账户')
       return parts.join(' · ')
+    }
+
+    /**
+     * 徽标缓存：txnId -> 徽标数组
+     *
+     * ★ 为什么缓存而不是模板里直接调 buildTxnBadges ★
+     *   模板里要同时用 `v-if="badgesOf(t).length"` 和 `v-for="b in badgesOf(t)"`，
+     *   同一个函数每行会被调用两次；这一页一屏可能有几十笔流水，
+     *   每笔再遍历一遍标签集合，纯属重复计算。
+     *   做成 computed：数据（groups / tags / 主题色）一变整体重算一次，
+     *   之后模板取的是 map 里的现成数组，渲染多少次都不再算。
+     *
+     * ★ 依赖的都是响应式值 ★
+     *   groups 在 load() 里整体赋值、tags 同理、primaryColor 来自 store，
+     *   所以主题色一换、标签一改、结清一笔，徽标都会自动跟着重算 ——
+     *   不需要在 onShow 里手动清缓存（手动清最容易漏一处）。
+     */
+    const badgeMap = computed(() => {
+      const m = {}
+      for (const g of groups.value) {
+        for (const ep of episodesOf(g)) {
+          for (const t of ep.txns) {
+            m[t.id] = buildTxnBadges(t, {
+              primaryColor: primaryColor.value,
+              tagMap: tagMap.value
+            })
+          }
+        }
+      }
+      return m
+    })
+
+    /**
+     * 取一笔流水的徽标（模板里用）
+     *
+     * 顺序与配色规则全部在 utils/txnBadges.js 里，本页不参与判断；
+     * 这里只负责从缓存里取，并给拿不到的情况一个空数组（模板 .length 才不会报错）。
+     *
+     * @param {object} t 流水
+     * @returns {Array<{key:string,name:string,color:string,bg:string,border:string}>}
+     */
+    function badgesOf(t) {
+      return (t && badgeMap.value[t.id]) || []
     }
 
     function timeLabel(ts) {
@@ -554,7 +667,21 @@ export default {
     async function load() {
       loading.value = true
       try {
-        const all = await listLoanGroups(direction.value, 'all')
+        /*
+         * ★ 标签表和分组一起查（本轮：徽标要显示用户标签）★
+         *   两个查询互不依赖，Promise.all 并发发出去，
+         *   比「先等分组、再等标签」少一趟往返 —— 这一页是高频进出的。
+         *   ★ 标签查失败不能让整页白屏 ★
+         *     分组才是这页的主体，标签只影响一排小胶囊。
+         *     所以 catch 成空数组（徽标里就只是少「用户标签」那几项），
+         *     和全部交易页 listTags 的用法保持同一套容错思路。
+         */
+        const [all, tagList] = await Promise.all([
+          listLoanGroups(direction.value, 'all'),
+          listTags().catch(() => [])
+        ])
+        tags.value = tagList || []
+
         const open = all.filter((g) => !g.settled)
         const settled = all.filter((g) => g.settled)
 
@@ -694,6 +821,12 @@ export default {
       accentColor, statusTabs, emptyTitle, emptyDesc,
       avatarText, balanceText, balanceLabel, balanceColor,
       iconChar, txnSub, timeLabel, goTxnDetail,
+      /*
+       * 徽标：badgesOf 负责注入主题色与标签表，顺序规则在 utils/txnBadges.js；
+       * isLoanPrincipalCategory 决定「已结清段里哪几笔划删除线」——
+       * 它来自 api/loan.js（按分类名判断本金），页面不重复实现一份名单。
+       */
+      badgesOf, isLoanPrincipalCategory,
       // 结清批次分段：episodeViewOf 给出「分段 + 折叠 / 分割标注」的展示规则
       episodeViewOf, episodeTxns, toggleEpisode,
       switchStatus, onSettle, goBack
@@ -1053,14 +1186,47 @@ const ICON_FALLBACK = {
 }
 
 /*
- * 已结清段的金额：划删除线（用户本轮第 6 条）
+ * 已结清 tab 的段间标注：「已结清 · 2026-11-08」
+ *
+ * ★ 只有文字，没有上下分割线（用户本轮第 2 条）★
+ *   用户原话：「已结清页面，我说的是不添加上下分割线，不是不添加
+ *   已结清和结清日期，加回来」。
+ *   上一轮把整块（文字 + 两条线）一起删了，这一轮只把文字加回来：
+ *   结构上**只有一段 text**，样式里刻意不写 border-top / border-bottom，
+ *   也不再有 .episode-divider-line 之类的元素 ——
+ *   只要有人想加回横线，就得新加一个元素，一眼就能看出是违背需求的改动。
+ *
+ * ★ 为什么不像折叠条那样铺满 --app-card-2 底色 ★
+ *   它是一条「分段说明」而不是一段可点的内容：
+ *   铺底色会让它看起来像一行流水，用户会去点它。
+ *   居中 + 次要色小字，读起来是「上面那段到此为止」的注释。
+ */
+.episode-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18rpx 24rpx;
+}
+
+.episode-divider-text {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+  /* 数字等宽：多条标注上下对齐，日期长短不一时不会跳动 */
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 已结清段里「借出 / 借入」本金的金额：划删除线（用户本轮第 2 条）
  *
  * ★ 为什么用 text-decoration 包一层而不是改 MoneyText ★
  *   MoneyText 是所有金额的统一出口，给它加删除线开关会污染其它调用点。
- *   这里是「这个数已经结清、不再计入当前借出」的纯展示语义。
+ *   这里是「这笔本金已经结清、不再计入当前借出」的纯展示语义。
  *   ★ 为什么不用 opacity ★
  *     压暗会让金额和其它行的对比度变化，看着像禁用态；
  *     删除线只表达「不再作数」，两回事。
+ *   ★ 只作用于本金两笔 ★
+ *     判定在模板里用 isLoanPrincipalCategory(t.category_name)，
+ *     不在这里按样式范围放开 —— 样式只负责「划掉」这件事本身。
  */
 .amount-settled-strike {
   text-decoration: line-through;
@@ -1102,6 +1268,53 @@ const ICON_FALLBACK = {
 .txn-name {
   font-size: 28rpx;
   color: var(--app-text);
+}
+
+/*
+ * 徽标一行：可换行，全部展示（本轮新增）
+ *
+ * ★ 样式从 pages/txn/list.vue 原样复制 ★
+ *   用户第 1 条要求「tag 显示在借入/借出/报销页面的所有流水上」，
+ *   所以这一排胶囊必须和首页 / 全部交易页**长得一模一样** ——
+ *   同一笔账在两个页面里颜色、圆角、字号不同，用户会以为是两套数据。
+ *   两处样式各自 scoped，没法共享，只能同步复制；
+ *   改这里时请顺手看一眼 pages/txn/list.vue 的 .txn-tag-list / .txn-tag，
+ *   那边是「范本」，这边是「副本」。
+ *
+ * ★ flex-wrap: wrap 而不是省略号 ★
+ *   一笔账可能同时挂 3 个标签 + 人员 + 不计收支，
+ *   挤在一行会被裁掉，而裁掉的恰恰可能是「不计收支」这种关键信息。
+ *   换行最多让行高高一点，不会丢信息。
+ */
+.txn-tag-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+/*
+ * 徽标胶囊：1rpx 实线描边 + 12% 同色浅底 + 同色文字
+ *
+ * ★ color / background-color / border-color 全部由模板内联覆盖 ★
+ *   （见 .txn-tag-list 里的 :style="...b.bg, b.color, b.border"）
+ *   这里写的是「标签没设颜色」时的中性灰兜底 ——
+ *   buildTxnBadges 对无颜色标签返回的正是 --app-text-2 / --app-card-2 这套，
+ *   和这里的兜底值一致，所以不会出现「有的标签突然变透明」。
+ *   ★ 全部走 CSS 变量 ★
+ *     深浅色模式由变量自己切换，这一页不写任何 @media 或写死色值。
+ */
+.txn-tag {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
+  color: var(--app-text-2);
+  background-color: var(--app-card-2);
+  border: 1rpx solid var(--app-text-3);
+  font-weight: 500;
 }
 
 .txn-sub {

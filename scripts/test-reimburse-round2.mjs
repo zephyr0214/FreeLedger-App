@@ -145,10 +145,16 @@ check('status=1 是「待报销」', reimburseBadge({ reimburse_status: 1 }).nam
 check('status=2 是「已报销」', reimburseBadge({ reimburse_status: 2 }).name, '已报销')
 check('徽标带半透明底', /^#[0-9A-Fa-f]{6}22$/.test(reimburseBadge({ reimburse_status: 1 }).bg), true)
 
-check('首页最近流水挂了徽标', /reimburseBadge\(txn\)/.test(read('pages/index/index.vue')), true)
-check('全部交易页挂了徽标', /reimburseBadge\(txn\)/.test(read('pages/txn/list.vue')), true)
-check('交易详情页挂了徽标', /reimburseBadge\(t\)/.test(DETAIL), true)
-check('公共列表组件挂了徽标', /reimburseBadge\(txn\)/.test(read('components/RecentTxnList.vue')), true)
+/*
+ * ★ 徽标构建已收归 utils/txnBadges.js（用户第 1 条）★
+ *   以前四个页面各自拼一份 push 顺序，现在统一调 buildTxnBadges()。
+ *   所以断言从「拉 reimburseBadge」改成「拉 buildTxnBadges」。
+ *   顺序本身由 utils/txnBadges.js 的单元测试钉住。
+ */
+check('首页最近流水挂了徽标', /buildTxnBadges\(txn/.test(read('pages/index/index.vue')), true)
+check('全部交易页挂了徽标', /buildTxnBadges\(txn/.test(read('pages/txn/list.vue')), true)
+check('交易详情页挂了徽标', /buildTxnBadges\(t/.test(DETAIL), true)
+check('公共列表组件挂了徽标', /buildTxnBadges\(txn/.test(read('components/RecentTxnList.vue')), true)
 
 /* ===================== 4. 报销管理：删除线归属 */
 
