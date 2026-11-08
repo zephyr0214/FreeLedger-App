@@ -316,7 +316,7 @@ check('null -> 空结果', splitLoanEpisodes(null, LEND), [])
 check('缺 pair -> 空结果', splitLoanEpisodes(asc, null), [])
 check('pair 全空 -> 空结果', splitLoanEpisodes(asc, {}), [])
 
-/* 金额为 0 的脏数据既不改变余额，也不能被算进任何一段 */
+/* 金额为 0 的脏数据既不改变余额，也不能被算进任何一段（说明见 splitLoanEpisodes 注释） */
 check(
   '0 元流水不进分段',
   summary(splitLoanEpisodes([
