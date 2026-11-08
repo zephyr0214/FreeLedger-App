@@ -2,8 +2,8 @@
     "name" : "自由记",
     "appid" : "__UNI__8E8C7CE",
     "description" : "本地记账 App",
-    "versionName" : "1.23.0",
-    "versionCode" : "1230",
+    "versionName" : "1.23.1",
+    "versionCode" : "1231",
     "transformPx" : false,
     /* 5+App特有相关 */
     "app-plus" : {

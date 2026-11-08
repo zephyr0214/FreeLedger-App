@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.23.0-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.23.1-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -41,7 +41,8 @@
 
 **统计与 AI 问答**
 - SVG 自绘图表：分类构成环形图、趋势折线、月历、账户统计
-- 同比变化：本月到今天对比上月同期，百分比与金额同时给，按分类看涨跌
+- 同比 / 环比变化：本月到今天对比上月同期（同比）或紧邻的上一段（环比），百分比与金额同时给，按分类看涨跌
+- 储蓄率与预算执行：赚的钱存下多少、预算额度守没守住
 - 组件管理：统计页的七个面板可自定顺序与显隐，恩格尔系数的食品分类由自己选
 - 恩格尔系数：食品支出占总支出的比例，「哪些分类算食品」由你自己勾选
 - AI 对话：问账、看趋势、出图表——**数字全部由本地 SQL 取数**，模型只输出图表规格，不给它编数字的机会
@@ -156,8 +157,9 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 
 **Insights & AI chat**
 - Hand-drawn SVG charts: category donut, trend lines, calendar heatmap, account stats
-- Period-over-period: this month to date vs. the same stretch of last month, with both percentage and amount per category
-- Panel manager: reorder or hide the seven stat panels; pick which categories count as food for the Engel coefficient
+- Period-over-period and sequential comparison: this month to date vs. the same stretch of last month (or vs. the immediately preceding window), with both percentage and amount per category
+- Savings rate and budget execution: how much of your income you kept, and whether budgets held
+- Panel manager: reorder or hide the ten stat panels; pick which categories count as food for the Engel coefficient
 - AI chat about your finances — **all numbers come from local SQL queries**; the model only outputs chart specs, so it can never make numbers up
 - Deep thinking and charts are both toggleable
 
