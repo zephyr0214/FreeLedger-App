@@ -16,3 +16,6 @@ androidPrivacy.json
 
 # Windows 保留设备名（CON/PRN/AUX/NUL 等）被某个命令误创建的空文件，别提交
 CON
+
+# 发版说明的临时文件（每次创建发行版时生成，不进仓库）
+.release-body.tmp
