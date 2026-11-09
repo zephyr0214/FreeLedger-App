@@ -118,27 +118,50 @@ check(
 )
 check('assets 字段缺失', resolveUpdate({ tag_name: 'v1.16.3' }, '1.16.2').hasUpdate, false)
 
-console.log('=== 测试入口已删除（App 内不再能强制弹窗）===')
+console.log('=== 测试更新入口已彻底删除 ===')
+
 {
   /*
-   * ★ 这条入口曾被删过、又按需求加回来，现在再次删除 ★
-   *   用户：「删除系统设置中测试更新的条目及其背后的功能」
+   * ★ 这条能力的生命周期 ★
+   *   加 → 删(7977238) → 按需求加回 → 再删 → 加回 → **本次最终删除**
    *
-   *   ★ 为什么这次连 api / store / 组件里的分支一起删干净 ★
-   *     留着 opt.force 这类「跳过版本比较」的死路，
-   *     以后很容易有人顺手再挂个入口上去；
-   *     而它会拿当前版本当新版本推给用户 —— 误报比省一次发版更贵。
-   *     现在真机验证更新链路只能发一个更高的 tag，这是有意的代价。
+   *   用户本轮原话：「删除测试弹窗的入口及其逻辑」。
+   *
+   *   ★ 为什么这次要连能力一起删 ★
+   *     只删 UI 条目、留着 api 的 ignoreVersion 和 store 的
+   *     checkForUpdateTest，等于留了一条「跳过版本比较」的暗路。
+   *     它一旦被顺手接回去，就会把当前版本当新版本弹给用户。
+   *     所以下面同时钉「正常检查照样比版本」和「能力已消失」两个方向。
    */
-  const same = resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2', { force: true })
-  check('force 选项已失效（同版本不再当更新）', same.hasUpdate, false)
-  check('返回里不再有 forced 标记', same.forced, undefined)
-  const older = resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2', { force: true })
-  check('force 不能绕过版本比较（更旧的不弹）', older.hasUpdate, false)
+
+  // 正常检查的版本比较必须完好
+  check('同版本不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2').hasUpdate, false)
+  check('更旧版本不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2').hasUpdate, false)
+  check('更新版本正常弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.3' }), '1.16.2').hasUpdate, true)
+
   const src = read('api/update.js')
+  const storeSrc = read('stores/update.js')
+  const mineSrc = read('pages/mine/index.vue')
+  const dlgSrc = read('components/UpdateDialog.vue')
+
   check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(src), true)
   check('checkUpdate 不再有 opt 参数', /export async function checkUpdate\(\)/.test(src), true)
-  check('不再有 opt.force 分支', /opt\.force/.test(src), false)
+  check('不再有 ignoreVersion 跳过比较', /if \(!ignoreVersion\)/.test(src), false)
+  check('版本比较无条件生效', /const cmp = compareVersions/.test(src) && /if \(cmp <= 0\) return \{ hasUpdate: false \}/.test(src), true)
+
+  check('store 没有 checkForUpdateTest', /checkForUpdateTest/.test(storeSrc), false)
+  check('store 不再传 ignoreVersion', /ignoreVersion/.test(storeSrc), false)
+  check('store 不再标 isTest', /isTest/.test(storeSrc), false)
+
+  check('我的页没有「测试更新」条目', /name: '测试更新'/.test(mineSrc), false)
+  check('我的页没有 updateTest 分支', /updateTest/.test(mineSrc), false)
+
+  check('弹窗徽标固定为「新版本」', />新版本<\/text>/.test(dlgSrc), true)
+  check('弹窗没有 isTest 分支', /isTest/.test(dlgSrc), false)
+
+  // 正式入口必须完好
+  check('我的页保留「检查更新」', /name: '检查更新'/.test(mineSrc), true)
+  check('点击走正式 checkForUpdate', /checkForUpdate\(false\)/.test(mineSrc), true)
 }
 
 /* --------------------------------------------- 3. 源码级接线 */
@@ -442,45 +465,137 @@ console.log('=== 弹窗挂在每一个页面上（全局最上层）===')
   check('首页弹窗在 <block> 外（未建账户也能弹）', idxTag > idxBlockEnd && idxBlockEnd > 0, true)
 }
 
-console.log('=== 【测试】强制更新弹窗已彻底删除 ===')
+console.log('=== 正式检查更新入口完好无损 ===')
 
 {
   /*
-   * ★ 这条入口的生命周期：加 → 删(7977238) → 按需求加回 → 再删 ★
-   *   用户：「删除系统设置中测试更新的条目及其背后的功能」
-   *
-   *   ★ 这次要求「条目 + 背后的功能」一起删，不只是藏入口 ★
-   *     只删 UI 入口、留着 store/api 里的 force 分支，
-   *     等于留了一条「跳过版本比较」的暗路，以后很容易被顺手接回去。
-   *     而它一旦跑起来，会把当前版本当成新版本推给用户 ——
-   *     误报一次比多走一道发版流程贵得多。
-   *
-   *   ★ 现在怎么验证更新链路 ★
-   *     只能真发一个更高的 tag。这是有意的取舍，
-   *     所以下面断言的不只是「入口没了」，还有「能力没了」。
+   * ★ 删完调试入口后，正式链路必须一步不少 ★
+   *   很容易在删测试代码时连带把正式分支一起删掉（
+   *   两者在 onMenuClick 里就是相邻的两个 if），而编译不会报错。
    */
   const mineSrc = read('pages/mine/index.vue')
   const storeSrc = read('stores/update.js')
-  const apiSrc = read('api/update.js')
-  const dlgSrc = read('components/UpdateDialog.vue')
 
-  check('我的页没有【测试】条目', /【测试】强制更新弹窗/.test(mineSrc), false)
-  check('没有 update-test 分支', /'update-test'/.test(mineSrc), false)
-  check('store 没有 forceCheckForUpdate', /forceCheckForUpdate/.test(storeSrc), false)
-  check('store 不再请求 force: true', /force: true/.test(storeSrc), false)
-  check('update.js 不再有 force 选项', /opt\.force/.test(apiSrc), false)
-  check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(apiSrc), true)
-  check('resolveUpdate 无条件做版本比较', /if \(cmp <= 0\) return \{ hasUpdate: false \}/.test(apiSrc), true)
-  check('弹窗没有测试提示条', /ud-tip/.test(dlgSrc), false)
-  check('徽标固定为「新版本」', />新版本<\/text>/.test(dlgSrc), true)
-
-  // 正式入口必须保留
   check('我的页保留「检查更新」', /name: '检查更新'/.test(mineSrc), true)
   check('点击走正式 checkForUpdate', /checkForUpdate\(false\)/.test(mineSrc), true)
-  check('正式检查仍然比较版本（silent 语义未变）', /if \(!silent\) uni\.showToast\(\{ title: '当前已是最新版本'/.test(storeSrc), true)
+  check(
+    '正式检查仍然比版本（silent 语义未变）',
+    /if \(!silent\) uni\.showToast\(\{ title: '当前已是最新版本'/.test(storeSrc),
+    true
+  )
+  check('正式检查不传参数', /await fetchCheck\(\)/.test(storeSrc), true)
 }
 
+console.log('=== 点通知栏能拉起安装器（bug 修复）===')
 
+{
+  /*
+   * ★ 用户反馈 ★
+   *   「下载完成后，点击通知栏为什么不能跳转到安装页面呢」。
+   *
+   * ★ 根因 ★
+   *   done() 发的通知没设 setContentIntent。
+   *   Android 上没有 contentIntent 的通知点下去就是纯饰边：
+   *   不拉起 App、不弹安装器、什么都不会发生。
+   *
+   * ★ 修法是一条链，任一环断都不行 ★
+   *   ① notifier.done(apkPath) 带上路径
+   *   ② buildContentIntent 把路径写进 Intent extra
+   *   ③ b.setContentIntent(pi) 挂上去
+   *   ④ api/update.js 的 consumePendingInstall 读回路径并拉安装器
+   *   ⑤ App.vue 在 onLaunch / onShow / newintent 三个时机都调它
+   */
+  const notifierSrc = read('api/notifier.js')
+  const apiSrc = read('api/update.js')
+  const appSrc = read('App.vue')
+
+  check('通知栏点击意图已构造', /function buildContentIntent\(apkPath\)/.test(notifierSrc), true)
+  check('done 接收安装包路径', /done\(apkPath\)/.test(notifierSrc), true)
+  check('点击意图被挂到通知上', /b\.setContentIntent\(pi\)/.test(notifierSrc), true)
+  check('用 PendingIntent.getActivity', /PendingIntent\.getActivity\(/.test(notifierSrc), true)
+  check('PendingIntent 用 IMMUTABLE（Android 12+ 必选）', /PI_FLAG_IMMUTABLE = 0x04000000/.test(notifierSrc), true)
+  check('PendingIntent 用 UPDATE_CURRENT', /PI_FLAG_UPDATE_CURRENT/.test(notifierSrc), true)
+  check('安装路径的 extra 键已导出', /export const INSTALL_EXTRA_KEY/.test(notifierSrc), true)
+
+  /*
+   * ★ 不能硬编码启动 Activity 类名 ★
+   *   io.dcloud.PandoraEntry 是基座 6.x 的名字，换版本就可能变。
+   *   应该向 PackageManager 要 getLaunchIntentForPackage。
+   */
+  check('用 getLaunchIntentForPackage 取启动意图', /getLaunchIntentForPackage/.test(notifierSrc), true)
+  check('CLEAR_TOP 防重复开 App', /INTENT_FLAG_CLEAR_TOP = 0x04000000/.test(notifierSrc), true)
+  check('SINGLE_TOP 防重复开 App', /INTENT_FLAG_SINGLE_TOP = 0x20000000/.test(notifierSrc), true)
+
+  // 下载完把路径交给通知
+  check('downloadApk 传路径给 done', /notifier\.done\(d\.filename\)/.test(apiSrc), true)
+
+  // 回前台读 Intent 并装
+  check('导出 consumePendingInstall', /export async function consumePendingInstall/.test(apiSrc), true)
+  check('读 Intent 的 extra', /getStringExtra', INSTALL_EXTRA_KEY/.test(apiSrc), true)
+  check('读完清掉 extra（防重复弹）', /removeExtra', INSTALL_EXTRA_KEY/.test(apiSrc), true)
+  check('同一路径去重', /lastConsumedInstallPath/.test(apiSrc), true)
+  check('读到后拉安装器', /await installApk\(path\)/.test(apiSrc), true)
+
+  // App.vue 三个时机
+  check('App.vue import consumePendingInstall', /import \{ consumePendingInstall \}/.test(appSrc), true)
+  check('onLaunch 调用', /this\.consumeInstallIntent\(\)/.test(appSrc), true)
+  check('onShow 也调用', /setTimeout\(\(\) => \{ this\.consumeInstallIntent\(\) \}, 300\)/.test(appSrc), true)
+  check('newintent 也挂了监听', /addEventListener\('newintent', this\.onNewIntentForInstall\)/.test(appSrc), true)
+}
+
+console.log('=== 后台下载不中断（用户反馈 bug）===')
+
+{
+  /*
+   * ★ 用户反馈 ★
+   *   「把软件放在后台怎么下载就终止了？」
+   *
+   * ★ 根因两层 ★
+   *   ① CPU 睡眠：App 退到后台 + 屏幕熄灭 → CPU 休眠 → 下载线程被挂起
+   *   ② Promise 永不 settle：中断时回调里 status 是 undefined，
+   *      旧代码 `else if (status !== undefined)` 两边不进 → phase 永迚 downloading
+   *
+   * ★ 修法 ★
+   *   ① 下载期间持 PARTIAL_WAKE_LOCK（api/wakeLock.js）
+   *   ② 除 200 外全部 reject，保证 Promise 必定结束
+   *   ③ store 在 phase 卡住时自救（isDownloading 为 false 就强行复位）
+   */
+  const apiSrc = read('api/update.js')
+  const storeSrc = read('stores/update.js')
+  const wlSrc = read('api/wakeLock.js')
+  /*
+   * ★ 断言「不再用旧写法」前必须剥注释 ★
+   *   api/update.js 里专门写了一段说明「旧写法长什么样」，
+   *   不剥注释就会把那段说明当成实现。
+   *   （仓库里的注释往往正好提到要被断言不存在的字符串，这是老坑了。）
+   */
+  const apiCode = apiSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+
+  // ① 唤醒锁
+  check('唤醒锁模块存在', /export function acquireWakeLock/.test(wlSrc), true)
+  check('导出释放函数', /export function releaseWakeLock/.test(wlSrc), true)
+  check('PARTIAL_WAKE_LOCK 用字面量 1', /PARTIAL_WAKE_LOCK = 1/.test(wlSrc), true)
+  check('POWER_SERVICE 用字面量 "power"', /getSystemService\('power'\)/.test(wlSrc), true)
+  check('关掉引用计数（防释放不掉）', /setReferenceCounted\(false\)/.test(wlSrc), true)
+  check('acquire 带超时（防永久持有）', /lock\.acquire\(timeoutMs\)/.test(wlSrc), true)
+  check('wakeLock 有 plus 环境守卫', /typeof plus === 'undefined'/.test(wlSrc), true)
+
+  check('下载前获取唤醒锁', /acquireWakeLock\('FreeLedger:update'\)/.test(apiSrc), true)
+  check('下载结束释放唤醒锁', /releaseWakeLock\(\)/.test(apiSrc), true)
+  check('abort 也释放（覆盖取消路径）', /export function abortDownload\([\s\S]{0,400}?releaseWakeLock/.test(apiSrc), true)
+  check('拿不到锁不阻断下载', /locked \? '已持有' : '未获取'/.test(apiSrc), true)
+
+  // ② Promise 必定 settle
+  check('status 为 undefined 也 reject', /status === undefined[\s\S]{0,200}?下载被中断/.test(apiSrc), true)
+  check('不再用 status !== undefined 做前提', /else if \(status !== undefined\)/.test(apiCode), false)
+  check('导出 isDownloading', /export function isDownloading/.test(apiSrc), true)
+
+  // ③ store 自救
+  check('store 引入 isDownloading', /isDownloading/.test(storeSrc), true)
+  check('phase 卡住时强行复位', /phase === 'downloading' && !isDownloading\(\)/.test(storeSrc), true)
+}
 
 console.log('=== API 级别换算（真机日志：android=17 → api 曾算出 0）===')
 

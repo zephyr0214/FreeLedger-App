@@ -21,7 +21,7 @@
 import { defineStore } from 'pinia'
 import {
   checkUpdate as fetchCheck, downloadApk, installApk, cancelDownload,
-  openUnknownSourceSettings
+  openUnknownSourceSettings, isDownloading
 } from '@/api/update.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
@@ -109,6 +109,19 @@ export const useUpdateStore = defineStore('update', {
      *   （plus.downloader 支持续传，不会从头下）。
      */
     async confirmDownload() {
+      /*
+       * ★ ★ phase 卡在 downloading 时要能自救 ★ ★
+       *   用户反馈「把软件放在后台怎么下载就终止了」之后，
+       *    还会碰到一个次生问题：
+       *   下载被中断后如果回调没到达，phase 就永远停在 downloading，
+       *   用户再点「检查更新」请不出弹窗（dialogVisible 写 false）、
+       *   再点「立即下载」也被这个 if 挡住 —— 整个更新功能假死。
+       *   所以：phase 说下载中、但原生层已经没任务了 → phase 是脏的，强行复位。
+       */
+      if (this.phase === 'downloading' && !isDownloading()) {
+        console.warn('[update] phase 卡在 downloading 但无实际下载，重置为 idle')
+        this.phase = 'idle'
+      }
       if (this.phase !== 'idle' || !this.info) return
       this.phase = 'downloading'
 

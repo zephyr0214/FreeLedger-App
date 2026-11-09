@@ -12,6 +12,7 @@ import { confirmDialog } from '@/utils/dialog.js'
 import { catchUpCycles } from '@/api/cycle.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { useUpdateStore } from '@/stores/update.js'
+import { consumePendingInstall } from '@/api/update.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { clearSettingsCache } from '@/api/settings.js'
@@ -192,6 +193,7 @@ export default {
     // #ifdef APP-PLUS
     this.bindIncomingListener()
     this.consumeIncomingFile()
+    this.consumeInstallIntent()
     // #endif
 
     // 7) 检查更新（静默）：每次开屏查一次 Gitee 最新发行版。
@@ -233,6 +235,16 @@ export default {
      */
     // #ifdef APP-PLUS
     this.consumeIncomingFile(120)
+    /*
+     * ★ 点通知栏回来要拉安装器（bug 修复）★
+     *   用户反馈：「下载完成后，点击通知栏为什么不能跳转到安装页面呢」。
+     *   原因是通知没挂点击意图；现在挂了，但意图只能把 App 拉回前台，
+     *   安装这一步得在 App 这边做 —— 所以 onShow 里必须读一次 Intent。
+     *
+     *   延时 300ms：先让 onShow 里其它初始化（主题、tabBar、待办）跑完，
+     *   再拉安装界面 —— 否则安装界面一开，后面那些刷新全是白做。
+     */
+    setTimeout(() => { this.consumeInstallIntent() }, 300)
     // #endif
 
     // 周期自动补记：每次进前台都跑一次。
@@ -309,6 +321,21 @@ export default {
      */
     bindIncomingListener() {
       if (this.offIncoming) return
+      /*
+       * ★ 同一个 newintent 事件还要管「点通知栏」（bug 修复）★
+       *   shareIntent 那边只关心「有没有文件要导入」，
+       *   而点通知栏回来时 Intent 里带的是安装包路径 ——
+       *   两件事都靠同一个入口，所以在这里并行挂一个监听。
+       *
+       *   不能合并到 installIncomingListener 里：
+       *   那个函数在 api/shareIntent.js，职责是「文件导入」，
+       *   把安装逻辑塞进去会让两个不相干的功能缠在一起。
+       */
+      try {
+        plus.globalEvent.addEventListener('newintent', this.onNewIntentForInstall)
+      } catch (e) {
+        console.warn('[app] newintent 监听（安装引导）失败:', e && e.message)
+      }
       try {
         this.offIncoming = installIncomingListener({
           silent: true,
@@ -325,6 +352,44 @@ export default {
         })
       } catch (e) {
         console.warn('[app] newintent 监听失败，将依赖 onShow 兜底:', e && e.message)
+      }
+    },
+
+    /**
+     * newintent 回调（安装引导专用）
+     *
+     * ★ 为什么要在这里再调一次 ★
+     *   App 在后台时点通知栏，系统走 Activity.onNewIntent，
+     *   不会重跑 onLaunch。onShow 也会跑，但部分机型上 onShow
+     *   拿到的 Intent 可能还是旧的（newintent 反而更早）。
+     *   两条都挂，去重在 api/update.js 里，不会重复弹安装界面。
+     *
+     * 延时 300ms 同 onShow 那边：先让页面恢复再拉系统界面。
+     */
+    onNewIntentForInstall() {
+      setTimeout(() => { this.consumeInstallIntent() }, 300)
+    },
+
+    /**
+     * 读一次启动 Intent：如果是「点通知栏回来」，拉起安装器。
+     *
+     * ★ 为什么放在 App.vue 而不在 store 里 ★
+     *   它不是一次「用户点了什么」的动作，而是**启动时的环境检查** ——
+     *   和上面的外部打开导入同类（都是「读 Intent，然后做一件事」）。
+     *   放 store 里会变成一个没人调的 action，反而更难找。
+     *
+     * ★ 三个时机都会调 ★
+     *   onLaunch（冷启动）、onShow（从后台回来）、
+     *   以及 api/shareIntent.js 的 newintent 回调（部分机型只走这条）。
+     *   api/update.js 里有「同一路径只处理一次」的去重，
+     *   所以调多了不会连弹两次安装界面。
+     */
+    async consumeInstallIntent() {
+      try {
+        const res = await consumePendingInstall()
+        if (res && res.handled) console.log('[app] 已从通知栏引导安装:', res.path)
+      } catch (e) {
+        console.warn('[app] 读取安装引导失败:', e && e.message)
       }
     },
 

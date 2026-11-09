@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.23.7'
+export const APP_VERSION = '1.23.8'
 
 /**
  * 三段式版本号（兜底补零）
@@ -144,6 +144,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *     v1.23.5 schema 23   修复报销页多选入口、tab 样式统一、暗色卡片分层
  *     v1.23.6 schema 23   删除预算结转、预算执行口径修正、胶囊改样、首页子预算折叠
  *     v1.23.7 schema 23   报销单撤销、日趋势拖动查看、应收含待报销、借还页统一主题色
+ *     v1.23.8 schema 23   后台下载不中断、通知栏可安装、更新功能不再假死
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -154,6 +155,26 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.23.8',
+    date: '2026-11-09',
+    schemaVersion: 23,
+    sections: [
+      {
+        title: '优化',
+        items: [
+          '更新包下载期间持唤醒锁，退到后台不会中断'
+        ]
+      },
+      {
+        title: '修复',
+        items: [
+          '点击通知栏无法跳到安装页面',
+          '后台下载中断后更新功能假死，无法重试'
+        ]
+      }
+    ]
+  },
   {
     version: '1.23.7',
     date: '2026-11-09',

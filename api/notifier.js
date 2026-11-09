@@ -83,6 +83,23 @@ const NOTIFICATION_SERVICE = 'notification'   // org string of Context.NOTIFICAT
 const IMPORTANCE_LOW = 2                      // NotificationManager.IMPORTANCE_LOW
 
 /**
+ * 通知点击时携带「安装包路径」的 Intent extra 键名
+ *
+ * ★ 为什么要自己定一个键 ★
+ *   弹出通知后点它，系统只会把应用拉回前台，
+ *   **不会**替我们去调 plus.runtime.install。
+ *   现在把路径写进启动 Intent，App 回前台时读出来再安装一次，
+ *   才算真正「点通知就去安装」。
+ */
+export const INSTALL_EXTRA_KEY = 'freecount_install_apk'
+
+/** Intent / PendingIntent 的 flag 字面量（同样避开静态字段） */
+const INTENT_FLAG_CLEAR_TOP = 0x04000000      // Intent.FLAG_ACTIVITY_CLEAR_TOP
+const INTENT_FLAG_SINGLE_TOP = 0x20000000     // Intent.FLAG_ACTIVITY_SINGLE_TOP
+const PI_FLAG_UPDATE_CURRENT = 0x08000000     // PendingIntent.FLAG_UPDATE_CURRENT
+const PI_FLAG_IMMUTABLE = 0x04000000           // PendingIntent.FLAG_IMMUTABLE（Android 12+ 必选）
+
+/**
  * 创建通知栏进度器
  * @returns {{update:Function, done:Function, fail:Function}}
  */
@@ -104,6 +121,13 @@ export function createProgressNotifier() {
 
     const CHANNEL_ID = 'freecount_update'
     const NOTIFY_ID = 10010
+
+    /*
+     * 包名提前取出来：通知点击要用它拿启动 Intent。
+     * 下面小图标那一段也需要，提到这里变成共用变量。
+     */
+    let packageName = ''
+    try { packageName = String(main.getPackageName() || '') } catch (e) {}
 
     /* -------------------------------------------------- 权限 */
 
@@ -168,7 +192,7 @@ export function createProgressNotifier() {
     try {
       const res = main.getResources()
       plus.android.importClass(res)
-      const pkg = main.getPackageName()
+      const pkg = packageName || main.getPackageName()
 
       const candidates = ['notification', 'ic_notification', 'ic_launcher', 'icon']
       for (const name of candidates) {
@@ -219,6 +243,86 @@ export function createProgressNotifier() {
       return b
     }
 
+    /*
+     * ★ 构造「点通知→打开 App 并带上安装包路径」的 PendingIntent（bug 修复）★
+     *
+     * ★ 用户反馈 ★
+     *   「下载完成后，点击通知栏为什么不能跳转到安装页面呢」。
+     *
+     * ★ 根因 ★
+     *   done() 里发的那条通知**根本没设 setContentIntent**。
+     *   Android 上没有 contentIntent 的通知点下去就是一个纯饰边：
+     *   不会拉起应用、不会弹安装器、什么都不会发生。
+     *   之前只能靠「下载完自动调 plus.runtime.install」那一次机会，
+     *   用户一旦把那个安装界面关掉，就再也回不去了。
+     *
+     * ★ 为什么不能直接在这里调 plus.runtime.install ★
+     *   PendingIntent 只能携带一个 Intent（一个动作 + 一组 extra），
+     *   不能携带 JS 回调。所以只能把路径当 extra 传回去，
+     *   由 App 回前台时自己读出来再调 install。
+     *   读取在 App.vue（酸编排在那里，且同时覆盖 onLaunch / onShow / newintent）。
+     *
+     * @param {string} apkPath 已下载的 APK 本地路径；为空时只拉起 App
+     * @returns {object|null} PendingIntent，构造失败返回 null
+     */
+    function buildContentIntent(apkPath) {
+      try {
+        /*
+         * ★ 用 getLaunchIntentForPackage 而不是硬编码 Activity 类名 ★
+         *   DCloud 的启动 Activity 叫 io.dcloud.PandoraEntry，
+         *   但那是**6.x 基座的名字**。它在不同版本 / 不同打包配置下可能变，
+         *   硬编码一旦错了，点通知就会“什么都不发生”——和没挂意图一样难查。
+         *   用 PackageManager 向系统要「这个包的启动意图」，它返回的就是
+         *   Manifest 里声明了 MAIN/LAUNCHER 的那个，永远不会错。
+         */
+        let intent = null
+        try {
+          const pm = main.getPackageManager()
+          plus.android.importClass(pm)
+          intent = plus.android.invoke(pm, 'getLaunchIntentForPackage', packageName)
+        } catch (e) {
+          console.warn('[update] getLaunchIntentForPackage 失败:', e && e.message)
+        }
+
+        if (!intent) {
+          /*
+           * 降级：取不到启动意图时手动指定入口 Activity。
+           * 这个名字对当前基座（DCloud 6.x）是对的，
+           * 但前面那条路才是主路。
+           */
+          const Intent = plus.android.importClass('android.content.Intent')
+          intent = new Intent()
+          plus.android.importClass(intent)
+          intent.setClassName(packageName, 'io.dcloud.PandoraEntry')
+        }
+        plus.android.importClass(intent)
+
+        /*
+         * ★ FLAG_ACTIVITY_CLEAR_TOP | SINGLE_TOP ★
+         *   App 已在后台时不能新开一个实例，而是把现有的拉到前台。
+         *   不加这两个 flag 会出现「点通知又开了一个 App」的怪现象。
+         */
+        intent.addFlags(INTENT_FLAG_CLEAR_TOP | INTENT_FLAG_SINGLE_TOP)
+        if (apkPath) {
+          intent.putExtra(INSTALL_EXTRA_KEY, String(apkPath))
+        }
+
+        const PendingIntent = plus.android.importClass('android.app.PendingIntent')
+        /*
+         * requestCode 用固定值 1：
+         * 同一条通知重复发布时共用同一个 PendingIntent，
+         * 配 UPDATE_CURRENT 能让最新一次写入的 apk 路径生效。
+         * （不用 UPDATE_CURRENT 的话，extra 会停留在第一次创建的值上。）
+         */
+        return PendingIntent.getActivity(
+          main, 1, intent, PI_FLAG_UPDATE_CURRENT | PI_FLAG_IMMUTABLE
+        )
+      } catch (e) {
+        console.warn('[update] 构造通知点击意图失败:', e && e.message)
+        return null
+      }
+    }
+
     return {
       /** 更新进度（pct: 0~100，0 表示还在等总大小，用不确定进度条） */
       update(pct) {
@@ -232,14 +336,29 @@ export function createProgressNotifier() {
           console.warn('[update] 推送通知失败:', e && e.message)
         }
       },
-      /** 下载完成：撤掉进度条，提示点按安装 */
-      done() {
+      /**
+       * 下载完成：撤掉进度条，提示点按安装
+       *
+       * @param {string} [apkPath] 已下载的 APK 路径
+       *   传了就把它写进通知的点击意图，
+       *   用户点通知栏 → App 回前台 → 自动拉起安装器（bug 修复）。
+       *   不传就只拉起 App（降级行为，总比点下去没反应强）。
+       */
+      done(apkPath) {
         try {
           const b = makeBuilder('更新已下载', '点按通知栏即可安装')
           b.setOngoing(false)
           b.setAutoCancel(true)
           plus.android.importClass(b)
+          /*
+           * ★ 关键一步：给通知挂上点击意图 ★
+           *   没这一句，通知就是个纯饰边 ——
+           *   点下去既不拉起 App，也不弹安装器，什么都不会发生。
+           */
+          const pi = buildContentIntent(apkPath)
+          if (pi) b.setContentIntent(pi)
           nm.notify(NOTIFY_ID, b.build())
+          console.warn('[update] 完成通知已发出，带安装路径=' + (apkPath ? '是' : '否'))
         } catch (e) {
           console.warn('[update] 完成通知失败:', e && e.message)
         }
