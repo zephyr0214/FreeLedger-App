@@ -17,7 +17,7 @@
     <block v-else>
       <AppHeader @avatar-click="goProfile">
         <template #right>
-          <HeaderAction @action-click="goAiChat">AI 助手</HeaderAction>
+          <HeaderAction @action-click="goAiChat">智能助手</HeaderAction>
         </template>
       </AppHeader>
 
@@ -864,7 +864,7 @@ export default {
   padding: 0 32rpx;
 }
 
-/* AI 助手按钮已抽成 components/HeaderAction.vue，
+/* 智能助手按钮已抽成 components/HeaderAction.vue，
    首页 / 统计页 / 账户页 / 我的页 共用同一套样式 */
 
 .guide-area {

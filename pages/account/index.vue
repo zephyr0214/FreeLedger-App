@@ -2,7 +2,7 @@
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader @avatar-click="goProfile">
       <template #right>
-        <HeaderAction @action-click="goAddAccount">+ 添加账户</HeaderAction>
+        <HeaderAction @action-click="goAddAccount">添加账户</HeaderAction>
       </template>
     </AppHeader>
 

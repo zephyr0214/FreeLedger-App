@@ -73,9 +73,15 @@ console.log('=== 四个页面的用法要能真正渲染出文字 ===')
 
 // 每个页面：插槽形式 + text prop 形式，都应该产出可渲染的代码
 const PAGES = [
-  { rel: 'pages/index/index.vue', label: '首页 AI 助手' },
-  { rel: 'pages/stats/index.vue', label: '统计页 AI 助手' },
-  { rel: 'pages/account/index.vue', label: '账户页 + 添加账户' },
+  /*
+   * ★ 字案已改（用户要求）★
+   *   「AI 助手」→「智能助手」，「+ 添加账户」→「添加账户」。
+   *   这里的 label 只是测试输出里的人读标签，
+   *   但也一并改成新叫法，免得以后看日志以为页面又改回去了。
+   */
+  { rel: 'pages/index/index.vue', label: '首页 智能助手' },
+  { rel: 'pages/stats/index.vue', label: '统计页 组件管理' },
+  { rel: 'pages/account/index.vue', label: '账户页 添加账户' },
   { rel: 'pages/mine/index.vue', label: '我的页 关于与说明' }
 ]
 
