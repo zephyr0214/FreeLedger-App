@@ -410,7 +410,20 @@ console.log('=== 日趋势：点柱子在标题行正中间显示日期 + 支出
    *     4) 居中靠绝对定位（left:50% + translateX），不是 flex；
    *        card-head 必须 relative，否则读数会跑到屏幕外。
    */
-  check('柱子绑了点击', /@click="selectBar\(i\)"/.test(page), true)
+  /*
+   * ★ 从「点击」改成「按住拖动」（用户再次要求）★
+   *   用户原话：「丝滑一点，我在上面滑动他可以随心变这样，松开就不显示了」。
+   *   所以断言从「每根柱 @click」翻成：
+   *     1) 整片柱子区有一个触摸层，挂着 touchstart/move/end；
+   *     2) 没有逐柱的 click 了；
+   *     3) 松手（touchend / touchcancel）必须清掉选中。
+   */
+  check('柱子区有触摸层', /class="daily-touch"/.test(page), true)
+  check('按下时选中', /@touchstart="onTrendTouchStart"/.test(page), true)
+  check('拖动时跟手变', /@touchmove="onTrendTouchMove"/.test(page), true)
+  check('松手时消失', /@touchend="onTrendTouchEnd"/.test(page), true)
+  check('取消触摸也消失', /@touchcancel="onTrendTouchEnd"/.test(page), true)
+  check('不再逐柱绑 click', /@click="selectBar\(i\)"/.test(page), false)
   check('选中状态用下标存', /const selectedBarIndex = ref\(-1\)/.test(page), true)
   check('选中项有 computed', /const selectedBar = computed/.test(page), true)
   check(
@@ -429,7 +442,11 @@ console.log('=== 日趋势：点柱子在标题行正中间显示日期 + 支出
     /\.card-head\s*\{[\s\S]{0,120}?position:\s*relative/.test(page),
     true
   )
-  check('再点同一根可取消', /selectedBarIndex\.value === i \? -1 : i/.test(page), true)
+  check(
+    '松手就清空（不保留最后选中项）',
+    /function onTrendTouchEnd\(\) \{\s*selectedBarIndex\.value = -1/.test(page),
+    true
+  )
   check('换区间后清掉选中', /clearBarPick\(\)/.test(page), true)
   /*
    * ★ 默认不变色 ★

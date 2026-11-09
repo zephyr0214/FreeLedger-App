@@ -235,20 +235,37 @@
           <text class="card-sub">{{ trendSubtitle }}</text>
         </view>
         <view class="daily-chart">
-          <view class="daily-bars">
-            <view
-              v-for="(d, i) in dailyTrend"
-              :key="i"
-              class="daily-bar-wrap"
-              @click="selectBar(i)"
-            >
+          <!--
+            ★ 按住拖动就能从容滑动选中，松手就消失（用户本轮要求）★
+              用户原话：「丝滑一点，我在上面滑动他可以随心变这样，松开就不显示了」。
+
+            ★ 为什么从「每根柱 @click」改成「整块一个触摸层」 ★
+              1) 每根柱各绑一个 click，手指从一根划到另一根没法“随心变”——
+                 touchmove 不会触发别的元素的 click，不能跟手；
+              2) 柱子可能很短（零花销的日子高度 0），根本点不中；
+              3) 整块一个层能用 touchmove 算出手指在第几根上，跟手丝滑。
+          -->
+          <view
+            class="daily-touch"
+            @touchstart="onTrendTouchStart"
+            @touchmove="onTrendTouchMove"
+            @touchend="onTrendTouchEnd"
+            @touchcancel="onTrendTouchEnd"
+          >
+            <view class="daily-bars">
               <view
-                class="daily-bar"
-                :style="{
-                  height: barHeight(d.expense) + '%',
-                  backgroundColor: d.expense > 0 ? barColor(i) : 'transparent'
-                }"
-              />
+                v-for="(d, i) in dailyTrend"
+                :key="i"
+                class="daily-bar-wrap"
+              >
+                <view
+                  class="daily-bar"
+                  :style="{
+                    height: barHeight(d.expense) + '%',
+                    backgroundColor: d.expense > 0 ? barColor(i) : 'transparent'
+                  }"
+                />
+              </view>
             </view>
           </view>
 
@@ -671,7 +688,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, getCurrentInstance } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import StatsComparePanel from '@/components/StatsComparePanel.vue'
@@ -685,6 +702,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { donutToDataUri } from '@/utils/donut.js'
+import { clientXToChartX } from '@/utils/chart.js'
 import {
   getOverviewRange, getCategoryStatsRange, getSubCategoryStatsRange,
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
@@ -1491,6 +1509,9 @@ export default {
       if (!settingStore.loaded) await settingStore.load()
       await loadPanelSettings()
       await loadAll()
+      // 日趋势拖动选中要知道柱子区的屏幕位置，
+      // 等数据渲染完了才量得准（此时 .daily-touch 已存在）
+      setTimeout(measureTrend, 60)
     })
 
     onShow(async () => {
@@ -1671,20 +1692,93 @@ export default {
       return dailyTrend.value[i]
     })
 
-    /**
-     * 点柱子：再点一次同一根就取消选中
-     *
-     * ★ 为什么要能取消 ★
-     *   用户要求「不点击则不显示」。
-     *   只能选不能取消的话，点一次就永远有一个选中项挂在标题上，
-     *   回不到「没点」的干净状态。
-     */
-    function selectBar(i) {
-      selectedBarIndex.value = selectedBarIndex.value === i ? -1 : i
+    /** 清掉选中状态（换区间 / 切粒度 / 松手时调） */
+    function clearBarPick() {
+      selectedBarIndex.value = -1
     }
 
-    /** 清掉选中状态（换区间 / 切粒度时调） */
-    function clearBarPick() {
+    /* ------------------------------------------------ 点住拖动选中 */
+
+    /**
+     * 柱子区域的位置（视口坐标）
+     *
+     * ★ 为什么要量它 ★
+     *   touchmove 给的是**视口坐标**，而我们需要的是「手指在第几根柱上」。
+     *   得先知道柱子区左边界和宽度，才能把 clientX 换算成 0~1 的比例。
+     *
+     * ★ 为什么缓存而不是每次现量 ★
+     *   createSelectorQuery 是异步的，在 touchmove 里等它回来会慢一拍，
+     *   跟手会很明显地延迟。模式与 components/SmoothLineChart.vue 一致：
+     *   挂载后量一次，首次触摸时再兜底量一次（页面滚动后位置会变）。
+     */
+    const trendRect = ref(null)
+
+    function measureTrend() {
+      try {
+        const query = uni.createSelectorQuery().in(getCurrentInstance().proxy)
+        query.select('.daily-touch').boundingClientRect((r) => {
+          if (r && r.width) trendRect.value = { left: r.left, width: r.width }
+        }).exec()
+      } catch (e) {
+        // 量不到就走 clientXToChartX 的内部兜底，不报错
+      }
+    }
+
+    /**
+     * 把触摸点换算成柱子下标
+     *
+     * ★ 算法 ★
+     *   每根柱平分整个宽度（.daily-bar-wrap 是 flex:1），
+     *   所以下标 = floor(比例 × 总数)，越界夹到两端。
+     *
+     * ★ 量不到容器时怎么办 ★
+     *   不能拿 {left:0, width:1} 去算 —— 那会把任何 clientX 都算成比例 1，
+     *   每次按下都选中**最后一根**。
+     *   这里按「窗口宽 - 页面左右各 32rpx 内边距」估算，
+     *   和 components/SmoothLineChart.vue 的兜底算法一致。
+     */
+    function trendRectOrDefault() {
+      if (trendRect.value && trendRect.value.width > 0) return trendRect.value
+      let winWidth = 375
+      try { winWidth = uni.getSystemInfoSync().windowWidth || 375 } catch (e) {}
+      // 32rpx 在 750rpx 设计稿上换算成 px，左右各一份
+      const padPx = (32 / 750) * winWidth
+      return { left: padPx, width: Math.max(winWidth - padPx * 2, 1) }
+    }
+
+    function indexAtClientX(clientX) {
+      const n = dailyTrend.value.length
+      if (n <= 0) return -1
+      const rect = trendRectOrDefault()
+      // 换算成 0~1 的比例：vbWidth 传 1，得到的就是比例值
+      const ratio = clientXToChartX(clientX, rect.left, rect.width, 1)
+      const i = Math.floor(ratio * n)
+      return Math.max(0, Math.min(n - 1, i))
+    }
+
+    function onTrendTouchStart(e) {
+      const t = e.touches && e.touches[0]
+      if (!t) return
+      // 第一次触摸时容器可能还没量过；页面滚动后位置也变了，每次按下重量一次最稳
+      measureTrend()
+      selectedBarIndex.value = indexAtClientX(t.clientX)
+    }
+
+    function onTrendTouchMove(e) {
+      const t = e.touches && e.touches[0]
+      if (!t) return
+      const i = indexAtClientX(t.clientX)
+      if (i !== selectedBarIndex.value) selectedBarIndex.value = i
+    }
+
+    /**
+     * 松手就不显示了（用户本轮要求）
+     *
+     * ★ 没有任何延时、也不保留最后一个选中项 ★
+     *   用户原话「松开就不显示了」——
+     *   这是一个「透视鲜卡」式的临时查看，不是选中一个固定项。
+     */
+    function onTrendTouchEnd() {
       selectedBarIndex.value = -1
     }
 
@@ -1715,7 +1809,8 @@ export default {
       categoryTotal, categoryDonutUri, accountTotal, accountTypeTotal,
       accountViewList, accountViewDonutUri,
       dailyExtremes,
-      selectedBarIndex, selectedBar, selectBar, barColor,
+      selectedBarIndex, selectedBar, barColor,
+      onTrendTouchStart, onTrendTouchMove, onTrendTouchEnd,
       barHeight, shortDay,
       // 组件管理（面板顺序与显隐）
       statsPanels, visiblePanels, panelVisible, panelOrderStyle,
@@ -2347,6 +2442,30 @@ export default {
 /* 日趋势 */
 .daily-chart {
   padding-top: 12rpx;
+}
+
+/*
+ * 柱子区的触摸层
+ *
+ * ★ 为什么要它包住整片柱子区 ★
+ *   手指不可能每次都点在柱子上（零花销的日子柱高 0），
+ *   而且跟手滑动时手指会离开柱顶。
+ *   一个盖住整片区域的透明层，能接到这一片里所有的触摸。
+ *
+ * ★ 绝不能在这里 preventDefault / .prevent ★
+ *   这个页面在 scroll-view 里，一旦把 touchmove 的默认行为阻止，
+ *   整个图表区域就能不能滚页面了 ——
+ *   用户想往下滑看别的面板，结果卡在这里。
+ *   这里只读触摸坐标（touchstart/move 都不阻止默认）。
+ *
+ * ★ padding-bottom 把坐标轴上方的空白也包进来 ★
+ *   否则拖到柱底下方就断了，手感不连续。
+ */
+.daily-touch {
+  padding-bottom: 8rpx;
+  /* 拖动柱子时不让浏览器去做文本选择（否则反复拖会出现蓝底） */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .daily-bars {
