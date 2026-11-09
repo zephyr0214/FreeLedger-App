@@ -214,16 +214,17 @@
       <!-- ③ 趋势 -->
       <view v-if="panelVisible('trend')" class="card" :style="panelOrderStyle('trend')">
         <!--
-          标题行：标题（左）+ 点中柱的日期与金额（正中间）+ 副标题（右）
+          标题行：标题（左）+ 右侧一个位置两种内容
 
-          ★ 用户本轮要求 ★
-            用户原话：「手点击某个柱的时候，它在和日趋势同一行的正中间
-            日期+支出金额，不点击则不显示」。
-
-          ★ 为什么用绝对定位而不是 flex 居中 ★
-            左边标题、右边副标题宽度不同，用 flex 分配剩余空间的话，
-            「正中间」会偏向宽的一侧。left:50% + translateX(-50%) 才是
-            相对整张卡片的几何中心。
+          ★ 右侧是「互斥的两个状态」，不是两个元素（用户本轮要求）★
+            用户原话：「显示在中间有点丑，靠右对齐替代掉『每日支出』四个字吧，
+            松手则还原这四个字」。
+            所以它不是「在副标题旁边再加一个读数」，
+            而是「同一个位置上二选一」：
+              没按下  → 副标题「每日支出」
+              按住拖动 → 换成「11/9 · ¥123.45」
+              松手    → 又变回「每日支出」
+            这样标题行宽度恒定，不会因为多了一段字而拖得很长。
         -->
         <view class="card-head">
           <text class="card-title">{{ trendTitle }}</text>
@@ -232,7 +233,7 @@
             <text class="head-pick-dot">·</text>
             <MoneyText :cents="selectedBar.expense" type="expense" :size="22" />
           </view>
-          <text class="card-sub">{{ trendSubtitle }}</text>
+          <text v-else class="card-sub">{{ trendSubtitle }}</text>
         </view>
         <view class="daily-chart">
           <!--
@@ -2178,17 +2179,7 @@ export default {
   margin-bottom: 24rpx;
 }
 
-/*
- * 卡片标题行
- *
- * ★ position: relative 是必需的 ★
- *   日趋势卡片要在这一行的**几何正中心**显示点中柱的日期与金额，
- *   用的是 left: 50% + translateX(-50%)（见 .head-pick）。
- *   如果这里不写 relative，它会去找离它最近的定位祖先，
- *   结果是相对整页面居中 —— 偏到屏幕外面去。
- */
 .card-head {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2409,23 +2400,19 @@ export default {
 }
 
 /*
- * 标题行正中的「点中柱」读数
+ * 标题行右侧的「点中柱」读数（替代副标题）
  *
- * ★ 为什么用绝对定位 ★
- *   标题行是 flex + space-between，左右两个元素宽度不同，
- *   中间那个元素只能“自己找中间”，否则跟它一起被挤歪。
- *   left: 50% + translateX(-50%) = 相对整条标题行的几何中心，
- *   不受左右两侧内容宽度影响，也不占用 flex 的排布位置。
+ * ★ 为什么去掉了绝对定位 ★
+ *   上一版把它放在标题行正中间，用户反馈「显示在中间有点丑」。
+ *   现在它就是标题行右侧那个位置 —— 和副标题互斥，
+ *   没按下时显示「每日支出」，按住时换成日期与金额。
+ *   所以这里只需要普通的 flex 对齐，不再需要 left/transform。
  */
 .head-pick {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   align-items: baseline;
   gap: 6rpx;
-  /* 指针不能挡住左右两侧（标题可点、副标题可读） */
-  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .head-pick-day {

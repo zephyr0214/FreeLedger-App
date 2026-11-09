@@ -431,15 +431,27 @@ console.log('=== 日趋势：点柱子在标题行正中间显示日期 + 支出
     /class="card-head"[\s\S]{0,400}?class="head-pick"/.test(page),
     true
   )
-  check('没点击时不渲染', /v-if="selectedBar"[^>]*class="head-pick"|class="head-pick"/.test(page), true)
+  /*
+   * ★ 读数从「正中间」改到「靠右」（用户再次要求）★
+   *   用户原话：「显示在中间有点丑，靠右对齐替代掉『每日支出』四个字吧，
+   *   松手则还原这四个字」。
+   *   所以：
+   *     1) 读数和副标题是**互斥的两个分支**（v-if / v-else），不是并存；
+   *     2) 不再用绝对定位居中。
+   */
   check(
-    '读数居中靠绝对定位',
-    /\.head-pick\s*\{[\s\S]{0,200}?position:\s*absolute[\s\S]{0,200}?translateX\(-50%\)/.test(page),
+    '读数与副标题互斥（v-if / v-else）',
+    /v-if="selectedBar" class="head-pick"[\s\S]{0,400}?v-else class="card-sub"/.test(page),
     true
   )
   check(
-    '标题行是定位父容器',
-    /\.card-head\s*\{[\s\S]{0,120}?position:\s*relative/.test(page),
+    '读数不再用绝对定位居中',
+    /\.head-pick\s*\{[\s\S]{0,200}?position:\s*absolute/.test(page),
+    false
+  )
+  check(
+    '读数靠右（flex 对齐）',
+    /\.head-pick\s*\{[\s\S]{0,160}?display:\s*flex[\s\S]{0,160}?flex-shrink:\s*0/.test(page),
     true
   )
   check(
