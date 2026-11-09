@@ -427,6 +427,29 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
    *     4) 点折叠不能冒泡到预算页（@click.stop）。
    */
   check('首页有子预算折叠开关', /class="ov-subbudget-toggle"/.test(idx), true)
+  /*
+   * ★ 折叠条在月预算的右下角（用户本轮要求）★
+   *   用户原话：「首页，子预算的折叠文字显示在月预算的右下角」。
+   *   实现方式：把折叠条放进 .ov-budget-foot（已用/总额那行），
+   *   并且脚行改成两端对齐 —— 金额在左、折叠条在右。
+   */
+  check(
+    '折叠条在月预算的脚行里',
+    /class="ov-budget-foot"[\s\S]{0,700}?class="ov-subbudget-toggle"/.test(idx),
+    true
+  )
+  check(
+    '脚行两端对齐（金额在左、折叠在右）',
+    /\.ov-budget-foot\s*\{[\s\S]{0,150}?justify-content:\s*space-between/.test(idx),
+    true
+  )
+  check('只剩一处折叠条（不再单独占一行）', (idx.match(/class="ov-subbudget-toggle"/g) || []).length, 1)
+  /*
+   * 文案是「子预算 X项」（用户指定）
+   *   不带中间点、不带空格：脚行右侧空间小，
+   *   字数越少越不会和左边的金额挤在一起。
+   */
+  check('折叠文案是「子预算 X项」', /子预算 \{\{ categoryBudgets\.length \}\}项/.test(idx), true)
   check('折叠开关绑了切换函数', /@click\.stop="toggleSubBudgets"/.test(idx), true)
   check('子预算列表受折叠控制', /v-if="!subBudgetsCollapsed"/.test(idx), true)
   check('状态存 setting（重启后还记得）', /setSetting\('subBudgetsCollapsed'/.test(idx), true)

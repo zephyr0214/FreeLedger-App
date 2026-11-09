@@ -134,31 +134,52 @@
                   }"
                 />
               </view>
+              <!--
+                脚行：左下角是已用 / 总额，右下角是子预算折叠条（用户本轮要求）
+
+                ★ 用户原话 ★
+                  「首页，子预算的折叠文字显示在月预算的右下角」。
+
+                ★ 为什么放在脚行而不是另起一行 ★
+                  脚行右侧本来就是空的（百分比已经上移到头行）。
+                  把折叠条放进去，既填了那块空白，又不多占一行高度 ——
+                  概览卡本来就很高，能少一行是一行。
+
+                ★ @click.stop 不能少 ★
+                  外层 .ov-budgets 整块是「点一下进预算页」，
+                  不阻止冒泡就会「想展开结果跳页了」。
+              -->
               <view class="ov-budget-foot">
                 <view class="ov-budget-amount">
                   <MoneyText :cents="totalBudget.used" :size="20" color="var(--app-text-3)" />
                   <text class="ov-budget-slash">/</text>
                   <MoneyText :cents="totalBudget.limit" :size="20" color="var(--app-text-3)" />
                 </view>
+                <view
+                  v-if="categoryBudgets.length > 0"
+                  class="ov-subbudget-toggle"
+                  @click.stop="toggleSubBudgets"
+                >
+                  <text class="ov-subbudget-toggle-text">子预算 {{ categoryBudgets.length }}项</text>
+                  <text
+                    class="ov-subbudget-toggle-arrow"
+                    :class="{ open: !subBudgetsCollapsed }"
+                  >›</text>
+                </view>
               </view>
             </view>
 
             <!--
-              子预算折叠条
-
-              ★ 为什么要 @click.stop ★
-                外层 .ov-budgets 整块是「点一下进预算页」。
-                不阻止冒泡的话，点展开/折叠会同时跳转页面 ——
-                用户永远折不上。
+              兜底：只有子预算、没有月预算（老数据 / 导入异常）时，
+              脚行不存在，折叠条就没地方放 —— 这时单独占一行。
+              （正常情况下不会出现：没月预算不允许建子预算，但老库里可能残留。）
             -->
             <view
-              v-if="categoryBudgets.length > 0"
-              class="ov-subbudget-toggle"
+              v-if="!totalBudget && categoryBudgets.length > 0"
+              class="ov-subbudget-toggle ov-subbudget-toggle-standalone"
               @click.stop="toggleSubBudgets"
             >
-              <text class="ov-subbudget-toggle-text">
-                子预算 · {{ categoryBudgets.length }} 项
-              </text>
+              <text class="ov-subbudget-toggle-text">子预算 {{ categoryBudgets.length }}项</text>
               <text
                 class="ov-subbudget-toggle-arrow"
                 :class="{ open: !subBudgetsCollapsed }"
@@ -1042,10 +1063,18 @@ export default {
  *   不要用 space-between —— 那会在只有一个子元素时也把它推到最左，
  *   行为一样但语义不清（将来加元素会立刻变成两端对齐）。
  */
+/*
+ * 脚行：左边已用 / 总额，右边子预算折叠条
+ *
+ * ★ 从 flex-start 改成 space-between ★
+ *   用户要求把折叠文字放到「月预算的右下角」。
+ *   脚行右侧本来是空的，现在刚好装下它。
+ */
 .ov-budget-foot {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
 }
 
 .ov-budget-amount {
@@ -1067,10 +1096,23 @@ export default {
  *   而大多数时候用户只想看月预算那一条。
  *   它只是一行小字，不抢以下任何一条预算的注意力。
  */
+/*
+ * 子预算折叠条
+ *
+ * ★ 两种位置共用同一套样式 ★
+ *   常规：在月预算的脚行右侧（用户本轮要求）；
+ *   兜底：没有月预算时单独占一行（.ov-subbudget-toggle-standalone）。
+ *   两者只差一个外距，不值得写两份。
+ */
 .ov-subbudget-toggle {
   display: flex;
   align-items: center;
   gap: 8rpx;
+  flex-shrink: 0;
+}
+
+/* 兜底版：单独占一行时自己补一点上下留白 */
+.ov-subbudget-toggle-standalone {
   padding: 4rpx 0 2rpx;
 }
 
