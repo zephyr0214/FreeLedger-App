@@ -13,3 +13,6 @@ androidPrivacy.json
 
 # 调研助手写的临时笔记，不进仓库
 .team/
+
+# Windows 保留设备名（CON/PRN/AUX/NUL 等）被某个命令误创建的空文件，别提交
+CON
