@@ -194,7 +194,7 @@
  */
 import { computed } from 'vue'
 import MoneyText from './MoneyText.vue'
-import { compareRangeLabel, percentText, percentOnly, balanceChangePercent } from '@/utils/compareRange.js'
+import { compareRangeLabel, balanceChangePercent } from '@/utils/compareRange.js'
 
 export default {
   name: 'StatsComparePanel',
@@ -267,7 +267,17 @@ export default {
       const pct = p === 0 ? null : Math.round(((cur - p) / p) * 1000) / 10
       return {
         diff,
-        pctText: percentText(pct, cur),
+        /*
+         * ★ 百分比不带正负号（用户本轮要求）★
+         *   用户原话：「四个大的变化率的值还是箭头和符号共存的，
+         *   我要的是只保留箭头，不显示 +- 号」。
+         *
+         *   之前用 percentText()，它返回的是 '+12.3%' / '-8%'——
+         *   前面已经有一个 ↑/↓ 箭头了，再带一个正负号就是
+         *   同一件事说两遍（↑+12.3% / ↓-8%），看起来很乱。
+         *   用 absPercentText 只给绝对值：↑ 12.3% / ↓ 8%。
+         */
+        pctText: absPercentText(pct, cur),
         /*
          * ★ 用箭头代替正负号（用户第 9c 条）★
          *   上升 ↑ / 下降 ↓ / 持平—。与百分比同色，
@@ -300,7 +310,14 @@ export default {
        */
       const pct = balanceChangePercent(c.current.balance, c.previous.balance)
       return {
-        pctText: percentOnly(pct),
+        /*
+         * ★ 结余也一样：只给绝对值百分比，方向交给箭头 ★
+         *   这里不能用 absPercentText：它在 pct 为 null 时返回 '100%'，
+         *   那是「上期为 0」的语义；而结余的 null 是「上期结余 <= 0」，
+         *   算不出百分比，应当显示破折号。
+         */
+        pctText: pct === null || pct === undefined ? '—'
+          : `${Math.abs(Number(pct)) % 1 === 0 ? Math.abs(Number(pct)).toFixed(0) : Math.abs(Number(pct)).toFixed(1)}%`,
         arrow: balanceDiff.value > 0 ? '↑' : balanceDiff.value < 0 ? '↓' : '',
         color: balanceDiff.value > 0
           ? 'var(--app-success)'
@@ -418,7 +435,7 @@ export default {
     return {
       pickLevel, pickType,
       rangeHint, balanceDiff, top1, balancePart,
-      barWidth, diffColor, percentText,
+      barWidth, diffColor,
       absDiffText, absPercentText, arrowOf, arrowOfPct
     }
   }

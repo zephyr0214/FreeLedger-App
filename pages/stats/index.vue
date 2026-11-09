@@ -729,13 +729,11 @@ import {
 import { visibleStatsPanels, normalizeStatsPanels } from '@/utils/statsPanels.js'
 import { getSetting } from '@/api/settings.js'
 /*
- * 同比窗口换算与百分比文案
- * ★ 见 utils/compareRange.js：月末夹取、闰年、跨年、整年、超长区间
- *   五六个分支都在那里，且有 scripts/test-compare-range.mjs 钉着。
+ * ★ 同比 / 环比的引擎全在 components/StatsComparePanel.vue 里 ★
+ *   这个页面只负责拿 comparison 数据并把组件摆上去，
+ *   并不直接用 compareRange.js 的百分比文案函数。
+ *   （之前这里留了一整个 import，四个名字一个都没用到 —— 已删。）
  */
-import {
-  compareRangeLabel, percentText, percentOnly, balanceChangePercent
-} from '@/utils/compareRange.js'
 
 export default {
   components: { AppHeader, MoneyText, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog, StatsComparePanel },

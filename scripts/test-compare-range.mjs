@@ -11,11 +11,18 @@
  *   只能把每个边界写成断言。
  */
 
+import { readFileSync } from 'fs'
+import { join, dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
 import {
   shiftMonthClamped, shiftYearClamped, daySpanInclusive,
   buildCompareRange, changePercent, percentText, compareRangeLabel,
   balanceChangePercent, percentOnly
 } from '../utils/compareRange.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const ROOT = resolve(__dirname, '..')
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf-8')
 
 let pass = 0
 let fail = 0
@@ -245,6 +252,31 @@ console.log('=== 9. 徽标顺序（用户第 1 条）===')
   check('已报销徽标文案', B.buildTxnBadges({ reimburse_status: 2 }, {}).map((b) => b.name), ['已报销'])
   check('非借款类分类的备注不当人员徽标', B.buildTxnBadges({ note: '张三', category_name: '餐饮食品' }, {}), [])
   check('借款八类名单覆盖', B.LOAN_CATEGORY_NAMES.length, 8)
+}
+
+console.log('=== 四个大变化率：只显示箭头，不显示正负号 ===')
+
+{
+  const panel = read('components/StatsComparePanel.vue')
+
+  /*
+   * ★ 用户本轮要求 ★
+   *   「四个大的变化率的值还是箭头和符号共存的，
+   *   我要的是只保留箭头，不显示 +- 号」。
+   *
+   *   四个地方 = 支出变化 / 收入变化（同一个模板池）
+   *          + 结余变化 + 对应的环比面板（同一组件）。
+   *
+   *   所以断言看两面：
+   *     1) 百分比文案不能走带符号的 percentText / percentOnly；
+   *     2) 两处都用 absPercentText（或同等的取绝对值写法）。
+   */
+  check('支出/收入变化率不带符号', /pctText: absPercentText\(pct, cur\)/.test(panel), true)
+  check('不再调 percentText（带 +/-）', /pctText: percentText\(/.test(panel), false)
+  check('不再调 percentOnly（带 +/-）', /pctText: percentOnly\(/.test(panel), false)
+  check('结余变化率也取绝对值', /Math\.abs\(Number\(pct\)\)/.test(panel), true)
+  check('箭头仍然渲染在百分比前面', /class="cmp-top-arrow"[\s\S]{0,120}?class="cmp-top-pct"/.test(panel), true)
+  check('不再引入带符号的百分比工具', /percentText, percentOnly/.test(panel), false)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
