@@ -91,19 +91,29 @@
             </view>
           </view>
 
-          <!-- 下方：预算进度条（月预算 + 子预算）
-               ★ 四角排布 ★
-                 左上：预算名称 + 百分比（一眼看"花了多少比例"）
-                 左下：已用 / 总额（具体数字）
-                 右上：日均可用（"还能花多少"）
-                 右下：留空，不放内容
-               进度条夹在上下两行之间，视觉上仍是「头 → 条 → 脚」三段。 -->
+          <!--
+            下方：预算进度条（月预算 + 可折叠的子预算）
+
+            ★ 四角排布 ★
+              左上：预算名称 + 百分比（一眼看"花了多少比例"）
+              左下：已用 / 总额（具体数字）
+              右上：日均可用（"还能花多少"）
+              右下：留空，不放内容
+            进度条夹在上下两行之间，视觉上仍是「头 → 条 → 脚」三段。
+
+            ★ 子预算可折叠（用户本轮要求）★
+              用户原话：「首页概览页面设置子预算可折叠起来，
+              记住展开和折叠的状态」。
+              子预算一多，概览卡会被撞到一个屏幕都装不下，
+              而大多数时候用户只想看月预算那条。
+              状态存 setting 表（不存内存）：下次打开 App 仍然是你上次的选择。
+          -->
           <view
             v-if="totalBudget || categoryBudgets.length > 0"
             class="ov-budgets"
             @click="goBudget"
           >
-            <view class="ov-budget">
+            <view v-if="totalBudget" class="ov-budget">
               <view class="ov-budget-head">
                 <view class="ov-budget-head-left">
                   <text class="ov-budget-name">月预算</text>
@@ -133,35 +143,65 @@
               </view>
             </view>
 
-            <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
-              <view class="ov-budget-head">
-                <view class="ov-budget-head-left">
-                  <text class="ov-budget-name">{{ b.name }}</text>
-                  <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
-                    {{ b.percent }}%
+            <!--
+              子预算折叠条
+
+              ★ 为什么要 @click.stop ★
+                外层 .ov-budgets 整块是「点一下进预算页」。
+                不阻止冒泡的话，点展开/折叠会同时跳转页面 ——
+                用户永远折不上。
+            -->
+            <view
+              v-if="categoryBudgets.length > 0"
+              class="ov-subbudget-toggle"
+              @click.stop="toggleSubBudgets"
+            >
+              <text class="ov-subbudget-toggle-text">
+                子预算 · {{ categoryBudgets.length }} 项
+              </text>
+              <text
+                class="ov-subbudget-toggle-arrow"
+                :class="{ open: !subBudgetsCollapsed }"
+              >›</text>
+            </view>
+
+            <!--
+              ★ v-if 不能和 v-for 写在同一个元素上 ★
+                Vue 3 里 v-if 优先级高于 v-for，写在一起时 v-if
+                拿不到 v-for 的局部变量（这里是 b）——白屏。
+                所以折叠判断包一层 <template>，列表本身保持干净的 v-for。
+            -->
+            <template v-if="!subBudgetsCollapsed">
+              <view v-for="b in categoryBudgets" :key="b.id" class="ov-budget">
+                <view class="ov-budget-head">
+                  <view class="ov-budget-head-left">
+                    <text class="ov-budget-name">{{ b.name }}</text>
+                    <text class="ov-budget-pct" :style="{ color: b.over ? 'var(--app-danger)' : primaryColor }">
+                      {{ b.percent }}%
+                    </text>
+                  </view>
+                  <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
+                    日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(2) }}
                   </text>
                 </view>
-                <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                  日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(2) }}
-                </text>
-              </view>
-              <view class="ov-budget-bar">
-                <view
-                  class="ov-budget-fill"
-                  :style="{
-                    width: Math.min(b.percent, 100) + '%',
-                    backgroundColor: b.over ? 'var(--app-danger)' : primaryColor
-                  }"
-                />
-              </view>
-              <view class="ov-budget-foot">
-                <view class="ov-budget-amount">
-                  <MoneyText :cents="b.used" :size="20" color="var(--app-text-3)" />
-                  <text class="ov-budget-slash">/</text>
-                  <MoneyText :cents="b.limit" :size="20" color="var(--app-text-3)" />
+                <view class="ov-budget-bar">
+                  <view
+                    class="ov-budget-fill"
+                    :style="{
+                      width: Math.min(b.percent, 100) + '%',
+                      backgroundColor: b.over ? 'var(--app-danger)' : primaryColor
+                    }"
+                  />
+                </view>
+                <view class="ov-budget-foot">
+                  <view class="ov-budget-amount">
+                    <MoneyText :cents="b.used" :size="20" color="var(--app-text-3)" />
+                    <text class="ov-budget-slash">/</text>
+                    <MoneyText :cents="b.limit" :size="20" color="var(--app-text-3)" />
+                  </view>
                 </view>
               </view>
-            </view>
+            </template>
           </view>
         </view>
 
@@ -344,6 +384,7 @@ import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { useUiStore } from '@/stores/ui.js'
 import { getBudgetUsage } from '@/api/stats.js'
+import { getSetting, setSetting } from '@/api/settings.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
@@ -412,6 +453,27 @@ export default {
     const categoryBudgets = computed(
       () => budgets.value.filter((b) => b.scope === 'category')
     )
+
+    /*
+     * 子预算是否折叠（用户本轮要求）
+     *
+     * ★ 为什么存 setting 而不是存内存 ★
+     *   用户要的是「记住展开和折叠的状态」——
+     *   只存内存的话，下次冷启动 App 又变回默认值，
+     *   用户会觉得「我明明折起来了，怎么又展开了」。
+     *   跟 statsPanels 同一套做法：getSetting/setSetting 走 setting 表 KV。
+     *
+     * ★ 默认值 false = 默认展开 ★
+     *   刚装 App 的人不该先看到一个收起来的区块 ——
+     *   那会让人以为「子预算没了」。
+     */
+    const subBudgetsCollapsed = ref(false)
+
+    /** 切换子预算展开 / 折叠，立即写库 */
+    function toggleSubBudgets() {
+      subBudgetsCollapsed.value = !subBudgetsCollapsed.value
+      setSetting('subBudgetsCollapsed', subBudgetsCollapsed.value).catch(() => {})
+    }
 
     /** 预算剩余：优先用月预算，没有月预算就用子预算合计 */
     const budgetRemaining = computed(() => {
@@ -530,6 +592,14 @@ export default {
         budgets.value = await getBudgetUsage(txnStore.currentMonth)
       } catch (e) {
         budgets.value = []
+      }
+
+      // 子预算的折叠状态（跟预算数据一起刷，保证跨设备/跨启动一致）
+      try {
+        const collapsed = await getSetting('subBudgetsCollapsed', false)
+        subBudgetsCollapsed.value = collapsed === true
+      } catch (e) {
+        subBudgetsCollapsed.value = false
       }
     }
 
@@ -756,7 +826,8 @@ export default {
       showPanel, panelPreset,
       selectedDay, showQuickAdd, parsing, parsingText,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
-      totalBudget, categoryBudgets, budgetRemaining, recentGroups, showingAllToday,
+      totalBudget, categoryBudgets, budgetRemaining, subBudgetsCollapsed,
+      toggleSubBudgets, recentGroups, showingAllToday,
       shiftCalMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
@@ -986,6 +1057,38 @@ export default {
 .ov-budget-slash {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/*
+ * 子预算折叠条
+ *
+ * ★ 为什么需要它 ★
+ *   子预算一多，概览卡会被撞到一个屏幕都装不下，
+ *   而大多数时候用户只想看月预算那一条。
+ *   它只是一行小字，不抢以下任何一条预算的注意力。
+ */
+.ov-subbudget-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 4rpx 0 2rpx;
+}
+
+.ov-subbudget-toggle-text {
+  font-size: 21rpx;
+  color: var(--app-text-3);
+}
+
+/* 箭头：折叠时朝右，展开时转下 */
+.ov-subbudget-toggle-arrow {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+
+.ov-subbudget-toggle-arrow.open {
+  transform: rotate(90deg);
 }
 
 /* 最近收支的日期分组头 */

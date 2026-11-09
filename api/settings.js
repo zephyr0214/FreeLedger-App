@@ -132,6 +132,16 @@ export const DEFAULT_SETTINGS = {
    */
   engelFoodCategories: [],
 
+  /**
+   * 首页概览卡里的子预算是否折叠
+   *
+   * ★ 为什么存这里 ★
+   *   用户要求「记住展开和折叠的状态」。
+   *   放 setting 表的好处：下次冷启动、甚至备份导入到新机后也还是你选的那个状态。
+   *   默认 false（展开）：刚装 App 的人不应先看到一个收起来的区块。
+   */
+  subBudgetsCollapsed: false,
+
   // 数据
   autoBackup: true,
   lastBackupAt: 0

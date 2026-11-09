@@ -110,14 +110,42 @@ check('面板不再有 flags-wrap 包裹层', /flags-wrap/.test(PANEL), false)
 
 console.log('=== 2. AI 速记胶囊 ===')
 
+/*
+ * ★ 胶囊不再用主题色描边（用户本轮要求）★
+ *   用户原话：「优化一下 ai 记账上方两个小胶囊的样式，
+ *   尝试不是用主题色描边，但是不要和背景融为一体」。
+ *   所以断言从「必须有主题色描边」翻成：
+ *     1) 胶囊不能再描主题色；
+ *     2) 但必须有中性描边 + 投影（否则浅色下会和白卡片融成一片）。
+ */
 check(
-  '胶囊有主题色描边',
-  /\.qa-chip\s*\{[\s\S]{0,300}?border:\s*2rpx solid var\(--app-primary\)/.test(QUICK),
+  '胶囊不再用主题色描边',
+  /\.qa-chip\s*\{[\s\S]{0,400}?border:\s*2rpx solid var\(--app-primary\)/.test(QUICK),
+  false
+)
+check(
+  '胶囊用中性描边',
+  /\.qa-chip\s*\{[\s\S]{0,400}?border:\s*1rpx solid var\(--app-line\)/.test(QUICK),
   true
 )
 check(
-  '胶囊里的小方框也是主题色描边',
-  /\.qa-chip-box\s*\{[\s\S]{0,200}?border:\s*2rpx solid var\(--app-primary\)/.test(QUICK),
+  '胶囊有投影（否则和背景融为一体）',
+  /\.qa-chip\s*\{[\s\S]{0,600}?box-shadow:\s*0 2rpx 10rpx/.test(QUICK),
+  true
+)
+check(
+  '深色下胶囊投影加重',
+  /\.wot-theme-dark \.qa-chip\s*\{[\s\S]{0,200}?box-shadow:/.test(QUICK),
+  true
+)
+check(
+  '小方框未选中用中性灰描边',
+  /\.qa-chip-box\s*\{[\s\S]{0,220}?border:\s*2rpx solid var\(--app-text-3\)/.test(QUICK),
+  true
+)
+check(
+  '小方框选中才填主题色',
+  /\.qa-chip-box\.on\s*\{[\s\S]{0,160}?background-color:\s*var\(--app-primary\)/.test(QUICK),
   true
 )
 /*

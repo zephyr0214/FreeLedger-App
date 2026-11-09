@@ -908,11 +908,33 @@ export default {
 }
 
 /*
- * ★ 本轮用户第 2 条：两个胶囊都要主题色描边 ★
- *   底色保持卡片色（浮在页面内容上要有实体感），
- *   描边一律用 --app-primary；选中态再叠一层主题浅底，
- *   这样「有没有勾上」在深浅色模式下都一眼能分出来。
- *   描边用 2rpx（比卡片分割线粗一档），小尺寸胶囊才看得出是「描了边」。
+ * 两个胶囊（待报销 / 不计入预算）
+ *
+ * ★ 不再用主题色描边（用户本轮要求）★
+ *   用户原话：「优化一下 ai 记账上方两个小胶囊的样式，
+ *   尝试不是用主题色描边，但是不要和背景融为一体」。
+ *
+ *   为什么去掉主题色描边：
+ *     主题色描边在这里是「两件事说一遍」——
+ *     胶囊里已经有一个主题色的勾选框，再给整个胶囊描上同色边框，
+ *     两个小元素抢同一份注意力，看起来像「一个按钮里套了另一个按钮」。
+ *     浅色下尤其明显：绿边 + 绿框 + 绿勾，三层绿堆在一起反而脏。
+ *
+ *   那怎么保证不和背景融在一起：
+ *     靠**中性描边 + 投影**把它从背景里抬起来，而不是靠颜色叫喧。
+ *     1) 卡片色底（--app-card：浅色白、深色 #1C1C1E）——
+ *        它浮在普通页面内容上，白底与内容区分开；
+ *     2) 1rpx 中性描边（--app-line）——浅色下白底白底也有一圈轮廓，
+ *        深色下 #1C1C1E 底 + #2E2E31 边清楚地分出轮廓；
+ *     3) 投影（--app-shadow）——这是最关键的一层：
+ *        弹窗/悬浮元素「离开页面」的感觉靠得就是它。
+ *        没有投影时，浅色下白胶囊盖在白卡片上就是一块「真空」。
+ *
+ * ★ 选中态怎么表达 ★
+ *   不描主题色边了，就反过来用**主题浅底填充**：
+ *   底色一变，「点没点上」比描边更一目了然，而且不会和内部勾选框抢颜色。
+ *   用 --app-primary-light-solid（不透明）而不是 --app-primary-light（半透明）：
+ *   胶囊是圆角大、面积小的元素，半透明底在深色下会和投影叠在一起发灰。
  */
 .qa-chip {
   display: flex;
@@ -921,29 +943,59 @@ export default {
   padding: 10rpx 22rpx;
   border-radius: 999rpx;
   background-color: var(--app-card);
-  border: 2rpx solid var(--app-primary);
+  border: 1rpx solid var(--app-line);
+  /*
+   * 关键：没有这层投影，浅色下白胶囊会和白卡片融成一片。
+   *
+   * ★ 为什么不直接用 --app-shadow ★
+   *   那个是给整张卡片的（0 2rpx 16rpx），模糊半径大、浓度低，
+   *   小尺寸的胶囊用它几乎看不出投影。
+   *   这里用更小的半径 + 更集中的浓度，胶囊才像「浮在输入条上面」。
+   */
+  box-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.10);
 }
 
-/* 选中态：主题色描边 + 主题浅底 */
+/*
+ * 选中态：**只换底色**，描边仍然是中性色
+ *
+ * ★ 为什么选中也不给主题色描边 ★
+ *   用户要求的是「不用主题色描边」，如果选中了又浮出一圈绿边，
+ *   那只是把同一个问题推到了另一个状态里。
+ *   底色从卡片色 → 主题浅色，这个变化本身就够明显；
+ *   层级感仍然靠基础那层 --app-shadow 提供，不用叠。
+ */
 .qa-chip.on {
-  border-color: var(--app-primary);
-  background-color: var(--app-primary-light);
+  background-color: var(--app-primary-light-solid);
 }
 
-/* 锁死态（待报销时的「不计入预算」）：保留描边，只把整体压暗一点表示不可点 */
+/* 深色下需要更重的投影：黑底上 10% 的阴影几乎看不见，胶囊会漂在半空中 */
+.wot-theme-dark .qa-chip {
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.55);
+}
+
+/* 锁死态（待报销时的「不计入预算」）：只把整体压暗一点表示不可点 */
 .qa-chip.locked {
   opacity: 0.85;
 }
 
+/*
+ * 勾选框：未选中用中性灰描边，选中才填主题色
+ *
+ * ★ 为什么未选中不用主题色 ★
+ *   未选中时它只是一个「空位」，用主题色描边会让人以为
+ *   已经选上了（小忽得只看边框不看对勾）。
+ *   用 --app-text-3 的灰描边，「这里可以打勾」的暗示刚刚好。
+ */
 .qa-chip-box {
   width: 28rpx;
   height: 28rpx;
   border-radius: 6rpx;
-  border: 2rpx solid var(--app-primary);
+  border: 2rpx solid var(--app-text-3);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .qa-chip-box.on {
@@ -962,8 +1014,10 @@ export default {
   color: var(--app-text-2);
 }
 
+/* 选中后文字跟着加重，和浅底一起强化「已勾上」 */
 .qa-chip.on .qa-chip-text {
   color: var(--app-text);
+  font-weight: 500;
 }
 
 .quick-add-bar {

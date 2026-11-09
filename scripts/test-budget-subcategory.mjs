@@ -416,6 +416,22 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
 
   const idx = read('pages/index/index.vue')
   check('首页月预算文案', /<text class="ov-budget-name">月预算<\/text>/.test(idx), true)
+  /*
+   * ★ 子预算可折叠（用户本轮要求）★
+   *   用户原话：「首页概览页面设置子预算可折叠起来，
+   *   记住展开和折叠的状态」。
+   *   这里验证四件事：
+   *     1) 有折叠开关（点它切换）；
+   *     2) 展开 / 折叠真的控制子预算列表的显隐；
+   *     3) 状态存进 setting（重启后还记得）；
+   *     4) 点折叠不能冒泡到预算页（@click.stop）。
+   */
+  check('首页有子预算折叠开关', /class="ov-subbudget-toggle"/.test(idx), true)
+  check('折叠开关绑了切换函数', /@click\.stop="toggleSubBudgets"/.test(idx), true)
+  check('子预算列表受折叠控制', /v-if="!subBudgetsCollapsed"/.test(idx), true)
+  check('状态存 setting（重启后还记得）', /setSetting\('subBudgetsCollapsed'/.test(idx), true)
+  check('启动时读回折叠状态', /getSetting\('subBudgetsCollapsed'/.test(idx), true)
+  check('setting 里有默认值', /subBudgetsCollapsed:\s*false/.test(read('api/settings.js')), true)
 
   const txnSrc = read('api/transaction.js')
   check('交易筛选支持多类别', /categoryIds/.test(txnSrc), true)
