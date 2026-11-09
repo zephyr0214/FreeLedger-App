@@ -392,6 +392,65 @@ const styleVarsOnly = panelStyle
 const badHex = styleVarsOnly.filter((line) => !/#ffffff\b/i.test(line))
 check('样式里除了白色对勾没有写死颜色', badHex, [])
 
+/* ============================== 日趋势：点柱子看当天 */
+
+console.log('=== 日趋势：点柱子在标题行正中间显示日期 + 支出 ===')
+
+{
+  const page = read('pages/stats/index.vue')
+
+  /*
+   * ★ 用户本轮要求 ★
+   *   「手点击某个柱的时候，它在和日趋势同一行的正中间
+   *   日期+支出金额，不点击则不显示」。
+   *   这里把四件事钉住：
+   *     1) 柱子可点；
+   *     2) 读数在标题行（card-head）里，不是坐标轴里；
+   *     3) 没点击时不渲染（v-if）；
+   *     4) 居中靠绝对定位（left:50% + translateX），不是 flex；
+   *        card-head 必须 relative，否则读数会跑到屏幕外。
+   */
+  check('柱子绑了点击', /@click="selectBar\(i\)"/.test(page), true)
+  check('选中状态用下标存', /const selectedBarIndex = ref\(-1\)/.test(page), true)
+  check('选中项有 computed', /const selectedBar = computed/.test(page), true)
+  check(
+    '读数在标题行里（card-head）',
+    /class="card-head"[\s\S]{0,400}?class="head-pick"/.test(page),
+    true
+  )
+  check('没点击时不渲染', /v-if="selectedBar"[^>]*class="head-pick"|class="head-pick"/.test(page), true)
+  check(
+    '读数居中靠绝对定位',
+    /\.head-pick\s*\{[\s\S]{0,200}?position:\s*absolute[\s\S]{0,200}?translateX\(-50%\)/.test(page),
+    true
+  )
+  check(
+    '标题行是定位父容器',
+    /\.card-head\s*\{[\s\S]{0,120}?position:\s*relative/.test(page),
+    true
+  )
+  check('再点同一根可取消', /selectedBarIndex\.value === i \? -1 : i/.test(page), true)
+  check('换区间后清掉选中', /clearBarPick\(\)/.test(page), true)
+  /*
+   * ★ 默认不变色 ★
+   *   用户只要「点击后显示读数」，没要求把柱子改色。
+   *   所以无选中时必须返回原色（不降透明度）；
+   *   只有有选中项时才把其余柱变淡。
+   */
+  check('柱子颜色由 barColor 统一决定', /backgroundColor: d\.expense > 0 \? barColor\(i\)/.test(page), true)
+  check(
+    '无选中时柱子不变色',
+    /if \(selectedBarIndex\.value < 0\) return primaryColor\.value/.test(page),
+    true
+  )
+  check(
+    '有选中时其余柱变淡',
+    /return selectedBarIndex\.value === i \? primaryColor\.value : primaryColor\.value \+ '66'/.test(page),
+    true
+  )
+  check('坐标轴只剩首尾两个日期', /axis-pick/.test(page), false)
+}
+
 /* ==================================== 输出 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

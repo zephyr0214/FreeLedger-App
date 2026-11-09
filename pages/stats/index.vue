@@ -213,8 +213,25 @@
 
       <!-- ③ 趋势 -->
       <view v-if="panelVisible('trend')" class="card" :style="panelOrderStyle('trend')">
+        <!--
+          标题行：标题（左）+ 点中柱的日期与金额（正中间）+ 副标题（右）
+
+          ★ 用户本轮要求 ★
+            用户原话：「手点击某个柱的时候，它在和日趋势同一行的正中间
+            日期+支出金额，不点击则不显示」。
+
+          ★ 为什么用绝对定位而不是 flex 居中 ★
+            左边标题、右边副标题宽度不同，用 flex 分配剩余空间的话，
+            「正中间」会偏向宽的一侧。left:50% + translateX(-50%) 才是
+            相对整张卡片的几何中心。
+        -->
         <view class="card-head">
           <text class="card-title">{{ trendTitle }}</text>
+          <view v-if="selectedBar" class="head-pick">
+            <text class="head-pick-day">{{ selectedBar.label }}{{ trendUnit }}</text>
+            <text class="head-pick-dot">·</text>
+            <MoneyText :cents="selectedBar.expense" type="expense" :size="22" />
+          </view>
           <text class="card-sub">{{ trendSubtitle }}</text>
         </view>
         <view class="daily-chart">
@@ -223,16 +240,18 @@
               v-for="(d, i) in dailyTrend"
               :key="i"
               class="daily-bar-wrap"
+              @click="selectBar(i)"
             >
               <view
                 class="daily-bar"
                 :style="{
                   height: barHeight(d.expense) + '%',
-                  backgroundColor: d.expense > 0 ? primaryColor : 'transparent'
+                  backgroundColor: d.expense > 0 ? barColor(i) : 'transparent'
                 }"
               />
             </view>
           </view>
+
           <view class="daily-axis">
             <text class="axis-text">{{ dailyTrend.length ? dailyTrend[0].label + trendUnit : '—' }}</text>
             <text class="axis-text">{{ dailyTrend.length ? dailyTrend[dailyTrend.length - 1].label + trendUnit : '—' }}</text>
@@ -1158,6 +1177,26 @@ export default {
       return Math.round((v / maxDailyExpense.value) * 100)
     }
 
+    /**
+     * 柱子颜色
+     *
+     * ★ 没选中时与以前完全一样 ★
+     *   用户要求的是「点击后显示读数」，不是把图改成另一个样子。
+     *   所以默认状态下所有柱都是实心主题色，不降透明度。
+     *
+     * ★ 有选中时才把其他柱变淡 ★
+     *   30 根柱里只靠一行小字告诉你“选了哪一天”是不够的 ——
+     *   选中那根保持实心，其他降到 40%，对比一眼就出来了。
+     *
+     * @param {number} i 柱子下标
+     * @returns {string} 颜色值
+     */
+    function barColor(i) {
+      // 没有任何选中：全部实心，与改动前一致
+      if (selectedBarIndex.value < 0) return primaryColor.value
+      return selectedBarIndex.value === i ? primaryColor.value : primaryColor.value + '66'
+    }
+
     function shortDay(dayKey) {
       if (!dayKey) return ''
       const [, m, d] = dayKey.split('-')
@@ -1200,6 +1239,8 @@ export default {
         accountTypeStats.value = accTypes
         categoryAverages.value = catAvgs
         dailyTrend.value = daily
+        // 换了区间 / 粒度 → 原来的下标已经指不到那根柱了，直接清掉
+        clearBarPick()
         averages.value = avg
         topExpenses.value = top
         // 分类名映射（恩格尔标签用）：区间/层级变化都要更新
@@ -1614,6 +1655,39 @@ export default {
       }
     }
 
+    /*
+     * 日趋势里被点中的柱子下标（-1 = 没点）
+     *
+     * ★ 为什么存下标而不是存整个对象 ★
+     *   下标能跟着数据重算自动失效；
+     *   存对象的话，换了时间区间后它会指向一个不存在的日期。
+     */
+    const selectedBarIndex = ref(-1)
+
+    /** 选中的那一根柱的数据（没选 / 下标越界时为 null） */
+    const selectedBar = computed(() => {
+      const i = selectedBarIndex.value
+      if (i < 0 || i >= dailyTrend.value.length) return null
+      return dailyTrend.value[i]
+    })
+
+    /**
+     * 点柱子：再点一次同一根就取消选中
+     *
+     * ★ 为什么要能取消 ★
+     *   用户要求「不点击则不显示」。
+     *   只能选不能取消的话，点一次就永远有一个选中项挂在标题上，
+     *   回不到「没点」的干净状态。
+     */
+    function selectBar(i) {
+      selectedBarIndex.value = selectedBarIndex.value === i ? -1 : i
+    }
+
+    /** 清掉选中状态（换区间 / 切粒度时调） */
+    function clearBarPick() {
+      selectedBarIndex.value = -1
+    }
+
     /** 日趋势的最高/最低（含花销），无数据或全为 0 时返回 null */
     const dailyExtremes = computed(() => {
       const list = dailyTrend.value.filter((d) => Number(d.expense) > 0)
@@ -1641,6 +1715,7 @@ export default {
       categoryTotal, categoryDonutUri, accountTotal, accountTypeTotal,
       accountViewList, accountViewDonutUri,
       dailyExtremes,
+      selectedBarIndex, selectedBar, selectBar, barColor,
       barHeight, shortDay,
       // 组件管理（面板顺序与显隐）
       statsPanels, visiblePanels, panelVisible, panelOrderStyle,
@@ -2008,7 +2083,17 @@ export default {
   margin-bottom: 24rpx;
 }
 
+/*
+ * 卡片标题行
+ *
+ * ★ position: relative 是必需的 ★
+ *   日趋势卡片要在这一行的**几何正中心**显示点中柱的日期与金额，
+ *   用的是 left: 50% + translateX(-50%)（见 .head-pick）。
+ *   如果这里不写 relative，它会去找离它最近的定位祖先，
+ *   结果是相对整页面居中 —— 偏到屏幕外面去。
+ */
 .card-head {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2225,6 +2310,37 @@ export default {
 
 .cat-avg-label {
   font-size: 20rpx;
+  color: var(--app-text-3);
+}
+
+/*
+ * 标题行正中的「点中柱」读数
+ *
+ * ★ 为什么用绝对定位 ★
+ *   标题行是 flex + space-between，左右两个元素宽度不同，
+ *   中间那个元素只能“自己找中间”，否则跟它一起被挤歪。
+ *   left: 50% + translateX(-50%) = 相对整条标题行的几何中心，
+ *   不受左右两侧内容宽度影响，也不占用 flex 的排布位置。
+ */
+.head-pick {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 6rpx;
+  /* 指针不能挡住左右两侧（标题可点、副标题可读） */
+  pointer-events: none;
+}
+
+.head-pick-day {
+  font-size: 21rpx;
+  color: var(--app-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.head-pick-dot {
+  font-size: 21rpx;
   color: var(--app-text-3);
 }
 
