@@ -86,13 +86,21 @@ function makeFakePlus() {
     hidden INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL, deleted_at INTEGER
   )`)
+  /*
+   * ★ 要带 reimburse_status ★
+   *   getAssetOverview 现在还要算「待报销合计」（用户反馈），
+   *   它直接查 txn.reimburse_status = 1。
+   *   这个测试的假库是手写 schema，不补就会
+   *   报「no such column: reimburse_status」。
+   */
   db.exec(`CREATE TABLE txn (
     id TEXT PRIMARY KEY, type TEXT NOT NULL, amount_cents INTEGER NOT NULL,
     account_id TEXT NOT NULL, to_account_id TEXT, category_id TEXT, note TEXT,
     occurred_at INTEGER NOT NULL, occurred_day TEXT NOT NULL,
     month_key TEXT NOT NULL, year_key TEXT NOT NULL,
     tz_offset INTEGER NOT NULL DEFAULT 480,
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER,
+    reimburse_status INTEGER NOT NULL DEFAULT 0
   )`)
 
   db.exec('PRAGMA user_version = 15')
@@ -158,13 +166,14 @@ function insertCat(db, { id, name, type, parent_id = null, deleted_at = null }) 
 }
 
 /** 插一条流水（借入借出统计只关心 type / amount / category） */
-function insertTxn(db, { id, type, amount, category_id }) {
+function insertTxn(db, { id, type, amount, category_id, reimburse_status = 0 }) {
   const now = Date.now()
   db.prepare(
     `INSERT INTO txn (id, type, amount_cents, account_id, to_account_id, category_id, note,
-      occurred_at, occurred_day, month_key, year_key, tz_offset, created_at, updated_at, deleted_at)
-     VALUES (?,?,?,'acc1',NULL,?,'',?,'2026-11-01','2026-11','2026',480,?,?,NULL)`
-  ).run(id, type, amount, category_id, now, now, now)
+      occurred_at, occurred_day, month_key, year_key, tz_offset, created_at, updated_at, deleted_at,
+      reimburse_status)
+     VALUES (?,?,?,'acc1',NULL,?,'',?,'2026-11-01','2026-11','2026',480,?,?,NULL,?)`
+  ).run(id, type, amount, category_id, now, now, now, reimburse_status)
 }
 
 /* --------------------------------------------------------- 纯逻辑复刻 */
@@ -437,6 +446,62 @@ console.log('=== 借出不计入负债（借款收回也不该抵债）===')
   check('概览里的 lending 与独立函数一致', r.lending, lending)
 }
 
+console.log('=== 应收 = 借出 + 待报销（用户反馈）===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 100000 })
+  insertCat(db, { id: 'c_lend', name: '借出', type: 'expense' })
+  insertCat(db, { id: 'c_lend_back', name: '借款收回', type: 'income' })
+
+  /*
+   * ★ 用户反馈 ★
+   *   「账户页面应收为什么不加入待报销金额」
+   *
+   *   应收的本质：钱已经出去、但还能回来的部分。
+   *     · 借出 500 - 收回 200 = 300（借出）
+   *     · 待报销 150（垫付给公司）
+   *     → 应收 = 450
+   */
+  insertTxn(db, { id: 't1', type: 'expense', amount: 50000, category_id: 'c_lend' })
+  insertTxn(db, { id: 't2', type: 'income', amount: 20000, category_id: 'c_lend_back' })
+  insertTxn(db, { id: 't3', type: 'expense', amount: 15000, category_id: null, reimburse_status: 1 })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js?t=' + Math.random())
+  const r = await mod.getAssetOverview()
+
+  check('待报销字段 = 150', r.pendingReimburse, 15000)
+  check('借出字段仍然只算借出 = 300', r.lending, 30000)
+  check('应收 = 借出 300 + 待报销 150 = 450', r.receivable, 45000)
+
+  /*
+   * ★ 绝对不能因此改变净资产 ★
+   *   待报销的钱已经从账户余额里扣掉了，
+   *   拿它去减 debt 或加 assets 都会让净资产凭空变动。
+   */
+  check('净资产口径不变', r.net, r.assets - r.debt)
+
+  const pendingOnly = await mod.getPendingReimburseTotal()
+  check('待报销独立函数与概览一致', pendingOnly, r.pendingReimburse)
+}
+
+console.log('=== 没有待报销时不影响应收 ===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, { id: 'a1', type: 'cash', balance: 100000 })
+  insertCat(db, { id: 'c_lend', name: '借出', type: 'expense' })
+  insertTxn(db, { id: 't1', type: 'expense', amount: 50000, category_id: 'c_lend' })
+
+  globalThis.plus = fake
+  const mod = await import('../api/account.js?t=' + Math.random())
+  const r = await mod.getAssetOverview()
+
+  check('没有待报销：pendingReimburse = 0', r.pendingReimburse, 0)
+  check('没有待报销：应收 = 借出', r.receivable, r.lending)
+}
+
 console.log('=== 没有借出时概览的应收字段是 0（老数据兼容）===')
 
 {
@@ -499,10 +564,17 @@ console.log('=== 账户页三格：总资产 / 负债 / 应收 ===')
   // 三格必须是等分布局，否则长金额会把其中一格挤扁
   check('三格等分（asset-sub-item flex:1）', /\.asset-sub-item\s*\{[^}]*flex:\s*1/.test(page), true)
 
-  // 血缘：页面读 store 的 netReceivable，store 读 api 的 lending
+  // 血缘：页面读 store 的 netReceivable，store 读 api 的 receivable
   check('页面消费 accountStore.netReceivable', /accountStore\.netReceivable/.test(page), true)
   check('store 有 netReceivable 字段', /netReceivable:\s*0/.test(store), true)
-  check('store 从 overview.lending 取值', /netReceivable\s*=\s*overview\.lending/.test(store), true)
+  /*
+   * ★ store 现在取 overview.receivable（= 借出 + 待报销）★
+   *   用户反馈「应收为什么不加入待报销金额」，
+   *   所以页面那一格从「只算借出」改成「借出 + 待报销」。
+   *   保留 lending 回退是为了 api/store 打包顺序不一致时不会变 0。
+   */
+  check('store 从 overview.receivable 取值', /overview\.receivable/.test(store), true)
+  check('store 仍保留 lending 回退', /overview\.lending/.test(store), true)
 
   // ★ 净资产口径：不能把应收减进/加进 assets 或 net
   const api = stripJsComments(read('api/account.js'))

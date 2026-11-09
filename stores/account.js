@@ -34,6 +34,13 @@ export const useAccountStore = defineStore('account', {
      *   「借出去的钱还当自己的钱」。它又确实是可收回的钱，
      *   所以单独放一个字段给账户页显示，不混进下面的 netAssets。
      */
+    /**
+     * 应收 = 尚未收回的借出 + 待报销（页面「应收」那一格）
+     *
+     * ★ 用户反馈：应收没把待报销算进去 ★
+     *   两者都是「钱已经出去了、但应当回来」，只算借出的话
+     *   用户垫付的那部分在概览里完全看不见。
+     */
     netReceivable: 0,
     /** 净资产 = 总资产 - 负债，账户页那个大数字 */
     netAssets: 0,
@@ -93,7 +100,14 @@ export const useAccountStore = defineStore('account', {
          *   这里 `|| 0` 保证升级覆盖场景下页面不会出现 NaN。
          *   ★ 它不参与 netAssets：净资产口径保持 assets - debt ★
          */
-        this.netReceivable = overview.lending || 0
+        /*
+         * ★ 优先用 receivable（= 借出 + 待报销）★
+         *   回退到 lending 是为了兼容「api 还没更新」的中间状态：
+         *   否则一旦某次打包顺序出错，这一格会直接变 0。
+         */
+        this.netReceivable = overview.receivable !== undefined
+          ? (overview.receivable || 0)
+          : (overview.lending || 0)
         this.netAssets = overview.net
         this.loaded = true
       } finally {

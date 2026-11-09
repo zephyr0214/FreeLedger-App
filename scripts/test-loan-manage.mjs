@@ -234,6 +234,37 @@ check('普通流水行有兜底分支', /v-else class="episode-txns"/.test(PAGE)
  *   所以文字必须在、但不能再有上下那两条横线。
  */
 check('已结清页有「已结清 · 日期」文字标注', /class="episode-divider-text"/.test(PAGE), true)
+/*
+ * ★ 借入页的强调色统一用主题色（用户本轮要求）★
+ *   用户原话：「借入的头像底色和手动结清按钮和待归还金额颜色
+ *   和主题色保持一致」。
+ *
+ *   之前借入页用固定的 #07C160（绿）——
+ *   用户选了蓝/橙/紫主题时，借入页仍然一片绿，和 App 其它地方不一致。
+ *   现在两个方向都用 primaryColor。
+ */
+check('不再用固定绿色常量', /INCOME_COLOR/.test(PAGE), false)
+check('强调色取主题色', /const accentColor = computed\(\(\) => primaryColor\.value\)/.test(PAGE), true)
+check('头像底色用 accentColor', /class="person-avatar"[\s\S]{0,120}?accentColor \+ '22'/.test(PAGE), true)
+check('头像文字用 accentColor', /class="person-avatar-text"[\s\S]{0,120}?color: accentColor/.test(PAGE), true)
+check('手动结清按钮用 accentColor', /class="settle-btn"[\s\S]{0,160}?borderColor: accentColor, color: accentColor/.test(PAGE), true)
+check('待归还金额用 accentColor', /balanceColor[\s\S]{0,160}?accentColor\.value/.test(PAGE), true)
+/*
+ * ★ 流水副标题：账户 · 日期 · 时间（用户本轮第 3 条）★
+ *   用户原话：「借出/借入/报销的流水中，下方账户名显示在最前，
+ *   接着跟着日期，时间」。
+ *
+ *   之前是「时间 · 账户」且没有日期。
+ */
+check(
+  '流水副标题账户在最前',
+  /parts\.push\(t\.account_name[\s\S]{0,220}?parts\.push\(shortDate/.test(PAGE),
+  true
+)
+check('流水副标题含日期', /shortDate\(t\.occurred_at\)/.test(PAGE), true)
+check('流水副标题含时间', /formatTime\(t\.occurred_at\)/.test(PAGE), true)
+
+
 check('标注里没有上下分割线元素', /episode-divider-rule|episode-divider-line/.test(PAGE), false)
 check('已结清旧段默认折叠可展开', /class="episode-collapsed"/.test(PAGE), true)
 check('不再有点开弹层看明细（showDetail/wd-popup）', /showDetail|<wd-popup/.test(PAGE), false)

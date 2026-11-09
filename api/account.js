@@ -249,19 +249,24 @@ export async function getTotalAssets() {
  *   注意：lending 既不进 assets 也不进 debt，加进任何一边都会
  *   让净资产凭空变动（这是产品口径选择，不是算术问题）。
  *
- * @returns {Promise<{assets:number, debt:number, net:number, loanDebt:number, lending:number}>}
- *   loanDebt 是负债里属于「未归还借入」的那部分（页面可用于说明构成）
- *   lending  是尚未收回的借出净额，**只用于展示，不参与净资产**
+ * @returns {Promise<{assets:number, debt:number, net:number, loanDebt:number,
+ *   lending:number, pendingReimburse:number, receivable:number}>}
+ *   loanDebt          负债里属于「未归还借入」的那部分
+ *   lending           尚未收回的借出净额
+ *   pendingReimburse  待报销的原支出合计
+ *   receivable        展示用的「应收」= lending + pendingReimburse
+ *                     **二者都不参与 net，不进 assets、不进 debt**
  */
 export async function getAssetOverview() {
   /*
-   * ★ 三条查询并发 ★
-   *   总资产 / 负债（账户余额）、未归还的借入（流水）、应收（流水）
-   *   互相独立，串行 await 会让账户页的概览白白多等两个来回。
-   *   ★ 应收（lending）只作为返回值里的展示字段，不参与 net 计算 ★
+   * ★ 四条查询并发 ★
+   *   总资产 / 负债（账户余额）、未归还的借入（流水）、
+   *   尚未收回的借出（流水）、待报销合计（流水）
+   *   互相独立，串行 await 会让账户页的概览白白多等几个来回。
+   *   ★ 应收（lending / pendingReimburse / receivable）只是展示字段，不参与 net 计算 ★
    *     见上面注释：加回去等于「借出去的钱还当自己的钱」。
    */
-  const [accRow, loanRow, lending] = await Promise.all([
+  const [accRow, loanRow, lending, pendingReimburse] = await Promise.all([
     queryOne(
       `SELECT
          COALESCE(SUM(CASE WHEN balance_cents > 0 THEN balance_cents ELSE 0 END), 0) AS assets,
@@ -292,8 +297,13 @@ export async function getAssetOverview() {
        JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
        WHERE t.deleted_at IS NULL`
     ),
-    // 复用同一个函数，保证「应收」口径只有一处定义（别在这里复制一份 SQL）
-    getOutstandingLending()
+    // 复用同一个函数，保证「借出」口径只有一处定义（别在这里复制一份 SQL）
+    getOutstandingLending(),
+    /*
+     * 待报销（用户反馈）：它和借出一样是「应收」的一部分。
+     * 见 getPendingReimburseTotal 的说明：钱垫付出去了，公司还欠我。
+     */
+    getPendingReimburseTotal()
   ])
 
   const assets = Number(accRow ? accRow.assets : 0) || 0
@@ -318,7 +328,25 @@ export async function getAssetOverview() {
    *   net = assets - debt。lending（应收）只是携带出来给页面展示，
    *   绝不参与这条减法 —— 用户明确要求「应收不计入净资产」。
    */
-  return { assets, debt, net: assets - debt, loanDebt, lending }
+  /*
+   * ★ 应收 = 尚未收回的借出 + 待报销（用户反馈）★
+   *   两者都是「钱已经出去、但应当回来」。
+   *   只算借出会让用户看不到自己垫付的那部分 ——
+   *   账户余额里已经扣掉了，不在应收里补一口，就彻底看不见了。
+   *
+   *   ★ net 口径仍然不变 ★
+   *     net = assets - debt。待报销同样不参与这条减法。
+   */
+  const receivable = lending + pendingReimburse
+  return {
+    assets,
+    debt,
+    net: assets - debt,
+    loanDebt,
+    lending,
+    pendingReimburse,
+    receivable
+  }
 }
 
 /**
@@ -360,6 +388,59 @@ export async function getOutstandingLending() {
      WHERE t.deleted_at IS NULL`
   )
   return Math.max(0, Number(row ? row.lending : 0) || 0)
+}
+
+/**
+ * 待报销合计（公司还欠我的钱）
+ *
+ * ★ 为什么要把它算进「应收」（用户反馈）★
+ *   用户原话：「账户页面应收为什么不加入待报销金额」。
+ *
+ *   应收的本质 = 「钱已经出去、但还能回来的部分」。
+ *     · 借出：钱借给了别人，人家还欠我
+ *     · 待报销：钱垫付了，公司还欠我
+ *   两者对用户来说是同一件事：我手里没这笔钱，但它应当回来。
+ *   只算借出不算待报销，应收就漏了一块——用户垫了钱却看不到。
+ *
+ * ★ 为什么不在这里 import api/reimburse.js ★
+ *   reimburse.js 已经 import 了本文件（recalcBalance / writeTodaySnapshot），
+ *   反过来 import 会形成循环依赖。所以直接查 txn 表——
+ *   「待报销」的判定条件只有一个字段（reimburse_status = 1），
+ *   不会像「已结清」那样需要四个分类名才能算对。
+ *
+ * ★ 为什么不可能和借出重复计算 ★
+ *   借出 / 借入 等八个分类是系统分类，
+ *   api/reimburse.js 的 assertReimburseAllowed 与记账面板都禁止它们标待报销，
+ *   所以 reimburse_status = 1 的流水里不可能出现借出类分类。
+ *
+ * ★ 用原金额（amount_cents），不是实报金额 ★
+ *   待报销阶段还没报，reimburse_amount_cents 是 NULL；
+ *   用户心里记的也是「我垫了多少」。
+ *
+ * @returns {Promise<number>} 分
+ */
+export async function getPendingReimburseTotal() {
+  /*
+   * ★ 查不到就当 0，不让整个概览加载失败 ★
+   *   reimburse_status 是 v21 才加的列。
+   *   migrate() 对单条迁移是「失败只 log、版本号照样推进」的，
+   *   所以理论上存在「库里没有这个列」的设备 ——
+   *   那种库本来就没有报销功能，待报销当 0 是对的。
+   *   （和 listReimburseBatches 对「表不存在」的处理同一思路：
+   *     宁可少显示一个数，也不能让整页白屏。）
+   */
+  try {
+    const row = await queryOne(
+      `SELECT COALESCE(SUM(amount_cents), 0) AS amt
+       FROM txn
+       WHERE deleted_at IS NULL
+         AND reimburse_status = 1`
+    )
+    return Math.max(0, Number(row ? row.amt : 0) || 0)
+  } catch (e) {
+    console.warn('[account] 待报销合计不可用，按 0 处理:', e && e.message)
+    return 0
+  }
 }
 
 /** 总负债（负余额账户的绝对值之和；同样按余额正负，不看类型） */

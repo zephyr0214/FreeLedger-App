@@ -323,7 +323,24 @@ export async function reimburseTxns(input) {
 
     // 1) 报销到账：实报金额进报销账户，不计收支
     const incomeId = prefixedId('txn')
-    const keys = makeDateKeys(new Date(`${day}T12:00:00`).getTime())
+    /*
+     * ★ 时间用「保存时刻」，不再默认 12:00（用户本轮要求）★
+     *   用户原话：「报销订单时，报销返回/盈余/坏账的交易时间
+     *   设置为保存时刻，不要默认 12:00」。
+     *
+     *   之前为什么写 12:00：报销日 day 是用户选的（默认今天），
+     *   而报销动作发生在「现在」——但 day 可能是过去某天。
+     *   那时候应该用那一天的什么时间？
+     *     用保存时刻的**时分秒**、拼上 day 的**日期** ——
+     *     这样日期跟用户选的一致，时间又是真实的操作时间。
+     */
+    const savedAt = new Date()
+    const [dayY, dayM, dayD] = String(day || toDayKey()).split('-').map(Number)
+    const stampAt = new Date(
+      dayY, (dayM || 1) - 1, dayD || 1,
+      savedAt.getHours(), savedAt.getMinutes(), savedAt.getSeconds()
+    ).getTime()
+    const keys = makeDateKeys(stampAt)
     await execute(
       `INSERT INTO txn (
         id, type, amount_cents, account_id, to_account_id, category_id, note,
@@ -408,6 +425,143 @@ export async function reimburseTxns(input) {
 
     return { incomeCents: totalCents, badDebtCents, surplusCents, incomeId, batchId }
   })
+}
+
+/**
+ * 撤销一次报销（把一张报销单整个退回去）
+ *
+ * ★ 用户本轮要求的四件事 ★
+ *   1) 删除该单的「报销到账」「报销盈余」「报销坏账」三笔派生流水；
+ *   2) 把该单已报销的原始流水切回「未报销」（reimburse_status = 0）。
+ *
+ * ★ 为什么用软删除而不是物理 DELETE ★
+ *   和 deleteTransaction 一致：全库都是软删除（deleted_at），
+ *   物理删除一旦出错就没法恢复。派生流水软删后余额重算会自动把它排除，
+ *   效果和真删一样，但留了一条后悔路。
+ *
+ * ★ 撤销后流水回到「待报销」（1）★
+ *   上一版置成了 0（不报销），结果这几笔在报销页两个 tab 都不显示
+ *   （待报销 tab 只查 status=1、已报销 tab 只查 status=2）——
+ *   用户看起来就像“流水被删了”。
+ *   撤销的语义就是「这笔还没报成」，所以应当回到待报销队列。
+ *   同时清掉 reimburse_day / reimburse_amount_cents / reimburse_account_id / batch_id，
+ *   并把两个 exclude 标记置回 1（待报销的标准状态）。
+ * ★ 为什么不是 0 ★
+ *   status=0 的流水在报销页上是完全不存在的（它只在全部交易里出现）。
+ *
+ * ★ 单头怎么处理 ★
+ *   软删除 reimburse_batch 那一行。列表查询带 deleted_at IS NULL，自然就不再显示。
+ *   不硬删是因为：万一用户撤销错了，还能手工修回来。
+ *
+ * ★ 老数据（isLegacy）不能撤销 ★
+ *   它们没有真正的单头，只是按「日+账户+实报」拼出来的只读视图。
+ *   撤销它们等于要反推一次历史操作，风险远大于收益 —— 直接拒绝。
+ *
+ * @param {string} batchId 报销单 id
+ * @returns {Promise<{deletedDerived:number, restoredItems:number, accountId:string}>}
+ */
+export async function voidReimburseBatch(batchId) {
+  if (!batchId) throw new Error('缺少报销单 id')
+  if (String(batchId).startsWith('legacy_')) {
+    throw new Error('这单是历史数据（没有真正的报销单），不支持撤销')
+  }
+
+  const batch = await queryOne(
+    'SELECT * FROM reimburse_batch WHERE id = ? AND deleted_at IS NULL',
+    [batchId]
+  )
+  if (!batch) throw new Error('报销单不存在或已撤销')
+
+  const accountId = batch.account_id || ''
+
+  /*
+   * ★ 一次查出这一单的所有流水，在内存里分成「派生」和「原始」★
+   *   不按 category_name 分（用户可能手动记过同名分类），
+   *   而是按 reimburse_status：
+   *     派生流水永远是 0（它们不是被报销的账），
+   *     原始流水在报销时被置成 2。
+   *   这个判据和 reimburseTxns 写入时完全对称。
+   */
+  const rows = await query(
+    `SELECT id, type, account_id, to_account_id, reimburse_status
+     FROM txn WHERE batch_id = ? AND deleted_at IS NULL`,
+    [batchId]
+  )
+  const derivedIds = []
+  const itemIds = []
+  for (const r of rows) {
+    if (Number(r.reimburse_status) === REIMBURSE_STATUS.DONE) itemIds.push(r.id)
+    else derivedIds.push(r.id)
+  }
+
+  const now = Date.now()
+
+  await transaction(async () => {
+    // 1) 软删除三笔派生流水（到账 / 盈余 / 坏账）
+    for (const id of derivedIds) {
+      await execute(
+        'UPDATE txn SET deleted_at = ?, updated_at = ? WHERE id = ?',
+        [now, now, id]
+      )
+    }
+
+    // 2) 原始流水退回「未报销」，并清掉所有报销痕迹
+    for (const id of itemIds) {
+      /*
+       * ★ 撤销后回到「待报销」，不是「不报销」（用户反馈修正）★
+       *   用户原话：「已报销流水现在未退回未报销，好像直接被删除了」。
+       *
+       *   原因：上一版把状态置成了 0（NONE）。而报销页只有两个 tab：
+       *     待报销  = reimburse_status = 1
+       *     已报销  = reimburse_status = 2
+       *   置成 0 的流水两个 tab 都不显示 —— 看起来就像被删了。
+       *
+       *   修正：回到 1（PENDING），并把两个 exclude 标记重新置 1
+       *   （待报销的语义：钱还没回来，不计收支、不占预算）。
+       *   这与 setTxnPendingReimburse(id, true) 写的值完全一致。
+       */
+      await execute(
+        `UPDATE txn SET reimburse_status = ?, reimburse_day = NULL,
+           reimburse_amount_cents = NULL, reimburse_account_id = NULL,
+           batch_id = NULL, exclude_from_budget = 1, exclude_from_stats = 1,
+           updated_at = ?
+         WHERE id = ?`,
+        [REIMBURSE_STATUS.PENDING, now, id]
+      )
+    }
+
+    // 3) 单头软删除
+    await execute(
+      'UPDATE reimburse_batch SET deleted_at = ?, updated_at = ? WHERE id = ?',
+      [now, now, batchId]
+    )
+
+    /*
+     * 4) 重算报销账户余额
+     *
+     * ★ 必须重算两个账户 ★
+     *   派生流水都记在报销到账账户上（account_id = batch.account_id），
+     *   原始支出记在各自的原账户上（钱早就花出去了，撤销不影响它们的余额）。
+     *   所以严格说只需要重算到账账户；但为了保险，把原始流水涉及的账户也一起算 ——
+     *   万一历史数据里有 account_id 和 batch.account_id 不一致的情况，
+     *   余额也不会因此漂移。重算是幂等的，多算几个不亏。
+     */
+    const touched = new Set([accountId])
+    for (const r of rows) {
+      if (r.account_id) touched.add(r.account_id)
+      if (r.to_account_id) touched.add(r.to_account_id)
+    }
+    for (const id of touched) {
+      if (id) await recalcBalance(id)
+    }
+    if (accountId) await writeTodaySnapshot(accountId)
+  })
+
+  return {
+    deletedDerived: derivedIds.length,
+    restoredItems: itemIds.length,
+    accountId
+  }
 }
 
 /**

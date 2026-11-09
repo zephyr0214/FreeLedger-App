@@ -407,7 +407,7 @@ check('页面用 episodesOf 取分段', /episodesOf\(g\)/.test(PAGE), true)
 check('页面用 buildLoanEpisodeView 算展示规则', /buildLoanEpisodeView/.test(PAGE), true)
 check(
   '未结清 tab 折叠文案：已结清 N 笔 · 点击展开',
-  /已结清 \$\{ep\.txns\.length\} 笔 · 点击展开/.test(read('api/loan.js')),
+  /已结清 \$\{historyTxnCount\} 笔 · 点击展开/.test(read('api/loan.js')),
   true
 )
 check('折叠条渲染在页面里', /class="episode-collapsed"/.test(PAGE), true)
@@ -469,6 +469,21 @@ check(
 
 console.log('=== 5.1 buildLoanEpisodeView：折叠与分割标注 ===')
 
+/*
+ * ★ 历史组测试用：一个人结清过三次、又有一笔未结清 ★
+ *   用于验证「修复多个展开按钮」——
+ *   三次已结清应当合成**一条**折叠条，不是三条。
+ */
+const EPS_MANY_SETTLED = splitLoanEpisodes([
+  txn('s1a', LEND.mainId, 100, '2026-01-01'),
+  txn('s1b', LEND.backId, 100, '2026-01-05'),
+  txn('s2a', LEND.mainId, 200, '2026-02-01'),
+  txn('s2b', LEND.backId, 200, '2026-02-05'),
+  txn('s3a', LEND.mainId, 300, '2026-03-01'),
+  txn('s3b', LEND.backId, 300, '2026-03-05'),
+  txn('s4a', LEND.mainId, 400, '2026-04-01')
+], LEND)
+
 const EPS_THREE = splitLoanEpisodes([
   txn('p1', LEND.mainId, 500, '2026-01-05'),
   txn('p2', LEND.backId, 500, '2026-01-20'),
@@ -487,28 +502,98 @@ check(
   buildLoanEpisodeView(EPS_THREE, { status: 'open' }).map((v) => [v.collapsed, !!v.showDividerBefore, !!v.showCollapseBtn]),
   [[false, false, false], [true, false, false]]
 )
+/*
+ * ★ 展开状态现在存在「历史组」的专用下标 -1 上（用户本轮第 5 条）★
+ *   未结清 tab 把所有已结清段合成一个折叠组，
+ *   展开后每段都带「已结清 · 日期」标注，收起入口只挂在最后一段。
+ */
 check(
-  '未结清 tab：手动展开的折叠条（反序后是 idx 1）不折叠且给收起入口',
+  '未结清 tab：展开历史组后每段带标注、收起入口只挂最后一段',
   buildLoanEpisodeView(EPS_THREE, {
     status: 'open',
-    isExpanded: (i) => i === 1
-  }).map((v) => [v.collapsed, !!v.showCollapseBtn]),
-  [[false, false], [false, true]]
+    isExpanded: (i) => i === -1
+  }).map((v) => [v.collapsed, !!v.showDividerBefore, !!v.showCollapseBtn]),
+  [[false, false, false], [false, true, true]]
+)
+
+/*
+ * ★ 展开后的历史段 rowIndex 也必须是 -1（修复“收不回去”）★
+ *   「收起」按钮是用 `toggleEpisode(person, ep.rowIndex)` 去翻转的。
+ *   展开状态存在 `person#-1`，如果这里给真实下标 i，
+ *   按钮翻的就是另一个 key —— 历史组永远收不回去。
+ */
+check(
+  '未结清 tab：展开后的历史段 rowIndex 也是 -1（收起才能生效）',
+  buildLoanEpisodeView(EPS_THREE, {
+    status: 'open',
+    isExpanded: (i) => i === -1
+  }).map((v) => v.rowIndex),
+  [0, -1]
+)
+
+/*
+ * ★ 多次结清：展开后每段都归 -1，收起按钮只有一个 ★
+ */
+check(
+  '多次结清展开后每段 rowIndex 都是 -1',
+  buildLoanEpisodeView(EPS_MANY_SETTLED, {
+    status: 'open',
+    isExpanded: (i) => i === -1
+  }).filter((v) => v.rowIndex !== 0).map((v) => v.rowIndex),
+  [-1, -1, -1]
 )
 check(
-  '未结清 tab：反序后 rowIndex 跟着新顺序（否则展开会点错段）',
-  buildLoanEpisodeView(EPS_THREE, { status: 'open' }).map((v) => v.rowIndex),
-  [0, 1]
+  '多次结清展开后只有一个收起按钮',
+  buildLoanEpisodeView(EPS_MANY_SETTLED, {
+    status: 'open',
+    isExpanded: (i) => i === -1
+  }).filter((v) => v.showCollapseBtn).length,
+  1
+)
+/*
+ * ★ 折叠条的 rowIndex = -1（用户本轮第 5 条）★
+ *   它代表的是「这个人的整个历史组」，不是某一段；
+ *   并且只有一条 —— 已经出现过的展开按钮不能再出第二条。
+ */
+check(
+  '未结清 tab：折叠条用 -1 下标（代表整个历史组）',
+  buildLoanEpisodeView(EPS_THREE, { status: 'open' }).map((v) => [v.rowIndex, v.collapsed, !!v.skip]),
+  [[0, false, false], [-1, true, false]]
+)
+check(
+  '未结清 tab 只有一条折叠条（修复多个展开按钮）',
+  buildLoanEpisodeView(EPS_MANY_SETTLED, { status: 'open' }).filter((v) => v.collapsed).length,
+  1
 )
 check(
   '已结清 tab：全部展开，段与段之间有「已结清 · 日期」标注',
   buildLoanEpisodeView(EPS_THREE, { status: 'settled' }).map((v) => [v.collapsed, !!v.showDividerBefore]),
   [[false, false], [false, true]]
 )
+/*
+ * ★ 已结清 tab 也要倒序（用户本轮要求）★
+ *   用户原话：「借入借出已结清页面中，
+ *   历史结清显示在下，最新结清显示在上」。
+ *
+ *   之前只有未结清 tab 反序，已结清 tab 保持时间正序
+ *   （读起来像「从头看历史」）。现在两个 tab 统一为「最近在上」。
+ *
+ *   EPS_THREE 的段序（时间正序）：
+ *     seg0 = 借 500 + 收回 500（收口于 2026-01-20）
+ *     seg1 = 借 300（未收口）
+ *   反序后：idx0 = seg1（最新）、idx1 = seg0（历史）。
+ *   标注在 idx1 之前，日期取“上一段（idx0）的收口日”——
+ *   idx0 本身没收口，所以退化成只有「已结清」三个字。
+ */
 check(
-  '分割标注日期取上一段的收口日',
-  buildLoanEpisodeView(EPS_THREE, { status: 'settled' })[1].dividerText,
-  '已结清 · 2026-01-20'
+  '已结清 tab 也是最新在上（倒序）',
+  buildLoanEpisodeView(EPS_THREE, { status: 'settled' }).map((v) => v.rowIndex),
+  [0, 1]
+)
+check(
+  '已结清 tab 倒序后的第一段是“借 300”那段（最新）',
+  buildLoanEpisodeView(EPS_THREE, { status: 'settled' })[0].txns.map((t) => t.id),
+  ['p3']
 )
 /*
  * ★ 只有一段（纯未结清）时不能画分割线、也不能折叠 ★

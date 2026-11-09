@@ -156,7 +156,14 @@
               当前 tab（决定默认规则）和「用户手动展开过哪些段」。
           -->
           <view class="group-txns">
+            <!--
+              ★ skip 的段完全不渲染（用户本轮第 5 条）★
+                未结清 tab 里所有已结清段合成一个折叠组，
+                只在第一段位置放一条折叠条，其余段 skip=true。
+                之前每段各出一条，结清过五次就会有五条完全一样的栏。
+            -->
             <template v-for="(ep, epIndex) in episodeViewOf(g)" :key="g.person + '#' + epIndex">
+              <template v-if="!ep.skip">
               <!--
                 已结清 tab：段与段之间标一行「已结清 · 日期」
                 文案里的日期是**上一段**收口那笔的 occurred_day ——
@@ -272,6 +279,7 @@
                   <text class="episode-collapsed-arrow up">›</text>
                 </view>
               </view>
+              </template>
             </template>
           </view>
         </view>
@@ -344,10 +352,7 @@ import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
-import { formatTime } from '@/utils/date.js'
-
-/** 收入方向的图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
-const INCOME_COLOR = '#07C160'
+import { formatTime, shortDate } from '@/utils/date.js'
 
 export default {
   components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog },
@@ -412,13 +417,24 @@ export default {
     )
 
     /**
-     * 汇总卡图标底色
+     * 页面强调色：一律用主题色（用户本轮要求）
+     *
+     * ★ 用户原话 ★
+     *   「借入的头像底色和手动结清按钮和待归还金额颜色
+     *   和主题色保持一致」。
+     *
+     * ★ 之前为什么借入页用固定绿（#07C160）★
+     *   想让借出 / 借入两页“一眼分得出”（绿 = 收入方向）。
+     *   但用户选了其它主题色（蓝 / 橙 / 紫）时，借入页仍然是一片绿，
+     *   和 App 其它地方不一致。而“区分两个方向”靠的是标题与文案
+     *   （借出管理 / 借入管理、待收回 / 待归还），不靠颜色。
      *
      * ★ 必须是真实 hex ★
      *   下面用 `accentColor + '22'` 拼半透明底色，
-     *   拼在 CSS 变量上会得到 `var(--app-success)22` 这种非法值，底色直接消失。
+     *   拼在 CSS 变量上会得到 `var(--app-primary)22` 这种非法值，底色直接消失。
+     *   primaryColor 就是 store 里的真实 hex，可以直接拼。
      */
-    const accentColor = computed(() => (isIncome.value ? INCOME_COLOR : primaryColor.value))
+    const accentColor = computed(() => primaryColor.value)
 
     const statusTabs = [
       { key: 'open', name: '未结清' },
@@ -489,10 +505,28 @@ export default {
     }
 
     /** 组内流水的副标题：时间 · 账户 */
+    /**
+     * 组内流水的副标题：账户 · 日期 · 时间
+     *
+     * ★ 账户名放最前（用户本轮第 3 条）★
+     *   用户原话：「借出/借入/报销的流水中，下方账户名显示在最前，
+     *   接着跟着日期，时间」。
+     *
+     *   之前是「时间 · 账户」且没有日期 ——
+     *   因为流水本来按日分组，日期在分组头上。
+     *   但这几页的分组头是「人名」不是日期，
+     *   一笔账到底是哪天的就看不出来了。
+     *
+     * @param {object} t 流水
+     * @returns {string}
+     */
     function txnSub(t) {
       const parts = []
-      if (t.occurred_at) parts.push(formatTime(t.occurred_at))
       parts.push(t.account_name || '无账户')
+      if (t.occurred_at) {
+        parts.push(shortDate(t.occurred_at))
+        parts.push(formatTime(t.occurred_at))
+      }
       return parts.join(' · ')
     }
 
@@ -643,13 +677,25 @@ export default {
      *   用户没法解释为什么这一段的默认行为和别人不一样。
      *   做法和本页别处清理 swipeStates 一样：只留当前数据里还活着的 key。
      */
-    function pruneEpisodeStates(list) {
+      function pruneEpisodeStates(list) {
       const alive = new Set()
       for (const g of list) {
         const eps = episodesOf(g)
+        /*
+         * ★ 历史组的 key 下标是 -1（用户本轮第 5 条）★
+         *   未结清 tab 把所有已结清段合成一个折叠组，
+         *   展开状态存在 `person#-1` 上。
+         *   只清理旧的逐段 key 会把它当成垃圾删掉 ——
+         *   用户每次刷新都得重新展开一遍。
+         */
+        let hasSettled = false
         for (let i = 0; i < eps.length; i++) {
-          if (eps[i].settled) alive.add(episodeKey(g.person, i))
+          if (eps[i].settled) {
+            alive.add(episodeKey(g.person, i))
+            hasSettled = true
+          }
         }
+        if (hasSettled) alive.add(episodeKey(g.person, -1))
       }
       for (const key of Object.keys(episodeOpen)) {
         if (!alive.has(key)) delete episodeOpen[key]

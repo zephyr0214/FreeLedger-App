@@ -279,5 +279,46 @@ console.log('=== 四个大变化率：只显示箭头，不显示正负号 ===')
   check('不再引入带符号的百分比工具', /percentText, percentOnly/.test(panel), false)
 }
 
+console.log('=== AI 回溯日期的默认时刻 ===')
+
+{
+  const { validateItem } = await import('../api/aiParse.js')
+
+  /*
+   * ★ 用户本轮第 2 条 ★
+   *   「AI 记账说之前的日期但是没有说具体时间时，
+   *   添加到要求日期的 23:59」。
+   *
+   *   三个要点：
+   *     · 昨天、没说时间 → 23:59
+   *     · 今天、没说时间 → 不给（落库用「此刻」更准）
+   *     · 昨天、说了时间 → 用说的那个
+   */
+  const ctx = {
+    baseDate: new Date('2026-11-09T20:00:00'),
+    categories: [{ id: 'c1', name: '餐饮', type: 'expense', parent_id: null }],
+    accounts: [{ id: 'a1', name: '现金', type: 'bank' }],
+    tags: []
+  }
+
+  const yesterday = validateItem(
+    { type: 'expense', amount: 45, category: '餐饮', account: '现金', dayOffset: -1 },
+    ctx
+  )
+  check('昨天没说时间 → 23:59', yesterday.item && yesterday.item.occurred_time, '23:59')
+
+  const today = validateItem(
+    { type: 'expense', amount: 45, category: '餐饮', account: '现金', dayOffset: 0 },
+    ctx
+  )
+  check('今天没说时间 → 不给时间（用此刻）', today.item && today.item.occurred_time, null)
+
+  const withTime = validateItem(
+    { type: 'expense', amount: 45, category: '餐饮', account: '现金', dayOffset: -1, time: '12:30' },
+    ctx
+  )
+  check('昨天说了时间 → 用说的那个', withTime.item && withTime.item.occurred_time, '12:30')
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

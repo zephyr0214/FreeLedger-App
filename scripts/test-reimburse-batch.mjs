@@ -868,6 +868,232 @@ console.log('=== 9. 页面接线（已报销 = 报销单卡片）===')
   check('待报销 tab 的金额不划删除线', /class="amount-pending"/.test(page), true)
 }
 
+/* ============================ 10. 撤销报销单 */
+
+console.log('=== 10. 撤销报销单：删派生流水 + 原始流水退回未报销 ===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, 'acc1', '工资卡')
+  const { reimbMod } = await loadModules(fake)
+
+  /*
+   * ★ 用户本轮要求的两件事 ★
+   *   1) 删除该报销单的「报销到账」「报销盈余」「报销坏账」记录；
+   *   2) 把该报销单已报销的流水切换为未报销。
+   *
+   * 这里造一张带坏账的单（原支出 1000、实报 900），
+   * 这样派生流水里会有两种（到账 + 坏账），
+   * 比只有到账的场景更能验证「该删的都删了」。
+   */
+  insertExpense(db, { id: 'v1', amount: 40000, accountId: 'acc1', day: '2026-11-01' })
+  insertExpense(db, { id: 'v2', amount: 60000, accountId: 'acc1', day: '2026-11-02' })
+
+  const r = await reimbMod.reimburseTxns({
+    ids: ['v1', 'v2'], totalCents: 90000, accountId: 'acc1', day: '2026-11-08'
+  })
+  check('造单：坏账 100.00', r.badDebtCents, 10000)
+
+  const beforeAlive = db.prepare(
+    'SELECT COUNT(*) AS c FROM txn WHERE batch_id = ? AND deleted_at IS NULL'
+  ).get(r.batchId).c
+  check('撤销前活着 4 笔（2 原始 + 到账 + 坏账）', Number(beforeAlive), 4)
+
+  /*
+   * ★ 余额预期要把「原始支出」也算进去 ★
+   *   原始支出 v1+v2 = 1000.00 也记在 acc1 上（钱确实花出去了），
+   *   所以：-1000（原支出）+ 900（到账）- 100（坏账） = -200.00
+   *   一开始只想到到账与坏账，忘了原始支出也在同一个账户上。
+   */
+  const balBefore = Number(db.prepare("SELECT balance_cents FROM account WHERE id='acc1'").get().balance_cents)
+  check('撤销前余额 = -200.00（原支出 -1000 + 到账 900 - 坏账 100）', balBefore, -20000)
+
+  const out = await reimbMod.voidReimburseBatch(r.batchId)
+  check('返回删了 2 笔派生流水', out.deletedDerived, 2)
+  check('返回退回 2 笔原始流水', out.restoredItems, 2)
+
+  const derivedAlive = db.prepare(
+    'SELECT COUNT(*) AS c FROM txn WHERE batch_id = ? AND deleted_at IS NULL'
+  ).get(r.batchId).c
+  check('单下再没有活着的流水', Number(derivedAlive), 0)
+
+  /*
+   * ★ 派生流水的时间 = 保存时刻，不是 12:00（用户本轮第 1 条）★
+   *   用户原话：「报销订单时，报销返回/盈余/坏账的交易时间
+   *   设置为保存时刻，不要默认 12:00」。
+   *
+   *   这里报销日是 2026-11-08（过去的日子），
+   *   所以落库时间应当是「2026-11-08 + 保存时的时分」，
+   *   不应当是 12:00。而且因为不是今天，也不可能命中“当前时刻”。
+   */
+  const derivedRows = db.prepare(
+    `SELECT t.occurred_at, t.occurred_day, c.name AS cat
+     FROM txn t LEFT JOIN category c ON c.id = t.category_id
+     WHERE t.batch_id = ?`
+  ).all(r.batchId).filter((x) => ['报销到账', '报销坏账', '报销盈余'].includes(x.cat))
+  ok('派生流水有 2 笔', derivedRows.length === 2)
+  for (const d of derivedRows) {
+    check(`派生「${d.cat}」日期跟报销日`, d.occurred_day, '2026-11-08')
+    const hh = new Date(Number(d.occurred_at)).getHours()
+    const mm = new Date(Number(d.occurred_at)).getMinutes()
+    ok(`派生「${d.cat}」不是 12:00`, !(hh === 12 && mm === 0))
+  }
+
+  const softDeleted = db.prepare(
+    `SELECT t.id FROM txn t LEFT JOIN category c ON c.id = t.category_id
+     WHERE t.deleted_at IS NOT NULL
+       AND c.name IN ('报销到账','报销坏账','报销盈余')`
+  ).all()
+  check('到账 + 坏账都被软删除', softDeleted.length, 2)
+
+  /*
+   * ★ 撤销后回到「待报销」（用户反馈修正）★
+   *   上一版置成 status=0，结果这几笔在报销页两个 tab
+   *   （待报销只查 1、已报销只查 2）都不显示，
+   *   用户看起来就像“流水被删了”。
+   *   现在应当回到 1，且两个 exclude 重新置 1
+   *   （待报销的标准状态：钱还没回来，不计收支、不占预算）。
+   */
+  for (const id of ['v1', 'v2']) {
+    const t = db.prepare('SELECT * FROM txn WHERE id = ?').get(id)
+    check(`原始流水 ${id} 退回待报销`, Number(t.reimburse_status), 1)
+    check(`原始流水 ${id} 的 batch_id 已清`, t.batch_id, null)
+    check(`原始流水 ${id} 的报销日期已清`, t.reimburse_day, null)
+    check(`原始流水 ${id} 的实报金额已清`, t.reimburse_amount_cents, null)
+    check(`原始流水 ${id} 仍不计收支`, Number(t.exclude_from_stats), 1)
+    check(`原始流水 ${id} 仍不占预算`, Number(t.exclude_from_budget), 1)
+    check(`原始流水 ${id} 金额不变`, Number(t.amount_cents), id === 'v1' ? 40000 : 60000)
+  }
+
+  /*
+   * ★ 最关键的一条：它们应当回到「待报销」列表里 ★
+   *   这才是用户看得到的结果。
+   */
+  const pendingList = await reimbMod.listReimburseTxns('pending')
+  check('撤销后这两笔回到待报销列表', pendingList.map((t) => t.id).sort(), ['v1', 'v2'])
+
+  const batchRow = db.prepare('SELECT deleted_at FROM reimburse_batch WHERE id = ?').get(r.batchId)
+  ok('单头被软删除', batchRow.deleted_at !== null && batchRow.deleted_at !== undefined)
+  const list = await reimbMod.listReimburseBatches()
+  check('撤销后已报销列表为空', list.length, 0)
+
+  /*
+   * 撤销后：到账 900 与坏账 100 都没了，只剩原始支出 1000，
+   * 所以余额变成 -1000.00。
+   * ★ 这恰好证明撤销是对的 ★
+   *   钱确实花了（原支出还在），而公司打回的那 900 被扣回去了。
+   */
+  const balAfter = Number(db.prepare("SELECT balance_cents FROM account WHERE id='acc1'").get().balance_cents)
+  check('撤销后余额 = -1000.00（只剩原始支出）', balAfter, -100000)
+}
+
+console.log('=== 10b. 撤销的护栏 ===')
+
+{
+  const { fake, db } = makeFakePlus()
+  insertAccount(db, 'acc1')
+  const { reimbMod } = await loadModules(fake)
+
+  let err = null
+  try { await reimbMod.voidReimburseBatch('nope') } catch (e) { err = e.message }
+  ok('单不存在时报错', !!err && /不存在|已撤销/.test(err))
+
+  err = null
+  try { await reimbMod.voidReimburseBatch('') } catch (e) { err = e.message }
+  ok('空 id 时报错', !!err && /缺少/.test(err))
+
+  /*
+   * ★ 历史单不能撤销 ★
+   *   它们没有真正的单头，只是按「报销日 + 账户 + 实报」拼出来的只读视图。
+   *   撤销它等于要反推一次历史操作，反推错会把用户的账搅乱。
+   */
+  err = null
+  try { await reimbMod.voidReimburseBatch('legacy_2026-11-01|acc1|90000') } catch (e) { err = e.message }
+  ok('历史单拒绝撤销', !!err && /历史/.test(err))
+
+  insertExpense(db, { id: 'twice1', amount: 10000, accountId: 'acc1' })
+  const r2 = await reimbMod.reimburseTxns({
+    ids: ['twice1'], totalCents: 10000, accountId: 'acc1', day: '2026-11-08'
+  })
+  await reimbMod.voidReimburseBatch(r2.batchId)
+  err = null
+  try { await reimbMod.voidReimburseBatch(r2.batchId) } catch (e) { err = e.message }
+  ok('重复撤销报错（单已删）', !!err && /不存在|已撤销/.test(err))
+}
+
+console.log('=== 10c. 页面：撤销按钮与确认弹窗 ===')
+
+{
+  const page = read('pages/loan/reimburse.vue')
+
+  /*
+   * ★ 应报改到「N 笔」之后的同一行，撤销按钮挪到卡尾（用户本轮）★
+   *   用户原话：「应报显示在 X 笔之后「· 应报 ￥ XX.XX」，
+   *   实报上，移撤按钮切换为「撤销本报销单」按钮，显示在下方」。
+   */
+  check(
+    '应报在「N 笔」之后',
+    /class="batch-count">[^<]*txnCount[^<]*笔\s*<\/text>\s*<text class="batch-origin-inline"/.test(page),
+    true
+  )
+  /*
+   * ★ 撤销按钮在实报金额下方（用户本轮明确）★
+   *   用户原话：「『撤销本报销单』按钮，我指的是显示在实报金额下方」。
+   *   不是卡尾、不是应报金额后面 —— 而是右列里紧跟着实报那个大数字。
+   */
+  /*
+   * ★ 用位置比较而不是正则跨段匹配 ★
+   *   两者之间隔着一大段注释与模板，正则写长了容易断，
+   *   写短了又可能匹配到别处。直接比两个类名的出现位置最直接。
+   */
+  check(
+    '撤销按钮在实报金额之后',
+    page.indexOf('class="batch-void-btn"') > page.indexOf('class="batch-done-amount"'),
+    true
+  )
+  check(
+    '撤销按钮仍在卡头区域内（明细之前）',
+    page.indexOf('class="batch-void-btn"') < page.indexOf('class="batch-items"'),
+    true
+  )
+  check('不再有卡尾那一行', /class="batch-foot"/.test(page), false)
+  check('按钮文案是「撤销本报销单」', /撤销本报销单/.test(page), true)
+  check('撤销按钮绑了处理函数', /@click\.stop="onVoidBatch\(b\)"/.test(page), true)
+  check('历史单不显示撤销按钮', /v-if="!b\.isLegacy"[\s\S]{0,160}?batch-void-btn/.test(page), true)
+  check('点击后弹确认框', /confirmDialog\(/.test(page), true)
+  check('确认框用危险色', /danger:\s*true/.test(page), true)
+  /*
+   * ★ 确认框只留一句话（用户本轮要求）★
+   *   用户原话：「撤销确认面板只显示确认撤销这次报销？
+   *   多余文字不要显示」。
+   *   之前正文列了三行（删几笔 / 退回几笔 / 钱会扣掉），现在 content 留空。
+   */
+  check('确认框正文为空（不显示多余文字）', /title:\s*'确认撤销这次报销？'[\s\S]{0,120}?content:\s*''/.test(page), true)
+  check('确认后调 voidReimburseBatch', /voidReimburseBatch\(b\.id\)/.test(page), true)
+  check('撤销后重新加载列表', /onVoidBatch[\s\S]{0,1200}?await load\(\)/.test(page), true)
+  check('API 已导出 voidReimburseBatch', /export async function voidReimburseBatch/.test(reimbSrc), true)
+  /*
+   * ★ 撤销按钮与手动结清按钮样式一致（用户本轮第 4 条）★
+   *   font-size 22rpx、padding 6rpx 18rpx、border-radius 14rpx、1rpx 描边、透明底。
+   *   颜色由模板内联传入（主题色）。
+   */
+  check(
+    '撤销按钮样式与手动结清一致',
+    /\.batch-void-btn\s*\{[\s\S]{0,220}?font-size:\s*22rpx[\s\S]{0,160}?padding:\s*6rpx 18rpx[\s\S]{0,120}?border-radius:\s*14rpx/.test(page),
+    true
+  )
+  check(
+    '撤销按钮用主题色',
+    /class="batch-void-btn"[\s\S]{0,120}?:style="\{ borderColor: primaryColor, color: primaryColor \}"/.test(page),
+    true
+  )
+  check(
+    '实报金额用主题色',
+    /class="batch-done-amount"[\s\S]{0,320}?:color="primaryColor"/.test(page),
+    true
+  )
+}
+
 /* ------------------------------------------------------------ */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

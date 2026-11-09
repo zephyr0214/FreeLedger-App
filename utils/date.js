@@ -427,3 +427,20 @@ export function monthProgress(monthKey) {
 
   return { total, passed, remain }
 }
+
+/**
+ * 短日期展示 M/D（流水副标题用）
+ *
+ * ★ 为什么不复用 formatDayHeader ★
+ *   那个是「分组头」用的：带「昨天 / 前天」相对词 + 星期，
+ *   放进一行小字里太长（「昨天 · 11月8日 周六 · 14:30」）。
+ *   流水副标题只需要「哪一天」，M/D 最短且够认。
+ *
+ * @param {number} ts 时间戳
+ * @returns {string} 如 '11/8'
+ */
+export function shortDate(ts) {
+  const d = new Date(ts)
+  if (!Number.isFinite(d.getTime())) return ''
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}

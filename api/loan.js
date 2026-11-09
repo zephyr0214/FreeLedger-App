@@ -704,80 +704,145 @@ export function splitLoanEpisodes(txns, pair) {
 export function buildLoanEpisodeView(episodes, opt = {}) {
   const eps = Array.isArray(episodes) ? episodes : []
   const status = opt.status === 'settled' ? 'settled' : 'open'
+  const isSettledTab = status === 'settled'
   const isExpanded = typeof opt.isExpanded === 'function' ? opt.isExpanded : () => false
 
   /*
-   * ★ 未结清 tab：段序倒过来（用户本轮第 4 条）★
-   *   splitLoanEpisodes 给的是时间正序（旧的已结清段在前、当前未结清段在后），
-   *   但页面从上往下读，「现在正在进行的账」应该在最上面，
-   *   历史已结清的折叠条压在最下面 —— 用户原话：
-   *   「未结清页面，已结清流水展开应该显示在当前流水下方而不是上方」。
-   *   已结清 tab 保持时间正序（那是「历史沿革」的读法）。
+   * ★ 两个 tab 都要倒序：最新的在上、历史的在下 ★
+   *   splitLoanEpisodes 给的是时间正序（旧的段在前、新的段在后），
+   *   但页面从上往下读，每个 tab 都应当是「最近的在最上面」。
    *
-   * ★ 倒序要在算分割线之前做 ★
-   *   分割线标注的是「上一段收口于哪天」，段序一变，上一段也跟着变 ——
+   *   未结清 tab（用户第 4 条）：
+   *     「未结清页面，已结清流水展开应该显示在当前流水下方而不是上方」。
+   *   已结清 tab：
+   *     「历史结清显示在下，最新结清显示在上」。
+   *
+   * ★ 倒序要在算标注之前做 ★
+   *   标注的日期取自相邻段，段序一变标注就跟着变 ——
    *   先反序再算，标注才对得上屏幕上看到的相邻关系。
-   *   （已结清 tab 本来就不倒序，所以不受影响。）
    */
-  const ordered = status === 'open' ? eps.slice().reverse() : eps
+  const ordered = eps.slice().reverse()
+
+  /*
+   * ★ 未结清 tab：所有已结清段合成一个「历史」折叠组（用户本轮第 5 条）★
+   *   用户原话：「历史有多次已结清时，未结清页面现在会显示多个展开按钮，
+   *   修复一下这个 bug，只显示一个」。
+   *
+   *   之前每个已结清段各给一个折叠条（「已结清 3 笔 · 点击展开」×N），
+   *   一个人结清过五次就会出现五条一模一样的栏，看起来像 bug。
+   *   它们本来就是同一件事（“这个人的历史”），合成一条正确。
+   *
+   *   展开后要像已结清页一样，每段前面标「已结清 · 日期」 ——
+   *   否则展开后就是一堆流水堆在一起，看不出哪几笔是同一次结清的。
+   */
+  const historyTxnCount = ordered.reduce(
+    (n, ep) => n + (ep && ep.settled && Array.isArray(ep.txns) ? ep.txns.length : 0),
+    0
+  )
+  // 历史组的展开状态用专用下标 -1 存（它不对应任何一段）
+  const historyExpanded = !isSettledTab && isExpanded(-1)
+  // 历史组里最后一段的下标（收起按钮挂在它后面）
+  let lastSettledIndex = -1
+  for (let i = 0; i < ordered.length; i++) {
+    const ep = ordered[i]
+    if (ep && ep.settled && Array.isArray(ep.txns) && ep.txns.length > 0) lastSettledIndex = i
+  }
 
   const out = []
+  let historyBarPlaced = false
 
   for (let i = 0; i < ordered.length; i++) {
     const ep = ordered[i]
     if (!ep || !Array.isArray(ep.txns) || ep.txns.length === 0) continue
 
     /*
-     * ★ 分割标注画在**下一段**之前，日期取上一段的收口日 ★
-     *   它标注的是「上面那一段在哪里结束」，所以日期属于上一段。
-     *   如果写在段尾（跟着上一段最后一笔），折叠时这条线会跟着消失 ——
-     *   而它表达的正是「那一段已经结束了」这个结论，不能跟着没。
-     *   只在已结清 tab 画：未结清 tab 里历史段本身有折叠条，
-     *   再画一条是重复信息。
+     * ★ 未结清 tab 里的已结清段：合成一个折叠组 ★
+     *   折叠时：只有第一段放折叠条，其余段整段跳过（skip）；
+     *   展开时：每段都渲染，各自带「已结清 · 日期」标注。
      */
+    if (!isSettledTab && ep.settled) {
+      const historyDay = ep.closingDay || ''
+
+      if (!historyExpanded) {
+        if (historyBarPlaced) {
+          // 已经有一条折叠条了 → 这一段完全不渲染
+          out.push({
+            ...ep,
+            rowIndex: i,
+            collapsed: false,
+            skip: true,
+            showDividerBefore: false,
+            dividerText: '',
+            collapseText: '',
+            showCollapseBtn: false
+          })
+          continue
+        }
+        historyBarPlaced = true
+        out.push({
+          ...ep,
+          /*
+           * 折叠条的下标用 -1：
+           * 它代表的是「这个人的整个历史组」，不是某一段。
+           * 用真实下标的话，展开状态会跟着分段变化而错位。
+           */
+          rowIndex: -1,
+          collapsed: true,
+          skip: false,
+          showDividerBefore: false,
+          dividerText: '',
+          collapseText: `已结清 ${historyTxnCount} 笔 · 点击展开`,
+          showCollapseBtn: false
+        })
+        continue
+      }
+
+      historyBarPlaced = true
+      out.push({
+        ...ep,
+        /*
+         * ★ 展开后的历史段，rowIndex 也要是 -1 ★
+         *   展开状态存在 `person#-1` 上，而「收起」按钮是用
+         *   `toggleEpisode(g.person, ep.rowIndex)` 去翻转的 ——
+         *   如果这里给真实下标 i，按钮去翻的是另一个 key，
+         *   历史组永远收不回去（用户反馈的 bug）。
+         *   展开后这些段不再单独折叠，rowIndex 没有别的用途。
+         */
+        rowIndex: -1,
+        collapsed: false,
+        skip: false,
+        showDividerBefore: true,
+        /*
+         * ★ 这里的日期用「这一段自己的收口日」★
+         *   已结清 tab 用的是「上一段的收口日」（那边每段都是已结清，
+         *   标注读作“上面那段结清于哪天”）。
+         *   而这里的历史组每段都是一次独立的结清，
+         *   标它自己的日期最不容易误读。
+         */
+        dividerText: historyDay ? `已结清 · ${historyDay}` : '已结清',
+        collapseText: '',
+        // 收起入口挂在历史组最后一段后面
+        showCollapseBtn: i === lastSettledIndex
+      })
+      continue
+    }
+
     const prev = i > 0 ? ordered[i - 1] : null
     const prevDay = (prev && prev.closingDay) || ''
-    /*
-     * ★ 「已结清 · 日期」标注加回来了（用户本轮第 2 条后半）★
-     *   用户原话：「已结清页面，我说的是不添加上下分割线，不是不添加
-     *   已结清和结清日期，加回来」。
-     *   上一轮理解错成「整块删掉」，把文字和线一起删了 —— 删过头。
-     *   现在恢复成：**已结清 tab、段与段之间**要文字（画不画线由页面负责），
-     *   未结清 tab 不画（那边历史段本身就是折叠条，再标一次是重复信息）。
-     *
-     * ★ 为什么这里只决定「要不要显示」，不决定「有没有线」★
-     *   线是纯样式（用户明确不要上下分割线），属于页面；
-     *   而「第几段之前该出现这个标注」依赖分段与 tab，由这里算 ——
-     *   放页面里要重新数一遍段序，两处口径迟早对不上。
-     */
-    const showDividerBefore = status === 'settled' && i > 0
-
-    /*
-     * ★ 未结清 tab：历史已结清的段默认折叠 ★
-     *   用户原话「自动折叠之前已结清的流水，可展开」。
-     *   未结清的段永远不折叠 —— 那是用户当前真正要看的账。
-     */
-    const collapsed = status === 'open' && ep.settled && !isExpanded(i)
 
     out.push({
       ...ep,
-      /*
-       * ★ rowIndex 必须用「反序后的下标」★
-       *   页面的展开状态是按 `person#rowIndex` 记的（episodeOpen）。
-       *   如果这里给原始下标，反序后「点开下面那条折叠条」会把上面
-       *   另一段的状态改掉 —— 用户会看到「点了 A，B 展开了」。
-       */
       rowIndex: i,
-      collapsed,
-      showDividerBefore,
-      dividerText: prevDay ? `已结清 · ${prevDay}` : '已结清',
-      collapseText: `已结清 ${ep.txns.length} 笔 · 点击展开`,
+      collapsed: false,
+      skip: false,
       /*
-       * 只有「未结清 tab 里手动展开过的已结清段」给收起入口。
-       * 已结清 tab 默认全展开，再给「收起」等于让用户把这页的主要信息
-       * 折叠掉，没有意义。
+       * 已结清 tab：段与段之间标「已结清 · 上一段收口日」
+       * 未结清 tab 的当前段（下标 0）：不标
        */
-      showCollapseBtn: status === 'open' && ep.settled && isExpanded(i)
+      showDividerBefore: isSettledTab && i > 0,
+      dividerText: prevDay ? `已结清 · ${prevDay}` : '已结清',
+      collapseText: '',
+      showCollapseBtn: false
     })
   }
 

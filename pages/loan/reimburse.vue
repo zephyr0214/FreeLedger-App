@@ -206,23 +206,56 @@
                 <text class="batch-day">{{ dayTitle(b.day) }}</text>
                 <text v-if="b.isLegacy" class="batch-legacy-tag">历史</text>
               </view>
+              <!--
+                第二行：到账账户 · N 笔 · 应报 ¥x
+
+                ★ 用户本轮调整 ★
+                  用户原话：「应报显示在 X 笔之后「· 应报 ￥ XX.XX」」。
+                  之前应报在右列实报上方做小字；
+                  现在挪到账户那一行的末尾，
+                  「账户 + 笔数 + 应报」都是这单的抬头信息，串在一起最省高度。
+                  右列只留实报一个大数字，反而更突出。
+              -->
               <text class="batch-account ellipsis">
                 {{ b.accountName || '无账户' }}
-                <text class="batch-count">· {{ b.txnCount }} 笔</text>
+                <text class="batch-count">· {{ b.txnCount }} 笔 </text>
+                <text class="batch-origin-inline">· 应报 ￥{{ yuan(b.originCents) }}</text>
               </text>
             </view>
             <view class="batch-head-right">
-              <!-- 应报金额：小字压在实报上面，两个数一上一下才比得出来 -->
-              <text class="batch-origin-label">应报 ¥{{ yuan(b.originCents) }}</text>
               <view class="batch-done-row">
                 <text class="batch-done-label">实报</text>
+                <!-- ★ 实报金额用主题色（用户要求）★ -->
                 <MoneyText
                   class="batch-done-amount"
                   :cents="b.doneCents"
                   :size="44"
                   :weight="600"
+                  :color="primaryColor"
                 />
               </view>
+
+              <!--
+                撤销按钮：就在实报金额下方（用户本轮要求）
+
+                ★ 用户原话 ★
+                  「『撤销本报销单』按钮，我指的是显示在实报金额下方」。
+
+                ★ 为什么贴着实报金额 ★
+                  实报金额是这张单的结论；撤销是「把这个结论推翻」，
+                  两者天然是同一组。放在它正下方比放在卡尾更直接——
+                  不用滑到底才能找到。
+
+                ★ 历史单不给按钮 ★
+                  它们没有真正的单头，只是按「报销日 + 账户 + 实报」
+                  拼出来的只读视图 —— 撤销等于要反推一次历史操作。
+              -->
+              <text
+                v-if="!b.isLegacy"
+                class="batch-void-btn"
+                :style="{ borderColor: primaryColor, color: primaryColor }"
+                @click.stop="onVoidBatch(b)"
+              >撤销本报销单</text>
             </view>
           </view>
 
@@ -339,6 +372,7 @@
               <text class="batch-empty-text">这张单的流水已被删除</text>
             </view>
           </view>
+
         </view>
 
         <view class="bottom-space" />
@@ -482,12 +516,12 @@ import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns } from '@/api/reimburse.js'
+import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns, voidReimburseBatch } from '@/api/reimburse.js'
 import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
-import { alertDialog } from '@/utils/dialog.js'
-import { formatDayHeader, formatTime, toDayKey } from '@/utils/date.js'
+import { alertDialog, confirmDialog } from '@/utils/dialog.js'
+import { formatDayHeader, formatTime, toDayKey, shortDate } from '@/utils/date.js'
 
 /** 汇总卡图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const ACCENT_COLOR = '#FF8F1F'
@@ -662,10 +696,22 @@ export default {
     }
 
     /** 副标题：时间 · 账户 */
+    /**
+     * 报销流水的副标题：账户 · 日期 · 时间
+     *
+     * ★ 账户名放最前（用户本轮第 3 条）★
+     *   与借出/借入页同一口径：三个页面的流水副标题长得一样。
+     *
+     * @param {object} t 流水
+     * @returns {string}
+     */
     function txnSub(t) {
       const parts = []
-      if (t.occurred_at) parts.push(formatTime(t.occurred_at))
       parts.push(t.account_name || '无账户')
+      if (t.occurred_at) {
+        parts.push(shortDate(t.occurred_at))
+        parts.push(formatTime(t.occurred_at))
+      }
       return parts.join(' · ')
     }
 
@@ -929,6 +975,57 @@ export default {
       }
     }
 
+    /* ------------------------------------------------ 撤销报销 */
+
+    /*
+     * 撤销一张报销单（用户本轮要求）
+     *
+     * ★ 流程 ★
+     *   点「撤销」→ 弹窗确认 → 确认后调 voidReimburseBatch →
+     *   重新 load() 让卡片消失、待报销列表恢复。
+     *
+     * ★ 为什么要确认弹窗、而且用危险色 ★
+     *   这个动作不可撤销地删掉三笔派生流水（虽然有软删除兜底），
+     *   并且把 N 笔账退回未报销状态。用户手滑点到的代价是把一单账拆了，
+     *   所以必须拦一道。
+     *
+     * ★ 弹窗正文要把「会发生什么」写清楚 ★
+     *   不能只写「确定撤销吗」。用户真正想确认的是：
+     *   我这几笔会去哪儿？钱会不会少？
+     *   所以正文写：删掉到账/盈余/坏账三笔，N 笔流水退回未报销、金额不变。
+     */
+    async function onVoidBatch(b) {
+      if (!b || b.isLegacy) return
+
+      /*
+       * ★ 确认框只留一句话（用户本轮要求）★
+       *   用户原话：「撤销确认面板只显示确认撤销这次报销？
+       *   多余文字不要显示」。
+       *   之前正文里列了「删哪几笔 / 退回几笔 / 钱会被扣掉」三行，
+       *   用户觉得啰嗦。现在正文留空，只留标题问句。
+       */
+      const ok = await confirmDialog({
+        title: '确认撤销这次报销？',
+        content: '',
+        confirmText: '撤销',
+        cancelText: '再想想',
+        danger: true
+      })
+      if (!ok) return
+
+      try {
+        const r = await voidReimburseBatch(b.id)
+        uni.showToast({
+          title: `已撤销，${r.restoredItems} 笔退回待报销`,
+          icon: 'none',
+          duration: 2000
+        })
+        await load()
+      } catch (e) {
+        await alertDialog({ title: '撤销失败', content: e.message || '请稍后重试' })
+      }
+    }
+
     /*
      * 弹层登记到弹层栈
      *
@@ -1000,6 +1097,7 @@ export default {
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
       badgesOf, iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
+      onVoidBatch,
       onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountSelect,
       onConfirmReimburse, goBack
     }
@@ -1385,10 +1483,38 @@ export default {
 }
 
 /* 应报金额：小字，弱化（它是「原来的数」，结论是下面那行） */
-.batch-origin-label {
-  font-size: 20rpx;
-  color: var(--app-text-3);
+/* 「应报」嵌在账户那一行的末尾，和「· N 笔」同一种弱化小字 */
+.batch-origin-inline {
   font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/*
+ * 撤销按钮：紧贴在实报金额下方（用户本轮要求）
+ *
+ * ★ margin-top 为什么是 8rpx ★
+ *   它是右列的第三个子元素（应报已移到左列），
+ *   gap 只有 2rpx（给实报字与金额用的），
+ *   不加一点距离会和实报金额贴成一块。
+ *
+ * 对照 pages/loan/manage.vue 的 .settle-btn：
+ *   font-size 22rpx、padding 6rpx 18rpx、border-radius 14rpx、
+ *   1rpx 描边、透明底。颜色由模板内联传入。
+ *
+ * 对照 pages/loan/manage.vue 的 .settle-btn：
+ *   font-size 22rpx、padding 6rpx 18rpx、border-radius 14rpx、
+ *   1rpx 描边、透明底。
+ *   颜色由模板内联传入（主题色）。
+ */
+.batch-void-btn {
+  font-size: 22rpx;
+  line-height: 1;
+  padding: 6rpx 18rpx;
+  border-radius: 14rpx;
+  border: 1rpx solid;
+  background-color: transparent;
+  white-space: nowrap;
+  margin-top: 8rpx;
 }
 
 /* 「实报」二字 + 金额同一行，字在钱前面 */
