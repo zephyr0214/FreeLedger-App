@@ -99,6 +99,30 @@ console.log('=== 意图识别：借给（支出 / 借出）===')
 
 check('借钱给朋友500 -> 借出', detectLoanIntent('借钱给朋友500').key, 'lendOut')
 
+/*
+ * ★ 「别人借给我」必须是借入（用户反馈的 bug）★
+ *   用户原话：「比如“某某某借给我”，应该是“借入”，
+ *   它就会识别为“借出”，而且金额又识别成了正数」。
+ *
+ *   根因：「张三借给我30」里含「借给」两字，
+ *   而 lendOut 规则正好匹配「借给」，且排在借入前面 → 判成支出。
+ *   修法：「借给我 / 借了..给我」归为借入，并排在 lendOut 前面。
+ *
+ *   关键区分：「我」在「借给」**后面**才是受动方（借入）；
+ *   在**前面**是主语（我借给刘备），仍然是借出。
+ */
+check('张三借给我30 -> 借入', detectLoanIntent('张三借给我30').key, 'lendToMe')
+check('张三借给我30 是收入', detectLoanIntent('张三借给我30').type, 'income')
+check('张三借给我30 分类是借入', detectLoanIntent('张三借给我30').categoryName, '借入')
+check('李四借给我500元 -> 借入', detectLoanIntent('李四借给我500元').key, 'lendToMe')
+check('张三借了30给我 -> 借入', detectLoanIntent('张三借了30给我').key, 'lendToMe')
+check('张三借钱给我 -> 借入', detectLoanIntent('张三借钱给我').key, 'lendToMe')
+
+// 主语是「我」时仍然是借出（不能矫枉过正）
+check('我借给张三30 -> 仍是借出', detectLoanIntent('我借给张三30').key, 'lendOut')
+check('借给张三30 -> 仍是借出', detectLoanIntent('借给张三30').key, 'lendOut')
+check('借钱给朋友500 -> 仍是借出', detectLoanIntent('借钱给朋友500').key, 'lendOut')
+
 console.log('=== 意图识别：向…借（收入 / 借入）===')
 
 {

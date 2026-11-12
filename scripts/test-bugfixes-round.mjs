@@ -125,11 +125,20 @@ check(
 check('不再有旧的整数四舍五入', /Math\.max\(Math\.round\(remaining \/ remain\), 0\)/.test(stats), false)
 
 const idx = read('pages/index/index.vue')
-check('首页总预算日均两位小数', /totalBudget\.dailyAvailable \/ 100\)\.toFixed\(2\)/.test(idx), true)
-check('首页分类预算日均两位小数', /b\.dailyAvailable \/ 100\)\.toFixed\(2\)/.test(idx), true)
+/*
+ * ★ 日均金额现在走 formatWanYuan，不再手写 toFixed(2)（本轮第 6 条）★
+ *   用户要求「所有显示价签的地方，金额 >= 100 万时自动换算成 W」。
+ *   旧断言写死了「/ 100).toFixed(2)」这个形式，现在形式变了，
+ *   但要验证的**语义**没变：日均金额仍然是带小数的、不舍入为整数。
+ *
+ *   formatWanYuan 未达 W 阈值时返回就是两位小数，所以这里直接验证「用了这个函数」。
+ */
+check('首页总预算日均走统一金额函数', /formatWanYuan\(totalBudget\.dailyAvailable\)/.test(idx), true)
+check('首页分类预算日均走统一金额函数', /formatWanYuan\(b\.dailyAvailable\)/.test(idx), true)
 
 const budgetPage = read('pages/settings/budget.vue')
-check('预算页日均两位小数', /totalBudget\.dailyAvailable \/ 100\)\.toFixed\(2\)/.test(budgetPage), true)
+check('预算页日均走统一金额函数', /formatWanYuan\(totalBudget\.dailyAvailable\)/.test(budgetPage), true)
+check('日均金额不再手写 toFixed(2)', /dailyAvailable \/ 100\)\.toFixed\(2\)/.test(idx + budgetPage), false)
 
 /* -------------------------------------------- 7. 覆盖安装：迁移链完整 */
 

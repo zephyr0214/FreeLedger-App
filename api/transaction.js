@@ -112,7 +112,7 @@ export function buildCategoryCondition(categoryId, includeSubcategories) {
 export function buildFilterWhere(opt = {}) {
   const {
     monthKey, startDay, endDay, type, accountId, categoryId, categoryIds,
-    includeSubcategories, tagId, keyword, minCents, maxCents, cycleId
+    includeSubcategories, tagId, tagIds, keyword, minCents, maxCents, cycleId
   } = opt
 
   const where = ['t.deleted_at IS NULL']
@@ -179,8 +179,37 @@ export function buildFilterWhere(opt = {}) {
   if (minCents !== undefined && minCents !== null) { where.push('t.amount_cents >= ?'); params.push(Number(minCents)) }
   if (maxCents !== undefined && maxCents !== null) { where.push('t.amount_cents <= ?'); params.push(Number(maxCents)) }
 
-  // 标签过滤需要子查询
-  if (tagId) {
+  /*
+   * 标签过滤（需要子查询）
+   *
+   * ★ 多标签优先，单标签保留为兼容分支（用户本轮第 1 条）★
+   *   用户要求：「筛选页面标签复用设置标签的面板，
+   *   只有一个标签时，显示选中的标签名；
+   *   有两个以上标签时，显示「已选中 x 个标签」」——
+   *   说明筛选面板的标签要支持**多选**。
+   *
+   * ★ 为什么用 `IN` 而不是多个 EXISTS ★
+   *   EXISTS 只能表达「有这个标签」；多个标签要表达的是
+   *   「命中其中任一个标签」（OR 语义），
+   *   拼成 `tt.tag_id IN (?,?)` 一条子查询就够，也比多条 OR 更容易走索引。
+   *
+   * ★ 同样要同时接受字符串和数组 ★
+   *   和 categoryIds 一样，两个调用方给的形式不同：
+   *     · 页面直接查询时拼成逗号串传进来
+   *     · URL 深链解析出来的是数组（见 parseTxnQueryOptions）
+   *   在边界上统一规范，不让某一种写法静默失效。
+   */
+  const multiTags = (Array.isArray(tagIds)
+    ? tagIds
+    : String(tagIds || '').split(','))
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+  if (multiTags.length > 0) {
+    where.push(
+      `EXISTS (SELECT 1 FROM txn_tag tt WHERE tt.txn_id = t.id AND tt.tag_id IN (${multiTags.map(() => '?').join(',')}))`
+    )
+    params.push(...multiTags)
+  } else if (tagId) {
     where.push('EXISTS (SELECT 1 FROM txn_tag tt WHERE tt.txn_id = t.id AND tt.tag_id = ?)')
     params.push(tagId)
   }
@@ -223,6 +252,20 @@ export function parseTxnQueryOptions(options = {}) {
   const tagId = str(opt.tagId)
   const cycleId = str(opt.cycleId)
 
+  /*
+   * 多标签：tagIds=a,b,c
+   *
+   * ★ 为什么要它 ★
+   *   筛选面板支持多选标签之后，标签条件可能是**一组**。
+   *   深链（「某标签的全部流水」）也要能把这组带过来。
+   *   和 categoryIds 一样：非法/空值一律当没传。
+   */
+  const tagIds = str(opt.tagIds)
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 100)
+
   const monthKeyRaw = str(opt.monthKey)
   // 月份必须是真实的月份（01-12），'2026-13' 这种要被挡掉
   const monthKey = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKeyRaw) ? monthKeyRaw : ''
@@ -253,6 +296,7 @@ export function parseTxnQueryOptions(options = {}) {
     categoryId,
     categoryIds,
     tagId,
+    tagIds,
     cycleId,
     monthKey,
     day,
@@ -264,7 +308,7 @@ export function parseTxnQueryOptions(options = {}) {
      * 否则用户会只看到当月那几笔。
      */
     hasFilter: Boolean(
-      accountId || categoryId || categoryIds.length > 0 || tagId || cycleId || type !== 'all'
+      accountId || categoryId || categoryIds.length > 0 || tagId || tagIds.length > 0 || cycleId || type !== 'all'
     )
   }
 }

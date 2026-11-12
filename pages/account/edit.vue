@@ -47,7 +47,7 @@
               :key="ic.key"
               class="icon-cell"
               :class="{ active: form.icon === ic.key }"
-              @click="form.icon = (form.icon === ic.key ? '' : ic.key)"
+              @click="onPickIcon(ic)"
             >
               <view
                 class="icon-cell-inner"
@@ -306,7 +306,7 @@ import { useAccountStore } from '@/stores/account.js'
 import {
   ACCOUNT_TYPES, isCreditType, isComboType, listComboMemberIds
 } from '@/api/account.js'
-import { ACCOUNT_ICONS } from '@/utils/accountIcons.js'
+import { ACCOUNT_ICONS, accountNameForIcon } from '@/utils/accountIcons.js'
 import { yuanToCents } from '@/utils/money.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
@@ -339,7 +339,19 @@ export default {
 
     const form = reactive({
       name: '',
-      type: 'cash',
+      /*
+       * ★ 新增账户默认「网络支付」（用户要求）★
+       *   用户原话：「添加账户时，默认为网络支付」。
+       *
+       *   原来默认是 'cash'（现金）。但实际记账里现金用得最少，
+       *   微信/支付宝这类网络支付才是绝大多数人的日常出口 ——
+       *   默认成网络支付，用户点「保存」就能用，不必每次都改类型。
+       *
+       * ★ 只影响「新增」★
+       *   编辑已有账户时 loadExisting() 会用库里的 type 覆盖这个值，
+       *   所以老账户不会被这条默认值改动。
+       */
+      type: 'online',
       balanceYuan: '',
       include_in_total: true,
       color: '',
@@ -441,6 +453,40 @@ export default {
      *   跟着类型变的只有两处纯展示：初始余额那一行的标签（欠钱类叫「当前欠款」）、
      *   以及分组位置。保存时是否取负由 isDebtType 决定，也在同一处判断。
      */
+    /**
+     * 选中 / 取消选中图标（用户本轮第 2 条）
+     *
+     * ★ 用户原话 ★
+     *   「添加账户时，我希望用户选择那个图标的时候，
+     *   名字那里就预填一个该图标对应的名字」。
+     *
+     * ★ 为什么要“可以取消” ★
+     *   图标是可以取消选择的（再点一下）。
+     *   取消时不能把名字也清掉 ——
+     *   那是用户可能已经改过的内容，不能因为一个图标动作就丢。
+     *
+     * ★ 只在“名字还是空的 / 还是上一个图标预填的”时覆盖 ★
+     *   用户手写了「工资卡」再去换图标，
+     *   不能把他的「工资卡」改成「中国建设银行」。
+     *   判据就是「当前名是不是空 / 是不是上一个图标带来的默认名」。
+     */
+    function onPickIcon(ic) {
+      const wasPicked = form.icon === ic.key
+      const prevDefault = form.icon ? accountNameForIcon(form.icon) : ''
+      const currentName = String(form.name || '').trim()
+
+      form.icon = wasPicked ? '' : ic.key
+      if (wasPicked) return
+
+      /*
+       * 只有名字为空、或耍好等于上一个图标的默认名时，才覆盖。
+       * 否则保留用户自己输入的名字。
+       */
+      if (!currentName || currentName === prevDefault) {
+        form.name = accountNameForIcon(ic.key)
+      }
+    }
+
     function onPickType(key) {
       if (form.type === key) return
       form.type = key
@@ -753,7 +799,7 @@ export default {
     return {
       ACCOUNT_TYPES, ACCOUNT_ICONS, AccountIcon, iconInk,
       statusBarHeight, isEdit, form, primaryColor, pageStyle,
-      isDebtType, debtHintText, selectableTypes, onPickType,
+      isDebtType, debtHintText, selectableTypes, onPickType, onPickIcon,
       onToggleInclude, onSave, onDelete, goBack, settingStore,
       /* 余额弹层 */
       /* 组合账户 */

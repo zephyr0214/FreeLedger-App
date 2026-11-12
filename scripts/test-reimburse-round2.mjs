@@ -230,8 +230,22 @@ check(
 )
 check('备份导入也带上这两列', /exclude_from_budget, reimburse_status\)\s*\n\s*VALUES/.test(BACKUP), true)
 
-check('版本号是 1.23.8', APP_VERSION, '1.23.8')
-check('更新日志最新一条是 1.23.8', RELEASES[0].version, '1.23.8')
+/*
+ * ★ 版本号断言不写死具体数字（改进）★
+ *
+ *   原来写的是 `APP_VERSION, '1.23.8'`——
+ *   每次升版本都要回来改这两行，
+ *   忘了就是一条假红灯。
+ *   真正要守的不是「版本号等于某个具体值」，
+ *   而是「三处对得上」：
+ *     · APP_VERSION 是三段式
+ *     · 更新日志的最新一条 == APP_VERSION
+ *     · 日志里的 schemaVersion == SCHEMA_VERSION
+ *   那三条才是真的一致性保障，且升版本时不用改测试。
+ *   （完整的版本规则由 scripts/test-version.mjs 守，这里只做一致性交叉验证。）
+ */
+check('版本号是三段式', /^\d+\.\d+\.\d+$/.test(APP_VERSION), true)
+check('更新日志最新一条与 APP_VERSION 一致', RELEASES[0].version, APP_VERSION)
 check('更新日志的 schemaVersion 与迁移对齐', RELEASES[0].schemaVersion, SCHEMA_VERSION)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

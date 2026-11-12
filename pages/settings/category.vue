@@ -1009,9 +1009,43 @@ export default {
   border-radius: 50%;
 }
 
+/*
+ * 选中态：用内阴影画黑圈，不用 outline
+ *
+ * ★ 用户反馈的 bug ★
+ *   「在新建一级分类的面板中，颜色选择的是该块最左边的这两个颜色，
+ *   在选中状态下，被选中的那个黑圈貌似被切割了一小部分」。
+ *
+ * ★ 为什么会裁 ★
+ *   原来的写法是
+ *     outline: 4rpx solid var(--app-text);
+ *     outline-offset: 2rpx;
+ *   outline **画在元素盒子外面**：色块 64rpx，环向外扩 4 + 2 = 6rpx。
+ *   而这个编辑器的主体是 <scroll-view class="editor-body" scroll-y>
+ *   （见模板），scroll-view 会把内容裁在滚动视口边界内 ——
+ *   最左那一列的色块左边没有余量，外扩的 ring 就被切掉一小块。
+ *
+ *   ★ 对比：为什么另外两页没这个问题 ★
+ *     pages/settings/tag.vue 和 pages/settings/theme.vue 的颜色选择器
+ *     长得一模一样，但它们的编辑器容器是普通 <view>，不裁内容。
+ *     只有本页用了 scroll-view（因为图标列表需要滚动）。
+ *
+ * ★ 为什么改成 box-shadow inset 而不是给容器加 padding ★
+ *   加 padding 要靠「容器一定不裁 padding 区」这个前提，
+ *   而 uni-app 的 scroll-view 在 App 端会多包一层内容层，
+ *   padding 加在哪一层、会不会被内层覆盖，跟平台和版本有关 ——
+ *   换个环境又坏一次。
+ *   box-shadow inset **画在元素自己的边界之内**，
+ *   不管外面套 scroll-view 还是 view，都不可能被裁。
+ *
+ * ★ 视觉上有变化吗 ★
+ *   原来环在色块外面（整体直径 64 + 12 = 76rpx），
+ *   现在环压在色块最外圈 4rpx 内侧，整体仍是 64rpx。
+ *   色块排列不变、间距不变，只是选中标记从「外圈」变成「内圈」——
+ *   环形依然清晰可辨，而且和色块贴合得更紧。
+ */
 .color-cell.active {
-  outline: 4rpx solid var(--app-text);
-  outline-offset: 2rpx;
+  box-shadow: inset 0 0 0 4rpx var(--app-text);
 }
 
 /* 图标选择 */

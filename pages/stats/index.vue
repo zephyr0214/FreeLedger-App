@@ -383,11 +383,11 @@
             <view class="engel-costs">
               <view class="engel-cost-row">
                 <text class="engel-cost-label">食品</text>
-                <text class="engel-cost-value">¥{{ (engel.food / 100).toFixed(2) }}</text>
+                <text class="engel-cost-value">¥{{ formatWanYuan(engel.food) }}</text>
               </view>
               <view class="engel-cost-row">
                 <text class="engel-cost-label">总支出</text>
-                <text class="engel-cost-value">¥{{ (engel.total / 100).toFixed(2) }}</text>
+                <text class="engel-cost-value">¥{{ formatWanYuan(engel.total) }}</text>
               </view>
             </view>
           </view>
@@ -402,11 +402,11 @@
             <view class="engel-costs">
               <view class="engel-cost-row">
                 <text class="engel-cost-label">食品</text>
-                <text class="engel-cost-value">¥{{ (engelAll.food / 100).toFixed(2) }}</text>
+                <text class="engel-cost-value">¥{{ formatWanYuan(engelAll.food) }}</text>
               </view>
               <view class="engel-cost-row">
                 <text class="engel-cost-label">总支出</text>
-                <text class="engel-cost-value">¥{{ (engelAll.total / 100).toFixed(2) }}</text>
+                <text class="engel-cost-value">¥{{ formatWanYuan(engelAll.total) }}</text>
               </view>
             </view>
           </view>
@@ -456,11 +456,11 @@
             <view class="savings-costs">
               <view class="savings-cost-row">
                 <text class="savings-cost-label">结余</text>
-                <text class="savings-cost-value">¥{{ (savings.balance / 100).toFixed(2) }}</text>
+                <text class="savings-cost-value">¥{{ formatWanYuan(savings.balance) }}</text>
               </view>
               <view class="savings-cost-row">
                 <text class="savings-cost-label">收入</text>
-                <text class="savings-cost-value">¥{{ (savings.income / 100).toFixed(2) }}</text>
+                <text class="savings-cost-value">¥{{ formatWanYuan(savings.income) }}</text>
               </view>
             </view>
           </view>
@@ -474,11 +474,11 @@
             <view class="savings-costs">
               <view class="savings-cost-row">
                 <text class="savings-cost-label">结余</text>
-                <text class="savings-cost-value">¥{{ (savingsAll.balance / 100).toFixed(2) }}</text>
+                <text class="savings-cost-value">¥{{ formatWanYuan(savingsAll.balance) }}</text>
               </view>
               <view class="savings-cost-row">
                 <text class="savings-cost-label">收入</text>
-                <text class="savings-cost-value">¥{{ (savingsAll.income / 100).toFixed(2) }}</text>
+                <text class="savings-cost-value">¥{{ formatWanYuan(savingsAll.income) }}</text>
               </view>
             </view>
           </view>
@@ -510,9 +510,9 @@
         <view v-else>
           <view class="budget-top">
             <text class="budget-used" :style="{ color: budgetExecution.over ? 'var(--app-danger)' : 'var(--app-text)' }">
-              ¥{{ (budgetExecution.used / 100).toFixed(2) }}
+              ¥{{ formatWanYuan(budgetExecution.used) }}
             </text>
-            <text class="budget-limit">/ ¥{{ (budgetExecution.limit / 100).toFixed(2) }}</text>
+            <text class="budget-limit">/ ¥{{ formatWanYuan(budgetExecution.limit) }}</text>
             <text
               class="budget-percent"
               :style="{ color: budgetExecution.over ? 'var(--app-danger)' : 'var(--app-text-2)' }"
@@ -727,6 +727,7 @@ import {
  *   一边加了新面板、另一边不认识它，用户就会在管理页看到一项空白。
  */
 import { visibleStatsPanels, normalizeStatsPanels } from '@/utils/statsPanels.js'
+import { formatWanYuan } from '@/utils/money.js'
 import { getSetting } from '@/api/settings.js'
 /*
  * ★ 同比 / 环比的引擎全在 components/StatsComparePanel.vue 里 ★
@@ -1795,6 +1796,7 @@ export default {
     })
 
     return {
+      formatWanYuan,
       settingStore,
       dateRange,
       // 时间筛选方式（日/月/年 或 自定义起止日）

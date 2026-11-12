@@ -35,7 +35,14 @@ check('表达式 除以0无效', evaluateAmount('10÷0'), 0)
 check('普通过滤 1,234', parseAmountInput('1,234'), 123400)
 
 check('格式化 12345', formatCents(12345), '123.45')
-check('格式化千分位', formatCents(123456789), '1,234,567.89')
+/*
+ * ★ 大额衷算成「W」后这条期望值要改★
+ *   用户本轮要求：金额 >= 100 万时用两位小数 + W。
+ *   123456789 分 = 123.456789 万元，>= 100 万 → 「123.46W」。
+ *   千分位本身仍然正常，下面另补一条小额的验证。
+ */
+check('大额衷算成 W', formatCents(123456789), '123.46W')
+check('小额仍然千分位', formatCents(1234567.89), '12,345.68')
 check('格式化负数', formatCents(-4500), '-45.00')
 check('格式化带符号', formatCents(4500, { sign: true }), '+45.00')
 check('紧凑 1万', formatCentsCompact(1000000), '1.0万')

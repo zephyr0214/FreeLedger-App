@@ -159,20 +159,63 @@ check('确认弹窗未引入 glassVars', /glassVars/.test(dialog), false)
 
 /* --------------------------------------------------------------- 月历现状 */
 
-console.log('=== 月历保持现状 ===')
+/*
+ * ★ 月历格子里不再有金额（用户本轮第 1 条）★
+ *   用户原话：「月历上的主题色遮挡了，任何绿色的收入支出就不太显眼了。
+ *   我想让它只包括日期的数字，不要包括下面的收入支出数字」。
+ *
+ *   原来这里断言的是「支出金额用 --app-danger」——
+ *   现在金额行本身已经删掉，那些断言自然失效。
+ *   改成反向断言：圈子里**不允许**再出现金额元素，
+ *   否则下次改动时很容易惄惄地加回去。
+ */
+/*
+ * ★ 月历最终形态（用户三次反馈后定下来的）★
+ *
+ *   反馈 1：「月历上的主题色遮挡了，任何绿色的收入支出就不太显眼了」
+ *   反馈 2：「我指的是那个色块缩小，只包含那个日期数字」
+ *   反馈 3：「月历上我的收支没加回来啊」
+ *
+ *   → 色块变小（只包日期），金额**照旧在日期下方**。
+ *     金额不在色块里，所以不再被主题色遮挡。
+ */
+console.log('=== 月历：色块只包日期，金额在日期下方 ===')
 const cal = read('components/CalendarGrid.vue')
-check('月历色仍在 CalendarGrid 内部', /heatColor|day-expense|day-income/.test(cal), true)
-// 金额颜色必须来自主题变量，且「只有一套色值」—— 不许按档位换色
 const calCode = cal
   .split('\n')
   .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
   .join('\n')
-check('月历支出金额用 --app-danger', /return 'var\(--app-danger\)'/.test(cal), true)
-check('月历收入金额用 --app-success', /return 'var\(--app-success\)'/.test(cal), true)
-check('月历金额不再写死红色', /#D9363E|#E03131|#FF6B6B/.test(calCode), false)
-check('月历金额不再写死绿色', /#0A8F4A|#4ADE80/.test(calCode), false)
-// 关键：不能再有「第二套红/绿」（提亮档之类的派生色值）
-check('月历不再按热力档位换色', /level >= 3\) return 'var\(--app-/.test(calCode), false)
+const calStyle2 = (cal.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+
+check('月历热力底色仍在 CalendarGrid 内部', /function heatColor/.test(cal), true)
+check('格子里有日期数字', /class="day-num"/.test(cal), true)
+
+// 色块小到只包日期（用户反馈 2）
+check('色块是固定尺寸小圆块', /\.day-inner \{[^}]*width: 44rpx/.test(calStyle2), true)
+check('圆块不再是 width: 100%', /\.day-inner \{[^}]*width: 100%/.test(calStyle2), false)
+
+// 金额仍在（用户反馈 3）
+check('支出金额行仍在', /day-amount day-expense/.test(cal), true)
+check('收入金额行仍在', /day-amount day-income/.test(cal), true)
+check('金额字号保持 16rpx（格子窄，再大就裁切）', /\.day-amount \{[^}]*font-size: 16rpx/.test(calStyle2), true)
+check('收入金额仍用主题绿', new RegExp(String.raw`var\(--app-success\)`).test(cal), true)
+// ★ 支出用支出红。注意正则里的括号必须转义，否则会当成分组
+check('支出金额用支出红', /return 'var\(--app-danger\)'/.test(cal), true)
+
+// 但金额不能被塞回圆块里
+/*
+ * ★ 圆块里不能有金额，判断方式必须截到 </view> ★
+ *   直接写「.day-inner 后面 600 字符内出现 day-amount」会跨过圆块的闭合标签，
+ *   把下面的金额行也算进来 —— 那是个假阳性。
+ *   正确做法：只取 .day-inner 开始到**第一个** </view> 之间的内容。
+ */
+const RE_INNER_BLOCK = new RegExp('class="day-inner"[\\s\\S]*?<\\/view>')
+const innerBlock = (cal.match(RE_INNER_BLOCK) || [])[0] || ''
+check('圆块里有日期数字', /class="day-num"/.test(innerBlock), true)
+check('圆块里没有金额', /day-amount/.test(innerBlock), false)
+
+check('月历不写死红色', /#D9363E|#E03131|#FF6B6B/.test(calCode), false)
+check('月历不写死绿色', /#0A8F4A|#4ADE80/.test(calCode), false)
 check('没有派生出来的提亮色变量', /text-on-heat/.test(read('utils/theme.js')), false)
 
 /* ------------------------------------------------ 日期分组头：收支一律无色 */
@@ -182,16 +225,23 @@ const listPage = read('pages/txn/list.vue')
 check('全部交易：不再有 .day-income 整段着色类', /\.day-income\s*\{/.test(listPage), false)
 check('全部交易：分组标签统一用 text-3', /\.day-sum-text\s*\{[^}]*color: var\(--app-text-3\)/.test(listPage), true)
 check('全部交易：收入数字单独绿色', /\.day-sum-income\s*\{[^}]*var\(--app-success\)/.test(listPage), true)
-// 符号：支出 -、收入 +（分组汇总也要带符号）
-check('全部交易：支出汇总带 -', /支出 -\{\{ \(group\.expense/.test(listPage), true)
-check('全部交易：收入汇总带 +', /收入 <text[^>]*>\+\{\{ \(group\.income/.test(listPage), true)
+/*
+ * 符号：支出 -、收入 +（分组汇总也要带符号）
+ *
+ * ★ 金额走 formatWanYuan 后，正则不能再只认「(group.expense / 100)」★
+ *   之前写死了除以 100 的形式，现在改成了
+ *     支出 -{{ formatWanYuan(group.expense) }}
+ *   断言要跟着读**语义**：前面有「支出 -」，后面是一个金额表达式。
+ */
+check('全部交易：支出汇总带 -', /支出 -\{\{[^}]*group\.expense[^}]*\}\}/.test(listPage), true)
+check('全部交易：收入汇总带 +', /收入 <text[^>]*>\+\{\{[^}]*group\.income[^}]*\}\}/.test(listPage), true)
 
 const indexPage = read('pages/index/index.vue')
 check('首页：支出标签无色', /\.recent-day-exp\s*\{[^}]*--app-text-3/.test(indexPage), true)
 check('首页：收入标签无色', /\.recent-day-inc\s*\{[^}]*--app-text-3/.test(indexPage), true)
 check('首页：收入数字单独绿色', /\.recent-day-income-num\s*\{[^}]*var\(--app-success\)/.test(indexPage), true)
-check('首页：支出汇总带 -', /支出 -\{\{ \(group\.expense/.test(indexPage), true)
-check('首页：收入汇总带 +', /收入 <text[^>]*>\+\{\{ \(group\.income/.test(indexPage), true)
+check('首页：支出汇总带 -', /支出 -\{\{[^}]*group\.expense[^}]*\}\}/.test(indexPage), true)
+check('首页：收入汇总带 +', /收入 <text[^>]*>\+\{\{[^}]*group\.income[^}]*\}\}/.test(indexPage), true)
 
 /* --------------------------------------------------- 其余分组场景一致性 */
 

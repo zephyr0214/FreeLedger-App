@@ -187,7 +187,7 @@
               <text
                 class="cell-text"
                 :style="{ color: selectedTags.length ? 'var(--app-text)' : 'var(--app-text-3)' }"
-              >{{ selectedTagNames || '请选择' }}</text>
+              >{{ selectedTagDisplay || '请选择' }}</text>
               <text class="cell-arrow">›</text>
             </view>
           </view>
@@ -295,19 +295,34 @@
       />
     </view>
 
-    <!-- 账户选择 -->
-    <wd-action-sheet
+    <!--
+      ★ 账户选择改成自绘弹层（用户本轮要求）★
+        「重写一下这个账户选择的面板，单选，显示图标和金额，
+        用在筛选面板 / 记账面板 / 报销弹层」
+
+      ★ 为什么不用 wd-action-sheet 了 ★
+        它每行只有 name + subname 两行纯文字，**没有图标**。
+        而账户在 App 里是有视觉身份的（账户页、流水行都是
+        「圆角方框 + 账户色浅底 + 图标」），选择器里只剩名字，
+        用户得靠读字认账户。现在每行带图标 + 名字 + 余额，
+        和账户页那一行是同一套信息。
+    -->
+    <AccountPickerSheet
       v-model="showAccountPicker"
-      :actions="accountActions"
-      cancel-text="取消"
-      @select="onAccountSelect"
+      :accounts="sourceAccountList"
+      :selected-id="form.account_id"
+      title="选择账户"
+      :z-index="120"
+      @picked="onAccountPicked"
     />
 
-    <wd-action-sheet
+    <AccountPickerSheet
       v-model="showToAccountPicker"
-      :actions="toAccountActions"
-      cancel-text="取消"
-      @select="onToAccountSelect"
+      :accounts="toAccountList"
+      :selected-id="form.to_account_id"
+      title="选择转入账户"
+      :z-index="120"
+      @picked="onToAccountPicked"
     />
 
     <!--
@@ -405,6 +420,7 @@ import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import TxnTagSheet from '@/components/TxnTagSheet.vue'
+import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import {
   isLoanPersonCategory, isLoanSettleCategory, allowsNewPerson, listLoanPeople
@@ -421,7 +437,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet },
+  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -827,35 +843,49 @@ export default {
       return [...combos, ...reals]
     })
 
-    // wd-action-sheet 的 select 回传 { item, index }，按索引回查真实 id
-    const accountActions = computed(() =>
-      sourceAccountList.value.map((a) => ({
-        name: a.name,
-        subname: a.isCombo ? '组合账户' : `余额 ${(a.balance_cents / 100).toFixed(2)}`,
-        color: a.color
-      }))
-    )
-
     // 转入方不能是组合账户（钱只能「从组合出」，不能「进组合」）
     const toAccountList = computed(() =>
       accountStore.list.filter((a) => a.id !== form.account_id && !a.isCombo)
-    )
-
-    const toAccountActions = computed(() =>
-      toAccountList.value.map((a) => ({
-        name: a.name,
-        subname: `余额 ${(a.balance_cents / 100).toFixed(2)}`
-      }))
     )
 
     const selectedTags = computed(() =>
       tags.value.filter((t) => form.tag_ids.includes(t.id))
     )
 
-    /** 已选标签的名字 */
+    /** 已选标签的名字（全部，逗号分隔） */
     const selectedTagNames = computed(() =>
       selectedTags.value.map((t) => t.name).join('、')
     )
+
+    /**
+     * 标签格里展示的文案
+     *
+     * ★ 用户明确要求 ★
+     *   「如果选择一个，就显示标签名，显示不下就用省略号；
+     *   选择两个及以上的时候，显示『已选择两项』」。
+     *
+     * ★ 为什么集合成名字而不是拼标签名 ★
+     *   上一版写成了「标签 A、标签 B」。
+     *   但标签名长短不一（两个字到六个字都有），
+     *   两个四字标签就会把那一行挤满并被截断，
+     *   反而看不全。而且用户选三个时，只显示两个名字
+     *   会让他以为"只选了两个"。
+     *   直接告诉他「已选择 N 项」，既准确又不会溢出。
+     *
+     * ★ 为什么用中文数字而不是阿拉伯数字 ★
+     *   「已选择两项」比「已选择 2 项」更像中文 App 的说法，
+     *   也和界面上其他文案一致。
+     *   N 超过十也不会出现——标签总数就那么几个。
+     */
+    const selectedTagDisplay = computed(() => {
+      const list = selectedTags.value
+      if (list.length === 0) return ''
+      if (list.length === 1) return list[0].name
+      const CN = ['零', '一', '两', '三', '四', '五', '六', '七', '八', '九', '十']
+      const n = list.length
+      const nText = n <= 10 ? CN[n] : String(n)
+      return `已选择${nText}项`
+    })
 
     const quickDays = computed(() => [
       { key: 'today', label: '今天', day: toDayKey() },
@@ -989,8 +1019,15 @@ export default {
       showPersonPicker.value = false
     }
 
-    function onAccountSelect({ index }) {
-      const acc = sourceAccountList.value[index]
+    /**
+     * 选中源账户
+     *
+     * ★ 回参从 { index } 变成整条账户对象（本轮改动）★
+     *   原来走 wd-action-sheet，它只回索引，得拿索引回查列表；
+     *   自绘面板直接把账户对象丢出来，页面不用再按下标反查
+     *   —— 下拉选项的顺序一改，按下标反查就是错的，这是个隐患。
+     */
+    function onAccountPicked(acc) {
       if (!acc) return
       form.account_id = acc.id
       // 转账时若目标账户与新的源账户相同，清空
@@ -998,8 +1035,7 @@ export default {
       showAccountPicker.value = false
     }
 
-    function onToAccountSelect({ index }) {
-      const acc = toAccountList.value[index]
+    function onToAccountPicked(acc) {
       if (!acc) return
       form.to_account_id = acc.id
       showToAccountPicker.value = false
@@ -1544,7 +1580,7 @@ export default {
       currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions, onFlagsUpdate,
       reimburseDisabled,
       showPersonPicker, openPersonPicker, onPersonSelect,
-      currentAccountName, toAccountName, accountActions, toAccountActions,
+      sourceAccountList, toAccountList, currentAccountName, toAccountName,
       /*
        * ★ tags 必须暴露给模板（bug 修复）★
        *   <TxnTagSheet :tags="tags"> 读的是模板作用域里的 tags。
@@ -1555,12 +1591,12 @@ export default {
        *   but is not defined on instance"，不报错、不白屏，很难发现。
        */
       tags,
-      selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
+      selectedTags, selectedTagNames, selectedTagDisplay, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, onTagSheetPicked, calendarRef, calendarValue, maxDate, minDate,
       timePickerRef, timePickerValue, openTimePicker, onTimeConfirm,
       iconChar, catIconStyle, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
-      onAccountSelect, onToAccountSelect, removeTag,
+      onAccountPicked, onToAccountPicked, removeTag,
       onCalendarConfirm, onFinish, onSave, onClose
     }
   }

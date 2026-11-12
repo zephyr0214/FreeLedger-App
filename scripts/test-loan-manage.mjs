@@ -261,8 +261,27 @@ check(
   /parts\.push\(t\.account_name[\s\S]{0,220}?parts\.push\(shortDate/.test(PAGE),
   true
 )
-check('流水副标题含日期', /shortDate\(t\.occurred_at\)/.test(PAGE), true)
-check('流水副标题含时间', /formatTime\(t\.occurred_at\)/.test(PAGE), true)
+/*
+ * ★ 副标题里不再有时间（用户后续要求）★
+ *   用户原话：「在借出借入报销页面的交易中，账户后面只显示日期，不显示时间」。
+ *
+ * ★ 为什么现在它是多余的 ★
+ *   这几页金额下面本来就有一行 .txn-time（HH:mm），
+ *   副标题再写一遍，同一行会出现两个时间。
+ *   而日期不能删 —— 这几页的分组头是「人名 / 报销单」不是日期，
+ *   删了就看不出这笔账是哪天的。
+ */
+/*
+ * ★ 日期要带年份（用户本轮第 1 条）★
+ *   用户原话：「在借出借入报销页面的交易中，
+ *   账户后面只显示日期，格式为年/月/日」。
+ *
+ *   这几页的分组头是人名 / 报销单，不是日期，
+ *   一个人可能横跨好几年的账，只写「3/15」不知道是哪年。
+ */
+check('流水副标题带年份日期', /shortDateWithYear\(t\.occurred_at\)/.test(PAGE), true)
+check('流水副标题不用无年份版', /[^h]shortDate\(t\.occurred_at\)/.test(PAGE), false)
+check('流水副标题不再含时间', /formatTime\(t\.occurred_at\)/.test(PAGE), false)
 
 
 check('标注里没有上下分割线元素', /episode-divider-rule|episode-divider-line/.test(PAGE), false)

@@ -62,46 +62,49 @@
         </view>
       </picker>
 
-      <view class="custom-cell" @click="openCalendar('start')">
-        <text class="custom-value" :class="{ placeholder: !startDay }">
-          {{ startDay || '开始日期' }}
-        </text>
-      </view>
-      <view class="custom-cell" @click="openCalendar('end')">
-        <text class="custom-value" :class="{ placeholder: !endDay }">
-          {{ endDay || '结束日期' }}
+      <!--
+        ★ 一个格显示整段区间（用户本轮第 5 条）★
+          原话：「我希望像订酒店那样，他是选择一个区间的起末」。
+          两个独立的「开始日期 / 结束日期」框会让人以为要分两次选；
+          合成一个「A → B」的区间显示，点开一个面板选完两端，
+          才是订酒店那种交互。
+      -->
+      <view class="custom-cell custom-range" @click="openCalendar()">
+        <text class="custom-value" :class="{ placeholder: !startDay || !endDay }">
+          {{ rangeText }}
         </text>
       </view>
     </view>
 
     <!--
-      两个日历：开始 / 结束各一个。
-      ★ with-cell=false + ref.open() ★
-        和记账面板同一套用法（wd-calendar 没有 visible 属性）；
-        给 with-cell=false 是为了不让它自己渲染一行 wd-cell，
-        那一行会凭空多出一块 UI，我们只要弹层。
+      ★ 一个区间日历，一次选完起止（用户本轮第 5 条）★
+
+      ★ 用户原话 ★
+        「现在选择自定义的时候，它是手动选择了两个日期；
+        我希望像订酒店那样，他是选择一个区间的起末」。
+
+      ★ 为什么之前是两个日历 ★
+        上一版是「点开始日期 → 选一天 → 点结束日期 → 再选一天」，
+        两次弹层、两次确认，且中间看不到已选的区间宽度。
+        现在用 wd-calendar 的 type="daterange"：
+          一个面板里先点起点、再点讫点，
+          中间的日子有连续选中态，与订酒店选日期完全一致。
+
+      ★ confirm 回传的是数组 ★
+        单日历的 value 是 number，区间日历的 value 是 [startTs, endTs]。
+        两个都转成 YYYY-MM-DD 后交给 commit()（它负责交换颠倒）。
     -->
     <wd-calendar
-      ref="startCalRef"
-      v-model="startValue"
+      ref="rangeCalRef"
+      v-model="rangeValue"
+      type="daterange"
       :min-date="minDate"
       :max-date="maxDate"
       :with-cell="false"
       :z-index="CALENDAR_Z_INDEX"
-      title="选择开始日期"
+      title="选择日期区间"
       confirm-text="确定"
-      @confirm="onStartConfirm"
-    />
-    <wd-calendar
-      ref="endCalRef"
-      v-model="endValue"
-      :min-date="minDate"
-      :max-date="maxDate"
-      :with-cell="false"
-      :z-index="CALENDAR_Z_INDEX"
-      title="选择结束日期"
-      confirm-text="确定"
-      @confirm="onEndConfirm"
+      @confirm="onRangeConfirm"
     />
   </view>
 </template>
@@ -216,8 +219,8 @@ export default {
   ],
   setup(props, { emit }) {
     const periodRef = ref(null)
-    const startCalRef = ref(null)
-    const endCalRef = ref(null)
+    /** 区间日历（type="daterange"）的实例 */
+    const rangeCalRef = ref(null)
 
     /**
      * 最晚可选：今天 23:59:59。
@@ -241,9 +244,14 @@ export default {
      */
     const minDate = computed(() => new Date(new Date().getFullYear() - 5, 0, 1).getTime())
 
-    /** 两个日历的 v-model（毫秒时间戳），和 props 里的 day 字符串互转 */
-    const startValue = ref(Date.now())
-    const endValue = ref(Date.now())
+    /**
+     * 区间日历的 v-model：两个毫秒时间戳的数组
+     *
+     * ★ 为什么是数组 ★
+     *   wd-calendar 的 type="daterange" 下，value 就是 [startTs, endTs]。
+     *   单日历才是单个 number。
+     */
+    const rangeValue = ref([Date.now(), Date.now()])
 
     /**
      * 左边下拉当前应该显示哪一项 —— 反推出来的。
@@ -270,6 +278,38 @@ export default {
       Math.max(0, PRESETS.findIndex((p) => p.key === activePresetKey.value))
     )
 
+    /**
+     * 区间格子里显示的文字
+     *
+     * ★ 必须显示年月日（用户本轮第 3 条）★
+     *   用户原话：「日期自定义选择的那个上面要显示年月日，
+     *   现在只显示月日」。
+     *
+     * ★ 为什么上一版只写了月日 ★
+     *   当时担心一行挤（预设下拉 + 两个完整日期 = 20 个字符）。
+     *   但那个担心是错的：
+     *     · 两个独立日期格已经合成一个区间格，空间翻倍；
+     *     · 用户看不到年份时，无法判断「10/1 → 10/31」是哪年，
+     *       跳年份选区间（如 2025/12 → 2026/2）更是一头雾水。
+     *
+     * ★ 为什么用斜杠而不用横杠 ★
+     *   横杠日期（YYYY-MM-DD）在一行里会出现 4 个横杠，
+     *   再加上区间箭头的横杠就分不清哪个是分隔符、
+     *   哪个是「到」。斜杠日期 + 箭头区间很容易读。
+     */
+    const rangeText = computed(() => {
+      if (!props.startDay && !props.endDay) return '选择日期区间'
+      if (!props.startDay) return `至 ${fullDay(props.endDay)}`
+      if (!props.endDay) return `${fullDay(props.startDay)} 起`
+      return `${fullDay(props.startDay)} → ${fullDay(props.endDay)}`
+    })
+
+    /** YYYY-MM-DD -> YYYY/MM/DD（显示用，不参与比较） */
+    function fullDay(day) {
+      if (!day) return ''
+      return String(day).replace(/-/g, '/')
+    }
+
     /* ------------------------------------------------------ 交互 */
 
     function pickMode(next) {
@@ -286,39 +326,73 @@ export default {
     /**
      * 切换左边预设下拉。
      *
-     * ★ 选「自定义」时什么都不做 ★
-     *   它不是一个区间，只是「当前不是预设」的显示状态；
-     *   点了就清空日期反而会把用户已经选好的区间弄丢。
+     * ★ 选「自定义」要能真的选中（bug 修复）★
+     *
+     * ★ 用户反馈 ★
+     *   「现在我在自定义筛选左边，无法选中「自定义」这一栏」。
+     *
+     * ★ 为什么会无法选中 ★
+     *   旧写法对 custom 直接 return（当时的理由是「它不是一个区间」）。
+     *   但顾客从「近一周」切到「自定义」时，他期望的是
+     *   **马上去手动选日期**；什么都不发生就像“这个选项坏了”。
+     *   而且下拉里已经显示了「近一周」，用户点「自定义」后
+     *   发现标题还是「近一周」—— 看起来就是没选上。
+     *
+     * ★ 现在的行为 ★
+     *   选「自定义」→ 直接弹出区间日历让用户手动选。
+     *   不清空已有日期（清空会把用户刚选好的区间弄丢），
+     *   也不提交任何新值 —— 用户选完日历才算真正改了区间。
      */
     function onPresetChange(e) {
       const idx = Number(e.detail.value)
       const preset = PRESETS[idx]
-      if (!preset || preset.key === 'custom') return
+      if (!preset) return
+      if (preset.key === 'custom') {
+        openCalendar()
+        return
+      }
       const r = presetRange(preset.key)
       commit(r.startDay, r.endDay)
     }
 
-    /** 打开某个日历（'start' / 'end'） */
-    function openCalendar(which) {
-      const target = which === 'start' ? startCalRef.value : endCalRef.value
-      const day = which === 'start' ? props.startDay : props.endDay
-      /*
-       * ★ 必须先把当前值喂给日历再 open ★
-       *   否则打开时会停在今天，而不是用户已选的那一天，
-       *   选第二遍时看着像「上次选的没记住」。
-       */
-      const ts = day ? parseDayKey(day).getTime() : Date.now()
-      if (which === 'start') startValue.value = ts
-      else endValue.value = ts
-      if (target && typeof target.open === 'function') target.open()
+    /**
+     * 打开区间日历
+     *
+     * ★ 必须先把当前区间喂给日历再 open ★
+     *   否则打开时会停在今天，而不是用户已选的那段，
+     *   再选一遍时看着像「上次选的没记住」。
+     *
+     * ★ 两端都没选时给一个合理的初始区间 ★
+     *   不能给 [今天, 今天]：那样一打开就显示「选了今天一天」，
+     *   用户会以为自己已经选过了。
+     *   用「近一个月」作为初始视图最符合记账习惯（大多数人看的就是最近一个月）。
+     */
+    function openCalendar() {
+      const a = props.startDay ? parseDayKey(props.startDay).getTime() : null
+      const b = props.endDay ? parseDayKey(props.endDay).getTime() : null
+      if (a && b) {
+        rangeValue.value = [Math.min(a, b), Math.max(a, b)]
+      } else {
+        const today = new Date()
+        const start = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
+        rangeValue.value = [start.getTime(), today.getTime()]
+      }
+      if (rangeCalRef.value && typeof rangeCalRef.value.open === 'function') {
+        rangeCalRef.value.open()
+      }
     }
 
-    function onStartConfirm({ value }) {
-      commit(tsToDay(value), props.endDay)
-    }
-
-    function onEndConfirm({ value }) {
-      commit(props.startDay, tsToDay(value))
+    /**
+     * 区间选完点确定
+     *
+     * ★ value 是长度 2 的数组 ★
+     *   空数组 / 只选了一天时不提交（区间还没成型，
+     *   提交一个单日区间反而打乱用户的选择）。
+     */
+    function onRangeConfirm({ value }) {
+      const arr = Array.isArray(value) ? value : []
+      if (arr.length < 2 || !arr[0] || !arr[1]) return
+      commit(tsToDay(arr[0]), tsToDay(arr[1]))
     }
 
     /**
@@ -355,23 +429,19 @@ export default {
       if (periodRef.value && typeof periodRef.value.collapse === 'function') {
         periodRef.value.collapse()
       }
-      if (startCalRef.value && typeof startCalRef.value.close === 'function') {
-        startCalRef.value.close()
-      }
-      if (endCalRef.value && typeof endCalRef.value.close === 'function') {
-        endCalRef.value.close()
+      if (rangeCalRef.value && typeof rangeCalRef.value.close === 'function') {
+        rangeCalRef.value.close()
       }
     }
 
     return {
       PRESET_LABELS,
       CALENDAR_Z_INDEX,
-      periodRef, startCalRef, endCalRef,
-      startValue, endValue,
+      periodRef, rangeCalRef, rangeValue,
       minDate, maxDate,
-      activePresetKey, activePresetLabel, presetIndex,
+      activePresetKey, activePresetLabel, presetIndex, rangeText,
       pickMode, onPeriodChange, onPresetChange, openCalendar,
-      onStartConfirm, onEndConfirm,
+      onRangeConfirm,
       collapse
     }
   }
@@ -442,7 +512,14 @@ export default {
   align-items: center;
   justify-content: center;
   gap: 8rpx;
-  height: 72rpx;
+  /*
+   * ★ 从 72rpx 收到 60rpx（用户本轮第 2 条）★
+   *   必须与 components/DateRangePicker.vue 的 .drp-cell 保持一致 ——
+   *   否则切换「年月日 / 自定义」时下面的内容会上下跳一下。
+   *   （这两个值本来就是一对，历史上拄得写两遍 —— 改一个就必须改另一个。）
+   */
+  /* 与 components/DateRangePicker.vue 的 .drp-cell 保持同值（本轮再收到 52rpx） */
+  height: 52rpx;
   padding: 0 16rpx;
 }
 
@@ -459,7 +536,12 @@ export default {
   border-right: 1rpx solid var(--app-line);
 }
 
-.custom-cell:last-child {
+/*
+ * ★ 区间格不要右边框 ★
+ *   下拉已经有一条 border-right，
+ *   区间格是最后一个，再加就是双线（看上去像多了一个空列）。
+ */
+.custom-range {
   border-right: none;
 }
 

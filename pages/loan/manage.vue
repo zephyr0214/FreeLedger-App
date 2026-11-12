@@ -352,7 +352,7 @@ import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
-import { formatTime, shortDate } from '@/utils/date.js'
+import { formatTime, shortDateWithYear } from '@/utils/date.js'
 
 export default {
   components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog },
@@ -520,12 +520,33 @@ export default {
      * @param {object} t 流水
      * @returns {string}
      */
+    /**
+     * 行副标题：账户 · 日期
+     *
+     * ★ 日期要带年份，且不跟时间（用户本轮第 1 条）★
+     *
+     * ★ 用户原话 ★
+     *   「在借出借入报销页面的交易中，
+     *   账户后面只显示日期，不显示时间」。
+     *
+     * ★ 为什么时间在这里是多余的 ★
+     *   这几页的金额下面本来就有一行 .txn-time（HH:mm）。
+     *   副标题再写一遍时间，同一行里会出现两个时间：
+     *     副标题：工行卡 · 3/15 · 14:32
+     *     金额下：14:32
+     *   一目了然的冗余。而且日期不能删：
+     *   这几页的分组头是**人名 / 报销单**，不是日期，
+     *   删了就看不出这笔账是哪天的。
+     *
+     * ★ 那为什么不删金额下面那行、反而删副标题里的 ★
+     *   金额下面的时间是全 App 统一位置（和首页/全部交易一致）；
+     *   副标题里那个只是这几页自己加的，且与它重复。
+     */
     function txnSub(t) {
       const parts = []
       parts.push(t.account_name || '无账户')
       if (t.occurred_at) {
-        parts.push(shortDate(t.occurred_at))
-        parts.push(formatTime(t.occurred_at))
+        parts.push(shortDateWithYear(t.occurred_at))
       }
       return parts.join(' · ')
     }
@@ -1052,13 +1073,19 @@ const ICON_FALLBACK = {
   gap: 16rpx;
   padding: 20rpx 24rpx;
   /*
-   * ★ 用「软渐变」而不是大卡片那条 ★
-   *   暗色下 --app-hero-from 等于卡片色（大卡片不显示渐变），
-   *   用在这一行会和下面的明细融在一起、分不出哪是头；
-   *   --app-hero-soft-from 在暗色下是「卡片次层色混主题色」，
-   *   比卡片亮一档且带主题色相 —— 这才看得出是一个「小标题栏」。
+   * ★ 颜色走 --app-subhead-bg，而不是再组一条 gradient（用户本轮第 3 条）★
+   *
+   *   用户原话：「在「借入借出」名字背后…在深色模式下：
+   *   它应该是一个平均铺满的灰色，而不是渐变色。
+   *   这个灰色要跟下面交易记录背景的黑色有一定的区分度」。
+   *
+   *   所以这里不能再写死一条 linear-gradient：
+   *   渐变是「一畴那边淡下去」的效果，而用户要的是一整层均匀的灰。
+   *   具体用渐变还是纯色、用哪个灰，全交给 token 按深浅色自己决定：
+   *     浅色 → 白底泛一点主题色的渐变（过渡自然）
+   *     暗色 → 平铺 #2C2C2E（比明细的 #1C1C1E 亮一档，能分出层级）
    */
-  background: linear-gradient(135deg, var(--app-hero-soft-from), var(--app-card));
+  background: var(--app-subhead-bg);
 }
 
 .group-head-left {
@@ -1295,8 +1322,8 @@ const ICON_FALLBACK = {
 .txn-item {
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  padding: 18rpx 24rpx;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
   border-top: 1rpx solid var(--app-line);
 }
 

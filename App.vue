@@ -696,7 +696,17 @@ view, text, scroll-view, image {
   font-size: 24rpx;
   line-height: 1.4;
   color: var(--app-text-2);
-  padding: 10rpx 20rpx;
+  /*
+   * ★ 纵向内边距从 10rpx 收到 6rpx（用户第二轮反馈）★
+   *   用户说「tab 切换栏及下面的组件」都占地方太多 ——
+   *   「下面的组件」是 52rpx 那两行，「切换栏」就是这里。
+   *
+   *   36rpx 文字 + 12rpx 内边距 = 48rpx 高，再加上 .mode-toggle 的
+   *   4rpx padding 和 1rpx 边框 ≈ 58rpx，比原来（约 66rpx）矮一档。
+   *   ★ 这个改动会同时影响统计页分段切换和分类管理页的支出/收入切换 ★
+   *   它们是同一套全局样式（见本段注释），三处一起收紧才是一致的。
+   */
+  padding: 6rpx 20rpx;
   border-radius: 12rpx;
   /* 过渡只为让「切换」有一下反馈，时长压短，不影响连续点击 */
   transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
@@ -730,21 +740,28 @@ view, text, scroll-view, image {
  * DateFilterBar 的包裹层被测试断言必须叫 .mode-toggle（不能加修饰类），
  * 所以宽版规则直接挂在 .mode-toggle 上；分类管理页用 .seg-toggle--block。
  *
- * ★ 高度写死 62rpx 而不是靠 padding 撑 ★
- *   DateFilterBar 下面「年月日筛选」那一行（DateRangePicker 的 .drp-bar）
- *   和「自定义筛选」那一行（.custom-row）都是 72rpx 高；
- *   底槽上下 padding 4+4、描边 1+1 共 10rpx，所以格子必须正好 62rpx，
- *   两行才会严格等高 —— 切 tab 时下面的内容不会跳一下。
+ * ★ 高度写死而不是靠 padding 撑 ★
+ *   它必须与 DateFilterBar 下面那两行（.drp-bar / .custom-row）**严格等高**，
+ *   否则切 tab 时下面的内容会上下跳一下。
  *   靠 padding 算的话会随字体行高浮动，做不到。
  *   line-height 与高度取同一个值：flex 居中是主手段，
  *   某些机型的 uni-text 不认 flex 居中时靠它兜底。
+ *
+ * ★ 62rpx 改成 42rpx（用户第二轮反馈）★
+ *   用户原话：「我并没有觉得你把『年月日筛选』和『自定义筛选』
+ *   这个 tab 切换栏及下面的组件的高度缩短了，你缩短一点，
+ *   我感觉它在全部交易页面和这个统计页面占的位置有点多了」。
+ *
+ *   计算：下面那两行从 72 收到 52rpx，
+ *   底槽上下 padding 4+4、描边 1+1 共 10rpx，52 - 10 = 42rpx。
+ *   字号从 26 收到 24rpx（行高约 34rpx），42rpx 里仍然竖向居中、不贴边。
  */
 .mode-toggle .mode-tag,
 .seg-toggle--block .seg-item {
   flex: 1;
-  height: 62rpx;
-  line-height: 62rpx;
-  font-size: 26rpx;
+  height: 42rpx;
+  line-height: 42rpx;
+  font-size: 24rpx;
   padding: 0;
 }
 

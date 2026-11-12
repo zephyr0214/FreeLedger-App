@@ -78,12 +78,37 @@ check('有占位文案样式', /\.filter-row-value\.placeholder\s*\{/.test(style
 const actionSheets = (template.match(/<wd-action-sheet/g) || []).length
 check('只有一个 wd-action-sheet', actionSheets, 1)
 check('选项表由 pickerActions 驱动', template.includes(':actions="pickerActions"'), true)
+
+/*
+ * ★ 标签筛选复用 TxnTagSheet（用户本轮第 1 条）★
+ *   用户原话：「筛选页面标签复用设置标签的面板」。
+ *
+ *   标签选择面板项目里已经有了（首页右滑 / 全部交易右滑 / 批量操作），
+ *   筛选面板要的「多选标签」和它是同一件事，
+ *   直接复用同一个组件，不新写一份。
+ */
+check('标签筛选用 TxnTagSheet', /<TxnTagSheet[\s\S]{0,300}?title="选择标签"/.test(template), true)
+check('标签筛选接 filter.tagIds', template.includes(':selected-ids="filter.tagIds"'), true)
 /*
  * 分类不再走 action-sheet（改成多选弹层），所以下拉只剩账户 / 标签 / 周期。
  * 数量从 5 变 3 是有意的，不是漏改。
  */
-check('剩余下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 3)
-check('pickerKind 区分下拉类别', (code.match(/kind === '(account|tag|cycle)'/g) || []).length >= 3, true)
+/*
+ * ★ 标签不再走 openPicker（用户本轮第 1 条）★
+ *   标签改成多选，直接复用 TxnTagSheet，
+ *   入口是 openTagFilterSheet。所以 openPicker 只剩账户 / 周期两个。
+ */
+/*
+ * ★ 账户改成自绘面板（用户本轮）★
+ *   用户原话：「现在只重写一下这个账户选择的面板，单选，
+ *   显示图标和金额，用在：1. 筛选面板的账户选择…」。
+ *   所以 openPicker 只剩周期一个（账户走 openAccountPicker）。
+ */
+check('下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 1)
+check('账户筛选用自绘面板', template.includes('<AccountPickerSheet'), true)
+check('账户筛选入口是 openAccountPicker', template.includes('@click="openAccountPicker"'), true)
+check('标签筛选有独立入口', template.includes('openTagFilterSheet'), true)
+check('pickerKind 区分下拉类别', (code.match(/kind === '(account|cycle)'/g) || []).length >= 2, true)
 
 /* ------------------------- 3.1 分类：单行多选弹层（v1.18.0 改） */
 
@@ -176,11 +201,21 @@ check('徽标在备注行之前（不在备注行里）', /txn-tag-list[\s\S]{0,
 check('标签不在备注行', /txn-sub-row/.test(template), false)
 check('不再有 .txn-tags 纯文字样式', /\.txn-tags\s*\{/.test(style), false)
 
-/* ------------------------------- 6. 不能出现「N 个标签」这种计数 */
+/* ------------------------------------------- 6. 标签筛选的文案（用户本轮第 1 条） */
 
-// 去掉注释后再找计数文案（注释里提到「N 个标签」是允许的）
+/*
+ * ★ 之前这里是反向断言：不许出现「N 个标签」★
+ *   那时说的是**流水行的标签徽标**——
+ *   那里是一个个小胶囊，数量就是胶囊个数，再写一句计数是冗余。
+ *
+ *   但用户现在明确要求**筛选面板**的标签行这么显示：
+ *     「只有一个标签时，显示选中的标签名；
+ *     有两个以上标签时，显示「已选中 x 个标签」」。
+ *   所以断言改成正向：这句话必须存在。
+ */
 const codeNoComment = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-check('代码里没有「个标签」计数文案', /个标签/.test(codeNoComment), false)
+check('筛选面板有「已选中 N 个标签」文案', /个标签/.test(codeNoComment), true)
+check('只选一个时显示标签名', /ids\.length === 1[\s\S]{0,160}?return t \? t\.name/.test(codeNoComment), true)
 
 /* ------------------------- 7. 标签用「自己的颜色」做背景 */
 

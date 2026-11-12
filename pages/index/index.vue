@@ -27,9 +27,36 @@
       >
         <!-- ② 本月概览 -->
         <view class="overview-card">
-          <!-- 右上角：月份切换（概览和月历联动） -->
+          <!--
+            右上角：月份切换（概览和月历联动）
+
+            ★ 「回到本月」放在「年月」和「左右箭头」中间（用户本轮第 1 条）★
+
+            ★ 用户纠正了我一次 ★
+              我先做成了「月历正中间浮一个按钮」，用户说：
+              「我指的不是在日历正中间掐一个『回到本月』，
+              而是在年月显示和左右切换的中间加一个『回到本月』」。
+              —— 它属于**月份导航**这一行，不属于月历格子。
+
+            ★ 为什么放在标题和箭头之间、而不是最右 ★
+              用户明确指定了位置。从语义上看也合理：
+              左半是「你现在在哪个月」，右半是「怎么换月」，
+              而「回到本月」正是「换月」的快捷方式 ——
+              贴在箭头左边、紧挨着它，操作路径最短。
+
+            ★ 为什么非本月才显示 ★
+              本月的账不需要「回到本月」，常驻只会多一个灰按钮占位。
+              v-if 让它彻底不渲染（不是隐藏），本月的行距不受影响。
+          -->
           <view class="ov-month-nav">
-            <text class="ov-month-title">{{ calendarTitle }}</text>
+            <view class="ov-month-left">
+              <text class="ov-month-title">{{ calendarTitle }}</text>
+              <text
+                v-if="!isCurrentMonth"
+                class="ov-month-today"
+                @click="backToCurrentMonth"
+              >回到本月</text>
+            </view>
             <view class="ov-month-btns">
               <text class="ov-month-btn" @click="shiftCalMonth(-1)">‹</text>
               <text class="ov-month-btn" @click="shiftCalMonth(1)">›</text>
@@ -122,7 +149,7 @@
                   </text>
                 </view>
                 <text class="ov-budget-daily" :style="{ color: totalBudget.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                  日均可用 ¥{{ (totalBudget.dailyAvailable / 100).toFixed(2) }}
+                  日均可用 ¥{{ formatWanYuan(totalBudget.dailyAvailable) }}
                 </text>
               </view>
               <view class="ov-budget-bar">
@@ -202,7 +229,7 @@
                     </text>
                   </view>
                   <text class="ov-budget-daily" :style="{ color: b.over ? 'var(--app-danger)' : 'var(--app-text-3)' }">
-                    日均可用 ¥{{ (b.dailyAvailable / 100).toFixed(2) }}
+                    日均可用 ¥{{ formatWanYuan(b.dailyAvailable) }}
                   </text>
                 </view>
                 <view class="ov-budget-bar">
@@ -273,8 +300,8 @@
                     数字按统一规则着色（支出无色、收入绿色），符号也统一（- / +）。
                     与「全部交易」页同一套做法。
                   -->
-                  <text v-if="group.expense > 0" class="recent-day-exp">支出 -{{ (group.expense / 100).toFixed(2) }}</text>
-                  <text v-if="group.income > 0" class="recent-day-inc">收入 <text class="recent-day-income-num">+{{ (group.income / 100).toFixed(2) }}</text></text>
+                  <text v-if="group.expense > 0" class="recent-day-exp">支出 -{{ formatWanYuan(group.expense) }}</text>
+                  <text v-if="group.income > 0" class="recent-day-inc">收入 <text class="recent-day-income-num">+{{ formatWanYuan(group.income) }}</text></text>
                 </text>
               </view>
 
@@ -328,6 +355,20 @@
                   :size="30"
                   :weight="500"
                 />
+                <!--
+                  ★ 金额下面显示时间（用户本轮第 1 条）★
+
+                  ★ 用户原话 ★
+                    「首页流水也要跟其他页面的流水一样，在价钱下面显示时间」。
+
+                  ★ 为什么首页原来没有 ★
+                    首页按日期分组、分组头上已经写了「今天 / 昨天 / 10月3日」，
+                    当时判断「时间重复」，所以副标题只放账户和备注。
+                    但其他页面（全部交易 / 账户详情 / 分类详情…）都在金额下面
+                    带一行 HH:mm —— 首页少了这一行，同一笔账在两个页面长得不一样。
+                    用户要的是**统一**，而不是「信息最简」。
+                -->
+                <text class="txn-time">{{ timeLabel(txn.occurred_at) }}</text>
               </view>
               </view>
 
@@ -437,10 +478,11 @@ import { useUiStore } from '@/stores/ui.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { getSetting, setSetting } from '@/api/settings.js'
 import { listTags } from '@/api/tag.js'
-import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel } from '@/utils/date.js'
+import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
+import { formatWanYuan } from '@/utils/money.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
@@ -739,6 +781,33 @@ export default {
       }).catch(() => {})
     }
 
+    /**
+     * 当前月历是不是「本月」
+     *
+     * ★ 为什么要单独一个 computed ★
+     *   模板里要用它决定「回到本月」按钮显不显示，
+     *   而 toMonthKey() 是「此刻」的结果；
+     *   写在模板里每次渲染都要调一次（且不是响应式的）。
+     *   放进 computed 依赖 txnStore.currentMonth，切月时自动重算。
+     *
+     *   ★ 为什么不把 toMonthKey() 也放进 computed 的依赖 ★
+     *     它不是响应式数据，放进去也不会重新触发；
+     *     而「跨过月分界的午夜」本身也是极罕见场景（那时会走 loadHome 刷新）。
+     */
+    const isCurrentMonth = computed(() => txnStore.currentMonth === toMonthKey())
+
+    /** 一键回到本月（和 shiftCalMonth 走完全相同的刷新链） */
+    function backToCurrentMonth() {
+      const mk = toMonthKey()
+      if (txnStore.currentMonth === mk) return
+      txnStore.loadMonth(mk).then(({ daily }) => {
+        txnStore.dailyTotals = daily
+      })
+      getBudgetUsage(mk).then((list) => {
+        budgets.value = list
+      }).catch(() => {})
+    }
+
     /** 点击月历某一天 → 跳到「全部交易」页并定位到当天 */
     function onDayClick(dayKey) {
       selectedDay.value = dayKey
@@ -820,6 +889,18 @@ export default {
         return `${txn.account_name || '-'} → ${txn.to_account_name || '-'}`
       }
       return txn.category_name || '未分类'
+    }
+
+    /**
+     * 时间标签（金额下面那一行 HH:mm）
+     *
+     * ★ 为什么单独一个函数而不是模板里直接调 formatTime ★
+     *   这笔流水没有 occurred_at 时（老数据 / 导入异常）要显示空串，
+     *   而不是 "NaN:NaN"。统一在这一层兜住，模板保持干净。
+     *   和其他页面（RecentTxnList、pages/txn/list.vue）同一套做法。
+     */
+    function timeLabel(ts) {
+      return formatTime(ts)
     }
 
     function txnSub(txn) {
@@ -945,16 +1026,17 @@ export default {
     onBackPress(() => handleBackPress())
 
     return {
+      formatWanYuan,
       settingStore, accountStore, txnStore,
       showPanel, panelPreset,
       selectedDay, showQuickAdd, parsing, parsingText,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
       totalBudget, categoryBudgets, budgetRemaining, subBudgetsCollapsed,
       toggleSubBudgets, recentGroups, showingAllToday,
-      shiftCalMonth, onDayClick,
+      shiftCalMonth, backToCurrentMonth, isCurrentMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
-      iconChar, txnTitle, txnSub, txnBadges,
+      iconChar, txnTitle, txnSub, txnBadges, timeLabel,
       /*
        * ★ tags 必须暴露给模板（bug 修复）★
        *   <TxnTagSheet :tags="tags"> 读的是模板作用域里的 tags，
@@ -1291,6 +1373,58 @@ export default {
   margin-top: 32rpx;
 }
 
+/*
+ * 月份导航左侧：年月 + 「回到本月」
+ *
+ * ★ 用户两次纠正后的位置 ★
+ *   第一次：「我指的不是在日历正中间掐一个『回到本月』，
+ *   而是在年月显示和左右切换的中间加一个『回到本月』」。
+ *   第二次：「回到本月的按钮应该显示在年月之后，而不是按钮之前」。
+ *
+ *   → 它紧跟「2026年11月」后面，和年月同属左侧一组；
+ *     箭头单独留在右边。
+ *     2026年11月  回到本月            ‹ ›
+ *
+ * ★ 为什么不能和箭头挤在同一组 ★
+ *   那样「回到本月」就贴在箭头左边、离年月很远，
+ *   看起来像是箭头按钮的附属物，而不是「对当前月份的说明」。
+ *   包一层 .ov-month-left，让它和标题用 gap 紧挨着。
+ */
+.ov-month-left {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+/*
+ * 「回到本月」
+ *
+ * ★ 尺寸要比箭头那对小圆钮矮一点、宽一点 ★
+ *   它是文字按钮，不是图标按钮；如果做成和箭头一样的圆，
+ *   四个汉字放不下，只能缩字号，反而更小气。
+ *   用胶囊形（height 44rpx + 左右 padding），比箭头（48rpx 圆）略矮，
+ *   视觉上「次要操作」的层级是对的。
+ *
+ * ★ 底色用浅主题色，不用实心主题色 ★
+ *   它旁边就是两个箭头，实心主题色会把这一整行压得很重；
+ *   浅底 + 主题色文字，既有可点提示又不抢戏。
+ *   --app-primary-light 是半透明主题色，浅深色都自带正确观感。
+ */
+.ov-month-today {
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 16rpx;
+  border-radius: 999rpx;
+  background-color: var(--app-primary-light);
+  color: var(--app-primary);
+  font-size: 22rpx;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .section-head {
   display: flex;
   align-items: center;
@@ -1322,11 +1456,25 @@ export default {
   overflow: hidden;
 }
 
+/*
+ * ★ 行高收紧（用户本轮第 2 条）★
+ *   用户原话：「我希望各个页面的流水都能够显示得紧凑一点，
+ *   但是不要改变现有的布局」。
+ *
+ * ★ 为什么只改 padding/gap，不动字号和图标尺寸 ★
+ *   字号一变，整个页面的字号层级（分组头 30 / 正文 28 / 副标题 22）
+ *   就得跟着重排，那就是“改布局”了。
+ *   图标直径同理：它决定了左侧栏宽度。
+ *   真正只影响“密度”、不影响层级的，就是行内边距和元素间距。
+ *
+ *   padding 24 → 18rpx：上下共省 12rpx，一屏多出约半条流水；
+ *   gap 20 → 16rpx：图标与文字之间稍收，横向也更连贯。
+ */
 .txn-item {
   display: flex;
   align-items: center;
-  padding: 24rpx 28rpx;
-  gap: 20rpx;
+  padding: 18rpx 24rpx;
+  gap: 16rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 
@@ -1428,6 +1576,18 @@ export default {
   align-items: flex-end;
   gap: 4rpx;
   flex-shrink: 0;
+}
+
+/*
+ * 金额下面的时间
+ *
+ * ★ 数值与 pages/txn/list.vue 的 .txn-time 严格一致 ★
+ *   字号 20rpx、--app-text-3。两个页面同一笔账，右边这一列必须长得一样；
+ *   如果这里用 22 或者 text-2，切页面时会觉得「同一行字怎么粗细不同」。
+ */
+.txn-time {
+  font-size: 20rpx;
+  color: var(--app-text-3);
 }
 
 .txn-day {

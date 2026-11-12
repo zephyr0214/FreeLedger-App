@@ -444,3 +444,31 @@ export function shortDate(ts) {
   if (!Number.isFinite(d.getTime())) return ''
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
+
+/**
+ * 带年份的短日期 YYYY/M/D（借款/报销页的流水副标题用）
+ *
+ * ★ 用户本轮第 1 条 ★
+ *   「在借出借入报销页面的交易中，
+ *   账户后面只显示日期，格式为年/月/日」。
+ *
+ * ★ 为什么这几页要带年份、其他页不带 ★
+ *   其他页（首页 / 全部交易 / 账户详情）都是**按日分组**的，
+ *   分组头上已经写了完整日期，行内再带年份就重复了。
+ *   而借款 / 报销页的分组头是**人名 / 报销单**，
+ *   一个人可能在这里横跨好几年的账，
+ *   只写「3/15」根本不知道是哪年的 3/15。
+ *
+ * ★ 为什么用斜杠而不是横杠 ★
+ *   这一行是「账户 · 日期」拼接，中间已经有一个 ` · ` 分隔符；
+ *   用斜杠日期能和分隔符明显区分开。
+ *   （横杠日期 2026-03-15 里的横杠会和分隔符混在一起。）
+ *
+ * @param {number} ts 时间戳
+ * @returns {string} 如 '2026/3/15'
+ */
+export function shortDateWithYear(ts) {
+  const d = new Date(ts)
+  if (!Number.isFinite(d.getTime())) return ''
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+}

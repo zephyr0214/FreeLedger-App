@@ -66,7 +66,7 @@
           </view>
 
           <text v-if="usage.over" class="summary-tip danger">
-            已超支 {{ (Math.abs(usage.remaining) / 100).toFixed(2) }} 元
+            已超支 {{ formatWanYuan(Math.abs(usage.remaining)) }} 元
           </text>
         </view>
 
@@ -119,6 +119,7 @@ import { getBudgetUsage } from '@/api/stats.js'
 import { getCategory, listCategories } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
+import { formatWanYuan } from '@/utils/money.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
@@ -324,6 +325,7 @@ export default {
     })
 
     return {
+      formatWanYuan,
       settingStore, usage, txnList, monthStats, categories, loading, notFound,
       primaryColor, pageStyle, monthKey, budgetTitle, iconChar, iconBg, iconFg,
       scopeLabel, goAllTxn, goBack

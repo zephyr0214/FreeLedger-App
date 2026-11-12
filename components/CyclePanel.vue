@@ -231,18 +231,33 @@
       />
     </view>
 
-    <!-- 账户选择 -->
-    <wd-action-sheet
+    <!--
+      ★ 账户选择改成自绘弹层（用户本轮要求）★
+        「也要用在周期管理，新建周期面板的那个账户选择」。
+
+      和记账面板、筛选面板、报销弹层用同一个组件，
+      四处观感一致：图标 + 名字 + 余额，当前值打勾。
+
+      ★ 层级取 120（与记账面板一致）★
+        CyclePanel 自身的 wd-popup 用的是库默认层级（10），
+        120 明确高于它，不会出现“点了没反应”。
+    -->
+    <AccountPickerSheet
       v-model="showAccountPicker"
-      :actions="accountActions"
-      cancel-text="取消"
-      @select="onAccountSelect"
+      :accounts="sourceAccountList"
+      :selected-id="form.account_id"
+      title="选择账户"
+      :z-index="120"
+      @picked="onAccountPicked"
     />
-    <wd-action-sheet
+
+    <AccountPickerSheet
       v-model="showToAccountPicker"
-      :actions="toAccountActions"
-      cancel-text="取消"
-      @select="onToAccountSelect"
+      :accounts="toAccountList"
+      :selected-id="form.to_account_id"
+      title="选择转入账户"
+      :z-index="120"
+      @picked="onToAccountPicked"
     />
 
     <!-- 周期规则 -->
@@ -305,6 +320,7 @@ import { getCategoryUsageCounts } from '@/api/stats.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
 import { pushLayer } from '@/utils/layerStack.js'
+import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 
 const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const RECURRENCES = [
@@ -315,7 +331,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags },
+  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -537,24 +553,9 @@ export default {
       return [...combos, ...reals]
     })
 
-    const accountActions = computed(() =>
-      sourceAccountList.value.map((a) => ({
-        name: a.name,
-        subname: a.isCombo ? '组合账户' : `余额 ${(a.balance_cents / 100).toFixed(2)}`,
-        color: a.color
-      }))
-    )
-
     // 转入方不能是组合账户
     const toAccountList = computed(() =>
       accountStore.list.filter((a) => a.id !== form.account_id && !a.isCombo)
-    )
-
-    const toAccountActions = computed(() =>
-      toAccountList.value.map((a) => ({
-        name: a.name,
-        subname: `余额 ${(a.balance_cents / 100).toFixed(2)}`
-      }))
     )
 
     const recurrenceActions = computed(() => RECURRENCES.map((r) => ({ name: r.name })))
@@ -669,16 +670,22 @@ export default {
       showDayPicker.value = true
     }
 
-    function onAccountSelect({ index }) {
-      const acc = sourceAccountList.value[index]
+    /**
+     * 选中源账户 / 转入账户
+     *
+     * ★ 回参从 { index } 变成整条账户对象（本轮改动）★
+     *   原来走 wd-action-sheet，它只回索引，得拿索引回查列表；
+     *   自绘面板直接把账户对象丢出来，
+     *   下拉选项顺序一改就不会选错账户。
+     */
+    function onAccountPicked(acc) {
       if (!acc) return
       form.account_id = acc.id
       if (form.to_account_id === acc.id) form.to_account_id = ''
       showAccountPicker.value = false
     }
 
-    function onToAccountSelect({ index }) {
-      const acc = toAccountList.value[index]
+    function onToAccountPicked(acc) {
       if (!acc) return
       form.to_account_id = acc.id
       showToAccountPicker.value = false
@@ -1040,7 +1047,7 @@ export default {
       /* 外币记账（与 TxnPanel 同款） */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
-      currentAccountName, toAccountName, accountActions, toAccountActions,
+      sourceAccountList, toAccountList, currentAccountName, toAccountName,
       recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
       dayActions, dayOfMonthLabel, onFlagsUpdate, reimburseDisabled,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
@@ -1048,7 +1055,7 @@ export default {
       iconChar, catIconStyle, switchType, pickCategory,
       openAccountPicker, openToAccountPicker, openRecurrencePicker,
       openWeekdayPicker, openDayPicker,
-      onAccountSelect, onToAccountSelect, onRecurrenceSelect,
+      onAccountPicked, onToAccountPicked, onRecurrenceSelect,
       onWeekdaySelect, onDaySelect,
       onFinish, onClose, onDelete
     }

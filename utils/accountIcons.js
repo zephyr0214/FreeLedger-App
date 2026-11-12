@@ -19,7 +19,16 @@
  *     - 而且「凭印象画一个微信」这个思路本身就不对
  *   换成「品牌用官方数据 + 其它用成品矢量」之后，问题一次性消失。
  *
- * ★ 第三版（当前）：预设图标搬用户给的几何，但颜色统一 ★
+ * ★ 图标含义已更新（用户指定）★
+ *   最后一排 6 个从左到右依次是：
+ *     花呗 · 中国电信 · 中国移动 · 中国联通 · 中国广电 · 投资账户
+ *
+ * ★ 为什么 key 还叫 saving/telecom/transfer… ★
+ *   key 是**存进数据库**的，老帐本里已经落了这些值。
+ *   改 key 会让所有历史账户的图标一夜之间变成空白（查不到 path）。
+ *   图形不变、只改展示名，所以 key 原样保留。
+ *
+ * ★ 第三版：预设图标搬用户给的几何，但颜色统一 ★
  *   用户直接给了 6 个 SVG 源码，要求加进选择器。
  *   这一版不自创任何形状，只做两件事：
  *     1. 把 path 的 d 原样搬进 PRESET_PATHS（不重画、不改几何）
@@ -282,11 +291,11 @@ const PRESET_VIEW_BOXES = (() => {
  *   列表页/详情页只认 key，不认「这个图标排在第几行」。
  */
 export const PRESET_ICONS = [
-  { key: 'saving', label: '储蓄' },
-  { key: 'telecom', label: '通讯' },
-  { key: 'transfer', label: '转账' },
-  { key: 'wealth', label: '财富' },
-  { key: 'quickpay', label: '快捷支付' },
+  { key: 'saving', label: '花呗' },
+  { key: 'telecom', label: '电信' },
+  { key: 'transfer', label: '移动' },
+  { key: 'wealth', label: '联通' },
+  { key: 'quickpay', label: '广电' },
   { key: 'invest', label: '投资' }
 ]
 
@@ -312,6 +321,60 @@ export const ACCOUNT_ICONS = [
   { key: 'qb', label: '钱包' },
   ...PRESET_ICONS
 ]
+
+/* -------------------------------------------------- 图标对应的默认名称 */
+
+/**
+ * 选中图标时预填的账户名
+ *
+ * ★ 用户本轮第 2 条 ★
+ *   「添加账户时，我希望用户选择那个图标的时候，
+ *   名字那里就预填一个该图标对应的名字」。
+ *
+ * ★ 为什么不直接用 ACCOUNT_ICONS 的 label ★
+ *   那个 label 是「图标选择器里的小字」，要短（微信、支付宝）；
+ *   而账户名要能直接用，得是完整的银行/平台名。
+ *   例如图标 label 是「建行」，账户名应是「中国建设银行」。
+ *
+ * ★ 已有 label 的图标就用 label，不重复定义 ★
+ *   下面只列**需要展开成全称**的那几个；
+ *   其余（微信 / 支付宝 / 余额宝…）直接用 label，两处不会不一致。
+ */
+const ICON_NAME_OVERRIDES = {
+  zjsy: '中国建设银行',
+  zy: '中国银行',
+  znyy: '中国农业银行',
+  zgsy: '中国工商银行',
+  googlepay: '邮政储蓄银行',
+  paypal: '招商银行',
+  ysf: '云闪付',
+  yeb: '余额宝',
+  bitcoin: '小荷包',
+  yhk: '银行卡',
+  vip: '会员卡',
+  qdz: '钱袋子',
+  yhq: '优惠券',
+  qb: '钱包',
+  saving: '花呗',
+  telecom: '中国电信',
+  transfer: '中国移动',
+  wealth: '中国联通',
+  quickpay: '中国广电',
+  invest: '投资账户'
+}
+
+/**
+ * 图标 key -> 建议的账户名
+ *
+ * @param {string} key 图标 key（ACCOUNT_ICONS 里的 key）
+ * @returns {string} 建议名；不认识的 key 返回空串
+ */
+export function accountNameForIcon(key) {
+  if (!key) return ''
+  if (ICON_NAME_OVERRIDES[key]) return ICON_NAME_OVERRIDES[key]
+  const hit = ACCOUNT_ICONS.find((ic) => ic.key === key)
+  return hit ? hit.label : ''
+}
 
 /* -------------------------------------------------- viewBox 估算（品牌用） */
 

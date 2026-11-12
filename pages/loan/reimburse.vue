@@ -457,12 +457,42 @@
       </view>
     </wd-popup>
 
-    <!-- 账户选择：和记账面板同一套 action-sheet -->
-    <wd-action-sheet
+    <!--
+      账户选择：自绘弹层（用户本轮要求）
+        「重写一下这个账户选择的面板，单选，显示图标和金额，
+        用在筛选面板 / 记账面板 / 报销弹层」
+
+      和记账面板、筛选面板用的是同一个组件，三处观感一致。
+    -->
+    <!--
+      ★ 层级必须高于下面那个报销弹层（bug 修复）★
+
+      ★ 用户反馈 ★
+        「报销时弹层上的账户选择，现在弹不出来，修复一下，
+        要注意两个弹层的层级问题」。
+
+      ★ 两个原因★
+        1. openAccountPicker 里还在读已删除的 accountActions
+           → ReferenceError → 函数中断 → 面板永远不打开（已修）。
+        2. 层级：报销弹层是 :z-index="100"。
+           如果选择面板取默认 120 也能盖住，但这一页还有 PageNav /
+             UpdateDialog(900) / AppDialog(1000) 等，留的余量不够。
+           ★ 关键不是数字大小，而是**必须明确高于 100** ★
+           所以这里显式写 200：高于报销弹层（100）、
+           低于全局弹窗（900/1000），语义清晰。
+
+      ★ 另一个容易踩的点：面板必须放在报销弹层**之后**（DOM 顺序）★
+        两个 wd-popup 同级、z-index 不同时，z-index 大的在上面；
+        但如果面板写在报销弹层之前，某些平台的层叠实现会按 DOM 顺序
+        覆盖 z-index。这里放在它后面 + z-index 更大，双保险。
+    -->
+    <AccountPickerSheet
       v-model="showAccountPicker"
-      :actions="accountActions"
-      cancel-text="取消"
-      @select="onAccountSelect"
+      :accounts="reimburseAccountList"
+      :selected-id="sheet.accountId"
+      title="选择到账账户"
+      :z-index="200"
+      @picked="onAccountPicked"
     />
 
     <!-- 全局弹窗宿主 -->
@@ -513,6 +543,7 @@ import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -521,7 +552,8 @@ import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
-import { formatDayHeader, formatTime, toDayKey, shortDate } from '@/utils/date.js'
+import { formatDayHeader, formatTime, toDayKey, shortDateWithYear } from '@/utils/date.js'
+import { formatWanYuan } from '@/utils/money.js'
 
 /** 汇总卡图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const ACCENT_COLOR = '#FF8F1F'
@@ -534,7 +566,7 @@ const ICON_FALLBACK = {
 }
 
 export default {
-  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog },
+  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -626,10 +658,18 @@ export default {
       return acc ? acc.name : ''
     })
 
-    const accountActions = computed(() =>
-      accountStore.list
-        .filter((a) => !a.isCombo)
-        .map((a) => ({ name: a.name, subname: `余额 ${(a.balance_cents / 100).toFixed(2)}` }))
+    /**
+     * 可选到账账户
+     *
+     * ★ 排除组合账户 ★
+     *   报销到账是「钱真的进到某个账户」，组合账户是虚拟的
+     *   （按顺序扣款、没有自己的余额），钱进不去。
+     *   ★ 和记账面板的区别 ★
+     *     记账的源账户可以是组合（钱从组合里出，落到某个真实账户），
+     *     所以那边支出时保留组合；这里是**收款**，必须真实账户。
+     */
+    const reimburseAccountList = computed(() =>
+      accountStore.list.filter((a) => !a.isCombo)
     )
 
     /**
@@ -683,7 +723,7 @@ export default {
      *   各写一句 (x/100).toFixed(2) 的话，以后改精度就要满页面找。
      */
     function yuan(cents) {
-      return ((Number(cents) || 0) / 100).toFixed(2)
+      return formatWanYuan(cents)
     }
 
     function iconChar(t) {
@@ -705,12 +745,33 @@ export default {
      * @param {object} t 流水
      * @returns {string}
      */
+    /**
+     * 行副标题：账户 · 日期
+     *
+     * ★ 日期要带年份，且不跟时间（用户本轮第 1 条）★
+     *
+     * ★ 用户原话 ★
+     *   「在借出借入报销页面的交易中，
+     *   账户后面只显示日期，不显示时间」。
+     *
+     * ★ 为什么时间在这里是多余的 ★
+     *   这几页的金额下面本来就有一行 .txn-time（HH:mm）。
+     *   副标题再写一遍时间，同一行里会出现两个时间：
+     *     副标题：工行卡 · 3/15 · 14:32
+     *     金额下：14:32
+     *   一目了然的冗余。而且日期不能删：
+     *   这几页的分组头是**人名 / 报销单**，不是日期，
+     *   删了就看不出这笔账是哪天的。
+     *
+     * ★ 那为什么不删金额下面那行、反而删副标题里的 ★
+     *   金额下面的时间是全 App 统一位置（和首页/全部交易一致）；
+     *   副标题里那个只是这几页自己加的，且与它重复。
+     */
     function txnSub(t) {
       const parts = []
       parts.push(t.account_name || '无账户')
       if (t.occurred_at) {
-        parts.push(shortDate(t.occurred_at))
-        parts.push(formatTime(t.occurred_at))
+        parts.push(shortDateWithYear(t.occurred_at))
       }
       return parts.join(' · ')
     }
@@ -922,16 +983,28 @@ export default {
     }
 
     function openAccountPicker() {
-      if (accountActions.value.length === 0) {
+      /*
+       * ★ 必须用真实列表判空（bug 修复）★
+       *   上一版换成自绘面板时删掉了 accountActions，
+       *   但这里还在读 accountActions.value.length ——
+       *   运行时直接 ReferenceError，函数从中断，
+       *   showAccountPicker 永远不会置 true，表现就是「弹不出来」。
+       */
+      if (reimburseAccountList.value.length === 0) {
         uni.showToast({ title: '请先添加账户', icon: 'none' })
         return
       }
       showAccountPicker.value = true
     }
 
-    function onAccountSelect({ index }) {
-      const list = accountStore.list.filter((a) => !a.isCombo)
-      const acc = list[index]
+    /**
+     * 选中到账账户
+     *
+     * ★ 回参从 { index } 变成整条账户对象（本轮改动）★
+     *   原来按下标回查列表，选项顺序一变就会选错账户。
+     *   自绘面板直接回传对象，不再有下标依赖。
+     */
+    function onAccountPicked(acc) {
       if (acc) sheet.accountId = acc.id
       showAccountPicker.value = false
     }
@@ -1093,12 +1166,12 @@ export default {
       settingStore, status, loading, groups, batches, summary, isEmpty,
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
       swipeStates, selectMode, selectedIds,
-      showSheet, showAccountPicker, sheet, accountName, accountActions, diffText, diffColor,
+      showSheet, showAccountPicker, sheet, accountName, reimburseAccountList, diffText, diffColor,
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
       badgesOf, iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
       onVoidBatch,
-      onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountSelect,
+      onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountPicked,
       onConfirmReimburse, goBack
     }
   }
@@ -1221,8 +1294,8 @@ export default {
 .txn-item {
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  padding: 18rpx 24rpx;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 
@@ -1407,8 +1480,13 @@ export default {
   justify-content: space-between;
   gap: 16rpx;
   padding: 20rpx 24rpx;
-  /* ★ 暗色下要和明细分开，所以用「软渐变」而不是大卡片那条（同 loan/manage.vue 的说明）★ */
-  background: linear-gradient(135deg, var(--app-hero-soft-from), var(--app-card));
+  /*
+   * ★ 颜色走 --app-subhead-bg（用户本轮第 3 条）★
+   *   深色下是平铺的中性灰（不是渐变），与下方交易记录的黑有区分度；
+   *   浅色下仍是白底泛主题色的渐变。
+   *   具体取值见 utils/theme.js 的 buildCssVars。
+   */
+  background: var(--app-subhead-bg);
 }
 
 .batch-head-left {

@@ -388,11 +388,17 @@ export default {
   overflow: hidden;
 }
 
+/*
+ * ★ 行高收紧（用户本轮第 2 条）★
+ *   这个组件被账户/分类/标签/预算/周期 5 个详情页共用，
+ *   改一处五个页面同步变紧凑。
+ *   数值与首页 / 全部交易页一致。
+ */
 .txn-item {
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  padding: 24rpx 28rpx;
+  gap: 16rpx;
+  padding: 18rpx 24rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 

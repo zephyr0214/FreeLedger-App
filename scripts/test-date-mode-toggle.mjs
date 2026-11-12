@@ -109,10 +109,19 @@ check('有 periodRef 以便透传 collapse', /const periodRef = ref\(null\)/.tes
 console.log('\n--- 自定义筛选只保留一行起止日 ---')
 
 check('custom 分支是 v-else 的单行容器', /v-else class="custom-row"/.test(barTpl), true)
-check('有开始日期入口', /openCalendar\('start'\)/.test(barTpl), true)
-check('有结束日期入口', /openCalendar\('end'\)/.test(barTpl), true)
-check('开始日期文案', /startDay \|\| '开始日期'/.test(barTpl), true)
-check('结束日期文案', /endDay \|\| '结束日期'/.test(barTpl), true)
+
+/*
+ * ★ 两个日期格合成一个区间格（用户本轮第 5 条）★
+ *   用户原话：「我希望像订酒店那样，他是选择一个区间的起末」。
+ *   所以不再有「开始日期」「结束日期」两个独立入口，
+ *   只有一个显示「M/D → M/D」的格子。
+ */
+check('只有一个区间入口', /openCalendar\(\)/.test(barTpl), true)
+check('不再有独立的开始日期入口', /openCalendar\('start'\)/.test(barTpl), false)
+check('不再有独立的结束日期入口', /openCalendar\('end'\)/.test(barTpl), false)
+check('区间格绑了 rangeText', /\{\{ rangeText \}\}/.test(barTpl), true)
+check('rangeText 是 computed', /const rangeText = computed\(/.test(barCode), true)
+check('空态文案是「选择日期区间」', /选择日期区间/.test(barCode), true)
 
 // ★ 用户说过「其他不要」：一排 chip、天数提示、重置按钮都不许回来
 check('没有一排快捷 chip', /quick-chip|quick-row/.test(barRaw), false)
@@ -152,11 +161,18 @@ check(
   true
 )
 check('对不上就落回自定义', /return 'custom'/.test(barCode), true)
+/*
+ * ★ 选「自定义」要能真的选中（bug 修复）★
+ *   用户反馈：「在自定义筛选左边，无法选中「自定义」这一栏」。
+ *   旧写法对 custom 直接 return，什么都不发生，看起来就像选项坏了。
+ *   现在改成：选中自定义 → 立即弹出区间日历让用户手动选。
+ */
 check(
-  '选「自定义」时不清空日期',
-  /if \(!preset \|\| preset\.key === 'custom'\) return/.test(barCode),
+  '选「自定义」会弹出区间日历',
+  /preset\.key === 'custom'\) \{\s*openCalendar\(\)/.test(barCode),
   true
 )
+check('选「自定义」不清空已选日期', /commit\(r\.startDay, r\.endDay\)/.test(barCode), true)
 
 // --- 预设区间的算法
 check('近一周按 7 天算（含今天）', /shiftDay\(todayKey, -6\)/.test(barCode), true)
@@ -167,10 +183,15 @@ check(
   true
 )
 
-// --- 三格布局：预设 + 两个日期
+/*
+ * ★ 两格布局：预设下拉 + 一个区间格（用户本轮第 5 条）★
+ *   之前是三格（预设 + 开始 + 结束），
+ *   合成一个区间格后就是两格 —— 区间格变宽，
+ *   「10/1 → 10/31」这种完整区间也放得下。
+ */
 check(
-  '三格在同一行（预设 + 两个日期）',
-  /custom-preset/.test(barTpl) && (barTpl.match(/class="custom-cell"/g) || []).length === 2,
+  '两格在同一行（预设 + 区间）',
+  /custom-preset/.test(barTpl) && (barTpl.match(/class="custom-cell/g) || []).length === 1,
   true
 )
 check(
@@ -187,14 +208,19 @@ check(
 // --- 日期面板必须与记账面板一致（wd-calendar，不是原生 picker）
 console.log('\n--- 日期面板用 wd-calendar（与记账面板一致）---')
 
+/*
+ * ★ 只用一个 wd-calendar，且 type="daterange"（用户本轮第 5 条）★
+ *   两个单日历→一个区间日历，一䬡面板里先点起点、再点讫点。
+ */
 check(
-  '用两个 wd-calendar',
-  (barTpl.match(/<wd-calendar/g) || []).length === 2,
+  '只用一个 wd-calendar',
+  (barTpl.match(/<wd-calendar/g) || []).length === 1,
   true
 )
+check('日历用 type="daterange"', /type="daterange"/.test(barTpl), true)
 check('没用原生 picker mode="date"', /<picker mode="date"/.test(barTpl), false)
-check('日历有 ref（要靠 open() 打开）', /ref="startCalRef"/.test(barTpl) && /ref="endCalRef"/.test(barTpl), true)
-check('日历 with-cell=false（不额外渲染一行）', (barTpl.match(/:with-cell="false"/g) || []).length === 2, true)
+check('日历有 ref（要靠 open() 打开）', /ref="rangeCalRef"/.test(barTpl), true)
+check('日历 with-cell=false（不额外渲染一行）', (barTpl.match(/:with-cell="false"/g) || []).length === 1, true)
 
 /*
  * ★ min-date 必须显式给 ★
@@ -202,22 +228,23 @@ check('日历 with-cell=false（不额外渲染一行）', (barTpl.match(/:with-
  *   月份会被限制在极窄范围（记账面板踩过，见 TxnPanel 的注释）。
  *   而且预设里有「近五年」，下界必须盖得住它。
  */
-check('显式给了 min-date', (barTpl.match(/:min-date="minDate"/g) || []).length === 2, true)
-check('显式给了 max-date', (barTpl.match(/:max-date="maxDate"/g) || []).length === 2, true)
+check('显式给了 min-date', (barTpl.match(/:min-date="minDate"/g) || []).length === 1, true)
+check('显式给了 max-date', (barTpl.match(/:max-date="maxDate"/g) || []).length === 1, true)
 check('minDate 覆盖五年', /getFullYear\(\) - 5, 0, 1\)\.getTime\(\)/.test(barCode), true)
 check('maxDate 截到今天 23:59:59', /23, 59, 59\)\.getTime\(\)/.test(barCode), true)
 
-// ★ 打开前必须先喂当前值，否则会停在今天
+// ★ 打开前必须先喂当前区间，否则会停在今天
 check(
   'openCalendar 先赋值再 open',
-  /function openCalendar\(which\)[\s\S]{0,420}?startValue\.value = ts[\s\S]{0,220}?\.open\(\)/.test(barCode) &&
-    /function openCalendar\(which\)[\s\S]{0,420}?endValue\.value = ts/.test(barCode),
+  /function openCalendar\(\)[\s\S]{0,600}?rangeValue\.value = [\s\S]{0,300}?\.open\(\)/.test(barCode),
   true
 )
-check('open() 有存在性检查', /typeof target\.open === 'function'/.test(barCode), true)
+check('open() 有存在性检查', /typeof rangeCalRef\.value\.open === 'function'/.test(barCode), true)
+check('没选日期时给一个合理默认区间', /getMonth\(\) - 1/.test(barCode), true)
 
-// ★ confirm 的 value 是毫秒时间戳，要用本地时区的 toDayKey 转
-check('confirm 收 value', /function onStartConfirm\(\{ value \}\)/.test(barCode) && /function onEndConfirm\(\{ value \}\)/.test(barCode), true)
+// ★ 区间日历的 confirm 回传长度 2 的数组
+check('confirm 收 value 并取两端', /function onRangeConfirm\(\{ value \}\)[\s\S]{0,300}?arr\[0\][\s\S]{0,120}?arr\[1\]/.test(barCode), true)
+check('区间不完整时不提交', /if \(arr\.length < 2/.test(barCode), true)
 check('用 toDayKey 转（不是 toISOString）', /tsToDay\(ts\)[\s\S]{0,120}?toDayKey\(new Date\(ts\)\)/.test(barCode), true)
 check('没直接用 toISOString', /toISOString/.test(barCode), false)
 
@@ -244,7 +271,17 @@ console.log('\n--- 两个 tab 高度一致 ---')
 const drpRaw = read('components/DateRangePicker.vue')
 const drpStyle = (drpRaw.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
 const drpCellHeight = (drpStyle.match(/\.drp-cell\s*\{[^}]*height:\s*(\d+)rpx/) || [])[1]
-check('.drp-cell 高度基准是 72rpx', drpCellHeight, '72')
+/*
+ * ★ 高度基准从 72rpx 改成 60rpx（用户本轮第 2 条）★
+ *   用户原话：「希望年月日筛选和自定义筛选这个组件
+ *   它高度能稍微矮一点，两个页面同步修改一下」。
+ *
+ *   这条断言不是在“锁死 72”，而是在验证「两个 tab 的高度取值相同」。
+ *   所以不写死数字，而是先取 .drp-cell 的实际值，
+ *   再拿它去比对自定义那一行——以后再调高度时只要两处同步，测试仍然成立。
+ */
+check('.drp-cell 存在高度声明', Boolean(drpCellHeight), true)
+check('.drp-cell 高度在合理范围内（50~72rpx）', Number(drpCellHeight) >= 50 && Number(drpCellHeight) <= 72, true)
 
 /*
  * ★ 高度写在合并规则里 ★
@@ -261,7 +298,13 @@ const cellRuleGroup = (barStyle.match(/(?:\.custom-preset,\s*\.custom-cell|\.cus
 const cellAll = barStyle.match(/\.custom-cell\s*\{[^}]*\}/g) || []
 const cellFlexRule = cellAll[cellAll.length - 1] || ''
 const cellBaseRule = (barStyle.match(/\.custom-preset,\s*\.custom-cell\s*\{[^}]*\}/) || [])[0] || ''
-check('自定义格用 72rpx 高（与 .drp-cell 一致）', /height:\s*72rpx/.test(cellRuleGroup), true)
+/*
+ * ★ 两个 tab 必须同高 ★
+ *   直接比两个源码里的高度值，而不是写死一个数字。
+ *   这样「改一个忘改另一个」会立刻被抓到。
+ */
+const customCellHeight = (cellRuleGroup.match(/height:\s*(\d+)rpx/) || [])[1]
+check('自定义格高度与 .drp-cell 完全一致', customCellHeight, drpCellHeight)
 check('自定义格 flex:1（与日期格一致）', /flex:\s*1/.test(cellFlexRule), true)
 check('自定义格 min-width:0（长日期不会撑破）', /min-width:\s*0/.test(cellFlexRule), true)
 check('基础布局规则同时作用于预设格与日期格', cellBaseRule.length > 0, true)
@@ -282,7 +325,7 @@ console.log('\n--- 日历弹层不能被底栏和「+」压住 ---')
  *          的上下文里的老大，跟页面级的 300 / 600 比，整棵子树还是 5。
  *          所以那几个祖先容器的 z-index 必须删掉。
  */
-check('两个日历都传了 :z-index', (barTpl.match(/:z-index="CALENDAR_Z_INDEX"/g) || []).length === 2, true)
+check('日历传了 :z-index', (barTpl.match(/:z-index="CALENDAR_Z_INDEX"/g) || []).length === 1, true)
 check('定义了 CALENDAR_Z_INDEX', /const CALENDAR_Z_INDEX = \d+/.test(barCode), true)
 
 const calZ = Number((barCode.match(/const CALENDAR_Z_INDEX = (\d+)/) || [])[1] || 0)

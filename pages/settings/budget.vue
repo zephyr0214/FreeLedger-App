@@ -51,11 +51,11 @@
               <text
                 class="total-foot-num"
                 :style="{ color: totalBudget.remaining < 0 ? 'var(--app-danger)' : 'var(--app-text)' }"
-              >¥{{ (totalBudget.remaining / 100).toFixed(2) }}</text>
+              >¥{{ formatWanYuan(totalBudget.remaining) }}</text>
             </view>
             <view class="total-foot-item">
               <text class="total-foot-label">日均可用</text>
-              <text class="total-foot-num">¥{{ (totalBudget.dailyAvailable / 100).toFixed(2) }}</text>
+              <text class="total-foot-num">¥{{ formatWanYuan(totalBudget.dailyAvailable) }}</text>
             </view>
           </view>
 
@@ -101,7 +101,7 @@
               超额警告保留 —— 那是异常状态，老数据里可能有。
           -->
           <text v-if="allocation.overAllocated" class="alloc-warn">
-            子预算合计已超出月预算 ¥{{ (Math.abs(allocation.unallocated) / 100).toFixed(2) }}
+            子预算合计已超出月预算 ¥{{ formatWanYuan(Math.abs(allocation.unallocated)) }}
           </text>
         </view>
       </view>
@@ -172,7 +172,7 @@
                 />
               </view>
               <text class="cat-budget-remaining" :class="{ danger: b.remaining < 0 }">
-                剩余 ¥{{ (b.remaining / 100).toFixed(2) }}
+                剩余 ¥{{ formatWanYuan(b.remaining) }}
               </text>
             </view>
 
@@ -328,7 +328,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { createBudget, updateBudget, deleteBudget, summarizeAllocation, checkCategoryAllocation } from '@/api/budget.js'
 import { listCategories } from '@/api/category.js'
-import { yuanToCents } from '@/utils/money.js'
+import { yuanToCents, formatWanYuan } from '@/utils/money.js'
 import { toMonthKey } from '@/utils/date.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
@@ -405,7 +405,7 @@ export default {
     /** 「子预算」卡片的副标题 */
     const categorySubTitle = computed(() => {
       const left = allocation.value.unallocated
-      if (left > 0) return `还可分配 ¥${(left / 100).toFixed(2)}`
+      if (left > 0) return `还可分配 ¥${formatWanYuan(left)}`
       return '额度已分完'
     })
 
@@ -832,6 +832,7 @@ export default {
     })
 
     return {
+      formatWanYuan,
       usages, categories, showEditor, editorMode, editorAmount,
       editorBudgetId, editorName, editorCatIds, showCatPicker, defaultSubBudgetName,
       primaryColor, pageStyle, swipeStates,

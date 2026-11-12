@@ -89,10 +89,10 @@
                 金额是两位小数、不需要千分位/货币符号，直接拼字符串最稳。
             -->
             <text v-if="group.expense > 0" class="day-sum-text">
-              支出 -{{ (group.expense / 100).toFixed(2) }}
+              支出 -{{ formatWanYuan(group.expense) }}
             </text>
             <text v-if="group.income > 0" class="day-sum-text">
-              收入 <text class="day-sum-income">+{{ (group.income / 100).toFixed(2) }}</text>
+              收入 <text class="day-sum-income">+{{ formatWanYuan(group.income) }}</text>
             </text>
           </view>
         </view>
@@ -251,7 +251,7 @@
 
           <!-- 账户 -->
           <view class="filter-section">
-            <view class="filter-row" @click="openPicker('account')">
+            <view class="filter-row" @click="openAccountPicker">
               <text class="filter-row-label">账户</text>
               <view class="filter-row-right">
                 <text class="filter-row-value" :class="{ placeholder: !filter.accountId }">
@@ -286,12 +286,12 @@
             </view>
           </view>
 
-          <!-- 标签 -->
+          <!-- 标签（多选，复用标签面板的行式样式） -->
           <view class="filter-section">
-            <view class="filter-row" @click="openPicker('tag')">
+            <view class="filter-row" @click="openTagFilterSheet">
               <text class="filter-row-label">标签</text>
               <view class="filter-row-right">
-                <text class="filter-row-value" :class="{ placeholder: !filter.tagId }">
+                <text class="filter-row-value" :class="{ placeholder: filter.tagIds.length === 0 }">
                   {{ tagLabel }}
                 </text>
                 <text class="filter-row-arrow">›</text>
@@ -362,7 +362,22 @@
       </view>
     </wd-popup>
 
-    <!-- 选项选择器：账户 / 一级分类 / 二级分类 / 标签 共用一个底部选项表 -->
+    <!--
+      账户选择：自绘弹层（用户本轮要求）
+      「重写一下这个账户选择的面板，单选，显示图标和金额」
+    -->
+    <AccountPickerSheet
+      v-model="showAccountPicker"
+      :accounts="filterAccountList"
+      :selected-id="filter.accountId"
+      title="选择账户"
+      allow-all
+      all-label="全部账户"
+      :z-index="120"
+      @picked="onAccountPicked"
+    />
+
+    <!-- 选项选择器：周期 -->
     <wd-action-sheet
       v-model="showPicker"
       :title="pickerTitle"
@@ -370,6 +385,29 @@
       :z-index="120"
       cancel-text="取消"
       @select="onPickerSelect"
+    />
+
+    <!--
+      ★ 标签筛选直接复用 TxnTagSheet（用户本轮第 1 条）★
+
+      ★ 用户原话 ★
+        「筛选页面标签复用设置标签的面板，只有一个标签时，显示选中的标签名；
+        有两个以上标签时，显示『已选中 x 个标签』」。
+
+      ★ 为什么不新写一个面板 ★
+        标签选择这个弹层项目里已经有了 —— components/TxnTagSheet.vue，
+        首页右滑、全部交易右滑、多选批量三处都在用它。
+        筛选面板要的「多选标签」和它是同一件事，
+        直接复用同一个组件，勾选样式、清空逻辑、底部按钮自然一致；
+        新写一份只会让两处慢慢长歪。
+    -->
+    <TxnTagSheet
+      v-model="showTagFilter"
+      :tags="tags"
+      :selected-ids="filter.tagIds"
+      title="选择标签"
+      hint="可以选多个，命中任意一个标签的流水都会显示"
+      @picked="onTagFilterPicked"
     />
 
     <!--
@@ -410,6 +448,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DateFilterBar from '@/components/DateFilterBar.vue'
 import CategoryMultiPickerSheet from '@/components/CategoryMultiPickerSheet.vue'
+import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import TxnSwipeActions from '@/components/TxnSwipeActions.vue'
 import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -433,7 +472,7 @@ import {
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
-import { parseAmountInput } from '@/utils/money.js'
+import { parseAmountInput, formatWanYuan } from '@/utils/money.js'
 import { glassVars } from '@/utils/theme.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
@@ -441,7 +480,7 @@ import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog },
+  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AccountPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -504,7 +543,21 @@ export default {
        *   查询时统一走 IN，不用再推导「要不要带子分类」。
        */
       categoryIds: [],
-      tagId: '',
+      /*
+       * 筛选的标签：多选 id 数组（空数组 = 不限）
+       *
+       * ★ 用户本轮第 1 条 ★
+       *   「筛选页面标签复用设置标签的面板，
+       *   只有一个标签时，显示选中的标签名；
+       *   有两个以上标签时，显示「已选中 x 个标签」」。
+       *   —— 明确要多选。
+       *
+       * 为什么不保留单选的 tagId：
+       *   两个字段并存就要处处判断「到底用哪个」，
+       *   一定会出现「一处改了另一处没改」。
+       *   单选只是多选里只勾一个的特例，和分类那边同一套做法。
+       */
+      tagIds: [],
       /** 周期筛选：'' = 不限；非 '' 时只显示该周期产生的流水 */
       cycleId: '',
       keyword: '',
@@ -807,9 +860,15 @@ export default {
     const pickerKind = ref('')
     const showPicker = ref(false)
 
+    /*
+     * 下拉面板标题
+     *
+     * ★ 标签不在这里（用户本轮第 1 条）★
+     *   标签改成多选，直接复用 TxnTagSheet
+     *   （首页右滑 / 全部交易右滑 / 批量操作都是它），
+     *   不再挤在这个单选下拉里。
+     */
     const PICKER_TITLES = {
-      account: '选择账户',
-      tag: '选择标签',
       cycle: '选择周期'
     }
 
@@ -823,20 +882,6 @@ export default {
      */
     const pickerActions = computed(() => {
       const kind = pickerKind.value
-      if (kind === 'account') {
-        const list = [{ name: '全部账户', value: '' }]
-        // 组合账户没有流水（交易都解析到真实账户名下），筛它只会得到空列表
-        for (const acc of accountStore.list) {
-          if (acc.isCombo) continue
-          list.push({ name: acc.name, value: acc.id })
-        }
-        return list
-      }
-      if (kind === 'tag') {
-        const list = [{ name: '全部标签', value: '' }]
-        for (const t of tags.value) list.push({ name: t.name, value: t.id })
-        return list
-      }
       if (kind === 'cycle') {
         const list = [{ name: '全部周期', value: '' }]
         for (const c of cycles.value) {
@@ -853,19 +898,69 @@ export default {
       showPicker.value = true
     }
 
+    /* -------------------------------------------------- 账户选择（自绘弹层） */
+
+    /** 账户选择弹层是否打开 */
+    const showAccountPicker = ref(false)
+
+    /**
+     * 可选账户列表
+     *
+     * ★ 为什么排除组合账户 ★
+     *   组合账户是「按顺序扣款」的虚拟账户，它没有自己的流水
+     *   （交易都解析到其中某个真实账户名下），按组合账户筛选
+     *   只会得到空列表。让用户选它等于给一个必然为空的选项。
+     */
+    const filterAccountList = computed(() =>
+      accountStore.list.filter((a) => !a.isCombo)
+    )
+
+    function openAccountPicker() {
+      showAccountPicker.value = true
+    }
+
+    /**
+     * 选中账户
+     *
+     * ★ 面板回传整条账户对象，不是 id ★
+     *   单选场景调用方通常只要 id，但「全部账户」这个选项不存在于
+     *   账户列表里，没法用它表达「不限」。所以这里保留原来
+     *   action-sheet 的「全部账户」语义：面板里不提供该选项，
+     *   清空通过下拉行的其它入口（重置筛选）完成。
+     */
+    function onAccountPicked(acc) {
+      /*
+       * ★ 「全部账户」回传的是 { id: '', isAll: true } ★
+       *   所以这里统一写 `acc && acc.id ? acc.id : ''`：
+       *   选具体账户 → 用它的 id；选全部 → 空串（= 不加账户条件）。
+       *   不特判 isAll 也不会错，那个字段是为了以后要区分时能拿到。
+       */
+      filter.accountId = acc && acc.id ? acc.id : ''
+    }
+
     /** 选中某个下拉里的选项 */
     function onPickerSelect(e) {
       const item = e && e.item ? e.item : null
       if (!item) return
       const value = item.value
       const kind = pickerKind.value
-      if (kind === 'account') {
-        filter.accountId = value
-      } else if (kind === 'tag') {
-        filter.tagId = value
-      } else if (kind === 'cycle') {
+      if (kind === 'cycle') {
         filter.cycleId = value
       }
+    }
+
+    /* -------------------------------------------- 标签筛选（多选） */
+
+    /** 标签筛选面板是否打开 */
+    const showTagFilter = ref(false)
+
+    function openTagFilterSheet() {
+      showTagFilter.value = true
+    }
+
+    /** 标签多选回传：直接覆盖成这一组 */
+    function onTagFilterPicked(ids) {
+      filter.tagIds = Array.isArray(ids) ? ids.slice() : []
     }
 
     const typeOptions = [
@@ -1001,11 +1096,27 @@ export default {
       return acc ? acc.name : '全部'
     })
 
-    /** 标签当前值 */
+    /**
+     * 标签当前值文案
+     *
+     * ★ 用户明确要求（本轮第 1 条）★
+     *   「只有一个标签时，显示选中的标签名；
+     *   有两个以上标签时，显示「已选中 x 个标签」」。
+     *
+     * ★ 为什么不是拼标签名 ★
+     *   一行只有屏幕宽减去「标签」两字，
+     *   三四个标签拼起来必定被省略号截断，
+     *   反而看不清选了啥。直接报数量最清楚。
+     */
     const tagLabel = computed(() => {
-      if (!filter.tagId) return '全部'
-      const t = tags.value.find((x) => x.id === filter.tagId)
-      return t ? t.name : '全部'
+      const ids = filter.tagIds || []
+      if (ids.length === 0) return '全部'
+      if (ids.length === 1) {
+        const t = tags.value.find((x) => x.id === ids[0])
+        return t ? t.name : '全部'
+      }
+      const CN = ['零', '一', '两', '三', '四', '五', '六', '七', '八', '九', '十']
+      return `已选中${ids.length <= 10 ? CN[ids.length] : ids.length}个标签`
     })
 
     const filterCount = computed(() => {
@@ -1013,7 +1124,7 @@ export default {
       if (appliedFilter.type && appliedFilter.type !== 'all') n++
       if (appliedFilter.accountId) n++
       if ((appliedFilter.categoryIds || []).length > 0) n++
-      if (appliedFilter.tagId) n++
+      if ((appliedFilter.tagIds || []).length > 0) n++
       if (appliedFilter.cycleId) n++
       if (appliedFilter.keyword) n++
       if (appliedFilter.minYuan || appliedFilter.maxYuan) n++
@@ -1185,7 +1296,11 @@ export default {
        */
       const pickedCats = expandCategoryIds(appliedFilter.categoryIds || [])
       if (pickedCats.length > 0) q.categoryIds = pickedCats.join(',')
-      if (appliedFilter.tagId) q.tagId = appliedFilter.tagId
+      /*
+       * 标签：传逗号串（和 categoryIds 同一套传法）
+       * buildFilterWhere 同时接受数组和字符串，两边都不会静默失效。
+       */
+      if ((appliedFilter.tagIds || []).length > 0) q.tagIds = appliedFilter.tagIds.join(',')
       if (appliedFilter.cycleId) q.cycleId = appliedFilter.cycleId
       if (appliedFilter.keyword) q.keyword = appliedFilter.keyword
 
@@ -1241,8 +1356,8 @@ export default {
 
     function resetFilter() {
       Object.assign(filter, {
-        type: 'all', accountId: '', categoryIds: [],
-        tagId: '', cycleId: '', keyword: '', minYuan: '', maxYuan: ''
+        type: 'all', accountId: '', categoryIds: [], tagIds: [],
+        cycleId: '', keyword: '', minYuan: '', maxYuan: ''
       })
       // 重置后类型回到「全部」，分类列表也要跟着回到全量
       syncCategories('all')
@@ -1466,7 +1581,13 @@ export default {
 
       // 账户 / 标签
       filter.accountId = q.accountId
-      filter.tagId = q.tagId
+      /*
+       * 标签深链：tagId 单个、tagIds 多个，都归并成数组
+       * （页面内部只认 tagIds 这一种形式）。
+       */
+      filter.tagIds = q.tagIds && q.tagIds.length > 0
+        ? q.tagIds
+        : (q.tagId ? [q.tagId] : [])
 
       // 周期（周期详情「全部」深链会带 cycleId）
       filter.cycleId = q.cycleId
@@ -1622,6 +1743,19 @@ export default {
       }
     })
 
+    watch(showAccountPicker, (open) => {
+      if (open) {
+        if (!unregisterAccountPicker) {
+          unregisterAccountPicker = pushLayer(() => { showAccountPicker.value = false }, 'filterAccountPicker')
+        }
+        return
+      }
+      if (unregisterAccountPicker) {
+        unregisterAccountPicker()
+        unregisterAccountPicker = null
+      }
+    })
+
     watch(showPicker, (open) => {
       if (open) {
         if (!unregisterPicker) {
@@ -1637,10 +1771,12 @@ export default {
 
     let unregisterFilter = null
     let unregisterPicker = null
+    let unregisterAccountPicker = null
 
     onUnmounted(() => {
       if (unregisterFilter) unregisterFilter()
       if (unregisterPicker) unregisterPicker()
+      if (unregisterAccountPicker) unregisterAccountPicker()
     })
 
     /*
@@ -1665,6 +1801,7 @@ export default {
     })
 
     return {
+      formatWanYuan,
       settingStore, accountStore, statusBarHeight,
       dateRange, filterBarRef, list, summary, hasMore, loading, showFilter,
       // 时间筛选方式（日/月/年 或 自定义起止日）
@@ -1675,6 +1812,10 @@ export default {
       showMultiCat, multiCatSource, multiCatLabel, openMultiCatPicker, onMultiCatConfirm,
       // 下拉选择器
       showPicker, pickerTitle, pickerActions, openPicker, onPickerSelect,
+      // 账户选择（自绘弹层）
+      showAccountPicker, filterAccountList, openAccountPicker, onAccountPicked,
+      // 标签筛选（多选，复用 TxnTagSheet）
+      showTagFilter, openTagFilterSheet, onTagFilterPicked,
       // 下拉当前值
       accountLabel, tagLabel, cycleFilterLabel,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
@@ -1857,11 +1998,16 @@ export default {
   overflow: hidden;
 }
 
+/*
+ * ★ 行高收紧（用户本轮第 2 条）★
+ *   数值必须与首页 .txn-item 完全一致 ——
+ *   同一笔账在两个页面里行高不同，切换时会明显感到“跳”。
+ */
 .txn-item {
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  padding: 24rpx 28rpx;
+  gap: 16rpx;
+  padding: 18rpx 24rpx;
   border-bottom: 1rpx solid var(--app-line);
 }
 
