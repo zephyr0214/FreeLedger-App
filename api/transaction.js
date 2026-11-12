@@ -109,7 +109,7 @@ export function buildCategoryCondition(categoryId, includeSubcategories) {
  * listTransactions 与 sumTransactions 共用同一份，
  * 保证「列表」和「合计」口径永远一致（否则汇总数字会和列表对不上）。
  */
-function buildFilterWhere(opt = {}) {
+export function buildFilterWhere(opt = {}) {
   const {
     monthKey, startDay, endDay, type, accountId, categoryId, categoryIds,
     includeSubcategories, tagId, keyword, minCents, maxCents, cycleId
@@ -132,8 +132,30 @@ function buildFilterWhere(opt = {}) {
    *   子预算可以挂多个类别，它的「全部 ›」需要一次筛出这几个类别下的流水。
    *   走 IN 列表而不是多个 OR 子查询：数量有限（一条子预算十几个类别顶天），
    *   SQL 长度可控，也比一堆 OR 更容易走索引。
+   *
+   * ★ ★ 必须同时接受字符串和数组（bug 修复）★ ★
+   *   用户反馈「筛选面板分类筛选失效」。
+   *
+   *   原因就在这一行：旧写法是
+   *     const multiCats = Array.isArray(categoryIds) ? categoryIds.filter(Boolean) : []
+   *   而筛选面板传进来的是**逗号串**：
+   *     pages/txn/list.vue: q.categoryIds = pickedCats.join(',')
+   *   于是 Array.isArray('一个字符串') === false
+   *   → multiCats 永远是空数组 → 分类条件被完全忽略。
+   *   页面上看起来就是「勾了分类、列表一条没变」。
+   *
+   *   为什么不去改页面、而是改这里 ——
+   *   这个函数是公开 API 的入口：
+   *     · parseTxnQueryOptions（URL 深链）给的是**数组**
+   *     · 页面直接查询时给的是**字符串**
+   *   两个调用方都合法。只修页面的话，以后又有人按“字符串”写
+   *   就会再次静默失效。在边界上统一规范才一劳永逸。
    */
-  const multiCats = Array.isArray(categoryIds) ? categoryIds.filter(Boolean) : []
+  const multiCats = (Array.isArray(categoryIds)
+    ? categoryIds
+    : String(categoryIds || '').split(','))
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
   if (multiCats.length > 0) {
     where.push(`t.category_id IN (${multiCats.map(() => '?').join(',')})`)
     params.push(...multiCats)
@@ -899,6 +921,137 @@ export async function restoreTransaction(id) {
     if (row.to_account_id) await recalcBalance(row.to_account_id)
   })
   return true
+}
+
+/* ------------------------------------------------------------------ 批量操作 */
+
+/**
+ * 批量删除流水（软删除，逐条走 deleteTransaction）
+ *
+ * ★ 为什么逐条调 deleteTransaction 而不是一条 UPDATE 带 IN ★
+ *   删一笔流水要做的事情不只是改 deleted_at：
+ *     · 重算涉及的账户余额（转账要算两个账户）
+ *     · 写今日快照
+ *     · 周期流水还要写 cycle_skip（否则下次进 App 又补回来）
+ *   这些逻辑全在 deleteTransaction 里。在这里另写一份 SQL 等于
+ *   把它们全部复制一遍，改一处漏一处。
+ *
+ * ★ 为什么不包一个大事务 ★
+ *   deleteTransaction 自己已经开了事务（db 层不支持嵌套事务，
+ *   嵌套会死锁）。且批量删除是「能删多少算多少」的语义，
+ *   中间一条失败不应该把前面已经删掉的回滚 ——
+ *   用户看到的是「删了一半」但实际全没删，反而更迷惑。
+ *
+ * @param {string[]} ids
+ * @returns {Promise<{deleted:number, failed:number}>}
+ */
+export async function batchDeleteTransactions(ids) {
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : []
+  let deleted = 0
+  let failed = 0
+  for (const id of list) {
+    try {
+      if (await deleteTransaction(id)) deleted++
+      else failed++
+    } catch (e) {
+      console.warn('[txn] 批量删除失败:', id, e && e.message)
+      failed++
+    }
+  }
+  return { deleted, failed }
+}
+
+/**
+ * 批量设置「不计预算 / 不计收支」
+ *
+ * ★ 为什么不用 setExcludeFromBudget / setExcludeFromStats 循环 ★
+ *   那两个函数每次调用都要 getTransaction 查一遍完整行
+ *   再写一遍（还要再查一次返回）。批量 50 条就是 150 次 SQL。
+ *   这里只改一个标记位，不需要完整行，也不动余额，
+ *   所以一条 IN UPDATE 就够。
+ *
+ * ★ 与单条接口的语义差异 ★
+ *   单条接口是「设成某个值」（set true/false），
+ *   这里也是「设成某个值」，不是「取反」 ——
+ *   取反在混选时没有意义（一半开一半关会变成一团乱码）。
+ *
+ * @param {string[]} ids
+ * @param {{budget?:boolean, stats?:boolean}} flags 只写传入的字段
+ * @returns {Promise<number>} 影响行数
+ */
+export async function batchSetExcludeFlags(ids, flags = {}) {
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : []
+  if (list.length === 0) return 0
+
+  const fields = []
+  const params = []
+  if (flags.budget !== undefined) {
+    fields.push('exclude_from_budget = ?')
+    params.push(flags.budget ? 1 : 0)
+  }
+  if (flags.stats !== undefined) {
+    fields.push('exclude_from_stats = ?')
+    params.push(flags.stats ? 1 : 0)
+  }
+  if (fields.length === 0) return 0
+
+  fields.push('updated_at = ?')
+  params.push(Date.now())
+  params.push(...list)
+
+  await execute(
+    `UPDATE txn SET ${fields.join(', ')} WHERE id IN (${list.map(() => '?').join(',')})`,
+    params
+  )
+  return list.length
+}
+
+/**
+ * 批量追加 / 移除标签
+ *
+ * ★ mode 的语义 ★
+ *   'add'    —— 保留原有标签，只加不删（用户选了一组标签并希望追加）
+ *   'remove' —— 只移除用户选的那几个，其余不动
+ *   'set'    —— 覆盖成这一组（和 TxnPanel 单条编辑同一语义）
+ *
+ *   ★ 为什么默认用「追加」而不是「覆盖」 ★
+ *     批量选中的流水各自已有不同标签。
+ *     覆盖会把它们全部抹成一样——那是一个非常危险的默认行为，
+ *     用户想的一般是「把这批都打上「出差」标签」。
+ *
+ * @param {string[]} ids
+ * @param {string[]} tagIds
+ * @param {'add'|'remove'|'set'} mode
+ * @returns {Promise<number>} 影响笔数
+ */
+export async function batchSetTxnTags(ids, tagIds, mode = 'add') {
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : []
+  const tags = Array.isArray(tagIds) ? tagIds.filter(Boolean) : []
+  if (list.length === 0) return 0
+
+  const now = Date.now()
+  for (const id of list) {
+    try {
+      if (mode === 'set') {
+        await execute('DELETE FROM txn_tag WHERE txn_id = ?', [id])
+        for (const tagId of tags) {
+          await execute('INSERT OR IGNORE INTO txn_tag (txn_id, tag_id) VALUES (?, ?)', [id, tagId])
+        }
+      } else if (mode === 'remove') {
+        for (const tagId of tags) {
+          await execute('DELETE FROM txn_tag WHERE txn_id = ? AND tag_id = ?', [id, tagId])
+        }
+      } else {
+        for (const tagId of tags) {
+          await execute('INSERT OR IGNORE INTO txn_tag (txn_id, tag_id) VALUES (?, ?)', [id, tagId])
+        }
+      }
+      await execute('UPDATE txn SET updated_at = ? WHERE id = ?', [now, id])
+    } catch (e) {
+      console.warn('[txn] 批量标签失败:', id, e && e.message)
+    }
+  }
+  return list.length
 }
 
 /* ------------------------------------------------------------------ 标签 */

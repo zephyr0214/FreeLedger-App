@@ -13,7 +13,7 @@
 
 import { DatabaseSync } from 'node:sqlite'
 import {
-  buildCategoryCondition, parseTxnQueryOptions
+  buildCategoryCondition, parseTxnQueryOptions, buildFilterWhere
 } from '../api/transaction.js'
 
 let pass = 0
@@ -28,6 +28,39 @@ function check(name, actual, expected) {
     fail++
     console.log(`FAIL  ${name}\n      实际 ${a}\n      期望 ${e}`)
   }
+}
+
+console.log('=== 多分类筛选：字符串与数组两种入参（bug 修复）===')
+
+{
+  /*
+   * ★ 用户反馈 「筛选面板分类筛选失效」★
+   *
+   * 原因：筛选面板传的是逗号串（'cat_1,cat_2'），
+   * 而旧代码只写了 `Array.isArray(categoryIds) ? ... : []`，
+   * 字符串进来就变成空数组 → 分类条件被完全丢弃。
+   *
+   * 两种调用方都合法，这里两种都钉住：
+   *   · 页面直接查询 → 字符串
+   *   · URL 深链 parseTxnQueryOptions → 数组
+   */
+  const fromArray = buildFilterWhere({ categoryIds: ['cat_1', 'cat_2'] })
+  check('数组入参生成 IN 条件', fromArray.where.includes('t.category_id IN (?,?)'), true)
+  check('数组入参的参数正确', fromArray.params, ['cat_1', 'cat_2'])
+
+  const fromString = buildFilterWhere({ categoryIds: 'cat_1,cat_2' })
+  check('字符串入参也生成 IN 条件', fromString.where.includes('t.category_id IN (?,?)'), true)
+  check('字符串入参被拆成两个参数', fromString.params, ['cat_1', 'cat_2'])
+
+  const single = buildFilterWhere({ categoryIds: 'cat_9' })
+  check('单个分类（字符串）也生效', single.where.includes('t.category_id IN (?)'), true)
+  check('单个分类参数', single.params, ['cat_9'])
+
+  const empty = buildFilterWhere({ categoryIds: '' })
+  check('空串不产生分类条件', empty.where.some((w) => w.includes('category_id')), false)
+
+  const blank = buildFilterWhere({ categoryIds: ' , , ' })
+  check('全空白不产生分类条件', blank.where.some((w) => w.includes('category_id')), false)
 }
 
 console.log('=== 分类过滤条件 ===')

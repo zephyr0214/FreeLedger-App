@@ -239,6 +239,75 @@ export async function setTxnPendingReimburse(id, pending) {
   return getReimburseTxn(id)
 }
 
+/**
+ * 批量设置「待报销」（全部交易多选用）
+ *
+ * ★ 为什么要单独一个批量版本 ★
+ *   setTxnPendingReimburse 每次都要查一遍完整行做校验
+ *   （类型必须是支出、借款类拒绝），批量 20 条就是 20 次查询 + 20 次更新。
+ *   而且用户在列表里多选时，里面很可能混着收入/转账/借款类 ——
+ *   不能因为一条不合格就让整个批量失败，
+ *   也不能静默地只处理一部分而不告诉用户。
+ *
+ * ★ 语义 ★
+ *   只处理「日常支出」：
+ *     · type 必须是 expense
+ *     · 借款八类（借出 / 借款归还 / 借出坏账等）不能报销
+ *     · 已报销（status=2）的不动（它已经在报销单里了，
+ *       要撤销得走报销页的「撤销本报销单」）
+ *
+ * @param {string[]} ids
+ * @param {boolean} pending true = 标成待报销；false = 取消待报销
+ * @returns {Promise<{changed:number, skipped:number}>}
+ */
+export async function batchSetPendingReimburse(ids, pending) {
+  const list = Array.isArray(ids) ? Array.from(new Set(ids.filter(Boolean))) : []
+  if (list.length === 0) return { changed: 0, skipped: 0 }
+
+  /*
+   * 一次查出所有候选行的类型与分类名，在内存里筛。
+   * 比逐条查少 N-1 个来回，也能一次性给出「几条被跳过」。
+   */
+  const placeholders = list.map(() => '?').join(',')
+  const rows = await query(
+    `SELECT t.id, t.type, t.reimburse_status, c.name AS category_name
+     FROM txn t LEFT JOIN category c ON c.id = t.category_id
+     WHERE t.deleted_at IS NULL AND t.id IN (${placeholders})`,
+    list
+  )
+
+  const badLoanCats = ['借出', '借款归还', '借出坏账', '借入利息']
+  const usable = []
+  for (const r of rows) {
+    if (r.type !== 'expense') continue
+    if (badLoanCats.includes(r.category_name)) continue
+    // 已报销的不动（待报销 -> 已报销这一步只能走报销流程）
+    if (Number(r.reimburse_status) === 2) continue
+    usable.push(r.id)
+  }
+
+  if (usable.length === 0) {
+    return { changed: 0, skipped: list.length }
+  }
+
+  const now = Date.now()
+  await execute(
+    `UPDATE txn SET reimburse_status = ?, exclude_from_budget = ?, exclude_from_stats = ?,
+       reimburse_day = NULL, reimburse_amount_cents = NULL, reimburse_account_id = NULL,
+       batch_id = NULL, updated_at = ?
+     WHERE id IN (${usable.map(() => '?').join(',')})`,
+    [
+      pending ? REIMBURSE_STATUS.PENDING : REIMBURSE_STATUS.NONE,
+      pending ? 1 : 0,
+      pending ? 1 : 0,
+      now,
+      ...usable
+    ]
+  )
+
+  return { changed: usable.length, skipped: list.length - usable.length }
+}
+
 /** 单笔（带分类/账户名） */
 export async function getReimburseTxn(id) {
   return queryOne(

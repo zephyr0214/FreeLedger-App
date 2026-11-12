@@ -278,9 +278,20 @@
                 </text>
               </view>
 
-              <view
+              <!--
+                ★ 每行右滑露出「标签 / 删除」（用户本轮第 4 条）★
+                  用户原话：「设置首页和全部交易页面，
+                  右滑某条流水可以快捷删除和添加标签」。
+                  两个页面共用 components/TxnSwipeActions.vue，
+                  按钮尺寸与颜色才能保证一致。
+              -->
+              <wd-swipe-action
                 v-for="txn in group.list"
                 :key="txn.id"
+                v-model="swipeStates[txn.id]"
+                class="txn-swipe"
+              >
+              <view
                 class="txn-item"
                 @click="goTxnDetail(txn.id)"
               >
@@ -319,6 +330,14 @@
                 />
               </view>
               </view>
+
+              <template #right>
+                <TxnSwipeActions
+                  @delete="onSwipeDelete(txn)"
+                  @tag="onSwipeTag(txn)"
+                />
+              </template>
+              </wd-swipe-action>
             </block>
           </view>
         </view>
@@ -382,13 +401,22 @@
     -->
     <!-- 弹窗宿主：外部打开 JSON 时可能在任意一页弹出，
          缺了这一行就退化成原生弹窗，样式与别处不一致 -->
+    <!-- 右滑「标签」的标签选择弹层 -->
+    <TxnTagSheet
+      v-model="showTagSheet"
+      :tags="tags"
+      :selected-ids="tagSheetIds"
+      title="选择标签"
+      @picked="onTagSheetPicked"
+    />
+
     <AppDialog />
     <UpdateDialog />
   </view>
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { onShow, onBackPress } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -400,6 +428,8 @@ import CalendarGrid from '@/components/CalendarGrid.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+import TxnSwipeActions from '@/components/TxnSwipeActions.vue'
+import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -412,10 +442,11 @@ import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress } from '@/utils/layerStack.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -436,6 +467,77 @@ export default {
 
     /** 标签表（最近收支行里显示标签胶囊，按 tag_ids 反查名字/颜色） */
     const tags = ref([])
+
+    /* ------------------------------------------------- 右滑快捷操作 */
+
+    /**
+     * 每行的右滑状态：txnId -> 'close' | 'right'
+     *
+     * ★ 为什么用对象而不是给每行一个 ref ★
+     *   v-for 里没法为每一行单独声明状态；用对象当字典，
+     *   新数据进来时按需赋值即可（未出现过的 id 读出来是 undefined，
+     *   wd-swipe-action 会当成初始收起状态）。
+     */
+    const swipeStates = reactive({})
+
+    /** 标签弹层：是否打开、当前操作的那笔流水、回显的已选标签 */
+    const showTagSheet = ref(false)
+    const tagSheetTxn = ref(null)
+    const tagSheetIds = ref([])
+
+    /**
+     * 右滑删除
+     *
+     * ★ 为什么先确认再删 ★
+     *   右滑是很容易误触的手势（尤其单手滑列表时）。
+     *   删除虽然只是软删除，但用户界面上看不到「撤销」入口，
+     *   误删一笔账要恢复得去翻数据库 —— 确认框是最后一道防线。
+     */
+    async function onSwipeDelete(txn) {
+      if (swipeStates[txn.id]) swipeStates[txn.id] = 'close'
+      const ok = await confirmDialog({
+        title: '删除这笔流水？',
+        content: `${txnTitle(txn)} · ¥${(Number(txn.amount_cents || 0) / 100).toFixed(2)}`,
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true
+      })
+      if (!ok) return
+      try {
+        await txnStore.remove(txn.id)
+        uni.showToast({ title: '已删除', icon: 'none' })
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
+    }
+
+    /** 右滑标签：打开弹层，回显这笔已有的标签 */
+    function onSwipeTag(txn) {
+      if (swipeStates[txn.id]) swipeStates[txn.id] = 'close'
+      tagSheetTxn.value = txn
+      tagSheetIds.value = Array.isArray(txn.tag_ids) ? txn.tag_ids.slice() : []
+      showTagSheet.value = true
+    }
+
+    /**
+     * 标签弹层确定
+     *
+     * ★ 用 'set' 语义（覆盖）而不是 'add' ★
+     *   这是「给单笔流水选标签」，弹层里回显的就是它当前的标签，
+     *   用户取消勾选某个 = 想移除它。如果用 add，就永远删不掉标签了。
+     *   （批量多选那边才用 add，语义不同，见 list.vue）
+     */
+    async function onTagSheetPicked(ids) {
+      const txn = tagSheetTxn.value
+      showTagSheet.value = false
+      if (!txn) return
+      try {
+        await txnStore.update(txn.id, { tag_ids: ids })
+        uni.showToast({ title: '标签已更新', icon: 'none' })
+      } catch (e) {
+        await alertDialog({ title: '保存标签失败', content: e.message })
+      }
+    }
 
     /**
      * 本月是否有任何交易记录。
@@ -853,6 +955,17 @@ export default {
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
       iconChar, txnTitle, txnSub, txnBadges,
+      /*
+       * ★ tags 必须暴露给模板（bug 修复）★
+       *   <TxnTagSheet :tags="tags"> 读的是模板作用域里的 tags，
+       *   setup 里声明了但没 return，模板拿到的是 undefined ——
+       *   Vue 只会 print 一句 "Property tags was accessed during render
+       *   but is not defined on instance"，然后标签弹层永远是空的。
+       *   控制台那一大片警告就是这个。
+       */
+      tags,
+      // 右滑快捷操作
+      swipeStates, showTagSheet, tagSheetIds, onSwipeDelete, onSwipeTag, onTagSheetPicked,
       goAddAccount, goProfile, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }
@@ -1217,8 +1330,20 @@ export default {
   border-bottom: 1rpx solid var(--app-line);
 }
 
-.txn-item:last-child {
+/*
+ * 最后一行不画分隔线
+ *
+ * ★ 选择器必须从 .txn-swipe 选进去 ★
+ *   加了右滑容器后，.txn-item 不再是卡片容器的直接子元素，
+ *   `.txn-item:last-child` 永远匹配不到 —— 最后一行会多出一条线。
+ */
+.txn-swipe:last-child .txn-item {
   border-bottom: none;
+}
+
+/* 右滑容器高度由内容撑开；按钮要占满整行高度，必须显式 inherit */
+.txn-swipe {
+  background-color: var(--app-card);
 }
 
 .txn-icon {

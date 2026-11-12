@@ -3,9 +3,24 @@
     <!-- 自定义导航 -->
     <view class="nav-bar" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="nav-inner">
-        <text class="nav-back" @click="goBack">‹</text>
-        <text class="nav-title">全部交易</text>
-        <text class="nav-filter" @click="openFilter">
+        <text class="nav-back" @click="onBack">‹</text>
+        <text class="nav-title">{{ selectMode ? `已选 ${selectedIds.length} 笔` : '全部交易' }}</text>
+        <!--
+          ★ 多选模式下右侧变成「全选 / 取消」★
+            用户要求底部悬浮按钮做批量操作，
+            但「全选」放底部会和 4 个操作按钮挤在一起，
+            放顶部导航右侧最自然（与借出/借入多选同位置）。
+        -->
+        <!--
+          ★ 多选态只留一个「取消」（用户本轮第 2 条）★
+            用户原话：「删除交易多选时，右上角的全选功能按钮」。
+            上一版把「全选 / 取消全选」和「取消」并排放在右侧，
+            两个都是小字，且「取消全选」四字很容易把导航栏拄得很挤。
+            全选本身也少用（列表很长时用户一般只选几条），
+            所以直接去掉，只留退出入口。
+        -->
+        <text v-if="selectMode" class="nav-filter nav-cancel" @click="exitSelectMode">取消</text>
+        <text v-else class="nav-filter" @click="openFilter">
           筛选<text v-if="filterCount > 0" class="filter-dot">{{ filterCount }}</text>
         </text>
       </view>
@@ -83,12 +98,28 @@
         </view>
 
         <view class="day-list">
-          <view
+          <!--
+            ★ 右滑快捷操作 + 多选（用户本轮第 4 / 5 条）★
+              第 4 条：右滑某条流水可以快捷删除和添加标签。
+              第 5 条：可以多选，下方弹出悬浮按钮批量处理。
+              两者共存：多选模式下右滑被禁用（否则手势会互相干扰）。
+          -->
+          <wd-swipe-action
             v-for="txn in group.list"
             :key="txn.id"
-            class="txn-item"
-            @click="goDetail(txn.id)"
+            v-model="swipeStates[txn.id]"
+            :disabled="selectMode"
+            class="txn-swipe"
           >
+          <view
+            class="txn-item"
+            @click="onRowClick(txn)"
+            @longpress="onRowLongPress(txn)"
+          >
+            <!-- 多选勾选框：只在多选模式出现 -->
+            <view v-if="selectMode" class="row-check" :class="{ on: isSelected(txn.id) }">
+              <text v-if="isSelected(txn.id)" class="row-check-tick">✓</text>
+            </view>
             <view
               class="txn-icon"
               :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
@@ -124,6 +155,14 @@
               <text class="txn-time">{{ timeLabel(txn.occurred_at) }}</text>
             </view>
           </view>
+
+          <template #right>
+            <TxnSwipeActions
+              @delete="onSwipeDelete(txn)"
+              @tag="onSwipeTag(txn)"
+            />
+          </template>
+          </wd-swipe-action>
         </view>
       </view>
 
@@ -134,7 +173,39 @@
         <text class="load-text">没有更多了</text>
       </view>
 
-      <view class="bottom-space" />
+      <!--
+        ★ 多选浮动操作条（用户本轮第 5 条）★
+          用户原话：「可以多选，下方弹出悬浮按钮可以批量删除、
+          添加标签、不计预算、不计收支（标签样式类似于首页 tab，
+          但是不添加图标）」。
+
+          ★ 为什么用 .seg-toggle 那套样式 ★
+            用户说「类似于首页 tab」，项目里那一套就是
+            App.vue 的 .seg-toggle / .seg-item（分段切换）。
+            直接复用全局样式，不重写一份，也就不会长歪。
+
+          ★ 不添加图标 ★
+            用户明确要求。四个操作名都很短（删除 2 字、
+            标签 2 字、不计预算 4 字、不计收支 4 字），加图标反而挤。
+      -->
+      <view v-if="selectMode" class="batch-bar">
+        <view class="batch-inner" :style="batchBarStyle">
+          <view class="batch-item" @click="onBatchDelete">
+            <text class="batch-item-text batch-item-text--danger">删除</text>
+          </view>
+          <view class="batch-item" @click="openBatchTag">
+            <text class="batch-item-text">标签</text>
+          </view>
+          <view class="batch-item" @click="onBatchExcludeBudget">
+            <text class="batch-item-text">不计预算</text>
+          </view>
+          <view class="batch-item" @click="onBatchPendingReimburse">
+            <text class="batch-item-text">待报销</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="bottom-space" :class="{ 'bottom-space--batch': selectMode }" />
     </scroll-view>
 
     <!-- 筛选面板 -->
@@ -314,6 +385,16 @@
       @picked="onMultiCatConfirm"
     />
 
+    <!-- 右滑 / 批量「标签」共用的标签选择弹层 -->
+    <TxnTagSheet
+      v-model="showTagSheet"
+      :tags="tags"
+      :selected-ids="tagSheetIds"
+      :title="tagSheetBatch ? '批量添加标签' : '选择标签'"
+      :hint="tagSheetBatch ? `将给已选的 ${selectedIds.length} 笔流水都加上这些标签（不会影响原有标签）` : ''"
+      @picked="onTagSheetPicked"
+    />
+
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
 
@@ -329,12 +410,19 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DateFilterBar from '@/components/DateFilterBar.vue'
 import CategoryMultiPickerSheet from '@/components/CategoryMultiPickerSheet.vue'
+import TxnSwipeActions from '@/components/TxnSwipeActions.vue'
+import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
-import { listTransactions, sumTransactions, parseTxnQueryOptions } from '@/api/transaction.js'
+import {
+  listTransactions, sumTransactions, parseTxnQueryOptions,
+  deleteTransaction, updateTransaction,
+  batchDeleteTransactions, batchSetExcludeFlags, batchSetTxnTags
+} from '@/api/transaction.js'
+import { batchSetPendingReimburse } from '@/api/reimburse.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { listCycles, recurrenceLabel } from '@/api/cycle.js'
@@ -346,12 +434,14 @@ import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { parseAmountInput } from '@/utils/money.js'
+import { glassVars } from '@/utils/theme.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
+import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AppDialog, UpdateDialog },
+  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -424,6 +514,281 @@ export default {
 
     // 已应用的筛选（与面板里的编辑态分离）
     const appliedFilter = reactive({ ...filter })
+
+    /* ------------------------------------------------- 右滑 + 多选 */
+
+    /**
+     * 每行的右滑状态：txnId -> 'close' | 'right'
+     *
+     * ★ 多选态下禁用右滑 ★
+     *   两种手势都要横向移动，同时生效会互相干扰。
+     *   多选模式下点行就是勾选，不需要右滑。
+     */
+    const swipeStates = reactive({})
+
+    /** 多选模式 */
+    const selectMode = ref(false)
+    const selectedIds = ref([])
+    /** 批量操作进行中（防重复点） */
+    const batchBusy = ref(false)
+
+    /**
+     * 批量操作条的玻璃变量
+     *
+     * ★ 直接复用底栏那套 glassVars() ★
+     *   用户要求「和 tabbar 一样的磨砂玻璃感」。
+     *   自己再写一套 rgba 值只会“看起来差不多”，
+     *   用同一个函数才能保证两处的透明度、描边、投影完全一致；
+     *   且深色主题下的取值也由它统一处理。
+     *
+     * 模板里绑在 .batch-inner 上（外层 .batch-bar 只管定位）。
+     */
+    const batchBarStyle = computed(() => glassVars(settingStore.isDark, { blur: '24rpx' }))
+
+    /** 标签弹层：是否打开、批量还是单笔、回显 id */
+    const showTagSheet = ref(false)
+    const tagSheetBatch = ref(false)
+    const tagSheetTxn = ref(null)
+    const tagSheetIds = ref([])
+
+
+    function isSelected(id) {
+      return selectedIds.value.includes(id)
+    }
+
+    function toggleSelect(id) {
+      const i = selectedIds.value.indexOf(id)
+      if (i >= 0) selectedIds.value.splice(i, 1)
+      else selectedIds.value.push(id)
+      // 一个都不剩就自动退出多选，免得底部空留一条操作栏
+      if (selectedIds.value.length === 0) selectMode.value = false
+    }
+
+    function exitSelectMode() {
+      selectMode.value = false
+      selectedIds.value = []
+    }
+
+    /** 点行：多选模式切换勾选；否则进详情 */
+    function onRowClick(txn) {
+      if (!selectMode.value) {
+        goDetail(txn.id)
+        return
+      }
+      toggleSelect(txn.id)
+    }
+
+    /** 长按：进入多选并选中这一行 */
+    function onRowLongPress(txn) {
+      if (!selectMode.value) {
+        selectMode.value = true
+        selectedIds.value = []
+      }
+      if (!isSelected(txn.id)) toggleSelect(txn.id)
+    }
+
+    /** 返回：多选态先退出多选，不退出页面 */
+    function onBack() {
+      if (selectMode.value) {
+        exitSelectMode()
+        return
+      }
+      goBack()
+    }
+
+    /* ------------------------------------------- 右滑快捷操作 */
+
+    /**
+     * 右滑删除（单笔）
+     *
+     * ★ 为什么要确认 ★
+     *   右滑很容易误触（单手滑列表时尤其），
+     *   而删除在界面上看不到撤销入口。确认框是最后一道防线。
+     */
+    async function onSwipeDelete(txn) {
+      if (swipeStates[txn.id]) swipeStates[txn.id] = 'close'
+      const ok = await confirmDialog({
+        title: '删除这笔流水？',
+        content: `${txnTitle(txn)} · ¥${(Number(txn.amount_cents || 0) / 100).toFixed(2)}`,
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true
+      })
+      if (!ok) return
+      try {
+        await deleteTransaction(txn.id)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        await loadFirstPage()
+      } catch (e) {
+        await alertDialog({ title: '删除失败', content: e.message })
+      }
+    }
+
+    /** 右滑标签（单笔）：打开弹层，回显这笔已有的标签 */
+    function onSwipeTag(txn) {
+      if (swipeStates[txn.id]) swipeStates[txn.id] = 'close'
+      tagSheetBatch.value = false
+      tagSheetTxn.value = txn
+      tagSheetIds.value = Array.isArray(txn.tag_ids) ? txn.tag_ids.slice() : []
+      showTagSheet.value = true
+    }
+
+    /* ------------------------------------------- 批量操作 */
+
+    /** 批量删除 */
+    async function onBatchDelete() {
+      if (batchBusy.value) return
+      const ids = selectedIds.value.slice()
+      if (ids.length === 0) return
+      const ok = await confirmDialog({
+        title: `删除这 ${ids.length} 笔流水？`,
+        content: '删除后账户余额会重新计算，这个操作不可撤销。',
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true
+      })
+      if (!ok) return
+      batchBusy.value = true
+      try {
+        const r = await batchDeleteTransactions(ids)
+        uni.showToast({
+          title: r.failed > 0
+            ? `已删除 ${r.deleted} 笔，${r.failed} 笔失败`
+            : `已删除 ${r.deleted} 笔`,
+          icon: 'none'
+        })
+        exitSelectMode()
+        await loadFirstPage()
+      } catch (e) {
+        await alertDialog({ title: '批量删除失败', content: e.message })
+      } finally {
+        batchBusy.value = false
+      }
+    }
+
+    /** 批量加标签：打开弹层（hint 说明是「追加」而不是覆盖） */
+    function openBatchTag() {
+      if (selectedIds.value.length === 0) return
+      tagSheetBatch.value = true
+      tagSheetTxn.value = null
+      tagSheetIds.value = []
+      showTagSheet.value = true
+    }
+
+    /**
+     * 批量「不计预算」
+     *
+     * ★ 为什么是开关式切换而不是直接置 1 ★
+     *   用户点这个按钮时，一半情况是想标记「不计」，
+     *   另一半是标错了想取消。所以先看选中的里有没有已经不计的：
+     *   全部都是就取消，否则全部设成不计。
+     *   （混选时走「全部设成不计」—— 用户意图多半是要标齐。）
+     */
+    async function onBatchExcludeBudget() {
+      const picked = (list.value || []).filter((t) => selectedIds.value.includes(t.id))
+      if (picked.length === 0) return
+      const allExcluded = picked.every((t) => Number(t.exclude_from_budget) === 1)
+      const next = !allExcluded
+      await applyBatchFlags(
+        { budget: next },
+        next ? '已设为不计预算' : '已取消不计预算'
+      )
+    }
+
+    /**
+     * 批量「待报销」（用户本轮第 3 条）
+     *
+     * ★ 用户原话 ★
+     *   「多选的悬浮按钮不计收支修改为待报销」。
+     *
+     * ★ 为什么换 ★
+     *   列表里选一批流水，最常见的意图是「这批要报销」；
+     *   「不计收支」是个很少用的高级标记，
+     *   放在四个位置里占了最宝贵的一个。
+     *
+     * ★ 为什么不能直接用 applyBatchFlags ★
+     *   待报销不只是改一个标记位：
+     *     · 要同时把 reimburse_status 置 1、两个 exclude 置 1
+     *     · 只有支出可以，借款类不行，已报销的不能动
+     *   这些校验在 api/reimburse.js 的 batchSetPendingReimburse 里。
+     *
+     * ★ 开关式（全部已待报销就取消）★
+     *   和不计预算那个按钮同一套交互习惯。
+     */
+    async function onBatchPendingReimburse() {
+      if (batchBusy.value) return
+      const picked = (list.value || []).filter((t) => selectedIds.value.includes(t.id))
+      if (picked.length === 0) return
+      const allPending = picked.every((t) => Number(t.reimburse_status) === 1)
+      const next = !allPending
+      batchBusy.value = true
+      try {
+        const r = await batchSetPendingReimburse(selectedIds.value.slice(), next)
+        if (r.changed === 0) {
+          uni.showToast({ title: '所选的流水都不能报销', icon: 'none' })
+        } else if (r.skipped > 0) {
+          uni.showToast({
+            title: next
+              ? `已标 ${r.changed} 笔，${r.skipped} 笔不支持报销`
+              : `已取消 ${r.changed} 笔，${r.skipped} 笔跳过`,
+            icon: 'none'
+          })
+        } else {
+          uni.showToast({
+            title: next ? `已标为待报销 ${r.changed} 笔` : `已取消待报销 ${r.changed} 笔`,
+            icon: 'none'
+          })
+        }
+        await loadFirstPage()
+      } catch (e) {
+        await alertDialog({ title: '批量设置失败', content: e.message })
+      } finally {
+        batchBusy.value = false
+      }
+    }
+
+    /** 写批量标记 + 刷新 + 提示（两个按钮共用） */
+    async function applyBatchFlags(flags, okText) {
+      if (batchBusy.value) return
+      batchBusy.value = true
+      try {
+        await batchSetExcludeFlags(selectedIds.value.slice(), flags)
+        uni.showToast({ title: okText, icon: 'none' })
+        // 不退出多选：用户很可能还要接着标另一个标记
+        await loadFirstPage()
+      } catch (e) {
+        await alertDialog({ title: '批量设置失败', content: e.message })
+      } finally {
+        batchBusy.value = false
+      }
+    }
+
+    /**
+     * 标签弹层确定
+     *
+     * ★ 单笔用覆盖（set）、批量用追加（add）★
+     *   单笔弹层里回显的就是它当前的标签，用户取消勾选 = 想移除，
+     *   用 add 就永远删不掉标签了。
+     *   批量是「给这批都加上」，各笔原有标签必须保留。
+     */
+    async function onTagSheetPicked(ids) {
+      showTagSheet.value = false
+      try {
+        if (tagSheetBatch.value) {
+          await batchSetTxnTags(selectedIds.value.slice(), ids, 'add')
+          uni.showToast({ title: '标签已添加', icon: 'none' })
+          await loadFirstPage()
+        } else {
+          const txn = tagSheetTxn.value
+          if (!txn) return
+          await updateTransaction(txn.id, { tag_ids: ids })
+          uni.showToast({ title: '标签已更新', icon: 'none' })
+          await loadFirstPage()
+        }
+      } catch (e) {
+        await alertDialog({ title: '保存标签失败', content: e.message })
+      }
+    }
 
     /* ------------------------------------------------- 下拉选择器 */
 
@@ -1278,7 +1643,26 @@ export default {
       if (unregisterPicker) unregisterPicker()
     })
 
-    onBackPress(() => handleBackPress())
+    /*
+     * ★ 返回键：先收弹层，再退多选，最后才退页面（用户本轮第 2 条）★
+     *   用户原话：「在全部交易页面多选时，右滑应该取消多选而不是退出页面」。
+     *
+     *   顺序必须是这样：
+     *     1) 有弹层（筛选面板 / 标签弹层 / 选项表）→ 先关弹层
+     *     2) 多选态 → 退出多选（这是用户此刻最想撤回的操作）
+     *     3) 都不是 → 正常返回上一页
+     *
+     *   旧写法只调 handleBackPress()，没有多选这一层：
+     *   多选态下侧滑会直接退出整个「全部交易」页，勾了半天的选择全丢。
+     */
+    onBackPress(() => {
+      if (handleBackPress()) return true
+      if (selectMode.value) {
+        exitSelectMode()
+        return true
+      }
+      return false
+    })
 
     return {
       settingStore, accountStore, statusBarHeight,
@@ -1295,6 +1679,14 @@ export default {
       accountLabel, tagLabel, cycleFilterLabel,
       loadMore, applyFilter, resetFilter, onDateChange, openFilter,
       onTypeChange,
+      // 右滑 + 多选批量
+      swipeStates, selectMode, selectedIds, batchBusy,
+      showTagSheet, tagSheetBatch, tagSheetIds, batchBarStyle,
+      isSelected, toggleSelect, exitSelectMode,
+      onRowClick, onRowLongPress, onBack,
+      onSwipeDelete, onSwipeTag,
+      onBatchDelete, openBatchTag, onBatchExcludeBudget, onBatchPendingReimburse,
+      onTagSheetPicked,
       iconChar, txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
     }
   }
@@ -1315,6 +1707,11 @@ export default {
   padding: 0 24rpx;
 }
 
+/*
+ * 标题占满剩余空间，右侧按钮按内容取宽
+ * ★ 多选态标题是「已选 N 笔」，会和其他按钮抢空间 ——
+ *   给它 flex:1 + 省略号，宁可标题截断也别让按钮换行。
+ */
 .nav-back {
   font-size: 48rpx;
   color: var(--app-text);
@@ -1324,18 +1721,40 @@ export default {
 
 .nav-title {
   flex: 1;
+  min-width: 0;
   text-align: center;
   font-size: 32rpx;
   font-weight: 600;
   color: var(--app-text);
+  /* 多选态标题是「已选 N 笔」+ 右侧两个按钮，空间紧张时宁可标题截断 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-filter {
   font-size: 26rpx;
   color: var(--app-text-2);
-  width: 100rpx;
+  /*
+   * ★ 不再写死宽度（bug 修复）★
+   *   原来是 width: 100rpx —— 只够「筛选」两个字。
+   *   多选态右侧变成「取消全选」四个字，100rpx 装不下就换行，
+   *   导航栏被撑高、文字拆成两行（用户反馈）。
+   *   改成按内容自适应 + 不换行。
+   */
+  flex-shrink: 0;
+  white-space: nowrap;
   text-align: right;
   position: relative;
+}
+
+/*
+ * 多选态的两个按钮之间留间距
+ * 它们现在是 flex 兄弟，没有间距会粘在一起
+ */
+.nav-cancel {
+  margin-left: 24rpx;
+  color: var(--app-text-3);
 }
 
 .filter-dot {
@@ -1446,8 +1865,158 @@ export default {
   border-bottom: 1rpx solid var(--app-line);
 }
 
-.txn-item:last-child {
+/* 最后一行不画分隔线（加了右滑容器后要选进去，见下） */
+.txn-swipe:last-child .txn-item {
   border-bottom: none;
+}
+
+.txn-swipe {
+  background-color: var(--app-card);
+}
+
+/* 多选勾选框，与借款/报销页同一套 */
+.row-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 2rpx solid var(--app-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.row-check.on {
+  background-color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+.row-check-tick {
+  font-size: 24rpx;
+  /* 主题色底上只有白字能保证对比度 */
+  color: #ffffff;
+}
+
+/*
+ * 批量操作条：与底栏同一套磨砂玻璃目形状（用户本轮第 3 条）
+ *
+ * ★ 用户原话 ★
+ *   「多选之后的这个悬浮按钮做成和 tabbar 一样的磨砂玻璃感，
+ *   可以整体窄一点，按钮宽不用必须一致」。
+ *
+ * ★ 三处改动 ★
+ *   1. 磨砂玻璃：直接复用 utils/theme.js 的 glassVars()
+ *      —— 底栏用的就是它，两处共用同一套
+ *      透明底 / 描边 / 投影 / blur 参数，真正一致而不是“看起来差不多”。
+ *      backdrop-filter 的 @supports 降级也照搬底栏（安卓 WebView 常见不支持）。
+ *   2. 整体窄一点：不再铺满屏宽，改成居中自适应宽度（width: fit-content）。
+ *   3. 按钮宽不必一致：去掉 flex:1，每项按文字长度 + 固定左右内距自然展开。
+ *
+ * ★ 为什么用内层 .batch-inner 而不是直接给 .batch-bar 上样式 ★
+ *   底栏那套 CSS 里有 @supports 块，要覆盖的必须是**同一个元素**。
+ *   外层只管定位（fixed 居中），内层负责玻璃外观 ——
+ *   和 AppTabBar 的 .tabbar-host / .tabbar 分工完全一致。
+ */
+.batch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  /*
+   * z-index 9：页面内自绘浮层（项目约定 1~9）
+   * 标签弹层是 wd-popup（z-index 700），本来就该盖在它上面。
+   */
+  z-index: 9;
+  display: flex;
+  justify-content: center;
+  /* 外层不吃点击：两侧空白区域不该拦住下面的列表 */
+  pointer-events: none;
+}
+
+.batch-inner {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  height: 96rpx;
+  padding: 0 8rpx;
+  border-radius: 999rpx;
+  border-width: 1rpx;
+  border-style: solid;
+  border-color: var(--glass-border, rgba(0, 0, 0, 0.05));
+  /*
+   * ★ 默认走「仿玻璃」高不透明度 ★
+   *   和底栏一样：不支持 backdrop-filter 的设备上，
+   *   透明但不糊反而显脏。
+   */
+  background-color: var(--glass-bg-solid, rgba(255, 255, 255, 0.96));
+  box-shadow: var(--glass-shadow, 0 12rpx 40rpx rgba(0, 0, 0, 0.1));
+}
+
+/* 真·毛玻璃：仅支持 backdrop-filter 的环境生效（与 AppTabBar 同一套判定） */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .batch-inner {
+    background-color: var(--glass-bg, rgba(255, 255, 255, 0.70));
+    -webkit-backdrop-filter: saturate(180%) blur(var(--glass-blur, 24rpx));
+    backdrop-filter: saturate(180%) blur(var(--glass-blur, 24rpx));
+  }
+}
+
+/*
+ * ★ 按钮宽按内容自适应（不再四等分）★
+ *   「删除」2 字、「不计预算」4 字 ——
+ *   强行等分会让短的那几项两侧空一大截，
+ *   整条又因为要铺满屏宽而变得很长。自然宽度 + 居中最耐看。
+ */
+.batch-item {
+  flex-shrink: 0;
+  height: 80rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+}
+
+.batch-item:active {
+  background-color: var(--app-card-2);
+}
+
+/* 分隔竖线：用伪元素，避免最后一项右侧多一条 */
+.batch-item + .batch-item {
+  position: relative;
+}
+
+.batch-item + .batch-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rpx;
+  height: 32rpx;
+  background-color: var(--app-line);
+}
+
+.batch-item-text {
+  font-size: 26rpx;
+  color: var(--app-text);
+  white-space: nowrap;
+}
+
+.batch-item-text--danger {
+  color: var(--app-danger);
+}
+
+/*
+ * 多选态下底部要多留出操作条的高度
+ *
+ * ★ 必须保留安全区 ★
+ *   全局 .bottom-space 是 calc(env(safe-area-inset-bottom) + 40rpx)，
+ *   这里如果只写固定 rpx，全面屏底部的操作条会压到手势条上。
+ *   操作条本身约 96rpx + 底边距 24rpx，再留 40rpx 呼吸空间 → 160rpx。
+ */
+.bottom-space--batch {
+  height: calc(env(safe-area-inset-bottom) + 160rpx);
 }
 
 .txn-icon {

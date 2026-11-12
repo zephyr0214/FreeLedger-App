@@ -854,11 +854,12 @@ export default {
         if (props.editing) {
           // 编辑：只改规则，不动已产生的流水；不弹「今天记一笔」
           await updateCycle(props.editing.id, patch)
-          // 组合账户不能作为默认账户
-          const src = accountStore.list.find((a) => a.id === form.account_id)
-          if (src && !src.isCombo) {
-            await settingStore.update({ defaultAccountId: form.account_id })
-          }
+          /*
+           * ★ 不再写默认账户（同 TxnPanel 的 bug 修复）★
+           *   用户反馈「记账面板选择账户会修改手动设置的默认账户」。
+           *   周期面板是同一类面板，也会让人以为「只是给这个规则选个账户」，
+           *   结果静默改了全局默认。一起修掉。
+           */
           uni.showToast({ title: '周期已更新', icon: 'success' })
           emit('saved')
           visible.value = false
@@ -870,11 +871,12 @@ export default {
         //   每周：今天恰好是该周几
         //   每月：今天恰好是该日（clamp 后仍是今天）
         const cycle = await createCycle(patch)
-        // 组合账户不能作为默认账户
-        const src = accountStore.list.find((a) => a.id === form.account_id)
-        if (src && !src.isCombo) {
-          await settingStore.update({ defaultAccountId: form.account_id })
-        }
+        /*
+         * ★ 不再写默认账户（同上）★
+         *   默认账户只能由用户在账户页显式设定，
+         *   或者新建第一个真实账户时自动设定。
+         *   任何“顺手记住”都是对用户选择的静默覆盖。
+         */
 
         const today = toDayKey()
         if (occursOnDay(cycle, today)) {

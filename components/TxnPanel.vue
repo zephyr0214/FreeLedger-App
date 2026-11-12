@@ -310,12 +310,23 @@
       @select="onToAccountSelect"
     />
 
-    <!-- 标签选择：单选，与账户用同一个 action-sheet -->
-    <wd-action-sheet
+    <!--
+      标签选择：多选（用户反馈修正）
+
+      ★ 为什么从 wd-action-sheet 换成 TxnTagSheet ★
+        用户原话：「标签只能做单选」。
+        wd-action-sheet 的 @select 每次只回一个索引，
+        而表单里 form.tag_ids 本来就是数组、
+        徽标也是按数组渲染的 —— 能力一直在，
+        只是选择器被限成了单选。
+        换成和右滑/批量同一个多选弹层，三处交互也就统一了。
+    -->
+    <TxnTagSheet
       v-model="showTagPicker"
-      :actions="tagActions"
-      cancel-text="取消"
-      @select="onTagSelect"
+      :tags="tags"
+      :selected-ids="form.tag_ids"
+      title="选择标签"
+      @picked="onTagSheetPicked"
     />
 
     <!-- 人员选择：已经从流水里出现过的人名（借款归还/借款收回用它匹配） -->
@@ -393,6 +404,7 @@ import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
+import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import { getCategoryUsageCounts } from '@/api/stats.js'
 import {
   isLoanPersonCategory, isLoanSettleCategory, allowsNewPerson, listLoanPeople
@@ -409,7 +421,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
-  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags },
+  components: { NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -836,11 +848,6 @@ export default {
       }))
     )
 
-    /** 标签选项（单选，与账户的 action-actions 同一格式） */
-    const tagActions = computed(() =>
-      tags.value.map((t) => ({ name: t.name, color: t.color }))
-    )
-
     const selectedTags = computed(() =>
       tags.value.filter((t) => form.tag_ids.includes(t.id))
     )
@@ -998,11 +1005,16 @@ export default {
       showToAccountPicker.value = false
     }
 
-    /** 标签单选：选中即替换，弹层自动关闭 */
-    function onTagSelect({ index }) {
-      const tag = tags.value[index]
-      if (!tag) return
-      form.tag_ids = [tag.id]
+    /**
+     * 标签多选确定：直接覆盖成这一组
+     *
+     * ★ 这里是覆盖语义（不是追加）★
+     *   弹层里回显的就是这笔当前的标签，
+     *   用户取消勾选某个 = 想移除它。
+     *   用追加语义就永远删不掉标签了。
+     */
+    function onTagSheetPicked(ids) {
+      form.tag_ids = Array.isArray(ids) ? ids.slice() : []
     }
 
     function removeTag(id) {
@@ -1363,11 +1375,27 @@ export default {
         } else {
           await txnStore.create(payload)
           uni.showToast({ title: '已记一笔', icon: 'success' })
-          // 记住本次账户，下次默认（组合账户不能当默认）
-          const srcAcc = accountStore.list.find((a) => a.id === form.account_id)
-          if (srcAcc && !srcAcc.isCombo) {
-            await settingStore.update({ defaultAccountId: form.account_id })
-          }
+          /*
+           * ★ 不再把本次账户写成默认账户（bug 修复）★
+           *   用户反馈：「记账面板选择账户会修改手动设置的默认账户」。
+           *
+           *   旧写法：每次新建流水都把 form.account_id 写回 defaultAccountId。
+           *   后果：用户在账户页长按设好了「现金」为默认，
+           *   下次买东西时临时选了一次「信用卡」——
+           *   从此默认账户就变成了信用卡，用户根本没有改过设置。
+           *
+           *   ★ 为什么当初会这么写 ★
+           *     想做「记得你上次用了哪个账户」的便利。
+           *     但它和「默认账户」是两个不同的东西：
+           *       · 默认账户 = 用户在账户页**显式设定**的账户
+           *       · 上次账户 = 一个隐式的使用习惯
+           *     把隐式钙点写进显式设置，等于用户的选择被系统静默覆盖。
+           *     现在只保留显式设定：账户页长按「设为默认」、
+           *     新建第一个真实账户时的自动默认（pages/account/edit.vue）。
+           *   ★ 上次账户的便利不丢 ★
+           *      它本来就存在于「form.account_id 的初始值 / AI 推断」那一层，
+           *      不需要污染用户的显式设定。
+           */
         }
         emit('saved')
         visible.value = false
@@ -1516,13 +1544,23 @@ export default {
       currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions, onFlagsUpdate,
       reimburseDisabled,
       showPersonPicker, openPersonPicker, onPersonSelect,
-      currentAccountName, toAccountName, accountActions, toAccountActions, tagActions,
+      currentAccountName, toAccountName, accountActions, toAccountActions,
+      /*
+       * ★ tags 必须暴露给模板（bug 修复）★
+       *   <TxnTagSheet :tags="tags"> 读的是模板作用域里的 tags。
+       *   setup 里 const tags = ref([]) 声明了、也加载了数据（listTags），
+       *   但没 return —— 模板拿到 undefined，标签弹层永远是空的
+       *   （用户反馈「记账面板没有加载出标签条目」）。
+       *   Vue 只在控制台打一句 "Property tags was accessed during render
+       *   but is not defined on instance"，不报错、不白屏，很难发现。
+       */
+      tags,
       selectedTags, selectedTagNames, quickDays, isQuickDay, shortDate,
-      showAccountPicker, showToAccountPicker, showTagPicker, calendarRef, calendarValue, maxDate, minDate,
+      showAccountPicker, showToAccountPicker, showTagPicker, onTagSheetPicked, calendarRef, calendarValue, maxDate, minDate,
       timePickerRef, timePickerValue, openTimePicker, onTimeConfirm,
       iconChar, catIconStyle, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
-      onAccountSelect, onToAccountSelect, onTagSelect, removeTag,
+      onAccountSelect, onToAccountSelect, removeTag,
       onCalendarConfirm, onFinish, onSave, onClose
     }
   }
