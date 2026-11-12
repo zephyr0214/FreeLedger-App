@@ -66,6 +66,7 @@
     <scroll-view
       class="list-scroll"
       scroll-y
+      @scroll="onListScroll"
       @scrolltolower="loadMore"
     >
       <view v-if="groups.length === 0" class="empty-wrap">
@@ -111,10 +112,21 @@
             :disabled="selectMode"
             class="txn-swipe"
           >
+          <!--
+            ★ 长按进多选：自己判定，不用平台的 @longpress（用户反馈：滑动时误触多选）★
+              平台 @longpress 是按下 350ms、移动超过 10px 才取消，
+              10px 只有两三毫米，滑列表起步时轻松达到，
+              于是「滑动一下」就进了多选。
+              这里改由 utils/rowPress.js 统一判定（450ms + 12px + 滚动抑制），
+              两个页面的手势规则完全一致。
+          -->
           <view
             class="txn-item"
             @click="onRowClick(txn)"
-            @longpress="onRowLongPress(txn)"
+            @touchstart="onRowTouchStart(txn, $event)"
+            @touchmove="onRowTouchMove($event)"
+            @touchend="onRowTouchEnd"
+            @touchcancel="onRowTouchEnd"
           >
             <!-- 多选勾选框：只在多选模式出现 -->
             <view v-if="selectMode" class="row-check" :class="{ on: isSelected(txn.id) }">
@@ -476,6 +488,7 @@ import { parseAmountInput, formatWanYuan } from '@/utils/money.js'
 import { glassVars } from '@/utils/theme.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { createRowPressController } from '@/utils/rowPress.js'
 
 const PAGE_SIZE = 50
 
@@ -622,8 +635,17 @@ export default {
       selectedIds.value = []
     }
 
-    /** 点行：多选模式切换勾选；否则进详情 */
+    /**
+     * 点行：多选模式切换勾选；否则进详情
+     *
+     * ★ 长按刚成立时的那次 click 要忽略 ★
+     *   钩子内存（App 端）里长按成立后松手还会补发一次 click，
+     *   不挡掉就是「长按选中这一行 → 松手又把它取消掉」，
+     *   表现成「怎么长按都选不上这一行」。
+     *   闸门里给了 500ms 的屏蔽窗口。
+     */
     function onRowClick(txn) {
+      if (rowPress.clickBlocked()) return
       if (!selectMode.value) {
         goDetail(txn.id)
         return
@@ -631,14 +653,47 @@ export default {
       toggleSelect(txn.id)
     }
 
-    /** 长按：进入多选并选中这一行 */
+    /** 长按成立：进入多选并选中这一行（由 utils/rowPress.js 判定后回调） */
     function onRowLongPress(txn) {
       if (!selectMode.value) {
         selectMode.value = true
         selectedIds.value = []
       }
       if (!isSelected(txn.id)) toggleSelect(txn.id)
+      // ★ 轻震动：告诉用户「进多选是被识别到的」，不是页面自己跳了 ★
+      //   和账户页长按设默认、底栏长按记账同一套反馈。
+      try {
+        uni.vibrateShort({ type: 'light' })
+      } catch (e) {}
     }
+
+    /*
+     * 行手势闸门（长按进多选）
+     *
+     * ★ 为什么不再直接用 @longpress（用户反馈：滑动时误触多选）★
+     *   平台 @longpress = 按下 350ms 且移动不超过 10px。
+     *   10px 在手机上只有两三毫米，手指从静止开始滑列表的第一步
+     *   （以及按下后「酝酿」那一下）都很容易落在 10px 以内、350ms 以外，
+     *   于是普通滑动被判成长按 → 进多选 → 松手补发的 click 又勾一行。
+     *
+     *   现在换成 utils/rowPress.js：
+     *     · 450ms 才算长按
+     *     · 移动超过 12px 立刻判为滑动
+     *     · 列表正在滚（250ms 内有 scroll）时一律不判
+     *     · 多指触摸不判
+     *     · 长按成立后 500ms 内屏蔽 click
+     *   规则与报销页完全一致（同一个模块，不是两份复制）。
+     */
+    const rowPress = createRowPressController({ onLongPress: onRowLongPress })
+
+    /** scroll-view 滚动：告诉闸门「列表在动」，并撤销进行中的长按 */
+    function onListScroll() {
+      rowPress.onScroll()
+    }
+
+    const onRowTouchStart = (txn, e) => rowPress.onTouchStart(txn, e)
+    const onRowTouchMove = (e) => rowPress.onTouchMove(e)
+    const onRowTouchEnd = () => rowPress.onTouchEnd()
 
     /** 返回：多选态先退出多选，不退出页面 */
     function onBack() {
@@ -1777,6 +1832,8 @@ export default {
       if (unregisterFilter) unregisterFilter()
       if (unregisterPicker) unregisterPicker()
       if (unregisterAccountPicker) unregisterAccountPicker()
+      // 手势闸门里可能还挂着一个长按计时器，页面走了要清掉
+      rowPress.dispose()
     })
 
     /*
@@ -1825,6 +1882,8 @@ export default {
       showTagSheet, tagSheetBatch, tagSheetIds, batchBarStyle,
       isSelected, toggleSelect, exitSelectMode,
       onRowClick, onRowLongPress, onBack,
+      // 行手势（长按进多选）—— 见 utils/rowPress.js
+      onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,
       onSwipeDelete, onSwipeTag,
       onBatchDelete, openBatchTag, onBatchExcludeBudget, onBatchPendingReimburse,
       onTagSheetPicked,

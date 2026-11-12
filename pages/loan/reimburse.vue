@@ -29,7 +29,7 @@
       </template>
     </PageNav>
 
-    <scroll-view class="page-scroll" scroll-y>
+    <scroll-view class="page-scroll" scroll-y @scroll="onListScroll">
       <!--
         汇总卡（复用借入借出管理页那套）
 
@@ -99,7 +99,18 @@
               v-model="swipeStates[t.id]"
               class="txn-swipe"
             >
-              <view class="txn-item" @click="onRowClick(t)" @longpress="onRowLongPress(t)">
+              <!--
+                ★ 长按进多选：自己判定，不用平台的 @longpress（用户反馈：滑动时误触多选）★
+                  与「全部交易」页共用 utils/rowPress.js 的判定规则。
+              -->
+              <view
+                class="txn-item"
+                @click="onRowClick(t)"
+                @touchstart="onRowTouchStart(t, $event)"
+                @touchmove="onRowTouchMove($event)"
+                @touchend="onRowTouchEnd"
+                @touchcancel="onRowTouchEnd"
+              >
                 <!-- 多选模式的勾选框 -->
                 <view v-if="selectMode" class="row-check" :class="{ on: isSelected(t.id) }">
                   <text v-if="isSelected(t.id)" class="row-check-tick">✓</text>
@@ -537,7 +548,7 @@
  *   三处明细都要加：待报销 tab 的流水行、报销单里的派生流水行、
  *   报销单里被报销的原流水行 —— 用户说的是「所有」。
  */
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, computed, reactive, watch, onUnmounted } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -554,6 +565,7 @@ import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatDayHeader, formatTime, toDayKey, shortDateWithYear } from '@/utils/date.js'
 import { formatWanYuan } from '@/utils/money.js'
+import { createRowPressController } from '@/utils/rowPress.js'
 
 /** 汇总卡图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const ACCENT_COLOR = '#FF8F1F'
@@ -925,6 +937,8 @@ export default {
 
     /** 点行：多选模式切换勾选；否则进详情 */
     function onRowClick(t) {
+      // 长按刚成立时平台补发的那次 click 要忽略（否则刚选中就被取消）
+      if (rowPress.clickBlocked()) return
       if (!selectMode.value) {
         goTxnDetail(t.id)
         return
@@ -938,15 +952,37 @@ export default {
       else selectedIds.value.push(id)
     }
 
-    /** 长按：进入多选并选中这一行 */
+    /** 长按成立：进入多选并选中这一行（判定见 utils/rowPress.js） */
     function onRowLongPress(t) {
       if (!selectMode.value) {
         selectMode.value = true
         selectedIds.value = []
       }
       if (!isSelected(t.id)) toggleSelect(t.id)
-      // 长按后平台可能补一次 tap，这里只标一下不去重，双击勾选是可接受的
+      try {
+        uni.vibrateShort({ type: 'light' })
+      } catch (e) {}
     }
+
+    /*
+     * 行手势闸门（长按进多选）
+     *
+     * ★ 用户反馈「滑动时容易误触多选」★
+     *   平台的 @longpress 只要求「按下 350ms + 移动不超过 10px」，
+     *   滑列表起步阶段的手指位移和停顿都很容易落在判定内，
+     *   于是滑一下就进了多选。
+     *   判定规则与「全部交易」页共用 utils/rowPress.js
+     *   （450ms + 12px 容差 + 滚动抑制 + 多指忽略 + 长按后屏蔽 click）。
+     */
+    const rowPress = createRowPressController({ onLongPress: onRowLongPress })
+
+    function onListScroll() {
+      rowPress.onScroll()
+    }
+
+    const onRowTouchStart = (t, e) => rowPress.onTouchStart(t, e)
+    const onRowTouchMove = (e) => rowPress.onTouchMove(e)
+    const onRowTouchEnd = () => rowPress.onTouchEnd()
 
     /** 批量报销：把所有选中行打开弹层 */
     function onBatchReimburse() {
@@ -1162,6 +1198,11 @@ export default {
       return handleBackPress()
     })
 
+    // 页面离开时清掉手势闸门里可能还挂着的长按计时器
+    onUnmounted(() => {
+      rowPress.dispose()
+    })
+
     return {
       settingStore, status, loading, groups, batches, summary, isEmpty,
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
@@ -1170,6 +1211,8 @@ export default {
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
       badgesOf, iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
+      // 行手势（长按进多选）—— 见 utils/rowPress.js
+      onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,
       onVoidBatch,
       onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountPicked,
       onConfirmReimburse, goBack
