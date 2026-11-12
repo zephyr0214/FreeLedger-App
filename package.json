@@ -11,7 +11,6 @@
     "verify": "npm run check && npm run test"
   },
   "dependencies": {
-    "@tdesign/uniapp": "^1.0.0",
     "pinia": "2.3.1",
     "wot-design-uni": "1.14.0"
   },
