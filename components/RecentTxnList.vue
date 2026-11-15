@@ -63,6 +63,21 @@
           </view>
         </view>
       </view>
+
+      <!--
+        ★ 底部「查看全部」按钮（本轮新增）★
+          用户原话：「分类详情、周期、预算、标签四个页面下方显示的流水
+          划底部时显示查看更多的按钮，样式居中，
+          参考首页智能助手的按钮样式，点击进入全部交易界面（附带筛选条件）」。
+
+          样式直接复用 components/HeaderAction.vue —— 首页那个「智能助手」
+          按钮就是它，所以这里「参考」等于「就是同一个组件」，
+          圆角 / padding / 字号 / 主题色文字天生一致，不用再维护第二份。
+          水平居中靠外层 .footer-more 的 justify-content:center。
+      -->
+      <view v-if="showFooterMore" class="footer-more">
+        <HeaderAction @action-click="onMore">查看全部 ›</HeaderAction>
+      </view>
     </view>
   </view>
 </template>
@@ -86,6 +101,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { listTags } from '@/api/tag.js'
@@ -95,7 +111,7 @@ import { useSettingStore } from '@/stores/setting.js'
 
 export default {
   name: 'RecentTxnList',
-  components: { MoneyText, EmptyState },
+  components: { MoneyText, EmptyState, HeaderAction },
   props: {
     /** 交易列表（已按时间倒序） */
     txns: { type: Array, default: () => [] },
@@ -105,6 +121,19 @@ export default {
     emptyText: { type: String, default: '这里还没有交易记录' },
     /** 是否显示右上角「全部 ›」 */
     showMore: { type: Boolean, default: false },
+    /**
+     * 是否在列表底部再放一个居中的「查看全部 ›」按钮
+     *
+     * ★ 和 showMore 是两个开关，互不影响 ★
+     *   showMore        右上角那个小字「全部 ›」（详情页一直在用）
+     *   showFooterMore  列表划到底时那个居中按钮（本轮新增）
+     *   用户要的是后者 —— 「下方显示的流水划底部时显示查看更多的按钮」。
+     *   两个都开着不冲突：一个在头、一个在尾，滑到底正好接上。
+     *
+     *   样式复用 HeaderAction（首页「智能助手」那个胶囊），
+     *   所以四个详情页的按钮长得完全一样。
+     */
+    showFooterMore: { type: Boolean, default: false },
     /** 区块标题 */
     title: { type: String, default: '最近流水' },
     /** 最多显示多少条交易（不是多少个分组） */
@@ -472,5 +501,23 @@ export default {
 .txn-sub {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/*
+ * 列表底部的「查看全部 ›」
+ *
+ * ★ 居中 ★
+ *   用户要求「样式居中」。HeaderAction 自己是 flex-shrink:0、
+ *   宽度按内容算，所以由外层容器把它摆到中间。
+ *   上下留白和上面卡片的间距同一档（20rpx），视觉上属于列表的一部分。
+ *
+ * ★ 为什么不做成撑满整行的按钮 ★
+ *   首页「智能助手」就是个小胶囊，这里照抄同一个观感；
+ *   撑满整行会显得像另一张卡片，和上面的流水卡片抢层级。
+ */
+.footer-more {
+  display: flex;
+  justify-content: center;
+  padding: 28rpx 0 8rpx;
 }
 </style>

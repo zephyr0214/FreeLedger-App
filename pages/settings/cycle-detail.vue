@@ -61,6 +61,7 @@
           :loading="loading"
           empty-text="这个周期还没有记过账"
           show-more
+          show-footer-more
           @more="goAllTxn"
         />
       </template>

@@ -213,5 +213,54 @@ const statsSrc = read('pages/stats/index.vue')
 check('前三名用不透明高亮色', /--app-primary-light-solid/.test(statsSrc), true)
 check('高亮块去掉分隔线', /\.top-item-hi\s*\{[\s\S]*?border-bottom: none/.test(statsSrc), true)
 
+/* ------------------------------ 7b. 总结余 + 底部「查看全部」 */
+
+console.log('=== 总结余与底部查看全部 ===')
+
+/*
+ * ★ 标签详情：总收入下方要有「总结余」（本轮新增）★
+ *   用户原话：「标签管理页面大的价签总收入下方添加一个总结余」。
+ *   口径 = 总收入 - 总支出，可能为负，所以走 variant="balance"
+ *   （正绿负红、0 无色），不能用单向的 type。
+ */
+check('标签详情有总结余条目', /summary-row-label">总结余/.test(tag), true)
+check(
+  '总结余 = 总收入 - 总支出',
+  /总结余[\s\S]{0,260}?totalStats\.income - totalStats\.expense/.test(tag),
+  true
+)
+check('总结余用 balance 变体（正绿负红）', /variant="balance"/.test(tag), true)
+check('总结余排在总收入之后', tag.indexOf('总结余') > tag.indexOf('总收入'), true)
+
+/*
+ * ★ 四个详情页的流水底部要有居中「查看全部 ›」★
+ *   用户原话：「分类详情、周期、预算、标签四个页面下方显示的流水
+ *   划底部时显示查看更多的按钮，样式居中，参考首页智能助手的按钮样式，
+ *   点击进入全部交易界面（附带筛选条件）」。
+ *
+ *   样式复用 components/HeaderAction.vue（= 首页「智能助手」那个胶囊），
+ *   所以断言重点是：四个页面都开了 show-footer-more，
+ *   组件里那个按钮用的是 HeaderAction 且居中。
+ */
+for (const [name, src] of [
+  ['分类详情', cat],
+  ['周期详情', cyc],
+  ['预算详情', budget],
+  ['标签详情', tag]
+]) {
+  check(name + ' 的流水底部开了查看全部', /show-footer-more/.test(src), true)
+  check(name + ' 仍然把点击接到 goAllTxn', /@more="goAllTxn"/.test(src), true)
+}
+
+check('组件有 showFooterMore 开关', /showFooterMore: \{ type: Boolean/.test(recent), true)
+check(
+  '组件引入 HeaderAction',
+  /import HeaderAction from '@\/components\/HeaderAction\.vue'/.test(recent),
+  true
+)
+check('组件注册了 HeaderAction', /components: \{[^}]*HeaderAction/.test(recent), true)
+check('底部按钮用 HeaderAction', /<HeaderAction @action-click="onMore">查看全部/.test(recent), true)
+check('底部按钮居中', /\.footer-more\s*\{[^}]*justify-content: center/.test(recent), true)
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

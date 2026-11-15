@@ -26,6 +26,25 @@
               <text class="summary-row-label">总收入</text>
               <MoneyText :cents="totalStats.income" type="income" :size="26" />
             </view>
+            <!--
+              ★ 总结余 = 总收入 - 总支出（本轮新增）★
+                用户原话：「标签管理页面大的价签总收入下方添加一个总结余」。
+
+                口径就是最直白的那个：这个标签（项目）至今收入减支出。
+                所以它可能为负（纯花钱的项目），
+                走 MoneyText 的 variant="balance"：
+                  正数绿色 + 号、负数红色 - 号、0 无色。
+                不要用 type="expense/income" 那种单一方向的着色 ——
+                结余是「有符号的净额」，不是某一笔收支。
+            -->
+            <view class="summary-row">
+              <text class="summary-row-label">总结余</text>
+              <MoneyText
+                :cents="totalStats.income - totalStats.expense"
+                variant="balance"
+                :size="26"
+              />
+            </view>
             <view class="summary-row">
               <text class="summary-row-label">本月笔数</text>
               <text class="summary-row-value">{{ monthStats.count }} 笔</text>
@@ -61,6 +80,7 @@
           :loading="loading"
           empty-text="这个标签本月还没有交易"
           show-more
+          show-footer-more
           @more="goAllTxn"
         />
       </template>

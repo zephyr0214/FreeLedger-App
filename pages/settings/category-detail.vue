@@ -71,6 +71,7 @@
           :loading="loading"
           empty-text="这个分类本月还没有交易"
           show-more
+          show-footer-more
           @more="goAllTxn"
         />
       </template>
