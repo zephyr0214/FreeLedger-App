@@ -2377,7 +2377,18 @@ export default {
   align-items: center;
 }
 
-/* 右侧：日均、笔均横向并排（小标签 + 数值在同一行） */
+/*
+ * 右侧：日均、笔均横向并排（小标签 + 数值在同一行）
+ *
+ * ★ 两列都定宽并左对齐（用户本轮第 1 条）★
+ *   用户原话：「统计页面平均值的日均和笔均要左对齐」。
+ *   这两列原来是 flex-shrink:0、宽度跟着内容走 ——
+ *   有的分类是「¥12.30」、有的是「¥1,234.56」，
+ *   于是每一行的「日均」「笔均」小标签左右来回漂，
+ *   上下几十行看起来就是一团乱。
+ *   现在给列定宽：标签吃 56rpx、金额吃 150rpx，列内左对齐，
+ *   整个列表天然成两根竖线。金额再长也只是在本列内右溢（不会顶到隔壁列）。
+ */
 .cat-avg-values {
   display: flex;
   flex-direction: row;
@@ -2392,11 +2403,21 @@ export default {
   align-items: baseline;
   gap: 4rpx;
   flex-shrink: 0;
+  text-align: left;
 }
 
 .cat-avg-label {
   font-size: 20rpx;
   color: var(--app-text-3);
+  width: 44rpx;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+/* 数值列定宽：不管金额几位，两列的左边缘都对齐 */
+.cat-avg-value :deep(.money-text) {
+  width: 150rpx;
+  text-align: left;
 }
 
 /*
@@ -2518,10 +2539,27 @@ export default {
   gap: 16rpx;
 }
 
+/*
+ * 日均 / 笔均两块
+ *
+ * ★ 必须显式左对齐（用户本轮第 1 条）★
+ *   用户原话：「统计页面平均值的日均和笔均要左对齐」。
+ *
+ *   这两个块里是「标签 + 大号金额 + 单位小字」三行，
+ *   之前只写了 display:flex 没写对齐方式，在 App 的 WebView 里
+ *   文本行会被 flex 的默认行为拉成整行居中/参差（不同机型表现还不一样），
+ *   看起来像随手摆的。现在三个方向全部钉死：
+ *     align-items: flex-start  各行的左边缘对齐
+ *     text-align: left         行内文字左对齐
+ *   这样「日均支出 / ¥x.xx / N 天」和「笔均支出 / ¥x.xx / N 笔」
+ *   两块的行首在同一根竖线上。
+ */
 .avg-item {
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
   gap: 6rpx;
   padding: 20rpx;
   background-color: var(--app-card-2);
