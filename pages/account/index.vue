@@ -6,7 +6,7 @@
       </template>
     </AppHeader>
 
-    <scroll-view class="page-scroll" scroll-y>
+    <scroll-view class="page-scroll" scroll-y @scroll="onListScroll">
       <!-- 总资产 + 趋势（同一个面板） -->
       <view class="asset-card">
         <!--
@@ -150,22 +150,32 @@
               长按是列表里更常见的手势，也不用给每行额外留一块操作区，
               列表本身更干净（每行不再套一层 swipe 组件）。
 
-            ★ 为什么用 @longpress 而不是自己算计时器 ★
-              @longpress 是 uni-app 的原生事件（小程序 / App / H5 都支持），
-              触发时机由平台决定，比自己手写 setTimeout 稳；
-              这里给原生事件绑定，不涉及组件自定义事件，
-              不受 check-events「自定义事件不许撞原生名」的约束。
+            ★ 为什么不用平台的 @longpress（本轮修复）★
+              用户反馈：「参考前面修复长按和滑动的方式，修复一下账户页面
+              长按设置默认账户的误触问题」。
+
+              平台的 @longpress 在 App 端判定太松（350ms + 10px），
+              手指按下列表准备往上滑的那一瞬间就会被判成长按 ——
+              于是「滑一下账户列表」变成「弹设默认确认框」。
+              全部交易页 / 报销页踩过同一个坑，修法是 utils/rowPress.js：
+              450ms 才认、移动超 12px 立刻作废、列表滚动中不判定。
+
+              这里直接用同一套闸门，三个页面的手感完全一致，
+              参数要调也只调一个文件。
 
             ★ 长按松开后平台还会补发一次 tap ★
               不挡掉就是「弹出确认框的同时跳进详情页」，
-              由 onAccountTap 里的时间窗挡掉（见 script）。
+              由闸门的 clickBlocked() 挡掉（见 onAccountTap）。
           -->
           <view
             v-for="acc in group.accounts"
             :key="acc.id"
             class="acc-item"
             @click="onAccountTap(acc)"
-            @longpress="onAccountLongPress(acc)"
+            @touchstart="onRowTouchStart(acc, $event)"
+            @touchmove="onRowTouchMove($event)"
+            @touchend="onRowTouchEnd"
+            @touchcancel="onRowTouchEnd"
           >
             <view class="acc-icon" :style="{ backgroundColor: (acc.color || primaryColor) + '22' }">
               <!--
@@ -246,7 +256,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -265,6 +275,7 @@ import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { formatCents } from '@/utils/money.js'
 import { BASE_SYMBOL } from '@/utils/currency.js'
 import { confirmDialog } from '@/utils/dialog.js'
+import { createRowPressController } from '@/utils/rowPress.js'
 
 export default {
   components: { AppHeader, MoneyText, EmptyState, SmoothLineChart, HeaderAction, AccountIcon, AppTabBar, AppDialog, UpdateDialog },
@@ -374,15 +385,29 @@ export default {
     /* ------------------------------------------------ 长按设置默认账户 */
 
     /**
-     * 长按之后平台还会补发一次 tap，这个时间窗用来把那次 tap 挡掉。
+     * 行手势闸门（长按设默认）—— 见 utils/rowPress.js
      *
-     * ★ 为什么是时间窗而不是布尔标志位 ★
-     *   标志位要么在 tap 里清、要么靠定时器清：
-     *   前者如果这一次根本没有 tap（部分机型长按后不补发）就永远卡住，
-     *   下一次单击进不了详情页；后者要额外维护定时器。
-     *   时间窗天然自愈：过了这个窗口，点击恢复。
+     * ★ 和全部交易页 / 报销页共用同一套判定 ★
+     *   平台的 @longpress 是 350ms + 10px，滑列表时太容易误触；
+     *   这里换成「450ms + 12px + 滚动抑制」的闸门，
+     *   并且长按成立后会屏蔽掉松手补发的那次 click。
+     *
+     * ★ 按下时把账户一起传进去 ★
+     *   闸门在 holdMs 到点时回调，参数是**按下那一刻**的那一行，
+     *   而不是「回调时手指下的一行」—— 后者在列表滚动时可能已经变了。
      */
-    let tapAfterLongPressUntil = 0
+    const rowPress = createRowPressController({
+      onLongPress: (acc) => { onAccountLongPress(acc) }
+    })
+
+    /** 列表滚动：告知闸门「正在滚，别判长按」 */
+    function onListScroll() {
+      rowPress.onScroll()
+    }
+
+    const onRowTouchStart = (acc, e) => rowPress.onTouchStart(acc, e)
+    const onRowTouchMove = (e) => rowPress.onTouchMove(e)
+    const onRowTouchEnd = () => rowPress.onTouchEnd()
 
     /**
      * 长按某一行的账户：弹居中的确认框，问「要不要把它设为默认」。
@@ -405,8 +430,6 @@ export default {
         uni.showToast({ title: '已经是默认账户了', icon: 'none' })
         return
       }
-      // 记下时间窗：确认框弹出后平台可能补发一次 tap，别让它跳进详情页
-      tapAfterLongPressUntil = Date.now() + 600
       // 轻震动一下：给「长按被识别到了」一个即时反馈（和底栏长按记账同一套）
       try {
         uni.vibrateShort({ type: 'medium' })
@@ -423,9 +446,15 @@ export default {
       await setDefault(acc)
     }
 
-    /** 点整行：进详情页（长按刚结束时的那次 tap 要忽略） */
+    /**
+     * 点整行：进详情页
+     *
+     * ★ 先问闸门这次 click 是不是长按后补发的 ★
+     *   长按弹了确认框，松手平台还会补发一次 click ——
+     *   不挡掉就是「确认框还开着，页面已经跳到账户详情」。
+     */
     function onAccountTap(acc) {
-      if (Date.now() < tapAfterLongPressUntil) return
+      if (rowPress.clickBlocked()) return
       goDetail(acc)
     }
 
@@ -451,6 +480,11 @@ export default {
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load(true)
       await loadTrend()
+    })
+
+    onUnmounted(() => {
+      // 手势闸门里可能还挂着一个长按计时器，页面走了要清掉
+      rowPress.dispose()
     })
 
     onShow(async () => {
@@ -493,6 +527,7 @@ export default {
       primaryColor, pageStyle, defaultAccountId,
       switchRange, formatGroupSum, formatAmount, setDefault,
       onAccountTap, onAccountLongPress,
+      onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,
       onAddTap, onAddHoldEnd,
       goAddAccount, goDetail, goProfile
     }

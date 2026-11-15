@@ -90,11 +90,36 @@ check('.acc-item 自带 bg（不再依赖外层容器）', /\.acc-item\s*\{[^}]*
 
 console.log('\n=== 2. 长按打开居中确认框 ===')
 
+/*
+ * ★ 行手势改成 touch 三件套（本轮修复误触）★
+ *   用户原话：「参考前面修复长按和滑动的方式，
+ *   修复一下账户页面长按设置默认账户的误触问题」。
+ *   平台的 @longpress 是 350ms + 10px，手指按下列表准备滑动的那一瞬间
+ *   就会被判成长按 —— 表现成「滑一下账户列表就弹出设默认确认框」。
+ *   现在换成 utils/rowPress.js 的闸门（450ms + 12px + 滚动抑制），
+ *   与全部交易页 / 报销页完全同一套判定。
+ */
+check('账户行不再用平台 @longpress', /@longpress="onAccountLongPress\(acc\)"/.test(tpl), false)
 check(
-  '账户行绑定了 @longpress',
-  /<view[\s\S]{0,200}class="acc-item"[\s\S]{0,200}@longpress="onAccountLongPress\(acc\)"/.test(tpl),
+  '账户行绑定了 touchstart',
+  /<view[\s\S]{0,300}class="acc-item"[\s\S]{0,300}@touchstart="onRowTouchStart\(acc, \$event\)"/.test(tpl),
   true
 )
+check('账户行绑定了 touchmove', /@touchmove="onRowTouchMove\(\$event\)"/.test(tpl), true)
+check('账户行绑定了 touchend', /@touchend="onRowTouchEnd"/.test(tpl), true)
+check('账户行绑定了 touchcancel', /@touchcancel="onRowTouchEnd"/.test(tpl), true)
+check('scroll-view 把滚动报给闸门', /<scroll-view[^>]*@scroll="onListScroll"/.test(tpl), true)
+check(
+  '引入了 rowPress 闸门',
+  /import \{ createRowPressController \} from '@\/utils\/rowPress\.js'/.test(script),
+  true
+)
+check(
+  '闸门的长按回调接到设默认',
+  /createRowPressController\(\{[\s\S]{0,160}?onAccountLongPress\(acc\)/.test(script),
+  true
+)
+check('卸载时清掉长按计时器', /rowPress\.dispose\(\)/.test(script), true)
 check('账户行点击走 onAccountTap（不再直连 goDetail）', /@click="onAccountTap\(acc\)"/.test(tpl), true)
 
 // ★ 不许自己再搭一个弹层：确认框统一走 utils/dialog.js 的 confirmDialog
@@ -128,15 +153,13 @@ check(
 
 console.log('\n=== 3. 长按之后的补发 tap 被挡掉 ===')
 
-check('有长按后的点击遮蔽时间窗', /tapAfterLongPressUntil/.test(script), true)
+// 手写的时间窗已删（闸门内部的屏蔽窗口更准：从抬手那刻才开始算）
+check('不再自己维护遮蔽时间窗', /tapAfterLongPressUntil/.test(script), false)
 check(
-  'onAccountTap 在时间窗内直接 return',
-  /function onAccountTap\(acc\)\s*\{[\s\S]{0,120}Date\.now\(\)\s*<\s*tapAfterLongPressUntil[\s\S]{0,40}return/.test(
-    script
-  ),
+  'onAccountTap 用闸门的 clickBlocked() 挡补发的 tap',
+  /function onAccountTap\(acc\)\s*\{[\s\S]{0,200}?rowPress\.clickBlocked\(\)/.test(script),
   true
 )
-check('长按时写入时间窗', /tapAfterLongPressUntil\s*=\s*Date\.now\(\)\s*\+/.test(script), true)
 
 /* ------------------------------- 4. 不重复造弹层（层级/返回键交给 AppDialog） */
 
