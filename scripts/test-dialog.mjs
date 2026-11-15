@@ -218,6 +218,66 @@ eq('currentRoute 去掉开头的 / 和查询串', currentRoute(), 'pages/index/i
 globalThis.getCurrentPages = () => []
 eq('没有页面时 currentRoute 返回空串', currentRoute(), '')
 
+/* --------------------------------- 8. 弹窗登记到弹层栈 */
+
+console.log('\n[8] 确认框登记到弹层栈（返回键先收弹窗）')
+
+/*
+ * ★ 本轮修复的 bug ★
+ *   用户反馈：「全部交易页面，弹出删除弹窗时，右滑退出时应该是收起弹窗，
+ *   现在是弹窗还在，页面退出了」。
+ *
+ *   根因：确认框是页面内浮层，但没登记到 utils/layerStack.js 的栈里，
+ *   页面的 onBackPress 只问 handleBackPress()，拿到 false 就退出页面。
+ *
+ *   AppDialog 是「页面内唯一那个弹窗宿主」，所以改它一处，
+ *   所有用 confirmDialog / alertDialog / promptDialog 的地方都一起修好。
+ */
+{
+  const {
+    pushLayer, handleBackPress, hasLayer, clearLayers
+  } = await import('../utils/layerStack.js')
+
+  // 干净起点
+  clearLayers()
+  eq('初始栈为空', hasLayer(), false)
+  eq('空栈时返回键不被消费', handleBackPress(), false)
+
+  let closed = 0
+  const unregister = pushLayer(() => { closed++ }, 'testLayer')
+  eq('压栈后 hasLayer 为 true', hasLayer(), true)
+  eq('有弹层时返回键被消费', handleBackPress(), true)
+  eq('返回键收起的是这个弹层', closed, 1)
+  unregister()
+  eq('出栈后栈为空', hasLayer(), false)
+
+  // 后进先出：两层时先关上面那层
+  const order = []
+  const off1 = pushLayer(() => order.push('down'), 'down')
+  const off2 = pushLayer(() => order.push('up'), 'up')
+  handleBackPress()
+  eq('先关最上面那层', order, ['up'])
+  handleBackPress()
+  eq('再关下面那层', order, ['up', 'down'])
+  off1()
+  off2()
+  clearLayers()
+}
+
+// 静态检查：AppDialog 真的接上了弹层栈，且打开/关闭都成对
+{
+  const { readFileSync } = await import('fs')
+  const dialogVue = readFileSync(
+    new URL('../components/AppDialog.vue', import.meta.url),
+    'utf8'
+  )
+  ok('AppDialog 引了 pushLayer', /import \{ pushLayer \} from '@\/utils\/layerStack\.js'/.test(dialogVue))
+  ok('打开弹窗时压栈', /visible\.value = true[\s\S]{0,400}?pushLayer\(/.test(dialogVue))
+  ok('压栈时用 finish(false) 作为收起动作', /pushLayer\(\(\) => finish\(false\)/.test(dialogVue))
+  ok('关闭弹窗时出栈', /function finish\(ok\)[\s\S]{0,400}?unregisterLayer\(\)/.test(dialogVue))
+  ok('页面卸载时出栈', /onUnmounted\(\(\) => \{[\s\S]{0,600}?unregisterLayer\(\)/.test(dialogVue))
+}
+
 /* ------------------------------------------------------------------ */
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)

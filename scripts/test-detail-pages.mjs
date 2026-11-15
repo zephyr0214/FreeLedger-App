@@ -253,6 +253,32 @@ for (const [name, src] of [
 }
 
 check('组件有 showFooterMore 开关', /showFooterMore: \{ type: Boolean/.test(recent), true)
+
+/*
+ * ★ 只有没显示完才显示底部按钮（用户要求）★
+ *   用户原话：「只有没显示完全才显示查看全部，
+ *   如果记录全部显示出了就不要显示查看全部了」。
+ *   所以 v-if 里必须有 hasMoreThanShown，不能只看 showFooterMore。
+ */
+check(
+  '底部按钮带「没显示完」条件',
+  /v-if="showFooterMore && hasMoreThanShown"/.test(recent),
+  true
+)
+check('有 hasMoreThanShown 计算属性', /const hasMoreThanShown = computed/.test(recent), true)
+check('hasMoreThanShown 暴露给模板', /visibleTxns, groups, hasMoreThanShown,/.test(recent), true)
+check('组件能接收真实总笔数', /totalCount: \{ type: Number/.test(recent), true)
+check(
+  '有总数时按总数判断（不是只看手里这批）',
+  /const total = Number\(props\.totalCount\) \|\| 0[\s\S]{0,160}?total > visibleTxns\.value\.length/.test(recent),
+  true
+)
+
+// 四个页面都要把真实总笔数传进去，否则判断永远不成立
+check('分类详情传了总笔数', /:total-count="totalStats\.count"/.test(cat), true)
+check('标签详情传了总笔数', /:total-count="totalStats\.count"/.test(tag), true)
+check('预算详情传了总笔数', /:total-count="monthStats\.count"/.test(budget), true)
+check('周期详情传了总笔数', /:total-count="totalCount"/.test(cyc), true)
 check(
   '组件引入 HeaderAction',
   /import HeaderAction from '@\/components\/HeaderAction\.vue'/.test(recent),

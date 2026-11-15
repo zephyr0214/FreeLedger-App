@@ -75,7 +75,7 @@
           圆角 / padding / 字号 / 主题色文字天生一致，不用再维护第二份。
           水平居中靠外层 .footer-more 的 justify-content:center。
       -->
-      <view v-if="showFooterMore" class="footer-more">
+      <view v-if="showFooterMore && hasMoreThanShown" class="footer-more">
         <HeaderAction @action-click="onMore">查看全部 ›</HeaderAction>
       </view>
     </view>
@@ -134,6 +134,20 @@ export default {
      *   所以四个详情页的按钮长得完全一样。
      */
     showFooterMore: { type: Boolean, default: false },
+    /**
+     * 这条流水线**一共**多少笔（真实总数，不是手里这一批的条数）
+     *
+     * ★ 为什么必须要它（校对时发现的坑）★
+     *   页面是按 limit: 10 去查的 —— 拿到 10 条并不能说明「一共就 10 条」，
+     *   也可能一共 200 条。只看「传进来的数组长度」永远等于显示长度，
+     *   底部「查看全部」就永远不出现，等于没做。
+     *
+     *   各详情页本来就有总笔数（标签/分类的 totalStats.count、
+     *   预算的本月笔数、周期的累计笔数），直接传进来即可，不用额外查库。
+     *   不传（0）则退化成「手里的条数 > 显示的条数」——
+     *   那种情况下至少不会误显示。
+     */
+    totalCount: { type: Number, default: 0 },
     /** 区块标题 */
     title: { type: String, default: '最近流水' },
     /** 最多显示多少条交易（不是多少个分组） */
@@ -154,6 +168,31 @@ export default {
     /** 组合账户徽标的固定颜色（独立标记，不是标签色） */
     /** 截断到 limit 条 */
     const visibleTxns = computed(() => (props.txns || []).slice(0, props.limit))
+
+    /**
+     * 流水是不是「没显示完」
+     *
+     * ★ 只有没显示完才显示底部「查看全部」（用户要求）★
+     *   用户原话：「只有没显示完全才显示查看全部，
+     *   如果记录全部显示出了就不要显示查看全部了」。
+     *
+     * ★ 判断顺序 ★
+     *   1. 页面给了 totalCount（真实总笔数）→ 用它和显示条数比
+     *   2. 没给 → 退化成「手里的条数 > 显示的条数」
+     *
+     * ★ 为什么必须让页面把总笔数传进来 ★
+     *   页面是按 limit: 10 去查的，拿到 10 条并不代表一共就 10 条 ——
+     *   可能一共 200 条。只看「传进来的数组长度」永远等于显示长度，
+     *   按钮就永远不出现（这是校对时发现的坑）。
+     *   各详情页本来就有总笔数（标签/分类的 totalStats.count、
+     *   预算的本月笔数、周期的累计笔数），直接传进来即可，不用额外查库。
+     */
+    const hasMoreThanShown = computed(() => {
+      const total = Number(props.totalCount) || 0
+      if (total > 0) return total > visibleTxns.value.length
+      // 兜底：页面没给总数时，只能看手里这一批是不是被截断了
+      return (props.txns || []).length > visibleTxns.value.length
+    })
 
     /**
      * 按日期分组
@@ -348,7 +387,7 @@ export default {
     }
 
     return {
-      visibleTxns, groups,
+      visibleTxns, groups, hasMoreThanShown,
       iconChar, iconBgStyle, iconFgStyle,
       txnTitle, txnSub, txnBadges, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore

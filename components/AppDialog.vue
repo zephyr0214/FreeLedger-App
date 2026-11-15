@@ -77,6 +77,7 @@
 <script>
 import { ref, computed, onMounted, onUnmounted, getCurrentInstance } from 'vue'
 import { registerDialogHost, unregisterDialogHost, currentRoute } from '@/utils/dialog.js'
+import { pushLayer } from '@/utils/layerStack.js'
 
 /**
  * 全局弹窗宿主
@@ -164,6 +165,24 @@ export default {
     /** 本次是否已经结算过（防止重复 resolve） */
     let settled = false
 
+    /**
+     * 当前这次弹窗在「弹层栈」里的注销函数
+     *
+     * ★ 为什么要登记到弹层栈（本轮修复）★
+     *   用户反馈：「全部交易页面，弹出删除弹窗时，右滑退出时应该是收起弹窗，
+     *   现在是弹窗还在，页面退出了」。
+     *
+     *   根因：确认框虽然是页面内的一层浮层，但**没有**登记到
+     *   utils/layerStack.js 的栈里，页面的 onBackPress 只问
+     *   handleBackPress()（栈里有什么要收的），拿到 false 就直接退出页面 ——
+     *   于是弹窗还开着、页面已经没了。
+     *
+     *   修法和记账面板 / 快捷输入条完全一致：打开时压栈，
+     *   关闭（确定/取消/点蒙层/页面卸载）时出栈。
+     *   这样「侧滑返回」永远先收最上面那一层。
+     */
+    let unregisterLayer = null
+
     const hasCancel = computed(
       () => mode.value === 'confirm' || mode.value === 'prompt'
     )
@@ -203,6 +222,14 @@ export default {
         danger.value = !!next.danger
         list.value = Array.isArray(next.list) ? next.list : null
         visible.value = true
+
+        /*
+         * 压入弹层栈：侧滑返回 / 物理返回键会先关掉这个弹窗，
+         * 而不是直接退出页面（见 utils/layerStack.js）。
+         * 先注销旧的（理论上同一时刻只有一个，防御性处理）。
+         */
+        if (unregisterLayer) unregisterLayer()
+        unregisterLayer = pushLayer(() => finish(false), 'appDialog')
       })
     }
 
@@ -215,6 +242,12 @@ export default {
       if (settled) return
       settled = true
       visible.value = false
+
+      // 出栈：这一层已经收起，别再让返回键去关一个已经关掉的弹窗
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
 
       const resolve = pending
       pending = null
@@ -297,6 +330,11 @@ export default {
 
     onUnmounted(() => {
       unregisterDialogHost(host)
+      // 页面销毁时把这一层从弹层栈里摘掉，别留悬空引用
+      if (unregisterLayer) {
+        unregisterLayer()
+        unregisterLayer = null
+      }
       // 页面被销毁时如果弹窗还开着，把等待方叫醒（按「取消」处理），
       // 否则调用方的 await 会永远挂在那里。
       if (pending && !settled) {

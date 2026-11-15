@@ -81,6 +81,7 @@
           empty-text="这个标签本月还没有交易"
           show-more
           show-footer-more
+          :total-count="totalStats.count"
           @more="goAllTxn"
         />
       </template>

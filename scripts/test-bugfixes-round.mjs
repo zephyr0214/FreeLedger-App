@@ -187,8 +187,13 @@ for (const file of allVue) {
   const rel = relative(ROOT, file).replace(/\\/g, '/')
   /*
    * AppDialog 是全局弹窗宿主（确认框），不是「可能挡在页面上的编辑弹层」：
-   * 它本身就要能通过返回键/遮罩关闭，且它是组件、无法声明页面级 onBackPress。
-   * 所以排除它，其余一律要求接入。
+   * 它是组件、无法声明页面级 onBackPress，所以不在这一轮扫描里要求它。
+   *
+   * ★ 但它现在自己也接进了弹层栈（本轮修复）★
+   *   用户反馈「全部交易页弹出删除确认框时，右滑是页面退出、弹窗还留着」。
+   *   修法就是让它打开时 pushLayer、关闭时出栈 ——
+   *   页面那边的 onBackPress 照常调 handleBackPress() 就能先收弹窗。
+   *   具体断言在 scripts/test-dialog.mjs 的 [8] 里。
    */
   if (rel === 'components/AppDialog.vue') continue
 

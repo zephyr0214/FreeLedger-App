@@ -77,6 +77,7 @@
           empty-text="本月还没有支出记录"
           show-more
           show-footer-more
+          :total-count="monthStats.count"
           @more="goAllTxn"
         />
       </template>
