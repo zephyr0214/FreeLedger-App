@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.23.9'
+export const APP_VERSION = '1.23.10'
 
 /**
  * 三段式版本号（兜底补零）
@@ -145,6 +145,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *     v1.23.6 schema 23   删除预算结转、预算执行口径修正、胶囊改样、首页子预算折叠
  *     v1.23.7 schema 23   报销单撤销、日趋势拖动查看、应收含待报销、借还页统一主题色
  *     v1.23.8 schema 23   后台下载不中断、通知栏可安装、更新功能不再假死
+ *     v1.23.10 schema 23  长按误触、收入分类口径、总结余与查看全部、返回键收弹窗
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -155,6 +156,34 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.23.10',
+    date: '2026-11-15',
+    schemaVersion: 23,
+    sections: [
+      {
+        title: '新增',
+        items: [
+          '标签详情显示总结余（总收入 − 总支出）',
+          '分类 / 周期 / 预算 / 标签详情流水底部可一键查看全部'
+        ]
+      },
+      {
+        title: '优化',
+        items: [
+          '统计页日均、笔均改为左对齐，各分类均值成列'
+        ]
+      },
+      {
+        title: '修复',
+        items: [
+          '滑动列表误触长按：全部交易、报销、账户三页统一改为更严格的手势判定',
+          '收入分类详情页显示成「本月支出」',
+          '删除确认框弹出时右滑会直接退出页面'
+        ]
+      }
+    ]
+  },
   {
     version: '1.23.9',
     date: '2026-11-12',
