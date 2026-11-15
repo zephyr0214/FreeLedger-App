@@ -17,19 +17,29 @@
             </view>
           </view>
 
-          <text class="summary-label">本月支出</text>
+          <text class="summary-label">本月{{ statWord }}</text>
           <MoneyText
-            :cents="monthStats.expense"
-            type="expense"
+            :cents="monthAmount"
+            :type="statType"
             :size="72"
             :weight="600"
           />
 
           <!--
             ★ 下方小条目 ★
-              本月笔数 / 本月支出占比 / 总支出 / 总笔数 / 总支出占比
-            「总支出」指不限月份的全部支出，「总支出占比」同理用全部支出口径，
-            这样本月和总计两组数据是同一套读法，只是区间不同。
+              本月笔数 / 本月占比 / 总金额 / 总笔数 / 总占比
+
+            ★ 文案与口径跟着分类方向走（本轮修复）★
+              用户反馈：「收入详情页显示的应该是本月收入、总收入，
+              怎么显示的支出」——
+              原来这一整块写死了「支出」两个字和 monthStats.expense，
+              收入分类点进来也显示「本月支出」，数字当然还是 0。
+              现在 statWord 在支出分类下是「支出」、收入分类下是「收入」，
+              金额、占比分子分母也全部跟着 category.type 取对应方向。
+
+            ★ 占比的分母必须同方向 ★
+              「本月收入占比」= 本分类本月收入 / 全部收入分类本月收入。
+              用支出总额当分母会算出 >100% 或极小值，两个方向各查各的。
           -->
           <view class="summary-rows">
             <view class="summary-row">
@@ -37,19 +47,19 @@
               <text class="summary-row-value">{{ monthStats.count }} 笔</text>
             </view>
             <view class="summary-row">
-              <text class="summary-row-label">本月支出占比</text>
+              <text class="summary-row-label">本月{{ statWord }}占比</text>
               <text class="summary-row-value">{{ sharePercent }}%</text>
             </view>
             <view class="summary-row">
-              <text class="summary-row-label">总支出</text>
-              <MoneyText :cents="totalStats.expense" type="expense" :size="26" />
+              <text class="summary-row-label">总{{ statWord }}</text>
+              <MoneyText :cents="totalAmount" :type="statType" :size="26" />
             </view>
             <view class="summary-row">
               <text class="summary-row-label">总笔数</text>
               <text class="summary-row-value">{{ totalStats.count }} 笔</text>
             </view>
             <view class="summary-row">
-              <text class="summary-row-label">总支出占比</text>
+              <text class="summary-row-label">总{{ statWord }}占比</text>
               <text class="summary-row-value">{{ totalSharePercent }}%</text>
             </view>
           </view>
@@ -80,7 +90,7 @@
  * 分类详情 —— 结构参考 pages/account/detail.vue
  *
  *   DetailShell（标题 = 分类名）
- *     汇总卡（本月支出/收入 + 笔数 + 占比）
+ *     汇总卡（本月金额 + 笔数 + 占比，文案与口径跟着分类方向走）
  *     本月收支卡
  *     RecentTxnList（按日期分组的最近流水 + 「全部 ›」）
  *
@@ -109,14 +119,14 @@ export default {
     const category = ref(null)
     const txnList = ref([])
     const monthStats = ref({ expense: 0, income: 0, count: 0 })
-    /** 本月全部支出，用来算这个分类的占比 */
-    const monthTotalExpense = ref(0)
+    /** 本月同方向的全部金额（支出分类=本月总支出，收入分类=本月总收入），占比分母 */
+    const monthTotal = ref(0)
     /**
-     * 全部时间（不限月份）的本分类统计与全部分类总支出，
-     * 用于「总支出 / 总笔数 / 总支出占比」。
+     * 全部时间（不限月份）的本分类统计与同方向总额，
+     * 用于「总支出 / 总收入 / 总笔数 / 总占比」。
      */
     const totalStats = ref({ expense: 0, income: 0, count: 0 })
-    const allTotalExpense = ref(0)
+    const allTotal = ref(0)
     const loading = ref(false)
     /** 已经加载完但没找到这个分类（被删了 / id 不对） */
     const notFound = ref(false)
@@ -137,18 +147,43 @@ export default {
         : guessIconByName(category.value.name)
     })
 
-    /** 该分类本月支出占本月总支出的百分比 */
+    /**
+     * 这个分类是收入还是支出
+     *
+     * ★ 全页文案和数字都由它决定（本轮修复）★
+     *   用户反馈收入详情页显示的是「本月支出」。
+     *   根因是这一整页写死了 expense 字段和「支出」两个字 ——
+     *   收入分类的 expense 恒为 0，于是大数字永远是 0.00。
+     */
+    const statType = computed(() =>
+      category.value && category.value.type === 'income' ? 'income' : 'expense'
+    )
+
+    /** 「支出」/「收入」两个字，拼进各条小条目的文案 */
+    const statWord = computed(() => (statType.value === 'income' ? '收入' : '支出'))
+
+    /** 本分类本月金额（方向跟着分类走） */
+    const monthAmount = computed(() =>
+      statType.value === 'income' ? monthStats.value.income : monthStats.value.expense
+    )
+
+    /** 本分类全部时间金额（方向跟着分类走） */
+    const totalAmount = computed(() =>
+      statType.value === 'income' ? totalStats.value.income : totalStats.value.expense
+    )
+
+    /** 该分类本月金额占同方向本月总额的百分比 */
     const sharePercent = computed(() => {
-      const total = monthTotalExpense.value
+      const total = monthTotal.value
       if (!total) return 0
-      return Math.round((monthStats.value.expense / total) * 1000) / 10
+      return Math.round((monthAmount.value / total) * 1000) / 10
     })
 
-    /** 该分类全部支出占全部总支出的百分比（不限月份） */
+    /** 该分类全部金额占同方向全部总额的百分比（不限月份） */
     const totalSharePercent = computed(() => {
-      const total = allTotalExpense.value
+      const total = allTotal.value
       if (!total) return 0
-      return Math.round((totalStats.value.expense / total) * 1000) / 10
+      return Math.round((totalAmount.value / total) * 1000) / 10
     })
 
     async function load() {
@@ -163,7 +198,18 @@ export default {
 
       loading.value = true
       try {
-        const [list, sum, all, totalSum, allTotal] = await Promise.all([
+        /*
+         * ★ 占比的分母必须和分子同方向（本轮修复）★
+         *   收入分类拿「全部支出」当分母会算出 >100% 或 0%，
+         *   所以分母查询带上 type —— 支出分类查支出总额、
+         *   收入分类查收入总额。
+         */
+        const listType = statType.value
+        const [list, sum, monthAll, totalSum, allTotalSum] = await Promise.all([
+          /*
+           * 列表不加 type 过滤 —— 一个分类只会挂同方向的流水，
+           * 加 type 是重复条件；万一有历史脏数据，过滤反而让流水消失。
+           */
           listTransactions({
             categoryId: categoryId.value,
             includeSubcategories: isParent.value,
@@ -174,14 +220,14 @@ export default {
             includeSubcategories: isParent.value,
             monthKey: toMonthKey()
           }),
-          sumTransactions({ monthKey: toMonthKey() }),
-          // 不限月份：本分类的总支出/总笔数
+          sumTransactions({ monthKey: toMonthKey(), type: listType }),
+          // 不限月份：本分类的全部金额 / 总笔数
           sumTransactions({
             categoryId: categoryId.value,
             includeSubcategories: isParent.value
           }),
-          // 不限月份：全部分类的总支出（算总支出占比的分母）
-          sumTransactions({})
+          // 不限月份：全部分类的同方向金额（占比分母）
+          sumTransactions({ type: listType })
         ])
         txnList.value = list
         monthStats.value = {
@@ -189,13 +235,15 @@ export default {
           income: sum.income,
           count: sum.count
         }
-        monthTotalExpense.value = all.expense
+        monthTotal.value =
+          listType === 'income' ? monthAll.income : monthAll.expense
         totalStats.value = {
           expense: totalSum.expense,
           income: totalSum.income,
           count: totalSum.count
         }
-        allTotalExpense.value = allTotal.expense
+        allTotal.value =
+          listType === 'income' ? allTotalSum.income : allTotalSum.expense
       } finally {
         loading.value = false
       }
@@ -237,7 +285,9 @@ export default {
 
     return {
       settingStore, category, txnList, monthStats, totalStats, loading, notFound,
-      pageStyle, isParent, categoryColor, iconChar, sharePercent, totalSharePercent,
+      pageStyle, isParent, categoryColor, iconChar,
+      statType, statWord, monthAmount, totalAmount,
+      sharePercent, totalSharePercent,
       goAllTxn, goBack
     }
   }

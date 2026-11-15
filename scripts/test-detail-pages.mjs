@@ -40,13 +40,32 @@ function read(rel) {
 console.log('=== 分类详情 ===')
 const cat = read('pages/settings/category-detail.vue')
 
-check('大数字是本月支出', /summary-label">本月支出/.test(cat), true)
-check('大数字用 monthStats.expense', /summary-label">本月支出[\s\S]*?:cents="monthStats\.expense"/.test(cat), true)
+/*
+ * ★ 文案和口径改成跟着分类方向走（本轮修复）★
+ *   用户反馈：「收入详情页显示的应该是本月收入、总收入，怎么显示的支出」。
+ *   原来这一页写死了「本月支出」+ monthStats.expense，
+ *   收入分类点进来 expense 恒为 0，大数字永远显示 0.00。
+ *   现在标签用 statWord 拼（支出/收入），金额用 monthAmount / totalAmount。
+ */
+check('大数字标签跟着分类方向走', /summary-label">本月\{\{ statWord \}\}/.test(cat), true)
+check('大数字用 monthAmount（方向感知）', /summary-label">本月\{\{ statWord \}\}[\s\S]*?:cents="monthAmount"/.test(cat), true)
+check('大数字类型跟着方向走', /:cents="monthAmount"[\s\S]{0,160}?:type="statType"/.test(cat), true)
 check('小条目有本月笔数', /summary-row-label">本月笔数/.test(cat), true)
-check('小条目有本月支出占比', /summary-row-label">本月支出占比/.test(cat), true)
-check('小条目有总支出', /summary-row-label">总支出/.test(cat), true)
+check('小条目有本月占比（方向感知）', /summary-row-label">本月\{\{ statWord \}\}占比/.test(cat), true)
+check('小条目有总金额（方向感知）', /summary-row-label">总\{\{ statWord \}\}/.test(cat), true)
 check('小条目有总笔数', /summary-row-label">总笔数/.test(cat), true)
-check('小条目有总支出占比', /summary-row-label">总支出占比/.test(cat), true)
+check('小条目有总占比（方向感知）', /summary-row-label">总\{\{ statWord \}\}占比/.test(cat), true)
+
+// 方向派生的四个量都要 return（否则模板拿 undefined）
+{
+  const tail = cat.slice(cat.lastIndexOf('return {'))
+  for (const name of ['statType', 'statWord', 'monthAmount', 'totalAmount']) {
+    check('return 里暴露了 ' + name, new RegExp('\\b' + name + '\\b').test(tail), true)
+  }
+}
+check('支出分类仍判作「支出」', /statType\.value === 'income' \? '收入' : '支出'/.test(cat), true)
+check('本月占比分母按方向查（带 type）', /sumTransactions\(\{ monthKey: toMonthKey\(\), type: listType \}\)/.test(cat), true)
+check('全部占比分母按方向查（带 type）', /sumTransactions\(\{ type: listType \}\)/.test(cat), true)
 // 中间的本月收支组件已删
 check('已删除本月收支组件', /class="month-card"/.test(cat), false)
 check('已清理 month-card 样式', /\.month-card\s*\{/.test(cat), false)
