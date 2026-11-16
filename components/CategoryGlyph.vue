@@ -23,7 +23,7 @@
 
 <script>
 /**
- * 分类图标（系统 / Noto / Twemoji / OpenMoji 四样式）
+ * 分类图标（Noto / Twemoji / OpenMoji 三样式）
  *
  * 用法：
  *   <CategoryGlyph :icon="cat.icon" :name="cat.name" size="80rpx" />

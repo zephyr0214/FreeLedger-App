@@ -21,7 +21,6 @@
             :class="{ active: isGroupActive(g) }"
             @click="selectGroup(g)"
           >
-            <CategoryGlyph :icon="g.icon" :name="g.name" size="34rpx" :remote-size="60" />
             <view class="group-main">
               <text class="group-name">{{ g.name }}</text>
               <text class="group-count">{{ g.count }}</text>
@@ -353,7 +352,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 10rpx;
-  padding: 20rpx 12rpx 20rpx 20rpx;
+  padding: 20rpx 12rpx 20rpx 24rpx;
   border-left: 6rpx solid transparent;
 }
 

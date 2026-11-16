@@ -228,12 +228,14 @@
             <view class="color-grid">
               <view
                 v-for="c in colors"
-                :key="c"
+                :key="c.value"
                 class="color-cell"
-                :class="{ active: editorForm.color === c }"
-                :style="{ backgroundColor: c }"
-                @click="editorForm.color = c"
-              />
+                :class="{ active: editorForm.color === c.value }"
+                @click="editorForm.color = c.value"
+              >
+                <view class="color-dot" :style="{ backgroundColor: c.value }" />
+                <text class="color-name">{{ c.name }}</text>
+              </view>
             </view>
           </view>
           <view v-else class="editor-row editor-row-column">
@@ -282,6 +284,7 @@ import {
   isReconcileCategory, isFixedCategory, isPresetGroupCategory
 } from '@/api/category.js'
 import { FALLBACK_EMOJI_CODE, categoryIconCode, emojiLabel } from '@/utils/emoji.js'
+import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -343,19 +346,12 @@ export default {
     ]
 
     /*
-     * 16 种分类颜色 —— 按冷暖 / 明暗排成两行
+     * 16 色分类色板（与标签页共用 utils/colorPalette.js）
      *
-     * ★ 顺序就是色板展示顺序 ★
-     *   前 8 个是暖色到冷色（橙 → 黄 → 绿 → 青 → 蓝），
-     *   后 8 个是冷色到中性色（靛 → 紫 → 粉 → 红 → 棕 → 灰）。
-     *   颜色都取自 App 现有主题色 / 分类色系，不引入突兀的高饱和色。
+     * 每项 { value, name }：色块显示 value，下方显示中文名。
+     * 顺序见 colorPalette.js 的注释。
      */
-    const colors = [
-      '#FF976A', '#FF8F1F', '#FFD60A', '#8BC34A',
-      '#07C160', '#26A69A', '#00BCD4', '#1989FA',
-      '#5C6BC0', '#7D5FFF', '#FF6B9D', '#EE0A24',
-      '#8D6E63', '#78909C', '#0A8F4A', '#969799'
-    ]
+    const colors = COLOR_PALETTE
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -468,7 +464,7 @@ export default {
       }
       editingId.value = ''
       editorForm.name = ''
-      editorForm.color = colors[0]
+      editorForm.color = DEFAULT_COLOR
       /**
        * 二级分类的图标不再强制继承父级了 ——
        * 用户要能给每个子类单独配图标，默认给父级的，
@@ -490,7 +486,7 @@ export default {
       }
       editingId.value = cat.id
       editorForm.name = cat.name
-      editorForm.color = cat.color || colors[0]
+      editorForm.color = cat.color || DEFAULT_COLOR
       editorForm.icon = categoryIconCode(cat.icon, cat.name)
       editorForm.parent_id = cat.parent_id
       showEditor.value = true
@@ -1060,52 +1056,41 @@ export default {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 16rpx;
+  gap: 12rpx 8rpx;
   width: 100%;
 }
 
+/* 16 色：每行 8 个，色块 + 中文名 */
 .color-cell {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
+  width: calc((100% - 56rpx) / 8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  padding: 4rpx 0;
 }
 
-/*
- * 选中态：用内阴影画黑圈，不用 outline
- *
- * ★ 用户反馈的 bug ★
- *   「在新建一级分类的面板中，颜色选择的是该块最左边的这两个颜色，
- *   在选中状态下，被选中的那个黑圈貌似被切割了一小部分」。
- *
- * ★ 为什么会裁 ★
- *   原来的写法是
- *     outline: 4rpx solid var(--app-text);
- *     outline-offset: 2rpx;
- *   outline **画在元素盒子外面**：色块 64rpx，环向外扩 4 + 2 = 6rpx。
- *   而这个编辑器的主体是 <scroll-view class="editor-body" scroll-y>
- *   （见模板），scroll-view 会把内容裁在滚动视口边界内 ——
- *   最左那一列的色块左边没有余量，外扩的 ring 就被切掉一小块。
- *
- *   ★ 对比：为什么另外两页没这个问题 ★
- *     pages/settings/tag.vue 和 pages/settings/theme.vue 的颜色选择器
- *     长得一模一样，但它们的编辑器容器是普通 <view>，不裁内容。
- *     只有本页用了 scroll-view（因为图标列表需要滚动）。
- *
- * ★ 为什么改成 box-shadow inset 而不是给容器加 padding ★
- *   加 padding 要靠「容器一定不裁 padding 区」这个前提，
- *   而 uni-app 的 scroll-view 在 App 端会多包一层内容层，
- *   padding 加在哪一层、会不会被内层覆盖，跟平台和版本有关 ——
- *   换个环境又坏一次。
- *   box-shadow inset **画在元素自己的边界之内**，
- *   不管外面套 scroll-view 还是 view，都不可能被裁。
- *
- * ★ 视觉上有变化吗 ★
- *   原来环在色块外面（整体直径 64 + 12 = 76rpx），
- *   现在环压在色块最外圈 4rpx 内侧，整体仍是 64rpx。
- *   色块排列不变、间距不变，只是选中标记从「外圈」变成「内圈」——
- *   环形依然清晰可辨，而且和色块贴合得更紧。
- */
-.color-cell.active {
+.color-dot {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.color-name {
+  font-size: 16rpx;
+  line-height: 1.2;
+  color: var(--app-text-3);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 选中态：内阴影画圈，不会被容器裁切 */
+.color-cell.active .color-dot {
   box-shadow: inset 0 0 0 4rpx var(--app-text);
+}
+
+.color-cell.active .color-name {
+  color: var(--app-text);
 }
 </style>

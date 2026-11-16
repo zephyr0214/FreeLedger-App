@@ -22,7 +22,7 @@ import {
 } from '../utils/emoji.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from '../utils/emojiLegacy.js'
 import {
-  TXN_ICON_SIZES, getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex
+  TXN_ICON_SIZES, TXN_ICON_BG_BOX, getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex
 } from '../utils/txnIcon.js'
 import { ICON_MAP } from '../utils/icons.js'
 import {
@@ -112,8 +112,9 @@ check('isEmojiCode(1F35C) 为 true', isEmojiCode('1F35C'), true)
 check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_EMOJI_CODE)
-check('四种图标样式', EMOJI_STYLES.map((s) => s.key), ['system', 'noto', 'twemoji', 'openmoji'])
-check('非法样式退回 system', normalizeEmojiStyle('bad'), 'system')
+check('三种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji'])
+check('非法样式退回 noto', normalizeEmojiStyle('bad'), 'noto')
+check('旧 system 样式退回 noto', normalizeEmojiStyle('system'), 'noto')
 check(
   'Noto 120 地址',
   emojiImageSrc('1F35C'),
@@ -139,7 +140,11 @@ check(
   emojiImageSrc('1F35C', 120, 'openmoji'),
   'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
 )
-check('系统样式不联网', emojiImageSrc('1F35C', 120, 'system'), '')
+check(
+  '旧 system 设置会加载 Noto 图片',
+  emojiImageSrc('1F35C', 120, 'system'),
+  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f35c/128.png'
+)
 check('FE0F 不出现在地址里', emojiImageSrc('26FD-FE0F'), 'https://fonts.gstatic.com/s/e/notoemoji/latest/26fd/128.png')
 check('兜底图标字符非空', !!emojiChar(FALLBACK_EMOJI_CODE), true)
 check('emojiMeta 能定位二级分类', emojiMeta('1F35C').subgroupName.length > 0, true)
@@ -154,6 +159,11 @@ check('默认大档 80/84', getTxnIconMetrics('l').icon, 80)
 check('默认大档外框 84', getTxnIconMetrics('l').box, 84)
 check('极小档序号 0', txnIconSizeIndex('xs'), 0)
 check('极大档序号 4', txnIconSizeIndex('xl'), 4)
+check(
+  '背景方块固定尺寸能包住最大图标',
+  TXN_ICON_BG_BOX >= TXN_ICON_SIZES[4].icon,
+  true
+)
 for (const preset of ['teal', 'pink']) {
   for (const name of ['home', 'account', 'stats', 'mine']) {
     check(

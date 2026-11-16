@@ -137,7 +137,7 @@ export const useSettingStore = defineStore('setting', {
     quickAddHoldAction(state) {
       return normalizeQuickAddAction(state.settings.quickAddHoldAction, 'manual')
     },
-    /** 分类图标样式：system | noto | twemoji | openmoji */
+    /** 分类图标样式：noto | twemoji | openmoji */
     emojiStyle(state) {
       return normalizeEmojiStyle(state.settings.emojiStyle)
     },
@@ -338,7 +338,7 @@ export const useSettingStore = defineStore('setting', {
       await setSettings({ themePreset: key })
     },
 
-    /** 改分类图标样式（四种，见 utils/emoji.js 的 EMOJI_STYLES） */
+    /** 改分类图标样式（三种，见 utils/emoji.js 的 EMOJI_STYLES） */
     async setEmojiStyle(key) {
       const value = normalizeEmojiStyle(key)
       this.settings.emojiStyle = value

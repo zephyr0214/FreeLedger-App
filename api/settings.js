@@ -43,8 +43,8 @@ export const DEFAULT_SETTINGS = {
 
   /**
    * 分类图标样式
-   *   system | noto | twemoji | openmoji
-   * 系统样式直接用手机 emoji；其余三种按需联网加载。
+   *   noto | twemoji | openmoji
+   * 三种样式都按需联网加载。
    */
   emojiStyle: 'noto',
 

@@ -1,9 +1,8 @@
 /**
- * 分类图标 —— 元数据索引、四种联网样式、旧 key 兼容
+ * 分类图标 —— 元数据索引、三种联网样式、旧 key 兼容
  *
  * ★ 图标图片不随包下载 ★
  *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
- *     system   系统 emoji（不联网，直接用字符）
  *     noto     https://fonts.gstatic.com/s/e/notoemoji/latest/...
  *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/...
  *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/...
@@ -34,21 +33,21 @@ export { EMOJI_GROUPS, LEGACY_ICON_CODES }
 export const FALLBACK_EMOJI_CODE = '1F4E6'
 
 /**
- * 四种图标样式（与 haoemoji.com 的样式选择一致）
+ * 三种图标样式（与 haoemoji.com 的样式选择一致）
  *
- * system 不联网；其余三种按需从各自 CDN 加载。
+ * 系统样式和 Noto 在 Android 上看不出差别，已去掉；
+ * 三种样式都按需从各自 CDN 加载。
  */
 export const EMOJI_STYLES = [
-  { key: 'system', name: '系统样式', desc: '跟随手机系统 emoji' },
   { key: 'noto', name: 'Noto Color Emoji', desc: '(Android)' },
   { key: 'twemoji', name: 'Twemoji', desc: '(Twitter)' },
   { key: 'openmoji', name: 'OpenMoji', desc: '开源彩色图标' }
 ]
 
-/** 把设置里的样式 key 归一（非法值退回系统样式） */
+/** 把设置里的样式 key 归一（非法值 / 旧 system 退回 Noto） */
 export function normalizeEmojiStyle(key) {
   const raw = String(key || '').trim()
-  return EMOJI_STYLES.some((s) => s.key === raw) ? raw : 'system'
+  return EMOJI_STYLES.some((s) => s.key === raw) ? raw : 'noto'
 }
 
 /** 码点 -> 元数据（扁平索引） */
@@ -93,15 +92,14 @@ export function isEmojiCode(code) {
  *
  * @param {string} code 码点（大小写 / FE0F 都会规范化）
  * @param {number} size 60 档（缩略图）或 120 档（列表 / 详情）
- * @param {string} style system | noto | twemoji | openmoji
- * @returns {string} system 样式返回空串（直接用系统 emoji 字符）
+ * @param {string} style noto | twemoji | openmoji
+ * @returns {string}
  */
 export function emojiImageSrc(code, size = 120, style = 'noto') {
   let hex = toEmojiIconCode(code)
   if (!hex || !META.has(hex)) hex = FALLBACK_EMOJI_CODE
 
   const st = normalizeEmojiStyle(style)
-  if (st === 'system') return ''
 
   const small = Number(size) <= 60
   const lower = hex.toLowerCase()

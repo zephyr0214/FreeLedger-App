@@ -99,12 +99,14 @@
             <view class="color-grid">
               <view
                 v-for="c in colors"
-                :key="c"
+                :key="c.value"
                 class="color-cell"
-                :class="{ active: form.color === c }"
-                :style="{ backgroundColor: c }"
-                @click="form.color = c"
-              />
+                :class="{ active: form.color === c.value }"
+                @click="form.color = c.value"
+              >
+                <view class="color-dot" :style="{ backgroundColor: c.value }" />
+                <text class="color-name">{{ c.name }}</text>
+              </view>
             </view>
           </view>
         </view>
@@ -136,6 +138,7 @@ import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
 import { query } from '@/api/db/index.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
+import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
 
 export default {
   components: { PageNav, EmptyState, AppDialog, LineIcon, UpdateDialog },
@@ -153,10 +156,8 @@ export default {
      */
     const swipeStates = reactive({})
 
-    const colors = [
-      '#1989FA', '#07C160', '#FF976A', '#7D5FFF',
-      '#EE0A24', '#FF8F1F', '#0A8F4A', '#FF6B9D'
-    ]
+    /* 与分类页共用同一套 16 色 + 中文名色板 */
+    const colors = COLOR_PALETTE
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -201,14 +202,14 @@ export default {
     function openCreate() {
       editingId.value = ''
       form.name = ''
-      form.color = colors[0]
+      form.color = DEFAULT_COLOR
       showEditor.value = true
     }
 
     function openEdit(tag) {
       editingId.value = tag.id
       form.name = tag.name
-      form.color = tag.color || colors[0]
+      form.color = tag.color || DEFAULT_COLOR
       showEditor.value = true
     }
 
@@ -467,18 +468,42 @@ export default {
 .color-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 16rpx;
+  justify-content: center;
+  gap: 12rpx 8rpx;
+  width: 100%;
 }
 
+/* 16 色：每行 8 个，色块 + 中文名（与分类页一致） */
 .color-cell {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
+  width: calc((100% - 56rpx) / 8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  padding: 4rpx 0;
 }
 
-.color-cell.active {
-  outline: 4rpx solid var(--app-text);
-  outline-offset: 2rpx;
+.color-dot {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.color-name {
+  font-size: 16rpx;
+  line-height: 1.2;
+  color: var(--app-text-3);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.color-cell.active .color-dot {
+  box-shadow: inset 0 0 0 4rpx var(--app-text);
+}
+
+.color-cell.active .color-name {
+  color: var(--app-text);
 }
 
 .editor-danger {

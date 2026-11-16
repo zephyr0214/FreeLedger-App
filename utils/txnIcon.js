@@ -25,6 +25,16 @@ export const TXN_ICON_SIZES = [
   { key: 'xl', name: '极大', icon: 96, box: 100 }
 ]
 
+/**
+ * 分类背景色的圆角方形尺寸
+ *
+ * ★ 固定 100rpx，不跟图标档位变化 ★
+ *   用户要求「背景色要包住图标，不要随着图标调整大小」。
+ *   最大档图标是 96rpx，固定 100rpx 的圆角方形永远能包住它；
+ *   小档位时图标居中、四周留白更多，但背景块尺寸不变。
+ */
+export const TXN_ICON_BG_BOX = 100
+
 const DEFAULT_KEY = 'l'
 
 /** 设置里的值归一成合法 key */

@@ -11,10 +11,14 @@
  *
  * ★ 统一读设置 ★
  *   - txnIconSize：五档尺寸（极小…极大），默认「大」(80rpx)
- *   - txnIconShowBg：是否显示分类浅色圆底，默认关
- *   - emojiStyle：图标样式（system / noto / twemoji / openmoji）
+ *   - txnIconShowBg：是否显示分类浅色圆角方底，默认关
+ *   - emojiStyle：图标样式（noto / twemoji / openmoji）
  *   首页、全部交易、账户/分类/标签/预算/周期详情、借入借出、报销页
  *   全部用这一个组件，改设置后所有流水同步变化。
+ *
+ * ★ 背景色是固定尺寸的圆角方形 ★
+ *   打开时统一 100rpx（能包住最大档 96rpx 图标），
+ *   不随图标大小档位变化；关闭时只占图标本身的空间。
  *
  * ★ 转账用符号 ★
  *   传 symbol='⇄' 时不渲染分类图片，直接显示符号；
@@ -23,6 +27,7 @@
 import { computed } from 'vue'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { useSettingStore } from '@/stores/setting.js'
+import { TXN_ICON_BG_BOX } from '@/utils/txnIcon.js'
 
 export default {
   name: 'TxnIcon',
@@ -43,13 +48,18 @@ export default {
     const metrics = computed(() => settingStore.txnIconMetrics)
     const showBg = computed(() => settingStore.txnIconShowBg)
 
-    const boxStyle = computed(() => ({
-      width: `${metrics.value.box}rpx`,
-      height: `${metrics.value.box}rpx`,
-      backgroundColor: showBg.value
-        ? (props.color || '#969799') + '22'
-        : 'transparent'
-    }))
+    const boxStyle = computed(() => {
+      const bgOn = showBg.value
+      const size = bgOn ? TXN_ICON_BG_BOX : metrics.value.box
+      return {
+        width: `${size}rpx`,
+        height: `${size}rpx`,
+        borderRadius: bgOn ? '18rpx' : '0',
+        backgroundColor: bgOn
+          ? (props.color || '#969799') + '22'
+          : 'transparent'
+      }
+    })
 
     const symbolStyle = computed(() => ({
       fontSize: `${Math.round(metrics.value.icon * 0.8)}rpx`,
@@ -64,14 +74,14 @@ export default {
 
 <style scoped>
 .txn-icon {
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  /* 圆角大小由内联样式控制：背景色关闭时是 0，打开时 18rpx */
+  transition: width 0.15s, height 0.15s, border-radius 0.15s, background-color 0.15s;
   /* 图标不吃触摸事件，点击仍然落在整行上 */
   pointer-events: none;
-  transition: width 0.15s, height 0.15s, background-color 0.15s;
 }
 
 .txn-icon-symbol {

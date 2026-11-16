@@ -66,9 +66,7 @@
             @click="setEmojiStyle(s.key)"
           >
             <view class="style-preview">
-              <text v-if="s.key === 'system'" class="style-emoji">😀</text>
               <image
-                v-else
                 class="style-img"
                 :src="emojiPreview(s.key)"
                 mode="aspectFit"
@@ -350,11 +348,6 @@ export default {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.style-emoji {
-  font-size: 40rpx;
-  line-height: 1;
 }
 
 .style-img {
