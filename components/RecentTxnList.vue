@@ -31,7 +31,7 @@
             <!-- 分类图标（无底色，直接显示 OpenMoji） -->
             <view class="txn-icon">
               <text v-if="txn.type === 'transfer'" class="txn-icon-text" :style="iconFgStyle(txn)">⇄</text>
-              <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="64rpx" />
+              <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="80rpx" />
             </view>
 
             <!-- 名称 + 副标题（时间 / 账户 / 备注） -->
@@ -460,8 +460,8 @@ export default {
 
 /* 图标 */
 .txn-icon {
-  width: 72rpx;
-  height: 72rpx;
+  width: 84rpx;
+  height: 84rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -470,7 +470,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 54rpx;
+  font-size: 64rpx;
   font-weight: 500;
 }
 

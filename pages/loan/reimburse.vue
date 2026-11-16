@@ -120,7 +120,7 @@
                   <CategoryGlyph
                     :icon="t.category_icon"
                     :name="t.category_name"
-                    size="64rpx"
+                    size="80rpx"
                   />
                 </view>
 
@@ -287,7 +287,7 @@
                 <CategoryGlyph
                   :icon="d.category_icon"
                   :name="d.category_name"
-                  size="64rpx"
+                  size="80rpx"
                 />
               </view>
 
@@ -338,7 +338,7 @@
                 <CategoryGlyph
                   :icon="t.category_icon"
                   :name="t.category_name"
-                  size="64rpx"
+                  size="80rpx"
                 />
               </view>
 
@@ -1357,8 +1357,8 @@ export default {
 }
 
 .txn-icon {
-  width: 72rpx;
-  height: 72rpx;
+  width: 84rpx;
+  height: 84rpx;
   border-radius: 18rpx;
   display: flex;
   align-items: center;
@@ -1367,7 +1367,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 54rpx;
+  font-size: 64rpx;
 }
 
 .txn-info {

@@ -460,7 +460,7 @@ console.log('=== 5j. 流水行更紧凑 ===')
   // 字号与图标尺寸不能被改动（否则就是改布局了）
   const idxP = read('pages/index/index.vue')
   check('首页流水名字仍是 28rpx', idxP.includes('font-size: 28rpx;'), true)
-  check('首页流水图标仍是 76rpx', idxP.includes('width: 76rpx;'), true)
+  check('首页流水图标放大到 84rpx（v1.24 用户要求）', idxP.includes('width: 84rpx;'), true)
 }
 
 
