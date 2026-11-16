@@ -231,8 +231,8 @@
             </view>
           </view>
 
-          <!-- 普通二级分类颜色跟随父级；系统分类（含子类）允许单独改颜色 -->
-          <view v-if="!editorForm.parent_id || isEditingFixed" class="editor-row editor-row-column">
+          <!-- 二级分类（含系统子类）颜色都跟随父级，不提供颜色选择 -->
+          <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
             <text class="editor-label">颜色</text>
             <view class="color-grid">
               <view
@@ -247,9 +247,9 @@
               </view>
             </view>
           </view>
-          <view v-else class="editor-row editor-row-column">
+          <view v-else class="editor-row">
             <text class="editor-label">颜色</text>
-            <text class="editor-hint">子分类颜色跟随父级「{{ parentNameOf(editorForm.parent_id) }}」</text>
+            <text class="editor-hint editor-hint-right">子分类颜色跟随父级「{{ parentNameOf(editorForm.parent_id) }}」</text>
           </view>
         </view>
 
@@ -526,7 +526,7 @@ export default {
          */
         const patch = { icon: editorForm.icon }
         if (!isEditingFixed.value) patch.name = editorForm.name.trim()
-        if (!editorForm.parent_id || isEditingFixed.value) patch.color = editorForm.color
+        if (!editorForm.parent_id) patch.color = editorForm.color
         await updateCategory(editingId.value, patch)
       } else {
           await createCategory({
@@ -1020,6 +1020,13 @@ export default {
 .editor-hint {
   font-size: 24rpx;
   color: var(--app-text-3);
+}
+
+/* 子分类颜色提示：与左侧「颜色」同一行，靠右显示 */
+.editor-hint-right {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
 }
 
 /* 编辑弹层底部的删除入口 */
