@@ -1141,10 +1141,39 @@ async function topExpensesByScope(scope, limit) {
      LIMIT ?`,
     scope.params.concat([Number(limit) || 10])
   )
+
+  /*
+   * 一次性把这 10 笔的标签查出来
+   *
+   * ★ 为什么不用逐笔 getTxnTags ★
+   *   Top 10 最多 10 条，逐条查就是 10 次 SQLite 往返；
+   *   这里一次 IN 查询后按 txn_id 分组，页面直接拿 t.tags。
+   *   ★ 标签按 sort / created_at 排序 ★
+   *   和标签管理页、流水徽标保持同一个展示顺序。
+   */
+  const ids = rows.map((r) => r.id)
+  const tagMap = {}
+  if (ids.length > 0) {
+    const tagRows = await query(
+      `SELECT tt.txn_id AS txn_id, tg.id, tg.name, tg.color
+       FROM txn_tag tt
+       JOIN tag tg ON tg.id = tt.tag_id
+       WHERE tt.txn_id IN (${ids.map(() => '?').join(',')})
+         AND tg.deleted_at IS NULL
+       ORDER BY tg.sort ASC, tg.created_at ASC`,
+      ids
+    )
+    for (const tr of tagRows) {
+      if (!tagMap[tr.txn_id]) tagMap[tr.txn_id] = []
+      tagMap[tr.txn_id].push({ id: tr.id, name: tr.name, color: tr.color || '' })
+    }
+  }
+
   return rows.map((r) => ({
     ...r,
     amount_cents: Number(r.amount_cents) || 0,
-    occurred_at: Number(r.occurred_at) || 0
+    occurred_at: Number(r.occurred_at) || 0,
+    tags: tagMap[r.id] || []
   }))
 }
 

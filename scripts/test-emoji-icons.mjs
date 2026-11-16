@@ -272,7 +272,8 @@ check('选择页暗色图标格去掉灰底', /icon-cell--bare/.test(iconPage), 
 check('选择页暗色灰底样式是 transparent', /\.icon-cell--bare\s*\{[^}]*background-color:\s*transparent/.test(iconPage), true)
 
 const txnIcon = readFileSync(join(ROOT, 'components', 'TxnIcon.vue'), 'utf-8')
-check('流水图标断网时强制圆形背景 + 极小档', /getTxnIconMetrics\('xs'\)/.test(txnIcon), true)
+check('流水图标断网时强制圆角背景 + 极小档', /getTxnIconMetrics\('xs'\)/.test(txnIcon), true)
+check('流水图标断网时背景仍保持 84rpx', /\{ icon: offlineIcon, box: TXN_ICON_BG_BOX \}/.test(txnIcon), true)
 check('流水图标断网时强制打开背景', /offline\.value \|\| settingStore\.txnIconShowBg/.test(txnIcon), true)
 check('流水图标断网时用 18rpx 圆角', /'18rpx'/.test(txnIcon), true)
 

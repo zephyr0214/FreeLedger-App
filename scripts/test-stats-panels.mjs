@@ -480,6 +480,27 @@ console.log('=== 日趋势：点柱子在标题行正中间显示日期 + 支出
   check('坐标轴只剩首尾两个日期', /axis-pick/.test(page), false)
 }
 
+/* ==================================== 13. Top 10 图标与标签 */
+
+console.log('\n=== 13. Top 10 图标与标签 ===')
+
+const statsPageSrc = read('pages/stats/index.vue')
+const statsApiSrc = read('api/stats.js')
+
+check(
+  'Top 10 每行显示分类图标',
+  /<TxnIcon[\s\S]{0,160}?:icon="t\.category_icon"/.test(statsPageSrc),
+  true
+)
+check('Top 10 每行显示标签', /v-for="tag in t\.tags"/.test(statsPageSrc), true)
+check('Top 10 标签用标签自己的颜色', /tag\.color \|\| primaryColor/.test(statsPageSrc), true)
+check(
+  'Top 10 标签一次 IN 查询取回',
+  /SELECT tt\.txn_id AS txn_id, tg\.id, tg\.name, tg\.color/.test(statsApiSrc),
+  true
+)
+check('Top 10 数据返回 tags 数组', /tags: tagMap\[r\.id\] \|\| \[\]/.test(statsApiSrc), true)
+
 /* ==================================== 输出 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

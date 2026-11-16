@@ -643,8 +643,31 @@
             @click="goTxnDetail(t.id)"
           >
             <text class="top-rank" :class="{ 'top-3': i < 3 }">{{ i + 1 }}</text>
+            <!-- 分类图标：与流水行共用 TxnIcon，图标样式 / 背景 / 大小跟设置 -->
+            <TxnIcon
+              :icon="t.category_icon"
+              :name="t.category_name"
+              :color="t.category_color || '#969799'"
+            />
             <view class="top-info">
               <text class="top-name">{{ t.category_name || '未分类' }}</text>
+              <!--
+                ★ 标签直接显示在分类名下面（用户要求）★
+                  和流水行的标签一致：标签色文字 + 浅色底 + 同色描边；
+                  没打标签的流水不占这一行。
+              -->
+              <view v-if="t.tags && t.tags.length" class="top-tags">
+                <text
+                  v-for="tag in t.tags"
+                  :key="tag.id"
+                  class="top-tag"
+                  :style="{
+                    backgroundColor: categoryTint(tag.color || primaryColor, settingStore.isDark),
+                    color: tag.color || primaryColor,
+                    borderColor: tag.color || primaryColor
+                  }"
+                >{{ tag.name }}</text>
+              </view>
               <!-- ★ 账户在前、备注在后（用户指定）★
                    账户名是「这笔钱从哪出」的定位信息，比备注更该先被看到；
                    备注长短不一，放前面会把账户名挤进省略号里。
@@ -694,6 +717,7 @@ import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import StatsComparePanel from '@/components/StatsComparePanel.vue'
 import MoneyText from '@/components/MoneyText.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import DateFilterBar from '@/components/DateFilterBar.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
@@ -704,6 +728,7 @@ import { useUiStore } from '@/stores/ui.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { donutToDataUri } from '@/utils/donut.js'
 import { clientXToChartX } from '@/utils/chart.js'
+import { categoryTint } from '@/utils/categoryIcon.js'
 import {
   getOverviewRange, getCategoryStatsRange, getSubCategoryStatsRange,
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
@@ -737,7 +762,7 @@ import { getSetting } from '@/api/settings.js'
  */
 
 export default {
-  components: { AppHeader, MoneyText, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog, StatsComparePanel },
+  components: { AppHeader, MoneyText, TxnIcon, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog, StatsComparePanel },
   setup() {
     const settingStore = useSettingStore()
     const uiStore = useUiStore()
@@ -1797,7 +1822,7 @@ export default {
 
     return {
       formatWanYuan,
-      settingStore,
+      settingStore, categoryTint,
       dateRange,
       // 时间筛选方式（日/月/年 或 自定义起止日）
       dateMode, customStart, customEnd, todayKey,
@@ -2652,6 +2677,25 @@ export default {
 .top-sub {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/* Top 10 的分类标签：小号胶囊，颜色跟标签本身 */
+.top-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.top-tag {
+  max-width: 100%;
+  padding: 2rpx 10rpx;
+  border-radius: 10rpx;
+  border: 1rpx solid transparent;
+  font-size: 18rpx;
+  line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .top-right {

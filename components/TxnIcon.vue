@@ -51,28 +51,26 @@ export default {
     /**
      * 是否整套图标样式都加载不出来（断网 / CDN 挂了）
      *
-     * ★ 系统默认样式：圆角背景色 + 极小 ★
-     *   用户要求无网状态使用「圆角背景色 + 极小」：
-     *   图标缩到极小档（44rpx 图标 / 48rpx 底），
-     *   强制打开圆角分类色底，而不是按用户的流水图标设置放大。
+     * ★ 系统默认样式：圆角背景色 + 极小图标 ★
+     *   用户要求：断网时的系统样式 = 和有网时**一样大的圆角背景**
+     *   + 44rpx（极小档）系统 emoji。所以这里只缩图标，
+     *   背景框仍是 84rpx（打开背景时的标准尺寸），
+     *   圆角固定 18rpx，不再把整个框缩到 48rpx。
      */
     const offline = computed(() => emojiStyleFailed(settingStore.emojiStyle))
+    const offlineIcon = getTxnIconMetrics('xs').icon
 
-    const metrics = computed(() =>
-      offline.value ? getTxnIconMetrics('xs') : settingStore.txnIconMetrics
-    )
+    const metrics = computed(() => (
+      offline.value
+        ? { icon: offlineIcon, box: TXN_ICON_BG_BOX }
+        : settingStore.txnIconMetrics
+    ))
     const showBg = computed(() => offline.value || settingStore.txnIconShowBg)
     const bgRadius = computed(() => (offline.value ? '18rpx' : settingStore.txnIconBgRadius))
 
     const boxStyle = computed(() => {
       const bgOn = showBg.value
-      /*
-       * 在线时按用户的「图标配置」：打开背景 = 固定 84rpx 方底；
-       * 断网系统样式 = 极小档 48rpx 圆角底（和 44rpx 系统 emoji 贴合）。
-       */
-      const size = bgOn
-        ? (offline.value ? metrics.value.box : TXN_ICON_BG_BOX)
-        : metrics.value.box
+      const size = bgOn ? TXN_ICON_BG_BOX : metrics.value.box
       return {
         width: `${size}rpx`,
         height: `${size}rpx`,
