@@ -660,11 +660,7 @@
                   v-for="tag in t.tags"
                   :key="tag.id"
                   class="top-tag"
-                  :style="{
-                    backgroundColor: categoryTint(tag.color || primaryColor, settingStore.isDark),
-                    color: tag.color || primaryColor,
-                    borderColor: tag.color || primaryColor
-                  }"
+                  :style="tagBadgeStyle(tag)"
                 >{{ tag.name }}</text>
               </view>
               <!-- ★ 账户在前、备注在后（用户指定）★
@@ -727,7 +723,6 @@ import { useUiStore } from '@/stores/ui.js'
 import { gotoHomeAndAdd } from '@/utils/tabBar.js'
 import { donutToDataUri } from '@/utils/donut.js'
 import { clientXToChartX } from '@/utils/chart.js'
-import { categoryTint } from '@/utils/categoryIcon.js'
 import {
   getOverviewRange, getCategoryStatsRange, getSubCategoryStatsRange,
   getAccountStatsRange, getAccountTypeStatsRange, getCategoryAveragesRange,
@@ -1243,6 +1238,27 @@ export default {
       if (!dayKey) return ''
       const [, m, d] = dayKey.split('-')
       return `${Number(m)}/${Number(d)}`
+    }
+
+    /**
+     * Top 10 标签样式 —— 与流水行徽标完全一致
+     *
+     * ★ 不要在这里另调一套颜色 / 圆角 ★
+     *   流水行用的是 utils/txnBadges.js 的 tintOf(color) + 本色文字 + 本色描边；
+     *   Top 10 如果改用 categoryTint（暗色 30%）或不同 padding/圆角，
+     *   同一枚标签在两个页面就会长得不一样（用户已反馈）。
+     *   这里逐字段对齐 txnBadges.js 的标签分支。
+     */
+    function tagBadgeStyle(tag) {
+      const c = tag && tag.color
+      if (c) {
+        return { backgroundColor: c + '22', color: c, borderColor: c }
+      }
+      return {
+        backgroundColor: 'var(--app-card-2)',
+        color: 'var(--app-text-2)',
+        borderColor: 'var(--app-text-3)'
+      }
     }
 
     /* ------------------------------------------------------ 加载 */
@@ -1821,7 +1837,7 @@ export default {
 
     return {
       formatWanYuan,
-      settingStore, categoryTint,
+      settingStore,
       dateRange,
       // 时间筛选方式（日/月/年 或 自定义起止日）
       dateMode, customStart, customEnd, todayKey,
@@ -1836,7 +1852,7 @@ export default {
       dailyExtremes,
       selectedBarIndex, selectedBar, barColor,
       onTrendTouchStart, onTrendTouchMove, onTrendTouchEnd,
-      barHeight, shortDay,
+      barHeight, shortDay, tagBadgeStyle,
       // 组件管理（面板顺序与显隐）
       statsPanels, visiblePanels, panelVisible, panelOrderStyle,
       // 同比 / 环比（两块共用 components/StatsComparePanel.vue）
@@ -2663,20 +2679,23 @@ export default {
   color: var(--app-text-3);
 }
 
-/* Top 10 的分类标签：小号胶囊，颜色跟标签本身 */
+/* Top 10 的分类标签：与流水行 .txn-tag 完全同一套尺寸 / 圆角 / 字重 */
 .top-tags {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 8rpx;
+  gap: 6rpx;
 }
 
 .top-tag {
+  flex-shrink: 0;
   max-width: 100%;
-  padding: 2rpx 10rpx;
-  border-radius: 10rpx;
+  padding: 4rpx 10rpx;
+  border-radius: 8rpx;
   border: 1rpx solid transparent;
   font-size: 18rpx;
-  line-height: 1.5;
+  line-height: 1;
+  font-weight: 500;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

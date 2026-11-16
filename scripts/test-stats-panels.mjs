@@ -493,7 +493,12 @@ check(
   true
 )
 check('Top 10 每行显示标签', /v-for="tag in t\.tags"/.test(statsPageSrc), true)
-check('Top 10 标签用标签自己的颜色', /tag\.color \|\| primaryColor/.test(statsPageSrc), true)
+check(
+  'Top 10 标签样式与流水行一致',
+  /tagBadgeStyle\(tag\)/.test(statsPageSrc) &&
+    /backgroundColor:\s*c \+ '22', color:\s*c, borderColor:\s*c/.test(statsPageSrc),
+  true
+)
 check(
   'Top 10 标签一次 IN 查询取回',
   /SELECT tt\.txn_id AS txn_id, tg\.id, tg\.name, tg\.color/.test(statsApiSrc),
