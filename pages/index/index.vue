@@ -322,10 +322,7 @@
                 class="txn-item"
                 @click="goTxnDetail(txn.id)"
               >
-              <view
-                class="txn-icon"
-                :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
-              >
+              <view class="txn-icon">
                 <text
                   v-if="txn.type === 'transfer'"
                   class="txn-icon-text"
@@ -335,7 +332,7 @@
                   v-else
                   :icon="txn.category_icon"
                   :name="txn.category_name"
-                  size="38rpx"
+                  size="52rpx"
                 />
               </view>
 
@@ -1504,7 +1501,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 30rpx;
+  font-size: 44rpx;
   font-weight: 500;
 }
 

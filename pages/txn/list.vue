@@ -132,10 +132,7 @@
             <view v-if="selectMode" class="row-check" :class="{ on: isSelected(txn.id) }">
               <text v-if="isSelected(txn.id)" class="row-check-tick">✓</text>
             </view>
-            <view
-              class="txn-icon"
-              :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
-            >
+            <view class="txn-icon">
               <text
                 v-if="txn.type === 'transfer'"
                 class="txn-icon-text"
@@ -145,7 +142,7 @@
                 v-else
                 :icon="txn.category_icon"
                 :name="txn.category_name"
-                size="40rpx"
+                size="52rpx"
               />
             </view>
 
@@ -2236,7 +2233,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 28rpx;
+  font-size: 44rpx;
   font-weight: 500;
 }
 

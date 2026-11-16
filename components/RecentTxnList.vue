@@ -28,10 +28,10 @@
             class="txn-item"
             @click="goDetail(txn.id)"
           >
-            <!-- 分类图标（带背景色） -->
-            <view class="txn-icon" :style="iconBgStyle(txn)">
+            <!-- 分类图标（无底色，直接显示 OpenMoji） -->
+            <view class="txn-icon">
               <text v-if="txn.type === 'transfer'" class="txn-icon-text" :style="iconFgStyle(txn)">⇄</text>
-              <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="38rpx" />
+              <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="50rpx" />
             </view>
 
             <!-- 名称 + 副标题（时间 / 账户 / 备注） -->
@@ -269,15 +269,6 @@ export default {
 
     /* ------------------------------------------------------ 展示内容 */
 
-    /** 图标背景色（分类色 + 浅色底；转账走中性变量） */
-    function iconBgStyle(txn) {
-      if (txn.type === 'transfer') {
-        return { backgroundColor: 'var(--app-card-2)' }
-      }
-      const c = txn.category_color || '#969799'
-      return { backgroundColor: c + '22' }
-    }
-
     /** 图标前景色 */
     function iconFgStyle(txn) {
       if (txn.type === 'transfer') {
@@ -381,7 +372,7 @@ export default {
 
     return {
       visibleTxns, groups, hasMoreThanShown,
-      iconBgStyle, iconFgStyle,
+      iconFgStyle,
       txnTitle, txnSub, txnBadges, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore
     }
@@ -479,7 +470,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 26rpx;
+  font-size: 44rpx;
   font-weight: 500;
 }
 

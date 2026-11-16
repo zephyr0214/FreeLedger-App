@@ -41,7 +41,7 @@ export const LEGACY_ICON_CODES = {
   clothes: '1F455',     // 服饰：T 恤
   beauty: '1F484',      // 美妆：口红
   baby: '1F37C',        // 母婴：奶瓶
-  carfare: '1F68C',     // 公交：公交车
+  carfare: '1F68D',     // 公交：迎面驶来的公交车（正脸，不用侧身细长的 1F68C）
   fuel: '26FD',         // 加油：油泵
   rent: '1F3D8',        // 房租：房屋群
   water: '1F4A7',       // 水电：水滴

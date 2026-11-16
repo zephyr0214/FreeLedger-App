@@ -203,14 +203,11 @@
                   class="txn-item"
                   @click="goTxnDetail(t.id)"
                 >
-                  <view
-                    class="txn-icon"
-                    :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
-                  >
+                  <view class="txn-icon">
                     <CategoryGlyph
                       :icon="t.category_icon"
                       :name="t.category_name"
-                      size="38rpx"
+                      size="52rpx"
                     />
                   </view>
 
@@ -1307,7 +1304,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 32rpx;
+  font-size: 44rpx;
 }
 
 .txn-info {

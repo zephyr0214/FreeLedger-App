@@ -271,7 +271,9 @@ export default {
   display: flex;
   align-items: center;
   gap: 12rpx;
-  background-color: var(--app-card-2);
+  /* 白底（暗色下是卡片色）：和页面底色拉开层次 */
+  background-color: var(--app-card);
+  border: 1rpx solid var(--app-line);
   border-radius: 14rpx;
   padding: 12rpx 18rpx;
 }
@@ -346,8 +348,8 @@ export default {
 }
 
 .icon-img {
-  width: 56rpx;
-  height: 56rpx;
+  width: 68rpx;
+  height: 68rpx;
 }
 
 .icon-name {
