@@ -14,7 +14,7 @@
               <text class="select-desc">{{ currentMode.desc }}</text>
             </view>
           </view>
-          <text class="select-arrow">▾</text>
+          <text class="select-arrow">›</text>
         </view>
       </view>
 
@@ -54,7 +54,7 @@
               <text class="select-desc">{{ currentStyle.desc }}</text>
             </view>
           </view>
-          <text class="select-arrow">▾</text>
+          <text class="select-arrow">›</text>
         </view>
       </view>
 
@@ -447,7 +447,7 @@ export default {
 }
 
 .select-arrow {
-  font-size: 24rpx;
+  font-size: 32rpx;
   color: var(--app-text-3);
   flex-shrink: 0;
 }
