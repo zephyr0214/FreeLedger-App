@@ -83,13 +83,22 @@
           </view>
         </view>
 
-        <!-- 最近流水（按日期分组，10 条） -->
+        <!--
+          最近流水（按日期分组，10 条）
+
+          ★ 底部「查看全部 ›」与标签/分类/预算/周期详情页同一套 ★
+            都用 RecentTxnList 的 show-footer-more：
+            只有真实总笔数 > 已显示条数时才出现（用户要求
+            「没显示完全才显示」），样式复用 HeaderAction 的居中胶囊。
+        -->
         <RecentTxnList
           :txns="txnList"
           :loading="loading"
           :account-id="accountId"
           empty-text="这个账户还没有交易记录"
           show-more
+          show-footer-more
+          :total-count="totalCount"
           @more="goAllTxn"
         />
       </template>
@@ -133,7 +142,8 @@
  *   DetailShell（顶部导航 + 滚动区）
  *     余额卡
  *     本月收支卡
- *     RecentTxnList（按日期分组的最近流水 + 「全部 ›」）
+ *     RecentTxnList（按日期分组的最近流水 + 右上角「全部 ›」
+ *                   + 没显示完时底部的居中「查看全部 ›」）
  *
  * 分类 / 标签 / 预算 / 周期这 4 个详情页都照这个结构写。
  */
@@ -148,7 +158,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
-import { listTransactions, sumTransactions } from '@/api/transaction.js'
+import { listTransactions, sumTransactions, countTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
 import { backAfterAccountDelete } from '@/utils/navBack.js'
 import { handleBackPress } from '@/utils/layerStack.js'
@@ -162,6 +172,8 @@ export default {
     const accountId = ref('')
     const account = ref(null)
     const txnList = ref([])
+    /** 本账户全部流水笔数（列表口径，含借入借出；用于底部「查看全部」） */
+    const totalCount = ref(0)
     const monthStats = ref({ expense: 0, income: 0 })
     const loading = ref(false)
 
@@ -196,13 +208,16 @@ export default {
 
       loading.value = true
       try {
-        // 只取最近 10 条：RecentTxnList 按日期分组后也是显示这 10 条
-        const [list, sum] = await Promise.all([
+        // 只取最近 10 条：RecentTxnList 按日期分组后也是显示这 10 条；
+        // 另查一次总笔数，供列表底部判断「是否还有没显示完的流水」
+        const [list, sum, total] = await Promise.all([
           listTransactions({ accountId: accountId.value, limit: 10 }),
-          sumTransactions({ accountId: accountId.value, monthKey: toMonthKey() })
+          sumTransactions({ accountId: accountId.value, monthKey: toMonthKey() }),
+          countTransactions({ accountId: accountId.value })
         ])
         txnList.value = list
         monthStats.value = { expense: sum.expense, income: sum.income }
+        totalCount.value = total
       } finally {
         loading.value = false
       }
@@ -267,7 +282,7 @@ export default {
     onBackPress(() => handleBackPress())
 
     return {
-      settingStore, accountId, account, txnList, monthStats, loading,
+      settingStore, accountId, account, txnList, totalCount, monthStats, loading,
       primaryColor, pageStyle,
       showBalanceSheet, openBalanceSheet, onBalanceSaved,
       goEdit, goAllTxn, goBack

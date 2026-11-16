@@ -406,6 +406,33 @@ export async function sumTransactions(opt = {}) {
   }
 }
 
+/**
+ * 当前筛选条件下的**列表总笔数**
+ *
+ * ★ 和 sumTransactions 的 count 不是一回事 ★
+ *   sumTransactions 的 count 要参与「支出 / 收入」小计，
+ *   所以排除了 exclude_from_stats（借出 / 借入 / 借款归还 / 借款收回）。
+ *   但 listTransactions 会把这些流水**列出来** ——
+ *   如果拿 sum 的 count 判断「列表有没有显示完」，
+ *   账户里有借入借出时就会少算，底部「查看全部」该出现却不出现。
+ *
+ *   这里只加 buildFilterWhere（带 deleted_at IS NULL），
+ *   不排除任何流水，得到的数字就是列表实际会列出的条数。
+ *
+ * @param {object} opt 与 listTransactions / sumTransactions 同一套筛选参数
+ * @returns {Promise<number>}
+ */
+export async function countTransactions(opt = {}) {
+  const { where, params } = buildFilterWhere(opt)
+
+  const row = await queryOne(
+    `SELECT COUNT(*) AS cnt FROM txn t WHERE ${where.join(' AND ')}`,
+    params
+  )
+
+  return Number(row ? row.cnt : 0)
+}
+
 export async function getTransaction(id) {
   const rows = await query(
     `SELECT t.*,

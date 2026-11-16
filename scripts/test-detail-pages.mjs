@@ -179,6 +179,7 @@ console.log('=== 最近流水显示标签 ===')
  *   折叠反而让「这笔有哪些标记」看不全。现在用 flex-wrap 换行显示。
  */
 const recent = read('components/RecentTxnList.vue')
+const acc = read('pages/account/detail.vue')
 
 check('引入 listTags', /import \{ listTags \} from '@\/api\/tag\.js'/.test(recent), true)
 check('有标签缓存', /const tags = ref\(\[\]\)/.test(recent), true)
@@ -233,16 +234,18 @@ check('总结余用 balance 变体（正绿负红）', /variant="balance"/.test(
 check('总结余排在总收入之后', tag.indexOf('总结余') > tag.indexOf('总收入'), true)
 
 /*
- * ★ 四个详情页的流水底部要有居中「查看全部 ›」★
+ * ★ 五个详情页的流水底部要有居中「查看全部 ›」★
  *   用户原话：「分类详情、周期、预算、标签四个页面下方显示的流水
  *   划底部时显示查看更多的按钮，样式居中，参考首页智能助手的按钮样式，
  *   点击进入全部交易界面（附带筛选条件）」。
+ *   后续要求账户详情页的最近流水也按同一套展示。
  *
  *   样式复用 components/HeaderAction.vue（= 首页「智能助手」那个胶囊），
- *   所以断言重点是：四个页面都开了 show-footer-more，
+ *   所以断言重点是：五个页面都开了 show-footer-more，
  *   组件里那个按钮用的是 HeaderAction 且居中。
  */
 for (const [name, src] of [
+  ['账户详情', acc],
   ['分类详情', cat],
   ['周期详情', cyc],
   ['预算详情', budget],
@@ -274,7 +277,10 @@ check(
   true
 )
 
-// 四个页面都要把真实总笔数传进去，否则判断永远不成立
+// 五个页面都要把真实总笔数传进去，否则判断永远不成立
+// 账户详情用 countTransactions 的列表口径（含借入借出），不能拿 sum 的 count 顶替
+check('账户详情传了总笔数', /:total-count="totalCount"/.test(acc), true)
+check('账户详情用列表口径取总笔数', /countTransactions\(\{ accountId: accountId\.value \}\)/.test(acc), true)
 check('分类详情传了总笔数', /:total-count="totalStats\.count"/.test(cat), true)
 check('标签详情传了总笔数', /:total-count="totalStats\.count"/.test(tag), true)
 check('预算详情传了总笔数', /:total-count="monthStats\.count"/.test(budget), true)
