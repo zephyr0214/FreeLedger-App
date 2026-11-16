@@ -53,7 +53,7 @@
         配置条目分三部分
 
         ★ 记账功能（2×4 宫格）★
-          分类、标签、预算、汇率 / 借入、借出、周期、报销
+          分类、汇率、预算、标签 / 借入、借出、周期、报销
           —— 原「基础功能 / 拓展功能」合并为一个宫格，
              上图标下文字。
 
@@ -180,7 +180,7 @@ export default {
      * 记账功能：8 个入口，按 2 行 × 4 列展示
      *
      * 顺序：
-     *   第一行：分类 / 标签 / 预算 / 汇率
+     *   第一行：分类 / 汇率 / 预算 / 标签
      *   第二行：借入 / 借出 / 周期 / 报销
      *
      * ★ 原「基础功能 / 拓展功能」两组已合并 ★
@@ -191,9 +191,9 @@ export default {
      */
     const featureItems = [
       { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
-      { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
-      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
       { key: 'rate', icon: 'rate', name: '今日汇率', route: '/pages/rate/index' },
+      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
+      { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
       { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' },
       { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
       { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },

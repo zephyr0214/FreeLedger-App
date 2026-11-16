@@ -3,32 +3,26 @@
     <PageNav title="主题外观" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <!-- 深浅模式 -->
+      <!-- 深浅模式：下拉选择 -->
       <view class="section">
         <text class="section-title">深浅模式</text>
-        <view class="mode-list">
-          <view
-            v-for="m in modes"
-            :key="m.key"
-            class="mode-row"
-            @click="setMode(m.key)"
-          >
-            <view class="mode-icon">
-              <LineIcon :name="m.icon" :size="20" :color="primaryColor" />
+        <picker
+          mode="selector"
+          :range="modeLabels"
+          :value="modeIndex"
+          @change="onModePick"
+        >
+          <view class="select-row">
+            <view class="select-left">
+              <LineIcon :name="currentMode.icon" :size="20" :color="primaryColor" />
+              <view class="select-texts">
+                <text class="select-name">{{ currentMode.name }}</text>
+                <text class="select-desc">{{ currentMode.desc }}</text>
+              </view>
             </view>
-            <view class="mode-info">
-              <text class="mode-name">{{ m.name }}</text>
-              <text class="mode-desc">{{ m.desc }}</text>
-            </view>
-            <view class="radio" :class="{ checked: themeMode === m.key }">
-              <view
-                v-if="themeMode === m.key"
-                class="radio-dot"
-                :style="{ backgroundColor: primaryColor }"
-              />
-            </view>
+            <text class="select-arrow">▾</text>
           </view>
-        </view>
+        </picker>
       </view>
 
       <!-- 主题色 -->
@@ -56,35 +50,26 @@
         </view>
       </view>
 
+      <!-- 图标样式：下拉选择 -->
       <view class="section">
         <text class="section-title">图标样式</text>
-        <view class="mode-list">
-          <view
-            v-for="s in emojiStyles"
-            :key="s.key"
-            class="mode-row"
-            @click="setEmojiStyle(s.key)"
-          >
-            <view class="style-preview">
-              <image
-                class="style-img"
-                :src="emojiPreview(s.key)"
-                mode="aspectFit"
-              />
+        <picker
+          mode="selector"
+          :range="emojiStyleLabels"
+          :value="emojiStyleIndex"
+          @change="onStylePick"
+        >
+          <view class="select-row">
+            <view class="select-left">
+              <image class="select-style-img" :src="emojiPreview(currentStyle.key)" mode="aspectFit" />
+              <view class="select-texts">
+                <text class="select-name">{{ currentStyle.name }}</text>
+                <text class="select-desc">{{ currentStyle.desc }}</text>
+              </view>
             </view>
-            <view class="mode-info">
-              <text class="mode-name">{{ s.name }}</text>
-              <text class="mode-desc">{{ s.desc }}</text>
-            </view>
-            <view class="radio" :class="{ checked: settingStore.emojiStyle === s.key }">
-              <view
-                v-if="settingStore.emojiStyle === s.key"
-                class="radio-dot"
-                :style="{ backgroundColor: primaryColor }"
-              />
-            </view>
+            <text class="select-arrow">▾</text>
           </view>
-        </view>
+        </picker>
       </view>
 
       <view class="section">
@@ -98,7 +83,7 @@
             </view>
             <view class="txn-size-info">
               <text class="txn-size-name">当前预览</text>
-              <text class="txn-size-desc">{{ txnSizeLabel }} · {{ txnBgRoundName }}</text>
+              <text class="txn-size-desc">{{ txnPreviewDesc }}</text>
             </view>
           </view>
 
@@ -139,35 +124,37 @@
             />
           </view>
 
-          <view class="setting-divider" />
+          <view v-if="settingStore.txnIconShowBg" class="shape-settings">
+            <view class="setting-divider" />
 
-          <view class="setting-subhead">
-            <text class="setting-row-name">背景形状</text>
-            <text class="setting-row-desc">{{ txnBgRoundName }}</text>
-          </view>
+            <view class="setting-subhead">
+              <text class="setting-row-name">背景形状</text>
+              <text class="setting-row-desc">{{ txnBgRoundName }}</text>
+            </view>
 
-          <view class="size-slider">
-            <slider
-              :value="txnBgRoundIndex"
-              :min="0"
-              :max="4"
-              :step="1"
-              :active-color="primaryColor"
-              :background-color="sliderInactiveColor"
-              :block-size="20"
-              @changing="onRoundMove"
-              @change="onRoundEnd"
-            />
-          </view>
+            <view class="size-slider">
+              <slider
+                :value="txnBgRoundIndex"
+                :min="0"
+                :max="4"
+                :step="1"
+                :active-color="primaryColor"
+                :background-color="sliderInactiveColor"
+                :block-size="20"
+                @changing="onRoundMove"
+                @change="onRoundEnd"
+              />
+            </view>
 
-          <view class="size-labels">
-            <text
-              v-for="(r, i) in txnIconRounds"
-              :key="r.key"
-              class="size-label"
-              :class="{ active: txnBgRoundIndex === i }"
-              @click="setTxnRound(i)"
-            >{{ r.name }}</text>
+            <view class="size-labels size-labels--last">
+              <text
+                v-for="(r, i) in txnIconRounds"
+                :key="r.key"
+                class="size-label"
+                :class="{ active: txnBgRoundIndex === i }"
+                @click="setTxnRound(i)"
+              >{{ r.name }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -219,13 +206,40 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
+    /* ------------------------------------------------ 下拉选择 */
+
+    const modeLabels = modes.map((m) => m.name)
+    const modeIndex = computed(() => {
+      const i = modes.findIndex((m) => m.key === themeMode.value)
+      return i < 0 ? 0 : i
+    })
+    const currentMode = computed(() => modes[modeIndex.value] || modes[0])
+
+    function onModePick(e) {
+      const i = Number(e && e.detail ? e.detail.value : 0)
+      const m = modes[i]
+      if (m) setMode(m.key)
+    }
+
     /* ------------------------------------------------ 图标样式 */
 
     const emojiStyles = EMOJI_STYLES
+    const emojiStyleLabels = emojiStyles.map((s) => s.name)
+    const emojiStyleIndex = computed(() => {
+      const i = emojiStyles.findIndex((s) => s.key === settingStore.emojiStyle)
+      return i < 0 ? 0 : i
+    })
+    const currentStyle = computed(() => emojiStyles[emojiStyleIndex.value] || emojiStyles[0])
 
     /** 样式选择行里的预览图（60 档缩略图） */
     function emojiPreview(styleKey) {
       return emojiImageSrc('1F600', 60, styleKey)
+    }
+
+    function onStylePick(e) {
+      const i = Number(e && e.detail ? e.detail.value : 0)
+      const s = emojiStyles[i]
+      if (s) setEmojiStyle(s.key)
     }
 
     async function setEmojiStyle(key) {
@@ -264,6 +278,12 @@ export default {
     const txnBgRoundName = computed(() => {
       const r = TXN_ICON_ROUNDS[txnBgRoundIndex.value] || TXN_ICON_ROUNDS[2]
       return r.name
+    })
+
+    /** 预览下方的说明：背景关闭时不再显示形状名 */
+    const txnPreviewDesc = computed(() => {
+      if (!settingStore.txnIconShowBg) return `${txnSizeLabel.value} · 无背景`
+      return `${txnSizeLabel.value} · ${txnBgRoundName.value}`
     })
 
     /**
@@ -344,9 +364,10 @@ export default {
     }
 
     return {
-      presets, modes, themeMode, themePreset,
-      emojiStyles, setEmojiStyle, emojiPreview,
-      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, sliderInactiveColor,
+      presets, themeMode, themePreset,
+      modeLabels, modeIndex, currentMode, onModePick,
+      emojiStyles, emojiStyleLabels, emojiStyleIndex, currentStyle, onStylePick, emojiPreview,
+      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, txnPreviewDesc, sliderInactiveColor,
       txnIconRounds, txnBgRoundIndex, txnBgRoundName,
       onSizeMove, onSizeEnd, setTxnSize, onTxnBgChange,
       onRoundMove, onRoundEnd, setTxnRound,
@@ -375,66 +396,52 @@ export default {
 }
 
 /* 模式 */
-.mode-list {
+/* 下拉选择行 */
+.select-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 24rpx 28rpx;
   background-color: var(--app-card);
   border-radius: 20rpx;
-  overflow: hidden;
 }
 
-.mode-row {
+.select-left {
   display: flex;
   align-items: center;
   gap: 20rpx;
-  padding: 28rpx;
-  border-bottom: 1rpx solid var(--app-line);
+  min-width: 0;
 }
 
-.mode-row:last-child {
-  border-bottom: none;
-}
-
-/* 模式图标（线性描边图标，size 单位是 px） */
-.mode-icon {
-  width: 40rpx;
-  height: 40rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.mode-info {
-  flex: 1;
+.select-texts {
   display: flex;
   flex-direction: column;
   gap: 4rpx;
+  min-width: 0;
 }
 
-.mode-name {
+.select-name {
   font-size: 28rpx;
   color: var(--app-text);
 }
 
-.mode-desc {
+.select-desc {
   font-size: 22rpx;
   color: var(--app-text-3);
 }
 
-/* 图标样式预览 */
-.style-preview {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 16rpx;
-  background-color: var(--app-card-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.select-style-img {
+  width: 44rpx;
+  height: 44rpx;
   flex-shrink: 0;
 }
 
-.style-img {
-  width: 48rpx;
-  height: 48rpx;
+.select-arrow {
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
 /* 交易流水图标设置 */
@@ -495,6 +502,11 @@ export default {
   border-bottom: 1rpx solid var(--app-line);
 }
 
+.size-labels--last {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
 .setting-divider {
   height: 1rpx;
   background-color: var(--app-line);
@@ -540,27 +552,6 @@ export default {
 .setting-row-desc {
   font-size: 22rpx;
   color: var(--app-text-3);
-}
-
-.radio {
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 50%;
-  border: 2rpx solid var(--app-line);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.radio.checked {
-  border-color: var(--app-primary);
-}
-
-.radio-dot {
-  width: 22rpx;
-  height: 22rpx;
-  border-radius: 50%;
 }
 
 /* 预设色 */

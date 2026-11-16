@@ -31,15 +31,12 @@
               class="row-swipe"
             >
               <view class="row" @click="goDetail(c)">
-                <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
-                  <CategoryGlyph
-                    :icon="c.icon"
-                    :name="c.iconName"
-                    :symbol="c.iconSymbol"
-                    :color="c.color || primaryColor"
-                    size="34rpx"
-                  />
-                </view>
+                <TxnIcon
+                  :icon="c.icon"
+                  :name="c.iconName"
+                  :color="c.color || primaryColor"
+                  :symbol="c.iconSymbol"
+                />
 
                 <view class="row-info">
                   <!--
@@ -104,15 +101,12 @@
               class="row-swipe"
             >
               <view class="row" @click="goDetail(c)">
-                <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
-                  <CategoryGlyph
-                    :icon="c.icon"
-                    :name="c.iconName"
-                    :symbol="c.iconSymbol"
-                    :color="c.color || primaryColor"
-                    size="34rpx"
-                  />
-                </view>
+                <TxnIcon
+                  :icon="c.icon"
+                  :name="c.iconName"
+                  :color="c.color || primaryColor"
+                  :symbol="c.iconSymbol"
+                />
 
                 <view class="row-info">
                   <!--
@@ -177,15 +171,12 @@
               class="row-swipe"
             >
               <view class="row" @click="goDetail(c)">
-                <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
-                  <CategoryGlyph
-                    :icon="c.icon"
-                    :name="c.iconName"
-                    :symbol="c.iconSymbol"
-                    :color="c.color || primaryColor"
-                    size="34rpx"
-                  />
-                </view>
+                <TxnIcon
+                  :icon="c.icon"
+                  :name="c.iconName"
+                  :color="c.color || primaryColor"
+                  :symbol="c.iconSymbol"
+                />
 
                 <view class="row-info">
                   <!--
@@ -263,7 +254,7 @@ import LineIcon from '@/components/LineIcon.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import CyclePanel from '@/components/CyclePanel.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCycles, deleteCycle, recurrenceLabel, listCycleCounts, nextOccurrence } from '@/api/cycle.js'
@@ -275,7 +266,7 @@ import { onBackPress } from '@dcloudio/uni-app'
 import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel, UpdateDialog, CategoryGlyph },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel, UpdateDialog, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -496,22 +487,6 @@ export default {
 
 .row:last-child {
   border-bottom: none;
-}
-
-.row-icon {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.row-icon-text {
-  font-size: 30rpx;
-  color: inherit;
-  font-weight: 500;
 }
 
 .row-info {
