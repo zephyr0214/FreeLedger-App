@@ -171,7 +171,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 - Deep thinking and charts are both toggleable
 
 **Data & appearance**
-- Category icons support system / Noto Color Emoji / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji styles, loaded on demand over the network (nothing bundled); browse top-level groups and subcategories when creating or editing a category
+- Category icons support Noto Color Emoji / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji styles, loaded on demand over the network (nothing bundled); browse top-level groups and subcategories when creating or editing a category
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors; overview card, person header, reimbursement slip header and profile card share one theme gradient (automatically hidden in dark mode)
 - Structured database migrations (schema v25) — upgrades never lose data
