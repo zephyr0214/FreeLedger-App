@@ -120,7 +120,7 @@
                   <CategoryGlyph
                     :icon="t.category_icon"
                     :name="t.category_name"
-                    size="52rpx"
+                    size="64rpx"
                   />
                 </view>
 
@@ -287,7 +287,7 @@
                 <CategoryGlyph
                   :icon="d.category_icon"
                   :name="d.category_name"
-                  size="52rpx"
+                  size="64rpx"
                 />
               </view>
 
@@ -338,7 +338,7 @@
                 <CategoryGlyph
                   :icon="t.category_icon"
                   :name="t.category_name"
-                  size="52rpx"
+                  size="64rpx"
                 />
               </view>
 
@@ -1367,7 +1367,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 44rpx;
+  font-size: 54rpx;
 }
 
 .txn-info {

@@ -142,7 +142,7 @@
                 v-else
                 :icon="txn.category_icon"
                 :name="txn.category_name"
-                size="52rpx"
+                size="64rpx"
               />
             </view>
 
@@ -2233,7 +2233,7 @@ export default {
 }
 
 .txn-icon-text {
-  font-size: 44rpx;
+  font-size: 54rpx;
   font-weight: 500;
 }
 
