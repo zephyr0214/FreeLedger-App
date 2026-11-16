@@ -111,7 +111,7 @@
               :step="1"
               :active-color="primaryColor"
               :background-color="sliderInactiveColor"
-              block-size="20"
+              :block-size="20"
               @changing="onSizeMove"
               @change="onSizeEnd"
             />
