@@ -639,7 +639,6 @@
             v-for="(t, i) in topExpenses"
             :key="t.id"
             class="top-item"
-            :class="{ 'top-item-hi': i < 3 }"
             @click="goTxnDetail(t.id)"
           >
             <text class="top-rank" :class="{ 'top-3': i < 3 }">{{ i + 1 }}</text>
@@ -2616,40 +2615,24 @@ export default {
 }
 
 /*
- * 前三名：浅浅的主题色背景
+ * 前三名只高亮名次数字，不铺整行底色（用户要求）
  *
- * ★ 暗色下这里原来会「透出一层白」★
- *   --app-primary-light 在暗色下是半透明色（tintOf(primary, 0.22)），
- *   直接当背景色铺在卡片上时，圆角边缘和条目间隙会和父卡片底色叠加，
- *   在深色背景上看起来像一圈发白的阴影，很突兀。
- *
- *   所以高亮块改用不透明的混合色：把主题色以 22% 混进卡片底色，
- *   得到和「半透明叠在卡片上」几乎一样的观感，但不依赖父层，
- *   圆角和间隙处也不会透出白边。
- *   --app-primary-light 仍保留给「徽标 / 胶囊」这类小面积浅底使用。
+ * 月历里「今天 / 选中日」是一个主题色圆形 + 白字；
+ * 这里 1/2/3 也用同样的圆形徽标，整行保持普通卡片底色。
+ * 所有名次都占同样大小的圆位，前三名只是把圆填上主题色，
+ * 这样 4~10 名的数字不会因为没背景而左右错位。
  */
-.top-item-hi {
-  background-color: var(
-    --app-primary-light-solid,
-    var(--app-primary-light)
-  );
-  border-radius: 12rpx;
-  padding-left: 16rpx;
-  padding-right: 16rpx;
-  margin-bottom: 8rpx;
-  /*
-   * 高亮块自带圆角背景时不要再加分隔线：
-   * 那根线沿着圆角边缘画过去，会在视觉上「描一圈边」。
-   */
-  border-bottom: none;
-}
-
 .top-item:last-child {
   border-bottom: none;
 }
 
 .top-rank {
   width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 24rpx;
   color: var(--app-text-3);
   font-weight: 600;
@@ -2658,7 +2641,8 @@ export default {
 }
 
 .top-rank.top-3 {
-  color: var(--app-primary);
+  background-color: var(--app-primary);
+  color: #ffffff;
 }
 
 .top-info {
