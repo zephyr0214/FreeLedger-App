@@ -55,21 +55,14 @@
             右滑子类行  -> 露出「编辑」「删除」
         -->
         <!--
-          ★ 固定分类不能右滑 ★
-            wd-swipe-action 的 disabled 属性直接禁掉滑动，
-            比「滑出来再提示」体验好 —— 固定分类本来就没有可改的东西，
-            滑出来只会被误触。
-
-          ★ 「系统分类」例外：不能改，但要能展开 ★
-            以前固定分类既不能右滑、也不能展开（它们没有子类）。
-            v14 起「系统分类」是一个真正的父级 —— 下面挂着
-            「借出 / 对账支出」（支出）和「借入 / 对账收入」（收入），
-            所以它要能展开，只是它自己和子类都不能编辑/删除。
+          ★ 系统分类也可以右滑编辑 ★
+            名称和删除仍锁死，但图标、颜色允许用户调整。
+            右滑区只放「编辑」，不显示删除按钮。
+            「系统分类」父级本身能展开，下面挂着借出/借入等固定子类。
         -->
         <wd-swipe-action
           v-model="swipeStates[parent.id]"
           class="cat-swipe"
-          :disabled="isFixed(parent)"
         >
           <view class="parent-row" @click="toggleExpand(parent.id)">
             <view class="parent-icon" :style="{ backgroundColor: categoryTint(parent.color || primaryColor, settingStore.isDark) }">
@@ -116,9 +109,9 @@
               .stop 阻止冒泡到外层的 onClick('right')，避免重复触发。
           -->
           <template #right>
-            <!-- 固定分类：滑出来只提示，不给操作按钮 -->
-            <view v-if="isFixed(parent)" class="swipe-locked">
-              <text class="swipe-locked-text">固定分类</text>
+            <!-- 系统分类：可以改图标/颜色，但名称和删除仍锁死 -->
+            <view v-if="isFixed(parent)" class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(parent)">
+              <text class="swipe-action-text">编辑</text>
             </view>
             <template v-else>
               <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(parent)">
@@ -138,7 +131,6 @@
             :key="child.id"
             v-model="swipeStates[child.id]"
             class="cat-swipe cat-swipe-child"
-            :disabled="isFixed(child)"
           >
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
@@ -162,8 +154,9 @@
             </view>
 
             <template #right>
-              <view v-if="isFixed(child)" class="swipe-locked">
-                <text class="swipe-locked-text">固定分类</text>
+              <!-- 系统子分类同样只允许改图标/颜色，不提供删除 -->
+              <view v-if="isFixed(child)" class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(child)">
+                <text class="swipe-action-text">编辑</text>
               </view>
               <template v-else>
                 <view class="swipe-edit" :style="{ backgroundColor: primaryColor }" @click.stop="openEdit(child)">
@@ -188,10 +181,7 @@
             <text class="child-add-text">+ 添加子分类</text>
           </view>
 
-          <!-- 固定分类：说明为什么这些子类不能改 -->
-          <view v-if="isFixed(parent)" class="child-actions">
-            <text class="action-lock">系统分类，不可编辑或删除</text>
-          </view>
+          <!-- 系统分类不再显示「不可编辑或删除」的整块提示 -->
         </view>
       </view>
 
@@ -213,9 +203,11 @@
             <input
               v-model="editorForm.name"
               class="editor-input"
+              :class="{ 'editor-input-locked': isEditingFixed }"
               placeholder="分类名称"
               placeholder-class="editor-placeholder"
               :maxlength="10"
+              :disabled="isEditingFixed"
             />
           </view>
 
@@ -239,8 +231,8 @@
             </view>
           </view>
 
-          <!-- 颜色只有一级能改：二级继承父级的颜色 -->
-          <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
+          <!-- 普通二级分类颜色跟随父级；系统分类（含子类）允许单独改颜色 -->
+          <view v-if="!editorForm.parent_id || isEditingFixed" class="editor-row editor-row-column">
             <text class="editor-label">颜色</text>
             <view class="color-grid">
               <view
@@ -381,6 +373,9 @@ export default {
     /** 弹层标题：新建一级 / 新建子分类 / 编辑 */
     const editorTitle = computed(() => {
       if (editingId.value) {
+        if (isEditingFixed.value) {
+          return editorForm.parent_id ? '编辑系统子分类' : '编辑系统分类'
+        }
         return editorForm.parent_id ? '编辑子分类' : '编辑一级分类'
       }
       return editorForm.parent_id ? '新建子分类' : '新建一级分类'
@@ -440,13 +435,13 @@ export default {
     }
 
     /**
-     * 是不是「固定分类」（不可改名 / 改图标 / 改颜色 / 删除）
+     * 是不是「系统分类」（名称/删除锁定，图标和颜色可改）
      *
      * ★ v14 起固定分类是一整组 ★
      *   一级「系统分类」，以及它下面挂的
      *   「借出 / 对账支出」（支出）、「借入 / 对账收入」（收入）。
      *   判定规则收在 api/category.js 的 isFixedCategory()，
-     *   页面只负责用它决定「给不给编辑/删除按钮」。
+     *   页面只负责用它决定「名称/删除是否禁用、图标/颜色是否开放」。
      */
     function isFixed(cat) {
       return isFixedCategory(cat)
@@ -498,11 +493,6 @@ export default {
     }
 
     function openEdit(cat) {
-      // 固定分类不能改 —— 改名、图标、颜色都不行
-      if (isFixed(cat)) {
-        uni.showToast({ title: `「${cat.name}」是固定分类，不能修改`, icon: 'none' })
-        return
-      }
       editingId.value = cat.id
       editorForm.name = cat.name
       editorForm.color = cat.color || DEFAULT_COLOR
@@ -527,37 +517,18 @@ export default {
         return
       }
 
-      // 编辑固定分类 -> 直接拦掉
-      //   ★ 不用 flatMap ★
-      //     flatMap 要 Chrome 69+/Safari 12+，老 Android WebView 上没有。
-      const all = tree.value.slice()
-      for (const p of tree.value) {
-        for (const c of p.children) all.push(c)
-      }
-      if (editingId.value) {
-        const target = all.find((c) => c.id === editingId.value)
-        if (isFixed(target)) {
-          uni.showToast({ title: `「${target.name}」是固定分类，不能修改`, icon: 'none' })
-          closeEditor()
-          return
-        }
-      }
-
       try {
         if (editingId.value) {
-          /*
-           * ★ 编辑子分类时不要回写颜色 ★
-           *   子分类颜色只跟随父级，编辑弹层也不显示颜色选项。
-           *   如果这里把 openEdit 读到的旧 color 再写回去，
-           *   父类刚刚级联更新的颜色会被这一个操作覆盖回旧值。
-           */
-          const patch = {
-            name: editorForm.name.trim(),
-            icon: editorForm.icon
-          }
-          if (!editorForm.parent_id) patch.color = editorForm.color
-          await updateCategory(editingId.value, patch)
-        } else {
+        /*
+         * ★ 系统分类只允许改图标 / 颜色 ★
+         *   名称不提交（输入框也已禁用），删除入口不显示；
+         *   API 层还会再兜一次，防止绕过 UI。
+         */
+        const patch = { icon: editorForm.icon }
+        if (!isEditingFixed.value) patch.name = editorForm.name.trim()
+        if (!editorForm.parent_id || isEditingFixed.value) patch.color = editorForm.color
+        await updateCategory(editingId.value, patch)
+      } else {
           await createCategory({
             name: editorForm.name.trim(),
             type: activeType.value,
@@ -822,17 +793,12 @@ export default {
   padding: 2rpx 10rpx;
 }
 
-.action-lock {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
 /*
  * 固定子类的「固定」小标记
  *
  * 比父级的「固定分类」标签更小、更淡 ——
  * 父级是「这是一整组固定分类」的强提示，
- * 子类只是逐个确认「我也改不了」，不需要同样抢眼。
+ * 子类只是逐个确认「我的名称/删除仍锁死」，不需要同样抢眼。
  */
 .child-locked {
   font-size: 18rpx;
@@ -912,12 +878,6 @@ export default {
   color: var(--app-primary);
 }
 
-.child-actions {
-  display: flex;
-  justify-content: center;
-  padding: 20rpx 0 8rpx;
-}
-
 /* 右滑操作区：编辑 / 删除 */
 .swipe-edit,
 .swipe-delete {
@@ -932,21 +892,6 @@ export default {
   color: #ffffff;
   font-size: 26rpx;
   font-weight: 500;
-}
-
-/* 固定分类：滑出来只提示 */
-.swipe-locked {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 200rpx;
-  height: 100%;
-  background-color: var(--app-text-3);
-}
-
-.swipe-locked-text {
-  color: #ffffff;
-  font-size: 24rpx;
 }
 
 /* 右上角：新建一级分类 */
@@ -1060,6 +1005,11 @@ export default {
   text-align: right;
   font-size: 28rpx;
   color: var(--app-text);
+}
+
+/* 系统分类名称锁死：输入框仍可读，但视觉上明确是只读 */
+.editor-input-locked {
+  color: var(--app-text-3);
 }
 
 .editor-placeholder {

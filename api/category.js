@@ -127,11 +127,20 @@ export async function updateCategory(id, patch) {
   const existing = await getCategory(id)
   if (!existing) throw new Error('分类不存在')
 
-  // ★ 固定分类（「系统分类」及其下的借出/借入/对账支出/对账收入）不允许改 ★
-  //   UI 层已经拦了一道，这里是 API 层的兜底 ——
-  //   万一别处（导入、脚本）绕过了 UI，也不能把固定分类改了。
-  if (await isFixedCategoryById(existing)) {
-    throw new Error(`「${existing.name}」是固定分类，不能修改`)
+  /*
+   * ★ 系统分类：名称和层级锁死，但图标 / 颜色可以改 ★
+   *   「借出 / 借入 / 对账支出…」这些分类的记账口径不能变，
+   *   所以名字和 parent_id 不允许改；图标和颜色只是展示层，
+   *   用户可以按自己的分类色板调整。
+   */
+  const fixed = await isFixedCategoryById(existing)
+  if (fixed) {
+    if (patch.name !== undefined && String(patch.name).trim() !== existing.name) {
+      throw new Error(`「${existing.name}」是系统分类，不能修改名称`)
+    }
+    if (patch.parent_id !== undefined && (patch.parent_id || null) !== (existing.parent_id || null)) {
+      throw new Error(`「${existing.name}」是系统分类，不能移动层级`)
+    }
   }
 
   const fields = []

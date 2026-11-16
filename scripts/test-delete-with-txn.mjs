@@ -244,7 +244,7 @@ function getAccount(db, id) {
 }
 
 function getCategory(db, id) {
-  return db.prepare('SELECT id, parent_id, name, deleted_at FROM category WHERE id = ?').get(id)
+  return db.prepare('SELECT id, parent_id, name, icon, color, deleted_at FROM category WHERE id = ?').get(id)
 }
 
 console.log('=== 场景 1：账户有交易也能删 ===')
@@ -452,6 +452,20 @@ console.log('=== 场景 7：固定分类（对账支出/对账收入）仍然不
   try { await categoryMod.deleteCategory('catI') } catch (e) { threwI = e.message }
   check('「对账收入」不能删', threwI !== null, true)
   check('「对账收入」还在', getCategory(db, 'catI').deleted_at, null)
+
+  /*
+   * ★ 系统分类可以改图标 / 颜色，但不能改名 ★
+   *   用户要求：分类管理里系统分类的图标和颜色可编辑，
+   *   名称与删除仍锁死。
+   */
+  await categoryMod.updateCategory('catR', { icon: '1F4B0', color: '#123456' })
+  check('系统分类可改图标', getCategory(db, 'catR').icon, '1F4B0')
+  check('系统分类可改颜色', getCategory(db, 'catR').color, '#123456')
+
+  let threwName = null
+  try { await categoryMod.updateCategory('catR', { name: '改个名' }) } catch (e) { threwName = e.message }
+  check('系统分类不能改名', threwName !== null, true)
+  check('系统分类名字没变', getCategory(db, 'catR').name, '对账支出')
 }
 
 console.log('=== 场景 8：普通分类可以正常删（没交易时也一样）===')

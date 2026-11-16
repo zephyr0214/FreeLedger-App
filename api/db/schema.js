@@ -17,7 +17,7 @@ export const SCHEMA_VERSION = 25
  * 这样余额公式（期初 + 收入 - 支出）才成立、账也对得上。
  *
  * 这两条是**固定的一级分类**（parent_id = NULL）：
- *   - 分类管理里不能改名、不能改图标/颜色、不能删除
+ *   - 分类管理里不能改名、不能删除；图标和颜色可以改
  *   - expense 类型下叫「对账支出」，income 类型下叫「对账收入」
  *
  * 放在 schema.js 是为了让 api/category.js 和 api/db/index.js（迁移 v4）
@@ -59,7 +59,7 @@ export const RECONCILE_LEGACY_NAME = '对账调整'
  *   所以「系统分类」在 expense 和 income 下各是一条独立的一级分类
  *   （名字相同、type 不同），它们下面的固定子类各自归位。
  *
- * ★ 固定子类不可删改 ★
+ * ★ 固定子类不可改名/删除，但图标和颜色可改 ★
  *   「对账支出 / 对账收入」是余额对账的记账口径，
  *   「借出 / 借入」是借入借出管理的记账口径，
  *   都被 api/category.js 的 isFixedCategory() 拦住，分类管理里不能改名/删除。
