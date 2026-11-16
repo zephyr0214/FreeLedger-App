@@ -9,7 +9,7 @@
  *
  * ★ 三段式职责 ★
  *   checkUpdate()  查 Gitee + 版本比较，产出归一化的更新信息
- *   downloadApk()  plus.downloader 下到 _doc/update/，带进度回调
+ *   downloadApk()  系统 DownloadManager 下载到 App 专属外部目录（后台 / 锁屏 / 进程被杀都继续）
  *   installApk()   plus.runtime.install 拉起系统安装器
  *   编排（进度状态机、弹窗时机）在 stores/update.js，这里只管单步。
  *
@@ -21,42 +21,30 @@
 const LATEST_API = 'https://gitee.com/api/v5/repos/all0zy/FreeLedger-App/releases/latest'
 
 import { APP_VERSION, compareVersions } from '../utils/version.js'
-import {
-  createProgressNotifier, clearProgressNotification, INSTALL_EXTRA_KEY
-} from './notifier.js'
+import { INSTALL_EXTRA_KEY } from './notifier.js'
+
 /*
- * 后台下载必备：不持唤醒锁，App 退到后台后 CPU 会睡眠，
- * 下载线程跟着被挂起 —— 用户看到的就是「下载终止了」。
+ * ★ 下载改走 Android 系统 DownloadManager ★
+ *   下载任务在系统进程里跑，App 退后台 / 锁屏 / 进程被杀都能继续；
+ *   通知、重试、断点续传都由系统负责。
+ *   JS 侧只负责：入队 → 轮询进度 → 完成后拉起安装器。
  */
-import { acquireWakeLock, releaseWakeLock } from './wakeLock.js'
+const DOWNLOAD_ID_KEY = 'update_download_id'
+const DOWNLOAD_PATH_KEY = 'update_download_path'
+const DM_PENDING = 1
+const DM_RUNNING = 2
+const DM_PAUSED = 4
+const DM_SUCCESSFUL = 8
+const DM_FAILED = 16
+const DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000
 
-/** 正在进行的下载任务（取消下载用） */
-let currentTask = null
+/** 轮询定时器 / 当前下载的 reject（用户取消时用来结束 Promise） */
+let pollTimer = null
+let activeCancel = null
 
-/** 取消当前下载（如有） */
-export function abortDownload() {
-  if (currentTask) {
-    try { currentTask.abort() } catch (e) {}
-    currentTask = null
-  }
-  /*
-   * 中断下载时也要释放唤醒锁。
-   * abort() 会触发上面那个回调（status 非 200）也会释放，
-   * 但不能依赖它 —— abort 在某些 ROM 上不保证回调能到达，
-   * 那把锁就永远漏掉了。幂等释放不会出错。
-   */
-  releaseWakeLock()
-}
-
-/**
- * 请求 Gitee 最新发行版并和本地版本比较
- *
- * @returns {Promise<{hasUpdate:boolean, version?:string, notes?:string,
- *   downloadUrl?:string, sizeBytes?:number}>}
- * @throws {Error} 网络失败 / 接口异常（由调用方决定静默还是提示）
- */
-export async function checkUpdate() {
-  const data = await new Promise((resolve, reject) => {
+/** 请求 Gitee 最新发行版原始数据 */
+async function fetchLatestReleaseData() {
+  return new Promise((resolve, reject) => {
     uni.request({
       url: LATEST_API,
       method: 'GET',
@@ -71,7 +59,20 @@ export async function checkUpdate() {
       fail: (e) => reject(new Error((e && e.errMsg) || '网络请求失败'))
     })
   })
-  return resolveUpdate(data, APP_VERSION)
+}
+
+/**
+ * 请求 Gitee 最新发行版并和本地版本比较
+ *
+ * @param {object} [opt]
+ *   ignoreVersion=true 时跳过版本比较（**临时调试入口专用**，见 About 页）
+ * @returns {Promise<{hasUpdate:boolean, version?:string, notes?:string,
+ *   downloadUrl?:string, sizeBytes?:number}>}
+ * @throws {Error} 网络失败 / 接口异常（由调用方决定静默还是提示）
+ */
+export async function checkUpdate(opt = {}) {
+  const data = await fetchLatestReleaseData()
+  return resolveUpdate(data, APP_VERSION, !!opt.ignoreVersion)
 }
 
 /**
@@ -81,25 +82,23 @@ export async function checkUpdate() {
  *   Gitee 会自动附带源码 zip / tar.gz，不能把它们当安装包。
  * @param {object} data /releases/latest 的响应
  * @param {string} current 本地版本号
+ * @param {boolean} ignoreVersion 跳过版本比较（临时调试入口用）
  */
-export function resolveUpdate(data, current) {
+export function resolveUpdate(data, current, ignoreVersion = false) {
   if (!data || !data.tag_name) return { hasUpdate: false }
   const version = String(data.tag_name).replace(/^v/i, '').trim()
   const apk = (data.assets || []).find((a) => /\.apk$/i.test(a.name || ''))
   if (!version || !apk) return { hasUpdate: false }
 
   /*
-   * ★ 远端不比本地新 -> 不算更新（永不提示降级）★
-   *   把当前版本当成新版本推给用户，误报比省一次发版更重要。
-   *
-   * ★ 为什么不再有「跳过比较」的选项 ★
-   *   之前为了真机验证加过一个 ignoreVersion「测试更新」入口，
-   *   用户要求删掉。那个选项一旦存在，
-   *   就是一条「把本机版本当新版本弹给用户」的暗路。
-   *   现在连能力一起删掉，以后想加回来也得重新过一遍设计。
+   * ★ 正常入口永远比较版本，不提示降级 ★
+   *   ignoreVersion 只给「我的 → 关于 → 下载最新安装包（调试）」用，
+   *   方便真机验证 DownloadManager / 安装链路；发版前删掉调试入口即可。
    */
-  const cmp = compareVersions(version, current)
-  if (cmp <= 0) return { hasUpdate: false }
+  if (!ignoreVersion) {
+    const cmp = compareVersions(version, current)
+    if (cmp <= 0) return { hasUpdate: false }
+  }
 
   return {
     hasUpdate: true,
@@ -110,127 +109,290 @@ export function resolveUpdate(data, current) {
   }
 }
 
-/**
- * 下载进度显示在**系统通知栏**（而不是 App 内的进度条）
+/* ------------------------------------------------------------------ *
+ * Android DownloadManager
  *
- * ★ 为什么放通知栏 ★
- *   更新下载经常要几十秒，用户会切出去干别的 ——
- *   进度留在 App 内等于看不见。通知栏是系统级的，切走也能看到，
- *   下载完成后还能顺手点通知直接进安装界面。
+ * ★ 为什么从 plus.downloader 换成系统 DownloadManager ★
+ *   plus.downloader 的下载线程跑在 App 进程里：
+ *     · App 退后台 / 锁屏后，Doze、后台网络限制、国产 ROM 省电策略
+ *       都会让下载暂停甚至杀掉进程
+ *     · PARTIAL_WAKE_LOCK 只保 CPU，不保网络 / 进程优先级
+ *   系统 DownloadManager 在系统进程里下载：
+ *     · App 退后台、锁屏、进程被杀，下载都继续
+ *     · 通知、重试、断点续传由系统负责
+ *     · 完成后系统通知点一下就能进安装器
  *
- * ★ 实现要点（每一条都踩过坑） ★
- *   1. Android 13+ 发通知需要 POST_NOTIFICATIONS **运行时权限**，
- *      光在 manifest 声明不够 —— 必须在发之前主动请求。
- *      用户拒绝过的话，发通知会被系统静默丢弃（一点报错都没有）。
- *   2. setSmallIcon 必须用**单色小图标**（系统状态栏是白的）。
- *      用应用彩色大图标在某些 ROM 上会让整条通知被丢弃。
- *      这里优先用渠道里的小图标资源，拿不到再退回应用图标。
- *   3. Android 8+ 必须建 NotificationChannel，用 IMPORTANCE_LOW
- *      保持安静（不响铃、不弹横幅），setProgress 画标准进度条。
- *   4. 任何异常都要 console.warn 出来 —— 之前全是空 catch，
- *      出了问题在日志里一点痕迹都没有，只能靠猜。
- *
- * ★ 失败静默（对用户）★
- *   拿不到通知就退化成「无进度显示」，绝不能让下载本身失败。
- *   但对开发要留日志，否则「通知没出现」根本无从查起。
- */
-/* 通知栏进度的实现移到 api/notifier.js ——
-   那里用 plus.android.getAttribute 正确读取 Java 静态字段。
-   旧实现在本文件里直接写 Context.NOTIFICATION_SERVICE /
-   IMPORTANCE_LOW / Build.VERSION.SDK_INT，这些在 plus.android
-   里全是 undefined，导致通知被系统静默丢弃（见 notifier.js 顶部说明）。 */
+ * ★ JS 侧职责 ★
+ *   入队 → 每秒查一次状态（App 在前台时）→ 完成后按本地路径拉起安装器。
+ *   下载 ID / 本地路径写进 uni storage：
+ *     App 被杀后重新打开，resumePendingDownload() 还能接着查 / 安装。
+ * ------------------------------------------------------------------ */
+
+function isAppRuntime() {
+  return typeof plus !== 'undefined' && !!plus.android
+}
+
+function getMainActivity() {
+  if (!isAppRuntime()) return null
+  try {
+    const main = plus.android.runtimeMainActivity()
+    plus.android.importClass(main)
+    return main
+  } catch (e) {
+    console.warn('[update] 取主 Activity 失败:', e && e.message)
+    return null
+  }
+}
+
+function getDownloadManager() {
+  const main = getMainActivity()
+  if (!main) return null
+  try {
+    const dm = main.getSystemService('download') // Context.DOWNLOAD_SERVICE
+    if (dm) plus.android.importClass(dm)
+    return dm || null
+  } catch (e) {
+    console.warn('[update] 取 DownloadManager 失败:', e && e.message)
+    return null
+  }
+}
+
+/** DownloadManager 写到 App 专属外部目录（无需存储权限） */
+function downloadFilePath(filename) {
+  const main = getMainActivity()
+  if (!main) return ''
+  try {
+    // Environment.DIRECTORY_DOWNLOADS 的值就是 "Download"
+    const dir = plus.android.invoke(main, 'getExternalFilesDir', 'Download')
+    if (!dir) return ''
+    try {
+      plus.android.importClass(dir)
+      if (!plus.android.invoke(dir, 'exists')) plus.android.invoke(dir, 'mkdirs')
+    } catch (e) {}
+    const base = String(plus.android.invoke(dir, 'getAbsolutePath') || '')
+    return base ? `${base}/${filename}` : ''
+  } catch (e) {
+    console.warn('[update] 取下载目录失败:', e && e.message)
+    return ''
+  }
+}
+
+function deleteLocalFile(path) {
+  if (!path || !isAppRuntime()) return
+  try {
+    const File = plus.android.importClass('java.io.File')
+    const f = new File(path)
+    if (plus.android.invoke(f, 'exists')) plus.android.invoke(f, 'delete')
+  } catch (e) {}
+}
+
+function fileExists(path) {
+  if (!path || !isAppRuntime()) return false
+  try {
+    const File = plus.android.importClass('java.io.File')
+    return !!plus.android.invoke(new File(path), 'exists')
+  } catch (e) {
+    return false
+  }
+}
+
+function readDownloadId() {
+  try {
+    const id = Number(uni.getStorageSync(DOWNLOAD_ID_KEY))
+    return Number.isFinite(id) && id > 0 ? id : 0
+  } catch (e) {
+    return 0
+  }
+}
+
+function readDownloadPath() {
+  try {
+    return String(uni.getStorageSync(DOWNLOAD_PATH_KEY) || '')
+  } catch (e) {
+    return ''
+  }
+}
+
+function clearDownloadStorage() {
+  try { uni.removeStorageSync(DOWNLOAD_ID_KEY) } catch (e) {}
+  try { uni.removeStorageSync(DOWNLOAD_PATH_KEY) } catch (e) {}
+}
+
+/** 安装完成后清掉路径记录（下载文件本身保留，系统 Downloads 里可见） */
+export function clearDownloadedPath() {
+  try { uni.removeStorageSync(DOWNLOAD_PATH_KEY) } catch (e) {}
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+/** 入队一个系统下载任务，返回 downloadId */
+function enqueueSystemDownload(url, filename) {
+  const dm = getDownloadManager()
+  const main = getMainActivity()
+  if (!dm || !main) throw new Error('系统下载服务不可用')
+
+  const Uri = plus.android.importClass('android.net.Uri')
+  const Request = plus.android.importClass('android.app.DownloadManager$Request')
+  const request = new Request(Uri.parse(url))
+
+  // Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED = 2
+  plus.android.invoke(request, 'setNotificationVisibility', 2)
+  plus.android.invoke(request, 'setTitle', '自由记更新')
+  plus.android.invoke(request, 'setDescription', filename)
+  plus.android.invoke(request, 'setMimeType', 'application/vnd.android.package-archive')
+  plus.android.invoke(request, 'setAllowedOverMetered', true)
+  plus.android.invoke(request, 'setAllowedOverRoaming', false)
+  // 部分文件 CDN 会对 DownloadManager 默认 UA 做限制，换成浏览器 UA
+  plus.android.invoke(request, 'addRequestHeader', 'User-Agent',
+    'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36')
+  plus.android.invoke(request, 'addRequestHeader', 'Accept', '*/*')
+  // DownloadManager 可以直接写 App 专属外部目录，不需要存储权限
+  plus.android.invoke(request, 'setDestinationInExternalFilesDir', main, 'Download', filename)
+
+  const id = Number(plus.android.invoke(dm, 'enqueue', request))
+  if (!Number.isFinite(id) || id <= 0) throw new Error('创建系统下载任务失败')
+  return id
+}
+
+/** 查询下载状态：{ status, bytes, total, reason } / null */
+function querySystemDownload(id) {
+  const dm = getDownloadManager()
+  if (!dm || !id) return null
+
+  let cursor = null
+  try {
+    const Query = plus.android.importClass('android.app.DownloadManager$Query')
+    const q = new Query()
+    plus.android.invoke(q, 'setFilterById', id)
+    cursor = plus.android.invoke(dm, 'query', q)
+    if (!cursor) return null
+    if (!plus.android.invoke(cursor, 'moveToFirst')) return null
+
+    const col = (name) => Number(plus.android.invoke(cursor, 'getColumnIndex', name))
+    const int = (name) => Number(plus.android.invoke(cursor, 'getInt', col(name)))
+    const long = (name) => Number(plus.android.invoke(cursor, 'getLong', col(name)))
+
+    return {
+      status: int('status'),
+      bytes: long('bytes_so_far'),
+      total: long('total_size'),
+      reason: int('reason')
+    }
+  } catch (e) {
+    console.warn('[update] 查询系统下载失败:', e && e.message)
+    return null
+  } finally {
+    if (cursor) {
+      try { plus.android.invoke(cursor, 'close') } catch (e) {}
+    }
+  }
+}
+
+/** 取消 / 清理旧任务（下载列表 + 本地文件 + storage） */
+export function abortDownload() {
+  stopPolling()
+  if (activeCancel) {
+    const cancel = activeCancel
+    activeCancel = null
+    cancel(new Error('已取消下载'))
+  }
+
+  const id = readDownloadId()
+  const path = readDownloadPath()
+  if (id) {
+    try {
+      const dm = getDownloadManager()
+      if (dm) plus.android.invoke(dm, 'remove', id)
+    } catch (e) {}
+  }
+  if (path) deleteLocalFile(path)
+  clearDownloadStorage()
+}
 
 /**
- * 下载 APK 到本机（进度显示在系统通知栏）
+ * 下载 APK 到 App 专属外部目录
+ *
  * @param {string} url APK 直链
- * @param {string} filename 保存文件名（FreeLedger-v1.16.3.apk）
+ * @param {string} filename 保存文件名
  * @param {Function} onProgress 可选，进度回调（0~100）
- * @returns {Promise<string>} 本地文件路径（供 installApk）
+ * @returns {Promise<string>} 本地绝对路径（供 installApk）
  */
 export function downloadApk(url, filename, onProgress) {
   // #ifdef APP-PLUS
   return new Promise((resolve, reject) => {
-    abortDownload()
-    const notifier = createProgressNotifier()
-    // 0% 时先立一条不确定进度条（总大小还没拿到），让用户立刻看到「在下载」
-    notifier.update(0)
+    try {
+      abortDownload()
 
-    /*
-     * ★ 开下载前先拿唤醒锁（用户反馈的 bug）★
-     *   用户原话：「把软件放在后台怎么下载就终止了？」
-     *
-     *   原因：App 退到后台、屏幕熄灭后，Android 让 CPU 进入休眠，
-     *   plus.downloader 的下载线程也跟着停下。
-     *   持一把 PARTIAL_WAKE_LOCK 就能让 CPU 在下载期间不进入深度休眠（屏幕该熄灭还是熄灭）。
-     *
-     *   ★ 失败不阻断下载 ★
-     *     拿不到锁（权限被限、ROM 封锁等）只能说明后台下载可能被中断，
-     *     前台下载照样能完成 —— 不能因此直接报错。
-     */
-    const locked = acquireWakeLock('FreeLedger:update')
-    console.warn('[update] 下载开始，唤醒锁=' + (locked ? '已持有' : '未获取'))
+      const path = downloadFilePath(filename)
+      if (!path) throw new Error('无法创建下载目录')
+      // 同名文件存在会让 DownloadManager 直接失败，先删掉
+      deleteLocalFile(path)
 
-    const dtask = plus.downloader.createDownload(url, {
-      filename: '_doc/update/' + filename,
-      timeout: 600,
-      retry: 1,
-      retryInterval: 3
-    }, (d, status) => {
-      /*
-       * ★ 不管成功还是失败都要释放唤醒锁 ★
-       *   漏一条路就会留下一把“永不释放”的锁 ——
-       *   那是真正的耗电元凶（用户很快会发现电量掉得快）。
-       *   下面两个分支各释放一次，幂等；额外在 abortDownload /
-       *   cancelDownload 里也释放，覆盖「用户手动取消」路径。
-       */
-      releaseWakeLock()
-      if (status === 200) {
-        currentTask = null
-        onProgress && onProgress(100)
-        /*
-         * ★ 把本地路径一并交给通知★
-         *   下载完后的通知要能「点一下就装」，
-         *   而 PendingIntent 只能把路径当 extra 带回去，
-         *   App 回前台时才能拿它去调 plus.runtime.install。
-         *   不传的话点通知栏什么都不会发生（用户反馈的 bug）。
-         */
-        notifier.done(d.filename)
-        resolve(d.filename)
-      } else {
-        /*
-         * ★ 这里不能再用 `status !== undefined` 做前提（另一个 bug）★
-         *   旧写法：
-         *     if (status === 200) resolve
-         *     else if (status !== undefined) reject
-         *     （status 为 undefined 时什么都不做）
-         *
-         *   而 plus.downloader 在下载被中断、被系统回收、
-         *   被 abort 时，回调里的 status **就是 undefined**。
-         *   于是 Promise 永不 settle：
-         *     · store 的 phase 永远停在 'downloading'
-         *     · 再点「立即下载」被 `phase !== 'idle'` 挡住，什么都不发生
-         *     · 用户看到的就是「下载停了，而且怎么点都没反应」
-         *   现在除了 200 之外全部走 reject，保证 Promise 必定结束、
-         *   store 能把 phase 复位成 idle → 用户可以重试。
-         */
-        currentTask = null
-        notifier.fail()
-        reject(new Error(
-          status === undefined
-            ? '下载被中断（应用可能被系统回收），请重试'
-            : '下载失败（状态 ' + status + '）'
-        ))
+      const id = enqueueSystemDownload(url, filename)
+      uni.setStorageSync(DOWNLOAD_ID_KEY, id)
+      uni.setStorageSync(DOWNLOAD_PATH_KEY, path)
+
+      activeCancel = reject
+      const startedAt = Date.now()
+
+      const fail = (message) => {
+        stopPolling()
+        activeCancel = null
+        // 超时 / 任务丢失时把系统任务也撤掉，避免通知栏留一条僵尸进度
+        try {
+          const dm = getDownloadManager()
+          if (dm) plus.android.invoke(dm, 'remove', id)
+        } catch (e) {}
+        clearDownloadStorage()
+        deleteLocalFile(path)
+        reject(new Error(message))
       }
-    })
-    dtask.addEventListener('statechanged', (task) => {
-      if (task && task.totalSize > 0 && task.downloadedSize > 0) {
-        const pct = Math.min(100, Math.round((task.downloadedSize / task.totalSize) * 100))
-        notifier.update(pct)
-        onProgress && onProgress(pct)
+
+      const poll = () => {
+        pollTimer = null
+        const st = querySystemDownload(id)
+
+        if (!st) {
+          fail('系统下载任务已丢失，请重试')
+          return
+        }
+
+        if (st.total > 0) {
+          const pct = Math.min(100, Math.round((st.bytes / st.total) * 100))
+          onProgress && onProgress(pct)
+        }
+
+        if (st.status === DM_SUCCESSFUL) {
+          activeCancel = null
+          // ID 可以清掉；路径留着，安装成功后才清（进程被杀后 resume 还能装）
+          try { uni.removeStorageSync(DOWNLOAD_ID_KEY) } catch (e) {}
+          onProgress && onProgress(100)
+          resolve(path)
+          return
+        }
+
+        if (st.status === DM_FAILED) {
+          fail(`系统下载失败（原因 ${st.reason}）`)
+          return
+        }
+
+        // PENDING / RUNNING / PAUSED：继续等。系统会自己重试/续传。
+        if (Date.now() - startedAt > DOWNLOAD_TIMEOUT_MS) {
+          fail('下载超时，请重试')
+          return
+        }
+        pollTimer = setTimeout(poll, 1000)
       }
-    })
-    currentTask = dtask
-    dtask.start()
+
+      poll()
+    } catch (e) {
+      reject(e)
+    }
   })
   // #endif
   // #ifndef APP-PLUS
@@ -238,27 +400,156 @@ export function downloadApk(url, filename, onProgress) {
   // #endif
 }
 
-/**
- * 当前是否真的有下载任务在跑
- *
- * ★ 为什么需要它 ★
- *   store 的 phase 是纯前端状态，和真实的原生下载任务是两回事。
- *   App 被系统回收 / 进程被杀后重启，phase 会重置（store 重建），
- *   但「下载中」卡住的情况在**同一次运行**里也会出现（回调丢失）。
- *   用它判断「该不该把 phase 强行复位」，比直接信 phase 可靠。
- *
- * @returns {boolean}
- */
+/** 当前系统下载任务是否还在跑（PENDING / RUNNING / PAUSED） */
 export function isDownloading() {
-  return !!currentTask
+  const id = readDownloadId()
+  if (!id) return false
+  const st = querySystemDownload(id)
+  if (!st) return false
+  return [DM_PENDING, DM_RUNNING, DM_PAUSED].includes(st.status)
+}
+
+/** 取消下载（系统通知栏进度条由 DownloadManager.remove 一并撤掉） */
+export function cancelDownload() {
+  abortDownload()
 }
 
 /**
- * 取消下载（同时清掉通知栏的进度条）
+ * 把系统下载目录里的 APK 复制到 _doc/update/
+ *
+ * ★ 为什么需要这一步 ★
+ *   DownloadManager 只能写到 App 专属外部目录；部分 Android 版本上
+ *   plus.runtime.install 直接吃外部路径会触发 FileUriExposedException。
+ *   复制到 _doc 后再装，和旧版 plus.downloader 的安装路径一致。
  */
-export function cancelDownload() {
-  abortDownload()
-  clearProgressNotification()
+function copyToDoc(path, filename) {
+  return new Promise((resolve, reject) => {
+    try {
+      plus.io.resolveLocalFileSystemURL('file://' + path, (srcEntry) => {
+        plus.io.resolveLocalFileSystemURL('_doc/', (root) => {
+          root.getDirectory('update', { create: true }, (dir) => {
+            const doCopy = () => {
+              srcEntry.copyTo(dir, filename, () => {
+                resolve('_doc/update/' + filename)
+              }, (e) => reject(new Error((e && e.message) || '复制安装包失败')))
+            }
+            // 目标已存在时 copyTo 会失败，先删旧文件
+            plus.io.resolveLocalFileSystemURL('_doc/update/' + filename, (old) => {
+              old.remove(doCopy, doCopy)
+            }, doCopy)
+          }, (e) => reject(new Error((e && e.message) || '创建安装目录失败')))
+        }, (e) => reject(new Error((e && e.message) || '访问 _doc 失败')))
+      }, () => reject(new Error('读取系统下载文件失败')))
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+/**
+ * 安装系统下载好的 APK：直接装失败时转存 _doc 再装一次
+ *
+ * 导出给 stores/update.js 用；最终失败会 throw，交由调用方弹授权引导。
+ */
+export async function installApkWithFallback(path) {
+  try {
+    await installApk(path)
+    clearDownloadedPath()
+    return true
+  } catch (e) {
+    console.warn('[update] 直接安装失败，转存 _doc 重试:', e && e.message)
+  }
+
+  const filename = String(path).split('/').pop()
+  const local = await copyToDoc(path, filename)
+  await installApk(local)
+  clearDownloadedPath()
+  return true
+}
+
+/** 下载完成后拉起安装器；失败时保留路径，下次冷启动可重试 */
+async function installDownloaded(path) {
+  if (!path || !fileExists(path)) {
+    clearDownloadStorage()
+    return false
+  }
+  try {
+    await installApkWithFallback(path)
+    return true
+  } catch (e) {
+    console.warn('[update] 自动安装失败:', e && e.message)
+    try {
+      uni.showToast({ title: '安装未完成，请检查「安装未知应用」权限', icon: 'none' })
+    } catch (err) {}
+    return false
+  }
+}
+
+/**
+ * App 冷启动时恢复未完成的系统下载 / 未安装的安装包
+ *
+ * ★ 为什么需要它 ★
+ *   DownloadManager 在进程被杀后仍会继续下载，但 JS 侧的 Promise 已经没了。
+ *   onLaunch 里调一次：还在下载就接着轮询；已经下完就拉起安装器。
+ *
+ * @returns {Promise<{handled:boolean, path?:string}>}
+ */
+export async function resumePendingDownload() {
+  // #ifdef APP-PLUS
+  let id = readDownloadId()
+  let path = readDownloadPath()
+
+  if (id) {
+    const st = querySystemDownload(id)
+    if (st && st.status === DM_SUCCESSFUL) {
+      try { uni.removeStorageSync(DOWNLOAD_ID_KEY) } catch (e) {}
+      const ok = await installDownloaded(path)
+      return { handled: ok, path }
+    }
+    if (st && st.status === DM_FAILED) {
+      clearDownloadStorage()
+      deleteLocalFile(path)
+      return { handled: false }
+    }
+    if (st) {
+      // 仍在下载：等到成功再装；App 在后台时定时器会挂起，回前台自动继续
+      return new Promise((resolve) => {
+        const startedAt = Date.now()
+        const poll = () => {
+          const s = querySystemDownload(id)
+          if (s && s.status === DM_SUCCESSFUL) {
+            try { uni.removeStorageSync(DOWNLOAD_ID_KEY) } catch (e) {}
+            installDownloaded(path).then((ok) => resolve({ handled: ok, path }))
+            return
+          }
+          if (!s || s.status === DM_FAILED || Date.now() - startedAt > DOWNLOAD_TIMEOUT_MS) {
+            clearDownloadStorage()
+            deleteLocalFile(path)
+            resolve({ handled: false })
+            return
+          }
+          pollTimer = setTimeout(poll, 2000)
+        }
+        poll()
+      })
+    }
+  }
+
+  if (path) {
+    // 下载早完成、但进程在安装前被杀：直接补一次安装
+    if (!fileExists(path)) {
+      clearDownloadStorage()
+      return { handled: false }
+    }
+    const ok = await installDownloaded(path)
+    return { handled: ok, path }
+  }
+
+  return { handled: false }
+  // #endif
+  // #ifndef APP-PLUS
+  return { handled: false }
+  // #endif
 }
 
 /**
@@ -342,7 +633,7 @@ export async function consumePendingInstall() {
      * 安装失败（多半是没授权「安装未知应用」）。
      * 这时不弹弹窗——用户刚回到 App，上面可能还在做别的事。
      * 只提一个 toast，并把真实原因写进控制台。
-     * 要重试就走「检查更新」（包已在本地，下次会重下但 plus.downloader 支持续传）。
+     * 要重试就走「检查更新」（包已在本地，直接重装）。
      */
     console.warn('[update] 通知栏引导安装失败:', e && e.message)
     try {

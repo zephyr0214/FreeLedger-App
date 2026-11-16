@@ -43,21 +43,6 @@
         </view>
       </view>
 
-      <!-- 图标样式：下拉选择 -->
-      <view class="section">
-        <text class="section-title">图标样式</text>
-        <view class="select-row" @click="showStyleSheet = true">
-          <view class="select-left">
-            <image class="select-style-img" :src="emojiPreview(currentStyle.key)" mode="aspectFit" />
-            <view class="select-texts">
-              <text class="select-name">{{ currentStyle.name }}</text>
-              <text class="select-desc">{{ currentStyle.desc }}</text>
-            </view>
-          </view>
-          <text class="select-arrow">›</text>
-        </view>
-      </view>
-
       <view class="section">
         <text class="section-title">图标配置</text>
         <view class="card txn-setting-card">
@@ -71,6 +56,18 @@
               <text class="txn-size-name">当前预览</text>
               <text class="txn-size-desc">{{ txnPreviewDesc }}</text>
             </view>
+          </view>
+
+          <!-- 图标样式：放在预览和大小调整之间 -->
+          <view class="style-inline" @click="showStyleSheet = true">
+            <view class="style-inline-left">
+              <image class="select-style-img" :src="emojiPreview(currentStyle.key)" mode="aspectFit" />
+              <view class="select-texts">
+                <text class="select-name">图标样式</text>
+                <text class="select-desc">{{ currentStyle.name }} {{ currentStyle.desc }}</text>
+              </view>
+            </view>
+            <text class="select-arrow">›</text>
           </view>
 
           <view class="size-slider">
@@ -450,6 +447,25 @@ export default {
   font-size: 32rpx;
   color: var(--app-text-3);
   flex-shrink: 0;
+}
+
+/* 图标配置卡片里的样式行（预览下方、大小滑块上方） */
+.style-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 20rpx 0;
+  border-top: 1rpx solid var(--app-line);
+  border-bottom: 1rpx solid var(--app-line);
+  margin-bottom: 18rpx;
+}
+
+.style-inline-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
 }
 
 /* 交易流水图标设置 */

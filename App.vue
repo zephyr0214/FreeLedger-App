@@ -12,7 +12,7 @@ import { confirmDialog } from '@/utils/dialog.js'
 import { catchUpCycles } from '@/api/cycle.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { useUpdateStore } from '@/stores/update.js'
-import { consumePendingInstall } from '@/api/update.js'
+import { consumePendingInstall, resumePendingDownload } from '@/api/update.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { clearSettingsCache } from '@/api/settings.js'
@@ -194,6 +194,16 @@ export default {
     this.bindIncomingListener()
     this.consumeIncomingFile()
     this.consumeInstallIntent()
+    /*
+     * 恢复「进程被杀前没下完 / 没装完」的系统下载任务
+     *   DownloadManager 在系统进程里继续下载，但 JS 侧的 Promise 已经没了；
+     *   冷启动时查一次：还在下载就接着轮询，下完了直接拉起安装器。
+     */
+    setTimeout(() => {
+      resumePendingDownload().catch((e) => {
+        console.warn('[app] 恢复更新下载失败:', e && e.message)
+      })
+    }, 1200)
     // #endif
 
     // 7) 检查更新（静默）：每次开屏查一次 Gitee 最新发行版。

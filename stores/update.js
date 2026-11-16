@@ -14,13 +14,12 @@
  * ★ 状态流转 ★
  *   idle --checkForUpdate(有新版)--> 弹窗(idle)
  *   弹窗 --confirmDownload--> downloading --完成--> installing --> 系统安装器
- *   downloading --dismiss--> idle（取消下载，保留已下载文件——
- *                              plus.downloader 断点续传，重下不浪费）
+ *   downloading --dismiss--> idle（取消系统下载任务，已下载部分由系统清理）
  */
 
 import { defineStore } from 'pinia'
 import {
-  checkUpdate as fetchCheck, downloadApk, installApk, cancelDownload,
+  checkUpdate as fetchCheck, downloadApk, installApkWithFallback, cancelDownload,
   openUnknownSourceSettings, isDownloading
 } from '@/api/update.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
@@ -78,12 +77,40 @@ export const useUpdateStore = defineStore('update', {
     },
 
     /**
+     * 临时调试入口：不校验版本，直接拉取最新发行版并弹更新弹窗
+     *
+     * 只在「我的 → 关于 → 下载最新安装包（调试）」里使用，
+     * 用于真机验证 DownloadManager / 安装链路；发版前删掉入口即可。
+     */
+    async debugCheckLatest() {
+      if (this.checking) return false
+      if (this.phase === 'downloading') cancelDownload()
+      this.phase = 'idle'
+      this.checking = true
+      try {
+        const res = await fetchCheck({ ignoreVersion: true })
+        if (!res || !res.downloadUrl) throw new Error('最新发行版没有 APK 附件')
+        this.info = res
+        this.phase = 'idle'
+        this.dialogVisible = true
+        return true
+      } catch (e) {
+        await alertDialog({
+          title: '调试下载失败',
+          content: (e && e.message) || '网络错误'
+        })
+        return false
+      } finally {
+        this.checking = false
+      }
+    },
+
+    /**
      * 「下次再说」/「取消下载」：收弹窗
      *
-     * ★ 下载中取消要连通知栏一起撤掉 ★
+     * ★ 下载中取消要连同系统下载任务一起撤掉 ★
      *   否则进度条会一直挂在通知栏上，成了僵尸通知。
-     *   已下载的部分留在 _doc/update/，plus.downloader 支持断点续传，
-     *   下次重下不会从头开始。
+     *   DownloadManager.remove 会同时撤掉任务和通知。
      */
     dismiss() {
       if (this.phase === 'downloading') cancelDownload()
@@ -99,14 +126,14 @@ export const useUpdateStore = defineStore('update', {
      *   更新包十几 MB，下载常常几十秒，用户会切出去干别的 ——
      *   进度留在 App 内等于看不见。所以：
      *     1. 点「立即下载」→ 立刻收弹窗，App 回到正常界面
-     *     2. 下载全程由 api/update.js 的 createProgressNotifier
-     *        在通知栏画标准进度条（IMPORTANCE_LOW，不响不弹）
-     *     3. 下载完 → 通知栏变「点按完成安装」+ 自动拉起安装器
-     *     4. 取消下载 → 通知栏一并撤掉（cancelDownload）
+     *     2. 下载交给 Android 系统 DownloadManager：
+     *        系统进程执行，退后台 / 锁屏 / 进程被杀都能继续，
+     *        通知、重试、断点续传都由系统负责
+     *     3. 下载完 → 自动拉起安装器；系统通知也可点按安装
+     *     4. 取消下载 → DownloadManager.remove 一并撤掉任务和通知
      *
      * ★ 安装失败中最常见的是「未授权安装未知应用」（Android 8+）★
-     *   那种情况下弹引导去系统设置授权，授权后重新检查→下载即可
-     *   （plus.downloader 支持续传，不会从头下）。
+     *   那种情况下弹引导去系统设置授权，授权后回到 App 重新检查更新即可。
      */
     async confirmDownload() {
       /*
@@ -138,12 +165,14 @@ export const useUpdateStore = defineStore('update', {
         // onProgress 传空函数：进度只走通知栏，不写回 store（界面已关闭）
         const local = await downloadApk(this.info.downloadUrl, name, null)
         this.phase = 'installing'
-        await installApk(local)
+        await installApkWithFallback(local)
         // install 成功 = 系统安装器已拉起；复位状态
         this.phase = 'idle'
       } catch (e) {
         this.phase = 'idle'
         const msg = (e && e.message) || '未知错误'
+        // 用户主动取消：不弹错误框
+        if (/已取消/.test(msg)) return
         if (/unknown|未知|授权|安装未知|INSTALL/i.test(msg)) {
           const go = await confirmDialog({
             title: '需要授权安装',

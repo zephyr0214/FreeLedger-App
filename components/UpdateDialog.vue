@@ -21,7 +21,7 @@
       保证任何格式的说明都能完整显示，不会吞字。
 
     ★ 下载进度不在弹窗里 ★
-      改到系统通知栏（api/update.js 的 createProgressNotifier）。
+      改到系统通知栏（Android 系统 DownloadManager 自己发的通知）。
       点「立即下载更新」后弹窗直接关闭、退回 App，
       用户切出去干别的也能在通知栏看到进度，完成后再点安装。
 

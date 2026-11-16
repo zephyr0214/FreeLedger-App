@@ -118,43 +118,38 @@ check(
 )
 check('assets 字段缺失', resolveUpdate({ tag_name: 'v1.16.3' }, '1.16.2').hasUpdate, false)
 
-console.log('=== 测试更新入口已彻底删除 ===')
+console.log('=== 临时调试入口：忽略版本 ===')
 
 {
   /*
-   * ★ 这条能力的生命周期 ★
-   *   加 → 删(7977238) → 按需求加回 → 再删 → 加回 → **本次最终删除**
-   *
-   *   用户本轮原话：「删除测试弹窗的入口及其逻辑」。
-   *
-   *   ★ 为什么这次要连能力一起删 ★
-   *     只删 UI 条目、留着 api 的 ignoreVersion 和 store 的
-   *     checkForUpdateTest，等于留了一条「跳过版本比较」的暗路。
-   *     它一旦被顺手接回去，就会把当前版本当新版本弹给用户。
-   *     所以下面同时钉「正常检查照样比版本」和「能力已消失」两个方向。
+   * ★ 用户本轮要求 ★
+   *   「临时给我一个调试入口，拉取最新版下载，不校验版本用于测试」
+   *   入口放在「我的 → 关于 → 下载最新安装包（调试）」，
+   *   走 checkUpdate({ ignoreVersion: true })，正式入口仍然比较版本。
    */
-
-  // 正常检查的版本比较必须完好
-  check('同版本不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2').hasUpdate, false)
-  check('更旧版本不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2').hasUpdate, false)
+  check('同版本正常不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2').hasUpdate, false)
+  check('更旧版本正常不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2').hasUpdate, false)
   check('更新版本正常弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.3' }), '1.16.2').hasUpdate, true)
+  check(
+    'ignoreVersion 下同版本也能弹（调试）',
+    resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2', true).hasUpdate,
+    true
+  )
 
   const src = read('api/update.js')
   const storeSrc = read('stores/update.js')
   const mineSrc = read('pages/mine/index.vue')
+  const aboutSrc = read('pages/settings/about.vue')
   const dlgSrc = read('components/UpdateDialog.vue')
 
-  check('resolveUpdate 只接收 data 与 current', /export function resolveUpdate\(data, current\)/.test(src), true)
-  check('checkUpdate 不再有 opt 参数', /export async function checkUpdate\(\)/.test(src), true)
-  check('不再有 ignoreVersion 跳过比较', /if \(!ignoreVersion\)/.test(src), false)
-  check('版本比较无条件生效', /const cmp = compareVersions/.test(src) && /if \(cmp <= 0\) return \{ hasUpdate: false \}/.test(src), true)
-
-  check('store 没有 checkForUpdateTest', /checkForUpdateTest/.test(storeSrc), false)
-  check('store 不再传 ignoreVersion', /ignoreVersion/.test(storeSrc), false)
-  check('store 不再标 isTest', /isTest/.test(storeSrc), false)
-
+  check('resolveUpdate 支持 ignoreVersion', /export function resolveUpdate\(data, current, ignoreVersion = false\)/.test(src), true)
+  check('checkUpdate 支持 opt 参数', /export async function checkUpdate\(opt = \{\}\)/.test(src), true)
+  check('正常入口仍比较版本', /if \(!ignoreVersion\)[\s\S]{0,120}?cmp <= 0/.test(src), true)
+  check('store 有 debugCheckLatest', /debugCheckLatest/.test(storeSrc), true)
+  check('调试入口传 ignoreVersion', /ignoreVersion: true/.test(storeSrc), true)
+  check('关于页有调试下载入口', /下载最新安装包（调试）/.test(aboutSrc), true)
+  check('关于页点击走 debugCheckLatest', /debugCheckLatest\(\)/.test(aboutSrc), true)
   check('我的页没有「测试更新」条目', /name: '测试更新'/.test(mineSrc), false)
-  check('我的页没有 updateTest 分支', /updateTest/.test(mineSrc), false)
 
   check('弹窗徽标固定为「新版本」', />新版本<\/text>/.test(dlgSrc), true)
   check('弹窗没有 isTest 分支', /isTest/.test(dlgSrc), false)
@@ -174,7 +169,9 @@ console.log('=== 数据源是 Gitee ===')
   check('导出 resolveUpdate', /export function resolveUpdate/.test(api), true)
   check('导出 downloadApk', /export function downloadApk/.test(api), true)
   check('导出 installApk', /export function installApk/.test(api), true)
-  check('下载走 plus.downloader', /plus\.downloader\.createDownload/.test(api), true)
+  check('下载走 Android DownloadManager', /getSystemService\('download'\)/.test(api), true)
+  check('用系统 DownloadManager 入队', /android\.app\.DownloadManager\$Request/.test(api) && /'enqueue'/.test(api), true)
+  check('导出 resumePendingDownload', /export async function resumePendingDownload/.test(api), true)
   check('安装走 plus.runtime\.install', /plus\.runtime\.install/.test(api), true)
   check('有「安装未知应用」授权引导', /ACTION_MANAGE_UNKNOWN_APP_SOURCES/.test(api), true)
   // 下载/安装只在 App 端有实现，H5 必须给出可读错误而不是崩
@@ -188,6 +185,7 @@ console.log('=== 三个触发点 ===')
   const app = read('App.vue')
   check('App.vue 引入 updateStore', /useUpdateStore/.test(app), true)
   check('开屏静默检查（silent=true）', /checkForUpdate\(true\)/.test(app), true)
+  check('App.vue 冷启动恢复下载', /resumePendingDownload/.test(app), true)
   // 静默检查必须延迟，别和数据库迁移/周期补记抢首屏
   check('开屏检查延迟执行', /setTimeout\([\s\S]{0,80}checkForUpdate\(true\)/.test(app), true)
 
@@ -394,19 +392,22 @@ console.log('=== 下载进度显示在系统通知栏 ===')
 
 {
   const api = read('api/update.js')
-  const notifier = read('api/notifier.js')
 
   /*
-   * 通知栏实现已迁到 api/notifier.js（那里用字面量常量避免静态字段反射）。
-   * 本文件（update.js）只负责下载与安装编排。
+   * 下载改走系统 DownloadManager：系统进程负责下载、通知、重试、续传，
+   * JS 侧只做入队 + 轮询 + 完成后安装。
    */
-  check('update.js 引用 notifier 模块', /from '\.\/notifier\.js'/.test(api), true)
-  check('notifier.js 有进度器', /export function createProgressNotifier/.test(notifier), true)
-  check('用 Android NotificationChannel（8+ 必需）', /NotificationChannel/.test(notifier), true)
-  check('渠道重要性是 LOW（不响不弹）', /IMPORTANCE_LOW = 2/.test(notifier), true)
-  check('导出 clearProgressNotification', /export function clearProgressNotification/.test(notifier), true)
+  check('用系统下载服务', /getSystemService\('download'\)/.test(api), true)
+  check('系统通知可见', /setNotificationVisibility', 2/.test(api), true)
+  check('写 App 专属外部目录', /setDestinationInExternalFilesDir/.test(api), true)
+  check('查询下载状态', /querySystemDownload/.test(api), true)
+  check('成功状态 8', /DM_SUCCESSFUL = 8/.test(api), true)
+  check('失败状态 16', /DM_FAILED = 16/.test(api), true)
+  check('取消用 remove', /invoke\(dm, 'remove', id\)/.test(api), true)
+  check('冷启动恢复任务', /export async function resumePendingDownload/.test(api), true)
+  check('下载 ID 持久化', /update_download_id/.test(api), true)
   check('导出 cancelDownload', /export function cancelDownload/.test(api), true)
-  check('downloadApk 用 plus.downloader', /plus\.downloader\.createDownload/.test(api), true)
+  check('安装失败转存 _doc 重试', /copyToDoc/.test(api) && /installApkWithFallback/.test(api), true)
 }
 
 
@@ -526,8 +527,8 @@ console.log('=== 点通知栏能拉起安装器（bug 修复）===')
   check('CLEAR_TOP 防重复开 App', /INTENT_FLAG_CLEAR_TOP = 0x04000000/.test(notifierSrc), true)
   check('SINGLE_TOP 防重复开 App', /INTENT_FLAG_SINGLE_TOP = 0x20000000/.test(notifierSrc), true)
 
-  // 下载完把路径交给通知
-  check('downloadApk 传路径给 done', /notifier\.done\(d\.filename\)/.test(apiSrc), true)
+  // 系统 DownloadManager 的通知在下载完成后本身即可点开安装
+  check('系统下载通知负责点击安装', /setNotificationVisibility', 2/.test(apiSrc), true)
 
   // 回前台读 Intent 并装
   check('导出 consumePendingInstall', /export async function consumePendingInstall/.test(apiSrc), true)
@@ -537,7 +538,7 @@ console.log('=== 点通知栏能拉起安装器（bug 修复）===')
   check('读到后拉安装器', /await installApk\(path\)/.test(apiSrc), true)
 
   // App.vue 三个时机
-  check('App.vue import consumePendingInstall', /import \{ consumePendingInstall \}/.test(appSrc), true)
+  check('App.vue import consumePendingInstall', /import \{[^}]*consumePendingInstall[^}]*\} from '@\/api\/update\.js'/.test(appSrc), true)
   check('onLaunch 调用', /this\.consumeInstallIntent\(\)/.test(appSrc), true)
   check('onShow 也调用', /setTimeout\(\(\) => \{ this\.consumeInstallIntent\(\) \}, 300\)/.test(appSrc), true)
   check('newintent 也挂了监听', /addEventListener\('newintent', this\.onNewIntentForInstall\)/.test(appSrc), true)
@@ -562,7 +563,6 @@ console.log('=== 后台下载不中断（用户反馈 bug）===')
    */
   const apiSrc = read('api/update.js')
   const storeSrc = read('stores/update.js')
-  const wlSrc = read('api/wakeLock.js')
   /*
    * ★ 断言「不再用旧写法」前必须剥注释 ★
    *   api/update.js 里专门写了一段说明「旧写法长什么样」，
@@ -573,24 +573,13 @@ console.log('=== 后台下载不中断（用户反馈 bug）===')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 
-  // ① 唤醒锁
-  check('唤醒锁模块存在', /export function acquireWakeLock/.test(wlSrc), true)
-  check('导出释放函数', /export function releaseWakeLock/.test(wlSrc), true)
-  check('PARTIAL_WAKE_LOCK 用字面量 1', /PARTIAL_WAKE_LOCK = 1/.test(wlSrc), true)
-  check('POWER_SERVICE 用字面量 "power"', /getSystemService\('power'\)/.test(wlSrc), true)
-  check('关掉引用计数（防释放不掉）', /setReferenceCounted\(false\)/.test(wlSrc), true)
-  check('acquire 带超时（防永久持有）', /lock\.acquire\(timeoutMs\)/.test(wlSrc), true)
-  check('wakeLock 有 plus 环境守卫', /typeof plus === 'undefined'/.test(wlSrc), true)
-
-  check('下载前获取唤醒锁', /acquireWakeLock\('FreeLedger:update'\)/.test(apiSrc), true)
-  check('下载结束释放唤醒锁', /releaseWakeLock\(\)/.test(apiSrc), true)
-  check('abort 也释放（覆盖取消路径）', /export function abortDownload\([\s\S]{0,400}?releaseWakeLock/.test(apiSrc), true)
-  check('拿不到锁不阻断下载', /locked \? '已持有' : '未获取'/.test(apiSrc), true)
-
-  // ② Promise 必定 settle
-  check('status 为 undefined 也 reject', /status === undefined[\s\S]{0,200}?下载被中断/.test(apiSrc), true)
-  check('不再用 status !== undefined 做前提', /else if \(status !== undefined\)/.test(apiCode), false)
+  // ① 系统 DownloadManager：后台/锁屏/进程被杀都由系统继续下载
+  check('不再依赖 App 内唤醒锁', /from '\.\/wakeLock\.js'/.test(apiCode), false)
   check('导出 isDownloading', /export function isDownloading/.test(apiSrc), true)
+  check('导出 abortDownload', /export function abortDownload/.test(apiSrc), true)
+  check('有成功状态分支', /st\.status === DM_SUCCESSFUL/.test(apiCode), true)
+  check('有失败状态分支', /st\.status === DM_FAILED/.test(apiCode), true)
+  check('有冷启动恢复', /resumePendingDownload/.test(apiCode), true)
 
   // ③ store 自救
   check('store 引入 isDownloading', /isDownloading/.test(storeSrc), true)
