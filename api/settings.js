@@ -50,11 +50,13 @@ export const DEFAULT_SETTINGS = {
 
   /**
    * 交易流水左侧图标
-   *   txnIconSize    xs | s | m | l | xl（极小…极大，默认大）
-   *   txnIconShowBg  是否显示分类浅色圆底（默认关，和 v1.24 的观感一致）
+   *   txnIconSize      xs | s | m | l | xl（极小…极大，默认大）
+   *   txnIconShowBg    是否显示分类浅色方底（默认关）
+   *   txnIconBgRound   背景形状 0..4（方形 → 圆形，默认 2 圆角）
    */
   txnIconSize: 'l',
   txnIconShowBg: false,
+  txnIconBgRound: 2,
 
   // AI —— 公共配置（两端共用：接口地址 / Key / 模型 / 超时）
   ai: {

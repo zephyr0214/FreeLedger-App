@@ -207,57 +207,33 @@ check('基准行不再绑 is-base 样式类', /:class="\{ 'is-base': row\.isBase
 
 /* --------------------------------- 新入口必须在「我的」页宫格里 */
 
-console.log('=== 「我的」页两个宫格分组（基础功能 / 拓展功能）===')
+console.log('=== 「我的」页记账功能 2×4 宫格 ===')
 const mine = read('pages/mine/index.vue')
 check('有报销管理入口', /name: '报销管理'/.test(mine), true)
-check('报销管理指向占位页', /\/pages\/loan\/reimburse/.test(mine), true)
+check('报销管理指向真实页面', /\/pages\/loan\/reimburse/.test(mine), true)
 check('有今日汇率入口', /name: '今日汇率'/.test(mine), true)
 check('今日汇率指向汇率页', /\/pages\/rate\/index/.test(mine), true)
 
 /*
- * ★ 分组与顺序按用户 m01008 / m01093 的原话定 ★
- *   基础功能：分类、标签、预算、汇率
- *   拓展功能：借入、借出、周期、报销
- *   两组各 4 项、各排成 2×2；数组顺序就是宫格里的左右上下顺序。
+ * ★ 用户要求把「基础功能 / 拓展功能」合并 ★
+ *   现在只有一个「记账功能」标题，8 个入口按 2 行 × 4 列展示，
+ *   上图标下文字，不再分两段。
  */
-const baseGroup = /title: '基础功能',[\s\S]*?title: '拓展功能'/.exec(mine)
-check('有「基础功能」分组', !!baseGroup, true)
-if (baseGroup) {
-  check('基础功能里有分类管理', baseGroup[0].includes('分类管理'), true)
-  check('基础功能里有标签管理', baseGroup[0].includes('标签管理'), true)
-  check('基础功能里有预算管理', baseGroup[0].includes('预算管理'), true)
-  check('基础功能里有今日汇率', baseGroup[0].includes('今日汇率'), true)
-  check('基础功能里没有周期管理', baseGroup[0].includes('周期管理'), false)
-  check('基础功能里没有报销管理', baseGroup[0].includes('报销管理'), false)
-  // 顺序：分类 -> 标签 -> 预算 -> 汇率
-  check(
-    '基础功能按「分类、标签、预算、汇率」排',
-    baseGroup[0].indexOf('分类管理') < baseGroup[0].indexOf('标签管理') &&
-      baseGroup[0].indexOf('标签管理') < baseGroup[0].indexOf('预算管理') &&
-      baseGroup[0].indexOf('预算管理') < baseGroup[0].indexOf('今日汇率'),
-    true
-  )
-}
-const extGroup = /title: '拓展功能',[\s\S]*?\]\s*\}\s*\]\)/.exec(mine)
-check('有「拓展功能」分组', !!extGroup, true)
-if (extGroup) {
-  check('拓展功能里有借入管理', extGroup[0].includes('借入管理'), true)
-  check('拓展功能里有借出管理', extGroup[0].includes('借出管理'), true)
-  check('拓展功能里有周期管理', extGroup[0].includes('周期管理'), true)
-  check('拓展功能里有报销管理', extGroup[0].includes('报销管理'), true)
-  check('拓展功能里没有分类管理', extGroup[0].includes('分类管理'), false)
-  check('拓展功能里没有今日汇率', extGroup[0].includes('今日汇率'), false)
-  // 顺序：借入 -> 借出 -> 周期 -> 报销（用户就是这么写的）
-  check(
-    '拓展功能按「借入、借出、周期、报销」排',
-    extGroup[0].indexOf('借入管理') < extGroup[0].indexOf('借出管理') &&
-      extGroup[0].indexOf('借出管理') < extGroup[0].indexOf('周期管理') &&
-      extGroup[0].indexOf('周期管理') < extGroup[0].indexOf('报销管理'),
-    true
-  )
-}
-check('分组标题不含「管理」二字', /title: '基础功能管理'|title: '拓展功能管理'/.test(mine), false)
-check('每个分组各 4 项（2×2）', (mine.match(/key: '(category|tag|budget|rate|loanIn|loanOut|cycle|reimburse)'/g) || []).length, 8)
+check('有「记账功能」标题', /menu-title">记账功能/.test(mine), true)
+check('不再有基础功能分组', /title: '基础功能'/.test(mine), false)
+check('不再有拓展功能分组', /title: '拓展功能'/.test(mine), false)
+check('宫格是 4 列', /grid-template-columns: repeat\(4, 1fr\)/.test(mine), true)
+check(
+  '8 个入口齐全',
+  (mine.match(/key: '(category|tag|budget|rate|loanIn|loanOut|cycle|reimburse)'/g) || []).length,
+  8
+)
+check(
+  '顺序：分类、标签、预算、汇率、借入、借出、周期、报销',
+  ['分类管理', '标签管理', '预算管理', '今日汇率', '借入管理', '借出管理', '周期管理', '报销管理']
+    .every((name, i, arr) => (i === 0 ? true : mine.indexOf(arr[i - 1]) < mine.indexOf(name))),
+  true
+)
 
 console.log('=== 报销页（v21 起已是真页面，不再是占位）===')
 const reimburse = read('pages/loan/reimburse.vue')

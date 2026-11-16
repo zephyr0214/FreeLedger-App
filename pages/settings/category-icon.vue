@@ -90,6 +90,7 @@
                 :name="item.name"
                 size="68rpx"
                 :remote-size="60"
+                :loading-fallback="false"
               />
               <text class="icon-name">{{ item.name }}</text>
             </view>

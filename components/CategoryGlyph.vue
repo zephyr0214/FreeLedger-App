@@ -5,12 +5,19 @@
 
     <template v-else>
       <!--
-        图片加载中 / 加载失败时的兜底：系统 emoji。
-        加载成功后隐藏，避免和图片叠在一起。
+        系统 emoji 只在两种情况下显示：
+          1）该样式整体加载失败（断网 / CDN 不可用）
+          2）loadingFallback = true（列表页）且这张图还没加载好
+        图标选择页把 loadingFallback 设为 false：没加载出来的先留空，
+        避免一屏系统 emoji 乱跳。
       -->
-      <text v-if="!loaded" class="cat-glyph-emoji" :style="emojiStyle">{{ char }}</text>
+      <text
+        v-if="offline || (loadingFallback && !loaded)"
+        class="cat-glyph-emoji"
+        :style="emojiStyle"
+      >{{ char }}</text>
       <image
-        v-if="!failed && src"
+        v-if="!offline && !failed && src"
         class="cat-glyph-img"
         :src="src"
         mode="aspectFit"
@@ -31,9 +38,11 @@
  *   <CategoryGlyph symbol="⇄" size="64rpx" />
  *
  * ★ 图片是联网的 ★
- *   utils/emoji.js 按当前样式拼 CDN 地址，
- *   图片加载成功前 / 失败后显示系统 emoji 字符（emojiChar），
- *   所以断网时分类图标退化成系统 emoji，不会出现空白或裂图。
+ *   utils/emoji.js 按当前样式拼 CDN 地址。
+ *   - 列表页：图片加载中 / 单张失败时显示系统 emoji，避免空白
+ *   - 选择页：loadingFallback=false，没加载出来先留空；
+ *     如果整个样式一张都没加载出来（utils/emojiLoad.js），
+ *     才整体回退系统 emoji。
  *
  * ★ 为什么抽组件 ★
  *   分类图标在首页、流水、详情、面板、选择页里出现，
@@ -46,6 +55,7 @@
 import { ref, computed, watch } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { categoryIconCode, categoryIconSrc, emojiChar } from '@/utils/emoji.js'
+import { noteEmojiLoad, emojiStyleFailed } from '@/utils/emojiLoad.js'
 
 export default {
   name: 'CategoryGlyph',
@@ -58,6 +68,13 @@ export default {
     size: { type: [String, Number], default: '40rpx' },
     /** 请求的远程图片尺寸：60（缩略图）或 120（列表 / 详情） */
     remoteSize: { type: Number, default: 120 },
+    /**
+     * 图片没加载好时是否先用系统 emoji 占位
+     *
+     * 列表页默认 true（避免空白）；
+     * 图标选择页传 false（先留空，全部失败才整体回退系统 emoji）。
+     */
+    loadingFallback: { type: Boolean, default: true },
     /** 非分类图标（转账 ⇄ / 未知 ❔）用文字渲染 */
     symbol: { type: String, default: '' },
     /** 文字符号的颜色（图片本身是彩色的，不受它影响） */
@@ -85,6 +102,9 @@ export default {
     const src = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize, style.value))
     const char = computed(() => emojiChar(code.value))
 
+    /** 该样式整体是否加载失败（断网 / CDN 不可用） */
+    const offline = computed(() => emojiStyleFailed(style.value))
+
     const emojiStyle = computed(() => ({
       fontSize: sizeText.value,
       lineHeight: 1
@@ -99,11 +119,13 @@ export default {
     function onLoad() {
       loaded.value = true
       failed.value = false
+      noteEmojiLoad(style.value, true)
     }
 
     function onError() {
       failed.value = true
       loaded.value = false
+      noteEmojiLoad(style.value, false)
     }
 
     // 换图标 / 换样式 / 换图片尺寸时重新尝试加载
@@ -113,7 +135,7 @@ export default {
     })
 
     return {
-      sizeText, boxStyle, src, char, emojiStyle, symbolStyle,
+      sizeText, boxStyle, src, char, emojiStyle, symbolStyle, offline,
       loaded, failed, onLoad, onError
     }
   }

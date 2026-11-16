@@ -17,8 +17,10 @@ import {
 } from '@/utils/theme.js'
 import { hideNativeTabBar } from '@/utils/tabBar.js'
 import { normalizeEmojiStyle } from '@/utils/emoji.js'
+import { resetEmojiLoad } from '@/utils/emojiLoad.js'
 import {
-  normalizeTxnIconSize, getTxnIconMetrics, txnIconSizeIndex
+  normalizeTxnIconSize, getTxnIconMetrics, txnIconSizeIndex,
+  normalizeTxnIconRound, getTxnIconRadius
 } from '@/utils/txnIcon.js'
 
 /**
@@ -50,6 +52,7 @@ export const useSettingStore = defineStore('setting', {
       emojiStyle: 'noto',
       txnIconSize: 'l',
       txnIconShowBg: false,
+      txnIconBgRound: 2,
       privacyMode: false,
       quickAddHoldAction: 'manual',
       quickAddTapAction: 'ai',
@@ -153,9 +156,17 @@ export const useSettingStore = defineStore('setting', {
     txnIconSizeIndex(state) {
       return txnIconSizeIndex(state.settings.txnIconSize)
     },
-    /** 流水图标是否显示分类浅色圆底 */
+    /** 流水图标是否显示分类浅色方底 */
     txnIconShowBg(state) {
       return !!state.settings.txnIconShowBg
+    },
+    /** 背景形状序号 0..4（方形 → 圆形） */
+    txnIconBgRound(state) {
+      return normalizeTxnIconRound(state.settings.txnIconBgRound)
+    },
+    /** 背景圆角值（'0rpx' / '18rpx' / '50%'） */
+    txnIconBgRadius(state) {
+      return getTxnIconRadius(state.settings.txnIconBgRound)
     },
     /**
      * 悬浮「+」按钮短按触发什么
@@ -341,6 +352,8 @@ export const useSettingStore = defineStore('setting', {
     /** 改分类图标样式（三种，见 utils/emoji.js 的 EMOJI_STYLES） */
     async setEmojiStyle(key) {
       const value = normalizeEmojiStyle(key)
+      // 切换样式时清掉上一轮的失败计数，让新样式重新尝试加载
+      resetEmojiLoad(value)
       this.settings.emojiStyle = value
       await setSettings({ emojiStyle: value })
       return value
@@ -354,11 +367,19 @@ export const useSettingStore = defineStore('setting', {
       return value
     },
 
-    /** 流水图标是否显示分类浅色圆底 */
+    /** 流水图标是否显示分类浅色方底 */
     async setTxnIconShowBg(on) {
       const value = !!on
       this.settings.txnIconShowBg = value
       await setSettings({ txnIconShowBg: value })
+      return value
+    },
+
+    /** 背景形状 0..4：方形 → 圆形 */
+    async setTxnIconBgRound(index) {
+      const value = normalizeTxnIconRound(index)
+      this.settings.txnIconBgRound = value
+      await setSettings({ txnIconBgRound: value })
       return value
     },
 

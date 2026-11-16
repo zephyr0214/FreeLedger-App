@@ -22,8 +22,11 @@ import {
 } from '../utils/emoji.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from '../utils/emojiLegacy.js'
 import {
-  TXN_ICON_SIZES, TXN_ICON_BG_BOX, getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex
+  TXN_ICON_SIZES, TXN_ICON_BG_BOX, TXN_ICON_ROUNDS,
+  getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex,
+  normalizeTxnIconRound, getTxnIconRadius
 } from '../utils/txnIcon.js'
+import { noteEmojiLoad, emojiStyleFailed, resetEmojiLoad } from '../utils/emojiLoad.js'
 import { ICON_MAP } from '../utils/icons.js'
 import {
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
@@ -155,8 +158,8 @@ console.log('=== 流水图标尺寸与 tabBar 资源 ===')
 
 check('五档尺寸名称', TXN_ICON_SIZES.map((s) => s.name), ['极小', '小', '中', '大', '极大'])
 check('默认尺寸是「大」', normalizeTxnIconSize('bad'), 'l')
-check('默认大档 80/84', getTxnIconMetrics('l').icon, 80)
-check('默认大档外框 84', getTxnIconMetrics('l').box, 84)
+check('默认大档 68/72', getTxnIconMetrics('l').icon, 68)
+check('默认大档外框 72', getTxnIconMetrics('l').box, 72)
 check('极小档序号 0', txnIconSizeIndex('xs'), 0)
 check('极大档序号 4', txnIconSizeIndex('xl'), 4)
 check(
@@ -164,6 +167,23 @@ check(
   TXN_ICON_BG_BOX >= TXN_ICON_SIZES[4].icon,
   true
 )
+check('背景方块 84rpx', TXN_ICON_BG_BOX, 84)
+
+check('五档背景形状', TXN_ICON_ROUNDS.map((r) => r.name), ['方形', '微圆', '圆角', '大圆', '圆形'])
+check('默认形状是圆角', normalizeTxnIconRound('bad'), 2)
+check('方形圆角 0', getTxnIconRadius(0), '0rpx')
+check('圆形圆角 50%', getTxnIconRadius(4), '50%')
+
+/* 图标库整体加载状态：连续 6 次失败且 0 成功才回退系统 emoji */
+resetEmojiLoad('noto')
+check('初始样式可用', emojiStyleFailed('noto'), false)
+for (let i = 0; i < 5; i++) noteEmojiLoad('noto', false)
+check('五次失败仍不整体回退', emojiStyleFailed('noto'), false)
+noteEmojiLoad('noto', false)
+check('六次失败且零成功 → 整体回退', emojiStyleFailed('noto'), true)
+noteEmojiLoad('noto', true)
+check('任意一张成功后恢复正常', emojiStyleFailed('noto'), false)
+resetEmojiLoad('noto')
 for (const preset of ['teal', 'pink']) {
   for (const name of ['home', 'account', 'stats', 'mine']) {
     check(

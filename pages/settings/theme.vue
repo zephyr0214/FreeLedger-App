@@ -88,15 +88,17 @@
       </view>
 
       <view class="section">
-        <text class="section-title">交易流水图标</text>
+        <text class="section-title">图标配置</text>
         <view class="card txn-setting-card">
           <view class="txn-size-head">
-            <view class="txn-size-preview">
-              <CategoryGlyph icon="1F35C" :size="txnPreviewMetrics.icon + 'rpx'" />
+            <view class="txn-preview-area">
+              <view class="txn-preview-box" :style="txnPreviewBoxStyle">
+                <CategoryGlyph icon="1F35C" :size="txnPreviewMetrics.icon + 'rpx'" />
+              </view>
             </view>
             <view class="txn-size-info">
-              <text class="txn-size-name">图标大小</text>
-              <text class="txn-size-desc">{{ txnSizeLabel }}</text>
+              <text class="txn-size-name">当前预览</text>
+              <text class="txn-size-desc">{{ txnSizeLabel }} · {{ txnBgRoundName }}</text>
             </view>
           </view>
 
@@ -128,13 +130,44 @@
           <view class="setting-row">
             <view class="setting-row-text">
               <text class="setting-row-name">分类背景色</text>
-              <text class="setting-row-desc">流水左侧图标显示浅色圆底</text>
+              <text class="setting-row-desc">流水左侧图标显示浅色方底</text>
             </view>
             <switch
               :checked="settingStore.txnIconShowBg"
               :color="primaryColor"
               @change="onTxnBgChange"
             />
+          </view>
+
+          <view class="setting-divider" />
+
+          <view class="setting-subhead">
+            <text class="setting-row-name">背景形状</text>
+            <text class="setting-row-desc">{{ txnBgRoundName }}</text>
+          </view>
+
+          <view class="size-slider">
+            <slider
+              :value="txnBgRoundIndex"
+              :min="0"
+              :max="4"
+              :step="1"
+              :active-color="primaryColor"
+              :background-color="sliderInactiveColor"
+              :block-size="20"
+              @changing="onRoundMove"
+              @change="onRoundEnd"
+            />
+          </view>
+
+          <view class="size-labels">
+            <text
+              v-for="(r, i) in txnIconRounds"
+              :key="r.key"
+              class="size-label"
+              :class="{ active: txnBgRoundIndex === i }"
+              @click="setTxnRound(i)"
+            >{{ r.name }}</text>
           </view>
         </view>
       </view>
@@ -156,7 +189,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
 import { EMOJI_STYLES, emojiImageSrc } from '@/utils/emoji.js'
-import { TXN_ICON_SIZES, getTxnIconMetrics, txnIconSizeIndex } from '@/utils/txnIcon.js'
+import { TXN_ICON_SIZES, TXN_ICON_ROUNDS, TXN_ICON_BG_BOX, getTxnIconMetrics, txnIconSizeIndex, getTxnIconRadius } from '@/utils/txnIcon.js'
 
 export default {
   components: { PageNav, LineIcon, CategoryGlyph, UpdateDialog },
@@ -219,6 +252,37 @@ export default {
       return getTxnIconMetrics(s.key)
     })
 
+    /* ------------------------------------------------ 背景形状 */
+
+    const txnIconRounds = TXN_ICON_ROUNDS
+    const txnBgRoundIndex = ref(settingStore.txnIconBgRound)
+
+    watch(() => settingStore.txnIconBgRound, (v) => {
+      txnBgRoundIndex.value = v
+    })
+
+    const txnBgRoundName = computed(() => {
+      const r = TXN_ICON_ROUNDS[txnBgRoundIndex.value] || TXN_ICON_ROUNDS[2]
+      return r.name
+    })
+
+    /**
+     * 左上角预览：真实尺寸 + 真实背景色 + 当前圆角
+     *
+     * 背景开关关闭时预览不画底色（和实际流水一致），
+     * 但外框仍按当前图标尺寸显示，用户能看到大小变化。
+     */
+    const txnPreviewBoxStyle = computed(() => {
+      const bgOn = settingStore.txnIconShowBg
+      const size = bgOn ? TXN_ICON_BG_BOX : txnPreviewMetrics.value.box
+      return {
+        width: `${size}rpx`,
+        height: `${size}rpx`,
+        borderRadius: bgOn ? getTxnIconRadius(txnBgRoundIndex.value) : '0',
+        backgroundColor: bgOn ? primaryColor.value + '22' : 'transparent'
+      }
+    })
+
     /** 原生 slider 的未激活轨道色（深浅模式各一个） */
     const sliderInactiveColor = computed(() => (settingStore.isDark ? '#2E2E31' : '#EBEDF0'))
 
@@ -250,6 +314,22 @@ export default {
       settingStore.setTxnIconShowBg(!!v)
     }
 
+    function onRoundMove(e) {
+      const v = eventValue(e)
+      if (Number.isFinite(v)) txnBgRoundIndex.value = Math.max(0, Math.min(4, Math.round(v)))
+    }
+
+    function onRoundEnd(e) {
+      onRoundMove(e)
+      settingStore.setTxnIconBgRound(txnBgRoundIndex.value)
+    }
+
+    function setTxnRound(index) {
+      const i = Math.max(0, Math.min(4, Number(index) || 0))
+      txnBgRoundIndex.value = i
+      settingStore.setTxnIconBgRound(i)
+    }
+
     async function setMode(key) {
       await settingStore.setThemeMode(key)
       uni.showToast({ title: '已切换', icon: 'none' })
@@ -266,8 +346,10 @@ export default {
     return {
       presets, modes, themeMode, themePreset,
       emojiStyles, setEmojiStyle, emojiPreview,
-      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, sliderInactiveColor,
+      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, sliderInactiveColor,
+      txnIconRounds, txnBgRoundIndex, txnBgRoundName,
       onSizeMove, onSizeEnd, setTxnSize, onTxnBgChange,
+      onRoundMove, onRoundEnd, setTxnRound,
       primaryColor, pageStyle,
       setMode, setPreset, goBack, settingStore
     }
@@ -369,13 +451,21 @@ export default {
   margin-bottom: 20rpx;
 }
 
-.txn-size-preview {
-  width: 108rpx;
-  height: 108rpx;
+.txn-preview-area {
+  width: 120rpx;
+  height: 120rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+/* 真实尺寸 + 真实底色 + 当前圆角的预览块 */
+.txn-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width 0.15s, height 0.15s, border-radius 0.15s, background-color 0.15s;
 }
 
 .txn-size-info {
@@ -403,6 +493,19 @@ export default {
   justify-content: space-between;
   padding: 8rpx 4rpx 20rpx;
   border-bottom: 1rpx solid var(--app-line);
+}
+
+.setting-divider {
+  height: 1rpx;
+  background-color: var(--app-line);
+  margin-top: 22rpx;
+}
+
+.setting-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0 4rpx;
 }
 
 .size-label {

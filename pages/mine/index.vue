@@ -50,17 +50,12 @@
       </view>
 
       <!--
-        配置条目分四部分
+        配置条目分三部分
 
-        ★ 基础功能（2×2 宫格）★
-          分类、标签、预算、汇率
-          —— 记账离不开的四个入口：分类和标签决定钱记到哪儿，
-             预算盯住花多少，汇率决定外币怎么折算。
-
-        ★ 拓展功能（2×2 宫格）★
-          借入、借出、周期、报销
-          —— 用得上才开的功能：借贷、周期账单、报销归集，
-             不是每个账本都会碰。
+        ★ 记账功能（2×4 宫格）★
+          分类、标签、预算、汇率 / 借入、借出、周期、报销
+          —— 原「基础功能 / 拓展功能」合并为一个宫格，
+             上图标下文字。
 
         ★ 记账设置（列表）★
           记账按钮设置、AI 智能配置
@@ -75,35 +70,30 @@
       -->
 
       <!--
-        两个宫格分组：基础功能 / 拓展功能
+        记账功能：2 行 × 4 列宫格
 
-        ★ 每组都是 2×2，各自一张大卡片 ★
-          分成两组而不是排成 2×4 的长格子，是因为这两类功能的
-          「必然会用」程度不同：基础的是记账前提，
-          拓展的是账本长起来以后才会开的功能。
-          每组 4 项正好排满 2×2，两组的视觉重量也一致。
-
-        ★ 每格内部是横向排列 ★
-          图标在左、文字居中偏左、› 在最右 ——
-          和下面的列表条目同一个读法，只是两列并排。
+        ★ 原「基础功能 / 拓展功能」两组合并 ★
+          用户要求合并为一个「记账功能」，用 8 个格子（2×4）展示，
+          上图标、下文字。顺序保持原来的阅读顺序：
+            分类 / 标签 / 预算 / 汇率
+            借入 / 借出 / 周期 / 报销
       -->
-      <view v-for="group in featureGroups" :key="group.title" class="menu-group">
-        <text class="menu-title">{{ group.title }}</text>
+      <view class="menu-group">
+        <text class="menu-title">记账功能</text>
         <view class="feature-grid">
           <view
-            v-for="item in group.items"
+            v-for="item in featureItems"
             :key="item.key"
             class="feature-tile"
             @click="onMenuClick(item)"
           >
             <LineIcon
               :name="item.icon"
-              :size="20"
+              :size="24"
               :color="primaryColor"
               class="feature-icon"
             />
             <text class="feature-name">{{ item.name }}</text>
-            <text class="feature-arrow">›</text>
           </view>
         </view>
       </view>
@@ -187,59 +177,28 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     /**
-     * ★ 两个 2×2 宫格分组：基础功能 / 拓展功能 ★
+     * 记账功能：8 个入口，按 2 行 × 4 列展示
      *
-     *   基础：分类 / 标签 / 预算 / 汇率
-     *     —— 记账离不开的四个入口：分类和标签决定钱记到哪儿，
-     *        预算盯住花多少，汇率决定外币怎么折算。
+     * 顺序：
+     *   第一行：分类 / 标签 / 预算 / 汇率
+     *   第二行：借入 / 借出 / 周期 / 报销
      *
-     *   拓展：借入 / 借出 / 周期 / 报销
-     *     —— 用得上才开的功能，不是每个账本都会碰。
-     *
-     * ★ 刻意不带副标题 ★
-     *   用户明确要求「预算管理不要显示几项」。
-     *   宫格只放图标 + 名称，四个格子视觉一致；
-     *   否则只有「预算管理」底下有行小字，四格会显得不齐。
-     *   所以原来给预算入口算「N 项」的 budgetLabel、
-     *   以及那条统计预算条数的 SQL 查询都删掉了。
-     *
-     * ★ 数组顺序 = 宫格里的左右上下顺序 ★
-     *   grid 两列自动折行。用户写的是「借入、借出、周期、报销」，
-     *   不要凭「先借出后借入」的直觉调换前两项。
+     * ★ 原「基础功能 / 拓展功能」两组已合并 ★
+     *   用户要求合并为一个「记账功能」宫格，不再分两段标题。
+     *   借入 / 借出仍用 ?type 区分方向：
+     *     income  = 借入（钱借进来，收入方向）
+     *     expense = 借出（钱借出去，支出方向）
      */
-    const featureGroups = computed(() => [
-      {
-        title: '基础功能',
-        items: [
-          { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
-          { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
-          { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
-          /*
-           * 今日汇率
-           *   页面自己拉最新汇率，不需要传参、也不用预加载 —— 进页面才请求。
-           */
-          { key: 'rate', icon: 'rate', name: '今日汇率', route: '/pages/rate/index' }
-        ]
-      },
-      {
-        title: '拓展功能',
-        items: [
-          /*
-           * ★ 借入 / 借出 ★
-           *   同一页（pages/loan/manage）用 ?type 区分方向：
-           *     income  = 借入（钱借进来，收入方向）
-           *     expense = 借出（钱借出去，支出方向）
-           */
-          { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' },
-          { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
-          { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
-          /*
-           * 报销管理目前是占位页（用户要的是先把入口立起来）。
-           */
-          { key: 'reimburse', icon: 'reimburse', name: '报销管理', route: '/pages/loan/reimburse' }
-        ]
-      }
-    ])
+    const featureItems = [
+      { key: 'category', icon: 'category', name: '分类管理', route: '/pages/settings/category' },
+      { key: 'tag', icon: 'tag', name: '标签管理', route: '/pages/settings/tag' },
+      { key: 'budget', icon: 'budget', name: '预算管理', route: '/pages/settings/budget' },
+      { key: 'rate', icon: 'rate', name: '今日汇率', route: '/pages/rate/index' },
+      { key: 'loanIn', icon: 'loan-in', name: '借入管理', route: '/pages/loan/manage?type=income' },
+      { key: 'loanOut', icon: 'loan-out', name: '借出管理', route: '/pages/loan/manage?type=expense' },
+      { key: 'cycle', icon: 'cycle', name: '周期管理', route: '/pages/settings/cycle' },
+      { key: 'reimburse', icon: 'reimburse', name: '报销管理', route: '/pages/loan/reimburse' }
+    ]
 
     /**
      * 列表形式的设置项，分两组。
@@ -419,7 +378,7 @@ export default {
       settingStore, accountStore, stats, backupHint,
       // 版本号从 utils/version.js 取，和「关于」页共用同一个来源
       APP_VERSION,
-      primaryColor, pageStyle, menuGroups, featureGroups,
+      primaryColor, pageStyle, menuGroups, featureItems,
       themeLabel, aiLabel, quickAddLabel,
       onAddTap, onAddHoldEnd,
       onMenuClick, goProfile, goChangelog
@@ -551,45 +510,33 @@ export default {
 }
 
 /*
- * ★ 记账功能：2×2 宫格 ★
+ * ★ 记账功能：2 行 × 4 列宫格 ★
  *
- * 外层是一个大卡片（和白底列表同款圆角/底色），
- * 内部用 grid 排成两行两列，四个格子等宽等高。
+ * 外层是一张大卡片（和白底列表同款圆角/底色），
+ * 内部用 grid 排成四列，8 个格子自然折成两行。
  *
- * ★ 为什么用 grid 而不是 flex 换行 ★
- *   flex + flex-basis: 50% 时，最后一行若不满会自动拉伸，
- *   而且拿不准间隙怎么扣；grid 的 1fr 1fr 天生等宽，
- *   gap 也不会把格子挤出容器。
+ * ★ 每格内部是纵向排列 ★
+ *   上图标、下文字，居中显示；不再放右侧箭头，
+ *   8 个入口在视觉上保持同样重量。
  */
 .feature-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rpx;
   background-color: var(--app-line);
   border-radius: 20rpx;
   overflow: hidden;
 }
 
-/*
- * 单个格子：横排 —— 图标 · 文字 · ›
- *
- * ★ 左右内边距必须 >= 列表条目的 28rpx ★
- *   格子是两列并排，右边那列的箭头会紧贴中线；
- *   留白不够时，视觉上会觉得「整块往中间缩了」。
- *   这里给 32rpx（比列表还宽 4rpx），因为箭头贴在右边缘，
- *   同样的留白在宫格里看起来会更紧。
- *
- * ★ 高度要比列表高，不能矮 ★
- *   上下内边距 36rpx + 图标 40rpx ≈ 行高 112rpx，
- *   比列表条目（约 96rpx）高出一档 ——
- *   宫格是「大组件」，条目比下面的普通列表还矮会显得廉价。
- */
 .feature-tile {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 16rpx;
-  padding: 36rpx 32rpx;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 26rpx 6rpx;
   background-color: var(--app-card);
+  min-width: 0;
 }
 
 /* 点按反馈：轻微压暗，确认点中了 */
@@ -597,34 +544,20 @@ export default {
   background-color: var(--app-card-2);
 }
 
-/*
- * 图标：与列表条目同尺寸（40rpx 方框 / 20px），
- * 换成弹性宽度把剩余空间让给文字和箭头。
- */
 .feature-icon {
-  width: 40rpx;
-  height: 40rpx;
+  width: 48rpx;
+  height: 48rpx;
   flex-shrink: 0;
 }
 
-/* 文字占满中间，把 › 顶到最右
-   ★ 字号与列表条目一致（28rpx），不要为了"放得下"而缩小 ★ */
 .feature-name {
-  flex: 1;
-  font-size: 28rpx;
+  max-width: 100%;
+  font-size: 24rpx;
   color: var(--app-text);
-  /* 名字过长时省略，不要撑破格子 */
+  text-align: center;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-/* 右侧箭头：与列表条目的 menu-arrow 同一视觉 */
-.feature-arrow {
-  font-size: 28rpx;
-  color: var(--app-text-3);
-  line-height: 1;
-  flex-shrink: 0;
 }
 
 .menu-list {
