@@ -29,6 +29,7 @@ import { computed } from 'vue'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { TXN_ICON_BG_BOX } from '@/utils/txnIcon.js'
+import { categoryTint } from '@/utils/categoryIcon.js'
 
 export default {
   name: 'TxnIcon',
@@ -58,7 +59,7 @@ export default {
         height: `${size}rpx`,
         borderRadius: bgOn ? bgRadius.value : '0',
         backgroundColor: bgOn
-          ? (props.color || '#969799') + '22'
+          ? categoryTint(props.color || '#969799', settingStore.isDark)
           : 'transparent'
       }
     })

@@ -11,7 +11,7 @@
     <scroll-view v-if="txn" class="page-scroll" scroll-y>
       <!-- 金额头 -->
       <view class="detail-head">
-        <view class="head-icon" :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }">
+        <view class="head-icon" :style="{ backgroundColor: categoryTint(txn.category_color || '#969799', settingStore.isDark) }">
           <text
             v-if="txn.type === 'transfer'"
             class="head-icon-text"
@@ -21,7 +21,7 @@
             v-else
             :icon="txn.category_icon"
             :name="txn.category_name"
-            size="64rpx"
+            :size="settingStore.txnIconMetrics.icon + 'rpx'"
           />
         </view>
         <!--
@@ -56,17 +56,18 @@
 
         <view v-if="txn.type !== 'transfer'" class="row">
           <text class="row-label">分类</text>
-          <text class="row-value">{{ txn.category_name || '未分类' }}</text>
+          <text class="row-value">{{ categoryLabel }}</text>
         </view>
 
-        <view class="row">
-          <text class="row-label">日期</text>
-          <text class="row-value">{{ dayLabel }}</text>
-        </view>
-
+        <!--
+          日期和时间合并成一行「时间」
+          ★ 用户明确要求 ★
+            以前分「日期」「时间」两行，既占高度又显得零碎；
+            合并后「今天 14:30」一行就能读完。
+        -->
         <view class="row">
           <text class="row-label">时间</text>
-          <text class="row-value">{{ timeLabel }}</text>
+          <text class="row-value">{{ datetimeLabel }}</text>
         </view>
 
         <view v-if="badges.length" class="row">
@@ -162,6 +163,7 @@ import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
+import { categoryTint } from '@/utils/categoryIcon.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
@@ -196,8 +198,31 @@ export default {
      * 所以这里不再有 sourceLabel，模板里对应的两行也删掉了。
      */
 
-    const dayLabel = computed(() => txn.value ? formatDayHeader(txn.value.occurred_day) : '')
-    const timeLabel = computed(() => txn.value ? formatTime(txn.value.occurred_at) : '')
+    /**
+     * 分类显示成「一级 - 二级」
+     *
+     * ★ 为什么不是只显示 category_name ★
+     *   二级分类名常常很短（「早餐」「地铁」），单独看不知道归属；
+     *   一级 + 二级一起显示才能和分类管理页的层级对上。
+     *   一级分类自身没有父级时只显示自己，避免出现「餐饮 - 餐饮」。
+     */
+    const categoryLabel = computed(() => {
+      const t = txn.value
+      if (!t) return ''
+      const parent = String(t.category_parent_name || '').trim()
+      const child = String(t.category_name || '').trim()
+      if (parent && child && parent !== child) return `${parent} - ${child}`
+      return child || '未分类'
+    })
+
+    /** 日期 + 时间合并成一行（用户要求：不再分两行） */
+    const datetimeLabel = computed(() => {
+      const t = txn.value
+      if (!t) return ''
+      const day = formatDayHeader(t.occurred_day)
+      const time = formatTime(t.occurred_at)
+      return time ? `${day} ${time}` : day
+    })
 
     /** 这笔是否不计入预算 */
     const excludeFromBudget = computed(() => !!txn.value && txn.value.exclude_from_budget === true)
@@ -356,7 +381,7 @@ export default {
     return {
       settingStore, statusBarHeight, txn, tags, badges, showPanel, loadingText,
       primaryColor, pageStyle, typeLabel,
-      dayLabel, timeLabel, excludeFromBudget,
+      categoryLabel, datetimeLabel, excludeFromBudget, categoryTint,
       onEdit, onSaved, onDelete, goBack,
       reimburseStatus, reimburseDisabled, onFlagsUpdate
     }

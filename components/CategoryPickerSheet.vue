@@ -128,12 +128,12 @@ export default {
      *   三处的选中观感完全一致。
      */
     function iconStyle(cat, active) {
-      return categoryIconFullStyle(cat, primaryColor.value, active)
+      return categoryIconFullStyle(cat, primaryColor.value, active, settingStore.isDark)
     }
 
     /** 分组标题（一级分类）的图标配色：始终是分类色的浅色底 */
     function groupIconStyle(parent) {
-      return categoryGroupIconStyle(parent, primaryColor.value)
+      return categoryGroupIconStyle(parent, primaryColor.value, settingStore.isDark)
     }
 
     /** 选中一个分类 */

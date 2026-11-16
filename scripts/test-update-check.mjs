@@ -398,8 +398,18 @@ console.log('=== 下载进度显示在系统通知栏 ===')
    * JS 侧只做入队 + 轮询 + 完成后安装。
    */
   check('用系统下载服务', /getSystemService\('download'\)/.test(api), true)
-  check('系统通知可见', /setNotificationVisibility', 2/.test(api), true)
+  check('系统通知可见', /setNotificationVisibility', 1/.test(api), true)
   check('写 App 专属外部目录', /setDestinationInExternalFilesDir/.test(api), true)
+  /*
+   * ★ 入队失败修复（用户真机报「创建系统下载任务失败」）★
+   *   · setDestinationUri 用 File→Uri 明确目标，不依赖 Activity→Context 转换
+   *   · Request 同时保留 new / newObject 两条构造路径
+   *   · enqueue 返回值兼容 Java Long 包装对象
+   */
+  check('目标路径用 setDestinationUri', /setDestinationUri/.test(api), true)
+  check('Request 构造有 newObject 兜底', /newObject\('android\.app\.DownloadManager\$Request'/.test(api), true)
+  check('Request 实例 importClass', /plus\.android\.importClass\(request\)/.test(api), true)
+  check('enqueue 返回值兼容 Java Long', /function toDownloadId/.test(api), true)
   check('查询下载状态', /querySystemDownload/.test(api), true)
   check('成功状态 8', /DM_SUCCESSFUL = 8/.test(api), true)
   check('失败状态 16', /DM_FAILED = 16/.test(api), true)
@@ -528,7 +538,7 @@ console.log('=== 点通知栏能拉起安装器（bug 修复）===')
   check('SINGLE_TOP 防重复开 App', /INTENT_FLAG_SINGLE_TOP = 0x20000000/.test(notifierSrc), true)
 
   // 系统 DownloadManager 的通知在下载完成后本身即可点开安装
-  check('系统下载通知负责点击安装', /setNotificationVisibility', 2/.test(apiSrc), true)
+  check('系统下载通知负责点击安装', /setNotificationVisibility', 1/.test(apiSrc), true)
 
   // 回前台读 Intent 并装
   check('导出 consumePendingInstall', /export async function consumePendingInstall/.test(apiSrc), true)

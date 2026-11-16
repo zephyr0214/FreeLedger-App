@@ -230,32 +230,151 @@ function stopPolling() {
   }
 }
 
-/** 入队一个系统下载任务，返回 downloadId */
-function enqueueSystemDownload(url, filename) {
+/**
+ * 调 Java 方法：先试直接调用，失败再用 plus.android.invoke 兜底
+ *
+ * ★ 为什么两种都要试 ★
+ *   Native.js 只有在对象「被 importClass 过」时才会挂方法代理；
+ *   newObject / new 拿到的对象、以及 Java 方法返回的对象，
+ *   在不同基座上有的能直接调、有的只能走 invoke。
+ *   更新下载是低频但关键的操作，宁可多一层兜底，
+ *   也不要让一次方法绑定失败直接变成「创建下载任务失败」。
+ */
+function callJava(obj, method, ...args) {
+  if (obj && typeof obj[method] === 'function') {
+    try {
+      return obj[method](...args)
+    } catch (e) {
+      // 直接调用失败（参数转换 / 方法未绑定），继续试 invoke
+      console.warn(`[update] ${method} 直接调用失败，改用 invoke:`, e && e.message)
+    }
+  }
+  return plus.android.invoke(obj, method, ...args)
+}
+
+/** 把 enqueue 的返回值稳妥地转成数字（有些基座返回 Java Long 包装对象） */
+function toDownloadId(raw) {
+  if (typeof raw === 'number') return raw
+  if (raw === null || raw === undefined) return NaN
+  const direct = Number(raw)
+  if (Number.isFinite(direct)) return direct
+  try {
+    const longValue = Number(plus.android.invoke(raw, 'longValue'))
+    if (Number.isFinite(longValue)) return longValue
+  } catch (e) {}
+  const m = String(raw).match(/-?\d+/)
+  return m ? Number(m[0]) : NaN
+}
+
+/**
+ * 创建一个 DownloadManager.Request
+ *
+ * ★ 两种构造方式都保留 ★
+ *   importClass + new 是官方文档写法；newObject 对「内嵌类 + 带参构造」
+ *   在少数基座上更稳。任一成功即可，避免因基座差异直接失败。
+ */
+function createDownloadRequest(uri, filename) {
+  let request = null
+  try {
+    const Request = plus.android.importClass('android.app.DownloadManager$Request')
+    request = new Request(uri)
+  } catch (e) {
+    console.warn('[update] new Request 失败，改用 newObject:', e && e.message)
+  }
+  if (!request) {
+    request = plus.android.newObject('android.app.DownloadManager$Request', uri)
+  }
+  if (!request) throw new Error('创建下载请求失败')
+
+  /*
+   * ★ 必须 importClass 实例 ★
+   *   newObject 返回的对象在部分基座上不会自动挂方法代理，
+   *   不 import 的话 request.setXxx 是 undefined。
+   *   importClass 本身失败也不阻断：下面的 callJava 还有 invoke 兜底。
+   */
+  try {
+    plus.android.importClass(request)
+  } catch (e) {
+    console.warn('[update] importClass(Request) 失败，改用 invoke:', e && e.message)
+  }
+
+  // Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED = 1
+  callJava(request, 'setNotificationVisibility', 1)
+  callJava(request, 'setTitle', '自由记更新')
+  callJava(request, 'setDescription', filename)
+  callJava(request, 'setMimeType', 'application/vnd.android.package-archive')
+  callJava(request, 'setAllowedOverMetered', true)
+  callJava(request, 'setAllowedOverRoaming', false)
+  // 部分文件 CDN 会对 DownloadManager 默认 UA 做限制，换成浏览器 UA
+  callJava(request, 'addRequestHeader', 'User-Agent',
+    'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36')
+  callJava(request, 'addRequestHeader', 'Accept', '*/*')
+  return request
+}
+
+/**
+ * 入队一个系统下载任务，返回 downloadId
+ *
+ * @param {string} url APK 直链
+ * @param {string} filename 保存文件名
+ * @param {string} path 下载完成后的绝对路径（与 filename 同目录）
+ */
+function enqueueSystemDownload(url, filename, path) {
   const dm = getDownloadManager()
   const main = getMainActivity()
   if (!dm || !main) throw new Error('系统下载服务不可用')
 
   const Uri = plus.android.importClass('android.net.Uri')
-  const Request = plus.android.importClass('android.app.DownloadManager$Request')
-  const request = new Request(Uri.parse(url))
+  const uri = Uri.parse(url)
+  const request = createDownloadRequest(uri, filename)
 
-  // Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED = 2
-  plus.android.invoke(request, 'setNotificationVisibility', 2)
-  plus.android.invoke(request, 'setTitle', '自由记更新')
-  plus.android.invoke(request, 'setDescription', filename)
-  plus.android.invoke(request, 'setMimeType', 'application/vnd.android.package-archive')
-  plus.android.invoke(request, 'setAllowedOverMetered', true)
-  plus.android.invoke(request, 'setAllowedOverRoaming', false)
-  // 部分文件 CDN 会对 DownloadManager 默认 UA 做限制，换成浏览器 UA
-  plus.android.invoke(request, 'addRequestHeader', 'User-Agent',
-    'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36')
-  plus.android.invoke(request, 'addRequestHeader', 'Accept', '*/*')
-  // DownloadManager 可以直接写 App 专属外部目录，不需要存储权限
-  plus.android.invoke(request, 'setDestinationInExternalFilesDir', main, 'Download', filename)
+  /*
+   * ★ 先用目录 API 设目标，再用 setDestinationUri 兜底 ★
+   *   上一版只调 setDestinationInExternalFilesDir(main, ...)，
+   *   部分基座把 Activity 参数转成 Context 时失败、又静默不报错，
+   *   结果请求没有目标目录，enqueue 直接返回 -1。
+   *   现在两条都调、指向同一个路径：
+   *     · 目录 API 是老版本 Android 上不需要存储权限的官方写法；
+   *     · setDestinationUri 用 File → Uri 明确路径，
+   *       不经过 Activity → Context 转换，覆盖前一条静默失败的情况。
+   *   任何一条成功即可，两条都成功也没有副作用。
+   */
+  let destSet = false
+  try {
+    callJava(request, 'setDestinationInExternalFilesDir', main, 'Download', filename)
+    destSet = true
+  } catch (e) {
+    console.warn('[update] 设置系统下载目录失败:', e && e.message)
+  }
 
-  const id = Number(plus.android.invoke(dm, 'enqueue', request))
-  if (!Number.isFinite(id) || id <= 0) throw new Error('创建系统下载任务失败')
+  try {
+    const File = plus.android.importClass('java.io.File')
+    const dest = Uri.fromFile(new File(path))
+    if (dest) {
+      callJava(request, 'setDestinationUri', dest)
+      destSet = true
+    }
+  } catch (e) {
+    console.warn('[update] setDestinationUri 失败:', e && e.message)
+  }
+
+  if (!destSet) {
+    throw new Error('设置下载目录失败：系统没有接受任何目标路径')
+  }
+
+  let raw
+  try {
+    raw = callJava(dm, 'enqueue', request)
+  } catch (e) {
+    console.warn('[update] DownloadManager.enqueue 异常:', e && e.message)
+    throw new Error('创建系统下载任务失败：' + ((e && e.message) || '未知错误'))
+  }
+
+  const id = toDownloadId(raw)
+  if (!Number.isFinite(id) || id <= 0) {
+    console.warn('[update] DownloadManager.enqueue 返回:', String(raw))
+    throw new Error('创建系统下载任务失败（返回 ' + String(raw) + '）')
+  }
   return id
 }
 
@@ -333,7 +452,7 @@ export function downloadApk(url, filename, onProgress) {
       // 同名文件存在会让 DownloadManager 直接失败，先删掉
       deleteLocalFile(path)
 
-      const id = enqueueSystemDownload(url, filename)
+      const id = enqueueSystemDownload(url, filename, path)
       uni.setStorageSync(DOWNLOAD_ID_KEY, id)
       uni.setStorageSync(DOWNLOAD_PATH_KEY, path)
 

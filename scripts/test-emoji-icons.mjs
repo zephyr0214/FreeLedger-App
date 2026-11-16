@@ -139,9 +139,14 @@ check(
   'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f415-200d-1f9ba.svg'
 )
 check(
-  'OpenMoji 地址',
+  'OpenMoji 高清 PNG（黑色描边，不依赖 SVG 渲染）',
   emojiImageSrc('1F35C', 120, 'openmoji'),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/618x618/1F35C.png'
+)
+check(
+  'OpenMoji 缩略图 PNG',
+  emojiImageSrc('1F35C', 60, 'openmoji'),
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/72x72/1F35C.png'
 )
 check(
   '旧 system 设置会加载 Noto 图片',

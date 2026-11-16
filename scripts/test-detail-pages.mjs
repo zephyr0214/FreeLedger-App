@@ -294,5 +294,49 @@ check('组件注册了 HeaderAction', /components: \{[^}]*HeaderAction/.test(rec
 check('底部按钮用 HeaderAction', /<HeaderAction @action-click="onMore">查看全部/.test(recent), true)
 check('底部按钮居中', /\.footer-more\s*\{[^}]*justify-content: center/.test(recent), true)
 
+/* ------------------------------------------------ 6. 交易详情 */
+
+console.log('=== 交易详情：分类层级 + 时间合并 ===')
+const txnDetail = read('pages/txn/detail.vue')
+const txnApi = read('api/transaction.js')
+
+/*
+ * 用户要求：
+ *   1. 分类显示「一级 - 二级」；
+ *   2. 日期和时间合并成一行「时间」；
+ *   3. 图标样式跟设置走（CategoryGlyph 自己读 settingStore.emojiStyle）。
+ */
+check(
+  '交易查询带上一级分类名',
+  /pc\.name AS category_parent_name/.test(txnApi) && /JOIN category pc ON pc\.id = c\.parent_id/.test(txnApi),
+  true
+)
+check('详情页有 categoryLabel', /const categoryLabel = computed/.test(txnDetail), true)
+check(
+  '分类按「一级 - 二级」拼接',
+  /return `\$\{parent\} - \$\{child\}`/.test(txnDetail),
+  true
+)
+check(
+  '不再有单独的日期行',
+  /<text class="row-label">日期<\/text>/.test(txnDetail),
+  false
+)
+check(
+  '日期时间合并为一行「时间」',
+  /<text class="row-label">时间<\/text>[\s\S]{0,80}?\{\{ datetimeLabel \}\}/.test(txnDetail),
+  true
+)
+check(
+  '详情页图标用 CategoryGlyph（跟随全局图标样式）',
+  /<CategoryGlyph[\s\S]{0,160}?:icon="txn\.category_icon"/.test(txnDetail),
+  true
+)
+check(
+  '详情页分类底色走 categoryTint（深色加深）',
+  /categoryTint\(txn\.category_color/.test(txnDetail),
+  true
+)
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

@@ -649,7 +649,7 @@ export default {
      * 分类图标的配色。
      *
      * ★ 与交易流水保持一致 ★
-     *   浅色底（分类色 + '22'）+ 分类本色图标。
+     *   分类色半透明底（浅色 22 / 深色 4D）+ 分类本色图标。
      *   以前这里是「深色实底 + 白图标」，选中时整块分类色，
      *   同一个分类在流水里和记账弹层里完全是两种观感。
      *
@@ -662,7 +662,7 @@ export default {
      * @param {boolean} active 是否选中
      */
     function catIconStyle(cat, active) {
-      return categoryIconFullStyle(cat, primaryColor.value, active)
+      return categoryIconFullStyle(cat, primaryColor.value, active, settingStore.isDark)
     }
 
     /** 周期简称（弹窗文案用）：分类名 / 转账两端名 */

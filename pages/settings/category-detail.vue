@@ -5,7 +5,7 @@
         <!-- 汇总卡：本月支出/收入 + 笔数 + 占比 -->
         <view class="summary-card">
           <view class="summary-head">
-            <view class="summary-icon" :style="{ backgroundColor: categoryColor + '22' }">
+            <view class="summary-icon" :style="{ backgroundColor: categoryTint(categoryColor, settingStore.isDark) }">
               <CategoryGlyph :icon="category.icon" :name="category.name" size="52rpx" />
             </view>
             <view class="summary-info">
@@ -111,6 +111,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import { getCategory } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
+import { categoryTint } from '@/utils/categoryIcon.js'
 
 export default {
   components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
@@ -280,7 +281,7 @@ export default {
 
     return {
       settingStore, category, txnList, monthStats, totalStats, loading, notFound,
-      pageStyle, isParent, categoryColor,
+      pageStyle, isParent, categoryColor, categoryTint,
       statType, statWord, monthAmount, totalAmount,
       sharePercent, totalSharePercent,
       goAllTxn, goBack

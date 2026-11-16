@@ -439,11 +439,14 @@ export async function getTransaction(id) {
             a.name AS account_name, a.icon AS account_icon, a.type AS account_type,
             ta.name AS to_account_name,
             c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
+            pc.name AS category_parent_name,
             (SELECT GROUP_CONCAT(tt.tag_id) FROM txn_tag tt WHERE tt.txn_id = t.id) AS tag_ids
      FROM txn t
      LEFT JOIN account  a  ON a.id = t.account_id
      LEFT JOIN account  ta ON ta.id = t.to_account_id
      LEFT JOIN category c  ON c.id = t.category_id
+     /* 二级分类要带上一级名称，详情页显示「一级 - 二级」 */
+     LEFT JOIN category pc ON pc.id = c.parent_id
      WHERE t.id = ? AND t.deleted_at IS NULL`,
     [id]
   )

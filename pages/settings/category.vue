@@ -72,7 +72,7 @@
           :disabled="isFixed(parent)"
         >
           <view class="parent-row" @click="toggleExpand(parent.id)">
-            <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
+            <view class="parent-icon" :style="{ backgroundColor: categoryTint(parent.color || primaryColor, settingStore.isDark) }">
               <CategoryGlyph :icon="parent.icon" :name="parent.name" size="44rpx" />
             </view>
             <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
@@ -136,7 +136,7 @@
           >
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
-              <view class="child-icon" :style="{ backgroundColor: (child.color || parent.color || primaryColor) + '22' }">
+              <view class="child-icon" :style="{ backgroundColor: categoryTint(child.color || parent.color || primaryColor, settingStore.isDark) }">
                 <CategoryGlyph :icon="child.icon" :name="child.name" size="32rpx" />
               </view>
               <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
@@ -285,6 +285,7 @@ import {
 } from '@/api/category.js'
 import { FALLBACK_EMOJI_CODE, categoryIconCode, emojiLabel } from '@/utils/emoji.js'
 import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
+import { categoryTint } from '@/utils/categoryIcon.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -699,7 +700,7 @@ export default {
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit, parentNameOf,
       isFixed, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
-      openIconPicker, onSaveCategory, onDelete, goBack
+      openIconPicker, onSaveCategory, onDelete, goBack, categoryTint
     }
   }
 }

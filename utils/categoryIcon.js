@@ -3,7 +3,7 @@
  *
  * ★ 规则（用户明确要求）★
  *   未选中：**浅浅的灰色**底（不是完全没有底色）
- *   选中：  **浅色**底（分类色 + '22'，与交易流水一致）
+ *   选中：  **分类色半透明**底（浅色 +22 / 深色 +4D，与交易流水一致）
  *   图标：  始终是**分类本色**
  *
  * ★ 灰色为什么要用 CSS 变量而不是写死 ★
@@ -16,10 +16,16 @@
  *   （浅色 #F7F8FA / 深色 #2C2C2E），深浅色自动跟着主题走，
  *   不需要在这里判断 isDark。
  *
- * ★ 选中态为什么用「分类色 + 22」而不是写死的浅色 ★
- *   交易流水里的分类图标就是这个浅色底（见 RecentTxnList.iconBgStyle），
+ * ★ 选中态为什么用「分类色 + 透明度」而不是写死的浅色 ★
+ *   交易流水里的分类图标就是这个浅色底（见 TxnIcon），
  *   用户要求「和交易流水一致」——
  *   所以选中项的底色跟着该分类自己的颜色走，一眼能认出是哪个分类。
+ *
+ * ★ 暗色模式要加深（用户反馈「分类底色不明显」）★
+ *   '#RRGGBB22' 只有约 13% 不透明度。浅色模式下叠在白卡片上还能看见，
+ *   深色模式下叠在 #1C1C1E 上几乎和背景融成一片。
+ *   所以暗色模式统一提高到 30%（'4D'）。所有分类底色都必须走
+ *   categoryTint()，不要在各页面自己拼 '22'，否则深浅色会不一致。
  *
  * ★ 图标为什么用分类本色 ★
  *   去掉深色实底之后，图标必须自己有颜色 ——
@@ -42,6 +48,28 @@ export const FALLBACK_CATEGORY_COLOR = '#969799'
  *   浅色模式 --app-card-2 = #F7F8FA，深色模式 = #2C2C2E。
  */
 export const UNSELECTED_ICON_BG = 'var(--app-card-2)'
+
+/** 分类色的浅底透明度：浅色 13%（和旧版一致） / 深色 30%（否则看不出来） */
+export const CATEGORY_TINT_ALPHA_LIGHT = '22'
+export const CATEGORY_TINT_ALPHA_DARK = '4D'
+
+/**
+ * 分类色 -> 带透明度的浅底色。
+ *
+ * ★ 所有分类图标底色都走这里 ★
+ *   浅色模式 #RRGGBB22；深色模式 #RRGGBB4D。
+ *   传进来的颜色必须是 #RRGGBB（分类色 / 主题色都是这个格式）；
+ *   空值或非法值退回中性灰，避免拼出 '#undefined22'。
+ *
+ * @param {string} color #RRGGBB
+ * @param {boolean} isDark 当前是否深色模式
+ * @returns {string} #RRGGBBAA
+ */
+export function categoryTint(color, isDark = false) {
+  const raw = String(color || '').trim()
+  const base = /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : FALLBACK_CATEGORY_COLOR
+  return base + (isDark ? CATEGORY_TINT_ALPHA_DARK : CATEGORY_TINT_ALPHA_LIGHT)
+}
 
 /**
  * 取一个分类的有效颜色。
@@ -72,11 +100,12 @@ export function categoryIconFg(cat, fallback = FALLBACK_CATEGORY_COLOR) {
  * @param {object} cat 分类对象
  * @param {string} fallback 兜底色（通常是主题色）
  * @param {boolean} active 是否选中
- * @returns {string} 选中 = '#RRGGBB22'；未选中 = 浅灰 var(--app-card-2)
+ * @param {boolean} isDark 是否深色模式（暗色下加深底色）
+ * @returns {string} 选中 = '#RRGGBB22'（深色 '#RRGGBB4D'）；未选中 = 浅灰 var(--app-card-2)
  */
-export function categoryIconBg(cat, fallback = FALLBACK_CATEGORY_COLOR, active = false) {
+export function categoryIconBg(cat, fallback = FALLBACK_CATEGORY_COLOR, active = false, isDark = false) {
   if (!active) return UNSELECTED_ICON_BG
-  return categoryColor(cat, fallback) + '22'
+  return categoryTint(categoryColor(cat, fallback), isDark)
 }
 
 /**
@@ -88,12 +117,13 @@ export function categoryIconBg(cat, fallback = FALLBACK_CATEGORY_COLOR, active =
  * @param {object} cat 分类对象
  * @param {string} primaryColor 主题色
  * @param {boolean} active 是否选中
+ * @param {boolean} isDark 是否深色模式
  * @returns {{ backgroundColor: string, color: string }}
  */
-export function categoryIconStyle(cat, primaryColor, active = false) {
+export function categoryIconStyle(cat, primaryColor, active = false, isDark = false) {
   const fallback = primaryColor || FALLBACK_CATEGORY_COLOR
   return {
-    backgroundColor: categoryIconBg(cat, fallback, active),
+    backgroundColor: categoryIconBg(cat, fallback, active, isDark),
     color: categoryIconFg(cat, fallback)
   }
 }
@@ -135,11 +165,12 @@ export function categoryRingStyle(active, primaryColor) {
  * @param {object} cat 分类对象
  * @param {string} primaryColor 主题色
  * @param {boolean} active 是否选中
+ * @param {boolean} isDark 是否深色模式
  * @returns {{ backgroundColor: string, color: string, border: string }}
  */
-export function categoryIconFullStyle(cat, primaryColor, active = false) {
+export function categoryIconFullStyle(cat, primaryColor, active = false, isDark = false) {
   return {
-    ...categoryIconStyle(cat, primaryColor, active),
+    ...categoryIconStyle(cat, primaryColor, active, isDark),
     ...categoryRingStyle(active, primaryColor)
   }
 }
@@ -155,12 +186,13 @@ export function categoryIconFullStyle(cat, primaryColor, active = false) {
  *
  * @param {object} cat 一级分类对象
  * @param {string} primaryColor 主题色
+ * @param {boolean} isDark 是否深色模式
  * @returns {{ backgroundColor: string, color: string }}
  */
-export function categoryGroupIconStyle(cat, primaryColor) {
+export function categoryGroupIconStyle(cat, primaryColor, isDark = false) {
   const c = categoryColor(cat, primaryColor || FALLBACK_CATEGORY_COLOR)
   return {
-    backgroundColor: c + '22',
+    backgroundColor: categoryTint(c, isDark),
     color: c
   }
 }

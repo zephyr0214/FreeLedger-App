@@ -70,6 +70,12 @@
             <text class="select-arrow">›</text>
           </view>
 
+          <!-- 图标大小：标题放在滑块上方，和「背景形状」保持一致 -->
+          <view class="setting-subhead">
+            <text class="setting-row-name">图标大小</text>
+            <text class="setting-row-desc">{{ txnSizeLabel }}</text>
+          </view>
+
           <view class="size-slider">
             <!-- 用 uni-app 原生 slider，避免引入额外 TS 组件 -->
             <slider
@@ -79,6 +85,7 @@
               :step="1"
               :active-color="primaryColor"
               :background-color="sliderInactiveColor"
+              :block-color="sliderBlockColor"
               :block-size="20"
               @changing="onSizeMove"
               @change="onSizeEnd"
@@ -123,6 +130,7 @@
                 :step="1"
                 :active-color="primaryColor"
                 :background-color="sliderInactiveColor"
+                :block-color="sliderBlockColor"
                 :block-size="20"
                 @changing="onRoundMove"
                 @change="onRoundEnd"
@@ -176,6 +184,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
 import { EMOJI_STYLES, emojiImageSrc } from '@/utils/emoji.js'
+import { categoryTint } from '@/utils/categoryIcon.js'
 import { TXN_ICON_SIZES, TXN_ICON_ROUNDS, TXN_ICON_BG_BOX, getTxnIconMetrics, txnIconSizeIndex, getTxnIconRadius } from '@/utils/txnIcon.js'
 
 export default {
@@ -304,12 +313,23 @@ export default {
         width: `${size}rpx`,
         height: `${size}rpx`,
         borderRadius: bgOn ? getTxnIconRadius(txnBgRoundIndex.value) : '0',
-        backgroundColor: bgOn ? primaryColor.value + '22' : 'transparent'
+        backgroundColor: bgOn ? categoryTint(primaryColor.value, settingStore.isDark) : 'transparent'
       }
     })
 
     /** 原生 slider 的未激活轨道色（深浅模式各一个） */
     const sliderInactiveColor = computed(() => (settingStore.isDark ? '#2E2E31' : '#EBEDF0'))
+
+    /**
+     * slider 圆点颜色
+     *
+     * ★ 深色模式不能留默认白 ★
+     *   原生 slider 默认圆点是白色；在深色背景上虽然亮，但和浅色轨道叠在
+     *   一起时边缘发糊（用户反馈「圆圈完全不显眼」）。
+     *   深色模式改用中性灰 #8E8E93：比轨道亮一档、比纯白柔和，
+     *   手指位置一眼能看清。
+     */
+    const sliderBlockColor = computed(() => (settingStore.isDark ? '#8E8E93' : '#FFFFFF'))
 
     /** uni-app 原生 slider / switch 的事件值都在 e.detail.value 里 */
     function eventValue(e) {
@@ -372,7 +392,7 @@ export default {
       presets, themeMode, themePreset,
       showModeSheet, showStyleSheet, modeOptions, currentMode, onModePicked,
       emojiStyles, emojiStyleOptions, currentStyle, onStylePicked, emojiPreview,
-      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, txnPreviewDesc, sliderInactiveColor,
+      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, txnPreviewDesc, sliderInactiveColor, sliderBlockColor,
       txnIconRounds, txnBgRoundIndex, txnBgRoundName,
       onSizeMove, onSizeEnd, setTxnSize, onTxnBgChange,
       onRoundMove, onRoundEnd, setTxnRound,

@@ -5,7 +5,7 @@
  *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
  *     noto     https://fonts.gstatic.com/s/e/notoemoji/latest/...
  *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/...
- *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/...
+ *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/...
  *   选择页缩略图用 60 档，分类列表 / 流水图标用 120 档。
  *
  * ★ 数据范围 ★
@@ -114,8 +114,18 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
     return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${lower}.svg`
   }
 
-  // OpenMoji 15.1：1F415-200D-1F9BA.svg
-  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/${hex}.svg`
+  // OpenMoji 15.1：文件名是 1F415-200D-1F9BA.png
+  /*
+   * ★ 用 PNG，不用 SVG（用户反馈暗色模式是白色描边）★
+   *   OpenMoji 的彩色图标本身是**黑色描边**；但 Android 的 <image>
+   *   对远程 SVG 的支持不稳定，加载失败后会回退系统 emoji（Noto），
+   *   而 Noto 的图标带白色描边 —— 用户看到的就是「OpenMoji 变成白描边」。
+   *   改用 OpenMoji 官方 PNG：黑色描边是图片本身画好的，不依赖 SVG 渲染。
+   *   缩略图用 72×72，列表 / 详情用 618×618（高清屏不糊）。
+   */
+  return small
+    ? `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/72x72/${hex}.png`
+    : `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/618x618/${hex}.png`
 }
 
 /** 码点 -> 系统 emoji 字符（图片加载中 / 失败时的兜底） */

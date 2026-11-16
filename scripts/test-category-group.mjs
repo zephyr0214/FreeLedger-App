@@ -121,6 +121,55 @@ check(
   { backgroundColor: '#07C16022', color: '#07C160' }
 )
 
+/* ==================================== 1a. 深色模式的分类底色 */
+
+console.log('\n=== 深色模式：分类底色加深（用户反馈不明显） ===')
+
+/*
+ * ★ 为什么不能继续用 '22' ★
+ *   13% 的分类色叠在深色卡片 #1C1C1E 上，几乎和背景融成一片。
+ *   暗色模式统一提高到 30%（'4D'），所有分类图标都要走这个函数。
+ */
+check(
+  '深色选中底是分类色 + 4D',
+  categoryIconBg({ color: '#FF976A' }, FALLBACK_CATEGORY_COLOR, true, true),
+  '#FF976A4D'
+)
+
+check(
+  '浅色选中底仍是 + 22（不改变原观感）',
+  categoryIconBg({ color: '#FF976A' }, FALLBACK_CATEGORY_COLOR, true, false),
+  '#FF976A22'
+)
+
+check(
+  '深色未选中仍是浅灰底（不跟分类色变）',
+  categoryIconBg({ color: '#FF976A' }, FALLBACK_CATEGORY_COLOR, false, true),
+  UNSELECTED_ICON_BG
+)
+
+check(
+  '深色完整样式含加深底色 + 主题色圈',
+  categoryIconFullStyle({ color: '#1989FA' }, PRIMARY, true, true),
+  {
+    backgroundColor: '#1989FA4D',
+    color: '#1989FA',
+    border: `3rpx solid ${PRIMARY}`
+  }
+)
+
+check(
+  '深色分组标题底色也加深',
+  categoryGroupIconStyle({ color: '#07C160' }, PRIMARY, true),
+  { backgroundColor: '#07C1604D', color: '#07C160' }
+)
+
+check(
+  '非法分类色不会拼出 #undefined',
+  categoryIconBg({ color: 'bad' }, FALLBACK_CATEGORY_COLOR, true, true),
+  `${FALLBACK_CATEGORY_COLOR}4D`
+)
+
 /* ====================================== 1b. 选中态的主题色「圈圈」 */
 
 console.log('\n=== 选中圈（用户反馈：灰底选中态区分度不明显） ===')
