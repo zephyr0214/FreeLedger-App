@@ -13,7 +13,13 @@
  *
  * ★ 为什么元数据要生成而不是运行时读 JSON ★
  *   uni-app App 端没有 fetch 本地 JSON 的简单路径（要走 plus.io），
- *   而图标选择器需要同步过滤 4567 条数据 —— 打包成 ESM 常量最稳。
+ *   而图标选择器需要同步过滤几百条数据 —— 打包成 ESM 常量最稳。
+ *
+ * ★ 只保留五个分组（用户指定）★
+ *   表情 / 人物 / 组件 / 符号 / 旗帜 / OpenMoji 扩展 / Unicode 扩展
+ *   对「记账分类」没有实际用处，全部剔除，控制安装包体积。
+ *   保留：动物自然、食物饮料、旅行地点、活动、物品。
+ *   剔除分组的 SVG 文件也要从 static/openmoji/ 删掉（见 README）。
  *
  * ★ 中文字段是可选的 ★
  *   第二个参数给 CLDR 的中文 emoji 注释 JSON 时，会顺带把中文名/标签
@@ -76,7 +82,15 @@ const groupOrder = []
 const rows = []
 let skipped = 0
 
+/** 分类图标只用这五组（其余组剔除，见文件头说明） */
+const KEPT_GROUPS = new Set([
+  'animals-nature', 'food-drink', 'travel-places', 'activities', 'objects'
+])
+
 for (const item of raw) {
+  // 先按分组过滤：不在白名单里的图标连元数据都不生成
+  if (!KEPT_GROUPS.has(item.group)) continue
+
   const hex = String(item.hexcode || '').toUpperCase()
   if (!hex) continue
   // 只收有真实 SVG 文件的（避免元数据里有、资源里没有）

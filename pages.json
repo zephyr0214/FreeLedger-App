@@ -77,6 +77,13 @@
 			}
 		},
 		{
+			"path": "pages/settings/category-icon",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "选择图标"
+			}
+		},
+		{
 			"path": "pages/settings/tag",
 			"style": {
 				"navigationStyle": "custom",

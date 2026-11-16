@@ -2,7 +2,7 @@
  * OpenMoji 分类图标 —— 运行时解析、路径、元数据
  *
  * ★ 数据从哪来 ★
- *   static/openmoji/ 下是 OpenMoji 彩色 SVG（4567 个，CC BY-SA 4.0）；
+ *   static/openmoji/ 下是 OpenMoji 彩色 SVG（867 个，只保留五组，CC BY-SA 4.0）；
  *   utils/openmojiData.js 是由 scripts/gen-openmoji.mjs 生成的元数据
  *   （码点 / 英文名 / 分组 / 搜索关键词 / 中文名）。
  *

@@ -195,7 +195,7 @@
           <text class="editor-save" @click="onSaveCategory">保存</text>
         </view>
 
-        <scroll-view class="editor-body" scroll-y>
+        <view class="editor-body">
           <view class="editor-row">
             <text class="editor-label">名称</text>
             <input
@@ -208,13 +208,18 @@
           </view>
 
           <!--
-            图标选择器：一级和二级都显示。
-            OpenMoji 全量图标（4567 个），支持搜索与分组；
-            旧版 emoji key 会在打开时自动定位到对应图标。
+            图标：编辑器里只显示当前图标 + 名称，点击进入独立的选择页。
+            图标页左侧分组、右侧图标，不在这里套滚动区。
           -->
-          <view class="editor-row editor-row-column">
+          <view class="editor-row editor-row-icon" @click="openIconPicker">
             <text class="editor-label">图标</text>
-            <CategoryIconPicker v-model="editorForm.icon" />
+            <view class="editor-icon-value">
+              <view class="editor-icon-preview">
+                <CategoryGlyph :icon="editorForm.icon" size="40rpx" />
+              </view>
+              <text class="editor-icon-name">{{ currentIconLabel }}</text>
+              <text class="editor-icon-arrow">›</text>
+            </view>
           </view>
 
           <!-- 颜色只有一级能改：二级继承父级的颜色 -->
@@ -235,7 +240,7 @@
             <text class="editor-label">颜色</text>
             <text class="editor-hint">子分类颜色跟随父级「{{ parentNameOf(editorForm.parent_id) }}」</text>
           </view>
-        </scroll-view>
+        </view>
 
         <!--
           删除入口（只在编辑已有分类时显示）
@@ -264,27 +269,26 @@
 
 <script>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
-import { onShow, onBackPress } from '@dcloudio/uni-app'
+import { onLoad, onUnload, onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
-import CategoryIconPicker from '@/components/CategoryIconPicker.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, createCategory, updateCategory, deleteCategory,
   isReconcileCategory, isFixedCategory, isPresetGroupCategory
 } from '@/api/category.js'
-import { FALLBACK_OPENMOJI_CODE, categoryIconCode } from '@/utils/openmoji.js'
+import { FALLBACK_OPENMOJI_CODE, categoryIconCode, openmojiLabel } from '@/utils/openmoji.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: {
     PageNav, EmptyState, AppDialog, LineIcon,
-    CategoryGlyph, CategoryIconPicker, UpdateDialog
+    CategoryGlyph, UpdateDialog
   },
   setup() {
     const settingStore = useSettingStore()
@@ -346,6 +350,9 @@ export default {
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
+
+    /** 编辑器里显示的当前图标名称（中文优先） */
+    const currentIconLabel = computed(() => openmojiLabel(editorForm.icon) || '选择图标')
 
     /** 弹层标题：新建一级 / 新建子分类 / 编辑 */
     const editorTitle = computed(() => {
@@ -419,6 +426,25 @@ export default {
      */
     function isFixed(cat) {
       return isFixedCategory(cat)
+    }
+
+    /**
+     * 打开独立图标选择页
+     *
+     * ★ 为什么不在编辑器里内嵌图标网格 ★
+     *   选择器有几百个图标 + 搜索，塞进底部弹层会形成
+     *   「弹层里再套一层滚动」；用户明确要求改成一个单独页面，
+     *   左边分组、右边图标，编辑弹层只保留「当前图标」一行。
+     */
+    function openIconPicker() {
+      uni.navigateTo({
+        url: `/pages/settings/category-icon?icon=${encodeURIComponent(editorForm.icon || '')}`
+      })
+    }
+
+    /** 图标页选完后通过 uni.$emit 回传（见下面的 $on/$off） */
+    function onIconPicked(code) {
+      if (code) editorForm.icon = code
     }
 
     /**
@@ -639,6 +665,14 @@ export default {
       await load()
     })
 
+    // 接收独立图标页选完的结果
+    onLoad(() => {
+      uni.$on('category-icon-picked', onIconPicked)
+    })
+    onUnload(() => {
+      uni.$off('category-icon-picked', onIconPicked)
+    })
+
     /**
      * 页面重新显示
      *
@@ -656,11 +690,11 @@ export default {
     return {
       settingStore, activeType, tree, expandedIds,
       showEditor, editingId, editorForm, types, colors, swipeStates,
-      editorTitle, isEditingFixed,
+      editorTitle, isEditingFixed, currentIconLabel,
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit, parentNameOf,
       isFixed, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
-      onSaveCategory, onDelete, goBack
+      openIconPicker, onSaveCategory, onDelete, goBack
     }
   }
 }
@@ -924,7 +958,7 @@ export default {
 }
 
 .editor-body {
-  max-height: 62vh;
+  /* 内容只有名称 / 图标 / 颜色三行，不需要滚动 */
   padding: 8rpx 28rpx 32rpx;
 }
 
@@ -947,6 +981,40 @@ export default {
 .editor-label {
   font-size: 28rpx;
   color: var(--app-text);
+}
+
+/* 图标行：当前图标 + 名称 + 箭头，点击进独立选择页 */
+.editor-icon-value {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.editor-icon-preview {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 14rpx;
+  background-color: var(--app-card-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.editor-icon-name {
+  max-width: 280rpx;
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.editor-icon-arrow {
+  font-size: 34rpx;
+  line-height: 1;
+  color: var(--app-text-3);
 }
 
 .editor-input {
@@ -1030,9 +1098,4 @@ export default {
 .color-cell.active {
   box-shadow: inset 0 0 0 4rpx var(--app-text);
 }
-
-/*
- * 图标选择器已经抽成 <CategoryIconPicker>（components/CategoryIconPicker.vue），
- * 网格 / 搜索 / 分组样式都在那个组件里。
- */
 </style>

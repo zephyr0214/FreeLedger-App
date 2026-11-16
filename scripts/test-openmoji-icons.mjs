@@ -53,9 +53,19 @@ function svgExists(code) {
 
 console.log('=== 元数据与 SVG 资源 ===')
 
-check('图标数量超过 4500', OPENMOJI_ICONS.length > 4500, true)
-check('分组数量 12', OPENMOJI_GROUPS.length, 12)
+check('图标数量 867（五组）', OPENMOJI_ICONS.length, 867)
+check('分组数量 5', OPENMOJI_GROUPS.length, 5)
 check('有一个兜底图标', svgExists(FALLBACK_OPENMOJI_CODE), true)
+
+/** 只保留的五组（用户指定） */
+const KEPT_GROUPS = ['animals-nature', 'food-drink', 'travel-places', 'activities', 'objects']
+const groupsInData = [...new Set(OPENMOJI_ICONS.map((r) => r[2]))]
+check('只有保留的五个分组', groupsInData.sort(), [...KEPT_GROUPS].sort())
+check(
+  '表情 / 人物 / 组件 / 符号 / 旗帜 / 扩展都已剔除',
+  OPENMOJI_ICONS.some((r) => !KEPT_GROUPS.includes(r[2])),
+  false
+)
 
 const hexes = OPENMOJI_ICONS.map((r) => r[0])
 check('码点不重复', new Set(hexes).size, hexes.length)
@@ -75,11 +85,14 @@ const iconKeys = Object.keys(ICON_MAP)
 const unmapped = iconKeys.filter((k) => !LEGACY_ICON_CODES[k])
 check('ICON_MAP 的每个 key 都有 OpenMoji 目标', unmapped, [])
 
+const codeMap = new Map(OPENMOJI_ICONS.map((r) => [r[0], r]))
 const badTargets = []
 for (const [key, code] of Object.entries(LEGACY_ICON_CODES)) {
-  if (!svgExists(code)) badTargets.push(`${key}->${code}`)
+  const meta = codeMap.get(code)
+  if (!meta) badTargets.push(`${key}->${code}（不在元数据里）`)
+  else if (!KEPT_GROUPS.includes(meta[2])) badTargets.push(`${key}->${code}（${meta[2]} 已剔除）`)
 }
-check('旧 key 的目标文件都存在', badTargets, [])
+check('旧 key 的目标都在保留分组里', badTargets, [])
 check('toOpenmojiIconCode(food)', toOpenmojiIconCode('food'), LEGACY_ICON_CODES.food)
 check('toOpenmojiIconCode(码点原样)', toOpenmojiIconCode('1F35C'), '1F35C')
 check('toOpenmojiIconCode(未知值)', toOpenmojiIconCode('WRONG'), '')
@@ -90,6 +103,7 @@ console.log('=== 分类图标解析 ===')
 
 check('isOpenmojiCode(food) 为 false', isOpenmojiCode('food'), false)
 check('isOpenmojiCode(1F35C) 为 true', isOpenmojiCode('1F35C'), true)
+check('isOpenmojiCode(已剔除组) 为 false', isOpenmojiCode('1F3CB'), false)
 check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_OPENMOJI_CODE)

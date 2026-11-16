@@ -12,6 +12,11 @@
  *     1. 迁移本身用；
  *     2. 旧备份 JSON 导入时兜底（备份里可能还是 'food' 这种旧 key）；
  *     3. 极端情况下迁移失败时，界面仍能按旧 key 显示对应图标。
+ *
+ * ★ 所有目标都必须在保留的五个分组里（v1.24 精简后）★
+ *   表情 / 人物 / 符号 / 旗帜等组已经整体剔除，
+ *   原来落在这些组的旧 key（fitness / refund / wechat / social）
+ *   改用「动物自然 / 食物饮料 / 旅行地点 / 活动 / 物品」里的近义图标。
  */
 
 export const LEGACY_ICON_CODES = {
@@ -45,26 +50,26 @@ export const LEGACY_ICON_CODES = {
   snack: '1F37F',       // 零食：爆米花
   movie: '1F3AC',       // 电影：场记板
   music: '1F3B5',       // 音乐：音符
-  fitness: '1F3CB',     // 健身：举重
+  fitness: '1F3C5',     // 健身：运动奖牌（举重属于人物组，已剔除）
   smoke: '1F6AC',       // 烟酒：香烟
   insurance: '1F6E1',   // 保险：盾牌
   tax: '1F9FE',         // 税费：票据
   loan: '1F3E6',        // 还款：银行
   invest: '1F4B9',      // 投资：日元上涨
-  refund: '21A9',       // 退款：回转箭头
+  refund: '1F4B5',      // 退款：钞票（回转箭头属于符号组，已剔除）
   bonus: '1F4B8',       // 奖金：飞钱
   card: '1F4B3',        // 储蓄卡：银行卡
   wallet: '1F45B',      // 现金：钱包
   prepaid: '1F3AB',     // 充值卡：票
   alipay: '1F4F2',      // 支付宝：手机支付
-  wechat: '1F4AC',      // 微信：对话框
+  wechat: '1F4F1',      // 微信：手机（对话框属于表情组，已剔除）
   creditcard: '1F4B3',  // 信用卡：银行卡
   huabei: '1F338',      // 花呗：樱花
   // 二级分类
   daily: '1F9F4',       // 日用品：乳液瓶
   digital: '1F4BB',     // 数码：笔记本电脑
   socialsec: '1F3E5',   // 医保 / 社保：医院
-  social: '1F91D',      // 团建 / 聚会：握手
+  social: '1F37B',      // 团建 / 聚会：干杯（握手属于人物组，已剔除）
   tuition: '1F393',     // 学费：学士帽
   stationery: '270F',   // 文具：铅笔
   party: '1F38A',       // 随份子：彩球
