@@ -7,7 +7,7 @@
 
 为什么每套主题色都要出一份：
     PNG 的颜色是烤死在像素里的，setTabBarStyle 只能改文字颜色，
-    改不了图片。所以 6 套预设色各生成一组 selectedIconPath，
+    改不了图片。所以 8 套预设色各生成一组 selectedIconPath，
     切换主题时用 uni.setTabBarItem 动态替换路径。
 
 用法：
@@ -87,6 +87,8 @@ PRESET_COLORS = {
     "orange": (255, 143, 31),      # #FF8F1F
     "purple": (125, 95, 255),      # #7D5FFF
     "red":    (238, 10, 36),       # #EE0A24
+    "teal":   (38, 166, 154),      # #26A69A
+    "pink":   (255, 107, 157),     # #FF6B9D
     "grey":   (50, 50, 51),        # #323233
 }
 

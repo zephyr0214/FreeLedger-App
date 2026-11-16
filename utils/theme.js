@@ -1,5 +1,5 @@
 /**
- * 主题 —— 三态（跟随系统 / 浅色 / 深色）+ 6 套预设色
+ * 主题 —— 三态（跟随系统 / 浅色 / 深色）+ 8 套预设色
  *
  * 设计要点：
  *   1. 组件库走 wd-config-provider 的 theme + themeVars；
@@ -15,6 +15,8 @@ export const THEME_PRESETS = [
   { key: 'orange', name: '暖橘',   primary: '#FF8F1F', light: '#FFF3E6', dark: '#C96C0C' },
   { key: 'purple', name: '紫罗兰', primary: '#7D5FFF', light: '#F0ECFF', dark: '#5A3FD1' },
   { key: 'red',    name: '朱砂',   primary: '#EE0A24', light: '#FFE9EC', dark: '#B2081B' },
+  { key: 'teal',   name: '青碧',   primary: '#26A69A', light: '#E6F7F4', dark: '#00796B' },
+  { key: 'pink',   name: '樱粉',   primary: '#FF6B9D', light: '#FFF0F5', dark: '#D94F7E' },
   { key: 'grey',   name: '墨黑',   primary: '#323233', light: '#F2F3F5', dark: '#1C1C1E' }
 ]
 

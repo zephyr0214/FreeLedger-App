@@ -342,10 +342,19 @@ export default {
       { key: 'income', name: '收入分类' }
     ]
 
+    /*
+     * 16 种分类颜色 —— 按冷暖 / 明暗排成两行
+     *
+     * ★ 顺序就是色板展示顺序 ★
+     *   前 8 个是暖色到冷色（橙 → 黄 → 绿 → 青 → 蓝），
+     *   后 8 个是冷色到中性色（靛 → 紫 → 粉 → 红 → 棕 → 灰）。
+     *   颜色都取自 App 现有主题色 / 分类色系，不引入突兀的高饱和色。
+     */
     const colors = [
-      '#FF976A', '#1989FA', '#EE0A24', '#7D5FFF',
-      '#07C160', '#FF8F1F', '#0A8F4A', '#FF6B9D',
-      '#969799', '#FFD60A'
+      '#FF976A', '#FF8F1F', '#FFD60A', '#8BC34A',
+      '#07C160', '#26A69A', '#00BCD4', '#1989FA',
+      '#5C6BC0', '#7D5FFF', '#FF6B9D', '#EE0A24',
+      '#8D6E63', '#78909C', '#0A8F4A', '#969799'
     ]
 
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -1050,6 +1059,7 @@ export default {
 .color-grid {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 16rpx;
   width: 100%;
 }
