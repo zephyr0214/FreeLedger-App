@@ -82,7 +82,7 @@
               v-for="item in visibleIcons"
               :key="item.hex"
               class="icon-cell"
-              :class="{ active: currentIcon === item.hex }"
+              :class="{ active: currentIcon === item.hex, 'icon-cell--bare': settingStore.isDark }"
               @click="choose(item.hex)"
             >
               <CategoryGlyph
@@ -524,6 +524,16 @@ export default {
   background-color: var(--app-card-2);
   border: 2rpx solid transparent;
   box-sizing: border-box;
+}
+
+/*
+ * ★ 暗色模式不要给每个图标铺灰底（用户要求）★
+ *   深色下 --app-card-2 是一块比背景亮的灰色方块，
+ *   一屏几十个图标全是灰块，很脏；改成透明，
+ *   只保留选中项的淡主题色底和描边。
+ */
+.icon-cell--bare {
+  background-color: transparent;
 }
 
 .icon-cell.active {

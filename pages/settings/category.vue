@@ -73,7 +73,13 @@
         >
           <view class="parent-row" @click="toggleExpand(parent.id)">
             <view class="parent-icon" :style="{ backgroundColor: categoryTint(parent.color || primaryColor, settingStore.isDark) }">
-              <CategoryGlyph :icon="parent.icon" :name="parent.name" size="44rpx" />
+              <CategoryGlyph
+                :icon="parent.icon"
+                :name="parent.name"
+                size="44rpx"
+                :remote-size="60"
+                :loading-fallback="false"
+              />
             </view>
             <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
             <text v-if="isFixed(parent)" class="parent-locked">固定分类</text>
@@ -137,7 +143,13 @@
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
               <view class="child-icon" :style="{ backgroundColor: categoryTint(child.color || parent.color || primaryColor, settingStore.isDark) }">
-                <CategoryGlyph :icon="child.icon" :name="child.name" size="32rpx" />
+                <CategoryGlyph
+                  :icon="child.icon"
+                  :name="child.name"
+                  size="32rpx"
+                  :remote-size="60"
+                  :loading-fallback="false"
+                />
               </view>
               <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
               <!--
@@ -215,7 +227,12 @@
             <text class="editor-label">图标</text>
             <view class="editor-icon-value">
               <view class="editor-icon-preview">
-                <CategoryGlyph :icon="editorForm.icon" size="40rpx" />
+                <CategoryGlyph
+                  :icon="editorForm.icon"
+                  size="40rpx"
+                  :remote-size="60"
+                  :loading-fallback="false"
+                />
               </view>
               <text class="editor-icon-name">{{ currentIconLabel }}</text>
               <text class="editor-icon-arrow">›</text>

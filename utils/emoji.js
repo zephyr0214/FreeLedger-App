@@ -128,6 +128,28 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
     : `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/618x618/${hex}.png`
 }
 
+/**
+ * OpenMoji 的「纯描边」图层地址（暗色模式用）
+ *
+ * ★ 为什么需要第二个 URL ★
+ *   OpenMoji 彩色 PNG 的描边是黑色的，暗色背景上太硬；
+ *   但官方没有「灰色描边」版本。black/ 目录是纯黑线稿，
+ *   把它叠在彩色图上再做 invert 滤镜，就能只把描边变灰、
+ *   保留彩色填充（见 CategoryGlyph）。
+ *
+ * @param {string} code 码点
+ * @param {number} size 60 档 / 120 档
+ * @returns {string}
+ */
+export function emojiOutlineSrc(code, size = 120) {
+  let hex = toEmojiIconCode(code)
+  if (!hex || !META.has(hex)) hex = FALLBACK_EMOJI_CODE
+  const small = Number(size) <= 60
+  return small
+    ? `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/black/72x72/${hex}.png`
+    : `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/black/618x618/${hex}.png`
+}
+
 /** 码点 -> 系统 emoji 字符（图片加载中 / 失败时的兜底） */
 export function emojiChar(code) {
   const hex = toEmojiIconCode(code) || FALLBACK_EMOJI_CODE

@@ -11,19 +11,19 @@
     <scroll-view v-if="txn" class="page-scroll" scroll-y>
       <!-- 金额头 -->
       <view class="detail-head">
-        <view class="head-icon" :style="{ backgroundColor: categoryTint(txn.category_color || '#969799', settingStore.isDark) }">
-          <text
-            v-if="txn.type === 'transfer'"
-            class="head-icon-text"
-            :style="{ color: txn.category_color || '#969799' }"
-          >⇄</text>
-          <CategoryGlyph
-            v-else
-            :icon="txn.category_icon"
-            :name="txn.category_name"
-            :size="settingStore.txnIconMetrics.icon + 'rpx'"
-          />
-        </view>
+        <!--
+          ★ 直接复用流水行图标组件 ★
+            用户要求详情页最上方的背景形状 / 大小和「图标配置」一致。
+            TxnIcon 就是全 App 流水图标的唯一实现：尺寸、
+            分类背景开关、方圆形、分类色浅底全由设置决定，
+            这里不再手写一套 112rpx 的圆形底。
+        -->
+        <TxnIcon
+          :icon="txn.type === 'transfer' ? '' : txn.category_icon"
+          :name="txn.category_name"
+          :color="txn.category_color || '#969799'"
+          :symbol="txn.type === 'transfer' ? '⇄' : ''"
+        />
         <!--
           金额：支出 -、收入 +，转账不加符号（符号规则全页面统一）。
           ★ 转账在这里用正文色，不用浅灰 ★
@@ -161,13 +161,12 @@ import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } f
 import { isSystemPresetName } from '@/api/category.js'
 import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
-import { categoryTint } from '@/utils/categoryIcon.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog, CategoryGlyph },
+  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const txnStore = useTransactionStore()
@@ -381,7 +380,7 @@ export default {
     return {
       settingStore, statusBarHeight, txn, tags, badges, showPanel, loadingText,
       primaryColor, pageStyle, typeLabel,
-      categoryLabel, datetimeLabel, excludeFromBudget, categoryTint,
+      categoryLabel, datetimeLabel, excludeFromBudget,
       onEdit, onSaved, onDelete, goBack,
       reimburseStatus, reimburseDisabled, onFlagsUpdate
     }
@@ -435,20 +434,6 @@ export default {
   align-items: center;
   padding: 40rpx 0 48rpx;
   gap: 16rpx;
-}
-
-.head-icon {
-  width: 112rpx;
-  height: 112rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.head-icon-text {
-  font-size: 44rpx;
-  font-weight: 500;
 }
 
 .head-type {

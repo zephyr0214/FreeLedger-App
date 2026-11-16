@@ -304,7 +304,7 @@ const txnApi = read('api/transaction.js')
  * 用户要求：
  *   1. 分类显示「一级 - 二级」；
  *   2. 日期和时间合并成一行「时间」；
- *   3. 图标样式跟设置走（CategoryGlyph 自己读 settingStore.emojiStyle）。
+ *   3. 图标样式跟设置走（TxnIcon → CategoryGlyph 读 settingStore.emojiStyle）。
  */
 check(
   '交易查询带上一级分类名',
@@ -328,13 +328,18 @@ check(
   true
 )
 check(
-  '详情页图标用 CategoryGlyph（跟随全局图标样式）',
-  /<CategoryGlyph[\s\S]{0,160}?:icon="txn\.category_icon"/.test(txnDetail),
+  '详情页图标复用 TxnIcon（尺寸/背景形状/圆角跟随设置）',
+  /<TxnIcon[\s\S]{0,220}?:icon="txn\.type === 'transfer' \? '' : txn\.category_icon"/.test(txnDetail),
   true
 )
 check(
-  '详情页分类底色走 categoryTint（深色加深）',
-  /categoryTint\(txn\.category_color/.test(txnDetail),
+  '详情页不再手写圆形头图',
+  /class="head-icon"/.test(txnDetail),
+  false
+)
+check(
+  '详情页引入 TxnIcon',
+  /import TxnIcon from '@\/components\/TxnIcon\.vue'/.test(txnDetail),
   true
 )
 

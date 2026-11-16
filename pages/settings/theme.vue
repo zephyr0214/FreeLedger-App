@@ -61,7 +61,13 @@
           <!-- 图标样式：放在预览和大小调整之间 -->
           <view class="style-inline" @click="showStyleSheet = true">
             <view class="style-inline-left">
-              <image class="select-style-img" :src="emojiPreview(currentStyle.key)" mode="aspectFit" />
+              <!-- 当前样式预览走 CategoryGlyph，暗色 OpenMoji 也会显示灰色描边 -->
+              <CategoryGlyph
+                icon="1F600"
+                size="44rpx"
+                :remote-size="60"
+                :loading-fallback="false"
+              />
               <view class="select-texts">
                 <text class="select-name">图标样式</text>
                 <text class="select-desc">{{ currentStyle.name }} {{ currentStyle.desc }}</text>
@@ -455,12 +461,6 @@ export default {
 .select-desc {
   font-size: 22rpx;
   color: var(--app-text-3);
-}
-
-.select-style-img {
-  width: 44rpx;
-  height: 44rpx;
-  flex-shrink: 0;
 }
 
 .select-arrow {
