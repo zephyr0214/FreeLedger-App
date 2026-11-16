@@ -122,8 +122,8 @@
         <text class="section-title">开源与许可</text>
         <view class="card">
           <view class="tech-row">
-            <text class="tech-name">OpenMoji</text>
-            <text class="tech-desc">分类图标 · CC BY-SA 4.0</text>
+            <text class="tech-name">Emojiall</text>
+            <text class="tech-desc">分类图标图片 · 联网按需加载</text>
           </view>
           <view class="tech-row">
             <text class="tech-name">simple-icons</text>
@@ -205,7 +205,8 @@ export default {
       { type: 'text', text: '本应用是一个完全本地化的个人记账工具。' },
       { type: 'item', text: '所有账户、交易、分类、标签、周期、预算与设置都保存在你手机本地的 SQLite 数据库中，不会上传到任何服务器。' },
       { type: 'item', text: '应用不含任何统计、埋点或广告 SDK。' },
-      { type: 'item', text: '唯一的网络请求来自「AI 洞察 / 消费分析 / 速记兜底」功能：只有在你主动配置了 API Key 并触发这些功能时，才会把聚合后的账务摘要发送到你指定的接口地址。' },
+      { type: 'item', text: '网络请求只用于两件事：1）你主动配置 API Key 后触发的「AI 洞察 / 消费分析 / 速记兜底」，会把聚合后的账务摘要发送到你指定的接口地址；2）分类图标图片按需从 emojiall.com 加载，只请求图标图片本身，不上传任何账本数据。' },
+      { type: 'item', text: '分类图标加载失败或断网时会自动回退为系统 emoji，记账、查账不受影响。' },
       { type: 'item', text: '语音记账不录音、不调用麦克风，语音能力由你手机自带的输入法提供。' }
     ]
 

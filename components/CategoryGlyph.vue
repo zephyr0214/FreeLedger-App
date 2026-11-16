@@ -1,66 +1,89 @@
 <template>
-  <!--
-    特殊符号（转账 ⇄ 等）仍然用文字：
-    它们不是分类，没有 OpenMoji 图标可对应。
-  -->
-  <text v-if="symbol" class="cat-glyph-symbol" :style="symbolStyle">{{ symbol }}</text>
-  <image
-    v-else
-    class="cat-glyph-img"
-    :src="src"
-    :style="imgStyle"
-    mode="aspectFit"
-  />
+  <view class="cat-glyph" :style="boxStyle">
+    <!-- 特殊符号（转账 ⇄ 等）仍然用文字：它们不是分类 -->
+    <text v-if="symbol" class="cat-glyph-symbol" :style="symbolStyle">{{ symbol }}</text>
+
+    <template v-else>
+      <!--
+        图片加载中 / 加载失败时的兜底：系统 emoji。
+        加载成功后隐藏，避免和图片叠在一起。
+      -->
+      <text v-if="!loaded" class="cat-glyph-emoji" :style="emojiStyle">{{ char }}</text>
+      <image
+        v-if="!failed"
+        class="cat-glyph-img"
+        :src="src"
+        mode="aspectFit"
+        @load="onLoad"
+        @error="onError"
+      />
+    </template>
+  </view>
 </template>
 
 <script>
 /**
- * 分类图标（OpenMoji）
+ * 分类图标（Emojiall / 联网图片）
  *
  * 用法：
- *   <CategoryGlyph :icon="cat.icon" :name="cat.name" size="44rpx" />
- *   <CategoryGlyph symbol="⇄" size="30rpx" />   // 转账等非分类图标
+ *   <CategoryGlyph :icon="cat.icon" :name="cat.name" size="80rpx" />
+ *   <CategoryGlyph :icon="row.hex" size="68rpx" :remote-size="60" />
+ *   <CategoryGlyph symbol="⇄" size="64rpx" />
  *
- * ★ 为什么要抽组件 ★
- *   分类图标在 11 个页面 / 组件里出现，旧的写法是
- *   `iconEmoji(cat.icon)` 返回一个 emoji 字符塞进 <text>。
- *   换成 OpenMoji 后要统一处理：
- *     1. 旧 key → 码点（历史数据 / 老备份）
- *     2. 没图标 → 按分类名猜
- *     3. 码点 → /static/openmoji/<code>.svg
- *   这套解析只写一份，显示处只给 icon / name。
+ * ★ 图片是联网的 ★
+ *   utils/emoji.js 按码点拼 Emojiall CDN 地址，
+ *   图片加载成功前 / 失败后显示系统 emoji 字符（emojiChar），
+ *   所以断网时分类图标退化成系统 emoji，不会出现空白或裂图。
+ *
+ * ★ 为什么抽组件 ★
+ *   分类图标在首页、流水、详情、面板、选择页里出现，
+ *   旧 key → 码点、按名字猜、联网地址、失败兜底这一套只写一份。
  *
  * ★ 尺寸单位 ★
  *   size 传字符串时原样使用（'44rpx' / '20px'）；
- *   传数字时按 rpx 处理（项目里的尺寸基本都是 rpx）。
+ *   传数字时按 rpx 处理。remote-size 只影响请求 60 还是 120 的图。
  */
-import { computed } from 'vue'
-import { categoryIconSrc } from '@/utils/openmoji.js'
+import { ref, computed, watch } from 'vue'
+import { categoryIconCode, categoryIconSrc, emojiChar } from '@/utils/emoji.js'
 
 export default {
   name: 'CategoryGlyph',
   props: {
-    /** 分类 icon 字段（OpenMoji 码点或旧 key） */
+    /** 分类 icon 字段（Unicode 码点或旧 key） */
     icon: { type: String, default: '' },
     /** 分类名（icon 为空时按名字猜） */
     name: { type: String, default: '' },
-    /** 边长 */
+    /** 显示边长 */
     size: { type: [String, Number], default: '40rpx' },
+    /** 请求的远程图片尺寸：60（缩略图）或 120（列表 / 详情） */
+    remoteSize: { type: Number, default: 120 },
     /** 非分类图标（转账 ⇄ / 未知 ❔）用文字渲染 */
     symbol: { type: String, default: '' },
-    /** 文字符号的颜色（OpenMoji 图片本身是多色的，不受它影响） */
+    /** 文字符号的颜色（图片本身是彩色的，不受它影响） */
     color: { type: String, default: '' }
   },
   setup(props) {
+    /** 图片是否已成功加载 */
+    const loaded = ref(false)
+    /** 图片是否加载失败 */
+    const failed = ref(false)
+
     const sizeText = computed(() =>
       typeof props.size === 'number' ? `${props.size}rpx` : props.size
     )
 
-    const src = computed(() => categoryIconSrc(props.icon, props.name))
-
-    const imgStyle = computed(() => ({
+    const boxStyle = computed(() => ({
       width: sizeText.value,
       height: sizeText.value
+    }))
+
+    const code = computed(() => categoryIconCode(props.icon, props.name))
+    const src = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize))
+    const char = computed(() => emojiChar(code.value))
+
+    const emojiStyle = computed(() => ({
+      fontSize: sizeText.value,
+      lineHeight: 1
     }))
 
     const symbolStyle = computed(() => ({
@@ -69,17 +92,53 @@ export default {
       color: props.color || undefined
     }))
 
-    return { src, imgStyle, symbolStyle }
+    function onLoad() {
+      loaded.value = true
+      failed.value = false
+    }
+
+    function onError() {
+      failed.value = true
+      loaded.value = false
+    }
+
+    // 换图标 / 换名字 / 换图片尺寸时重新尝试加载
+    watch([code, () => props.remoteSize], () => {
+      loaded.value = false
+      failed.value = false
+    })
+
+    return {
+      sizeText, boxStyle, src, char, emojiStyle, symbolStyle,
+      loaded, failed, onLoad, onError
+    }
   }
 }
 </script>
 
 <style scoped>
-.cat-glyph-img {
+.cat-glyph {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   /* 图标不吃触摸事件，避免挡住外层整行的点击 */
   pointer-events: none;
-  flex-shrink: 0;
+}
+
+.cat-glyph-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
   display: block;
+}
+
+.cat-glyph-emoji,
+.cat-glyph-symbol {
+  text-align: center;
 }
 
 .cat-glyph-symbol {

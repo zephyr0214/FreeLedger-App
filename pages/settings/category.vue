@@ -281,7 +281,7 @@ import {
   listCategoryTree, createCategory, updateCategory, deleteCategory,
   isReconcileCategory, isFixedCategory, isPresetGroupCategory
 } from '@/api/category.js'
-import { FALLBACK_OPENMOJI_CODE, categoryIconCode, openmojiLabel } from '@/utils/openmoji.js'
+import { FALLBACK_EMOJI_CODE, categoryIconCode, emojiLabel } from '@/utils/emoji.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -298,7 +298,7 @@ export default {
     const expandedIds = ref([])
     const showEditor = ref(false)
     const editingId = ref('')
-    const editorForm = reactive({ name: '', color: '', icon: FALLBACK_OPENMOJI_CODE, parent_id: null })
+    const editorForm = reactive({ name: '', color: '', icon: FALLBACK_EMOJI_CODE, parent_id: null })
 
     /**
      * wd-swipe-action 的展开状态。
@@ -361,7 +361,7 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     /** 编辑器里显示的当前图标名称（中文优先） */
-    const currentIconLabel = computed(() => openmojiLabel(editorForm.icon) || '选择图标')
+    const currentIconLabel = computed(() => emojiLabel(editorForm.icon) || '选择图标')
 
     /** 弹层标题：新建一级 / 新建子分类 / 编辑 */
     const editorTitle = computed(() => {
@@ -476,7 +476,7 @@ export default {
        */
       editorForm.icon = parent
         ? categoryIconCode(parent.icon, parent.name)
-        : FALLBACK_OPENMOJI_CODE
+        : FALLBACK_EMOJI_CODE
       if (parent && parent.color) editorForm.color = parent.color
       editorForm.parent_id = parent ? parent.id : null
       showEditor.value = true

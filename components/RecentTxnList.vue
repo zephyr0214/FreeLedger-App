@@ -28,7 +28,7 @@
             class="txn-item"
             @click="goDetail(txn.id)"
           >
-            <!-- 分类图标（无底色，直接显示 OpenMoji） -->
+            <!-- 分类图标（无底色，直接显示联网 emoji 图片） -->
             <view class="txn-icon">
               <text v-if="txn.type === 'transfer'" class="txn-icon-text" :style="iconFgStyle(txn)">⇄</text>
               <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="80rpx" />

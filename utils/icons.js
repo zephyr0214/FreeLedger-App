@@ -2,11 +2,11 @@
  * 分类图标 —— 旧版 emoji 表（保留用于迁移与按名字猜图标）
  *
  * ★ 现状（v1.24 起）★
- *   分类图标已经换成 OpenMoji（见 utils/openmoji.js 与 static/openmoji/）。
- *   category.icon 存的是 OpenMoji 码点；这张 ICON_MAP：
+ *   分类图标已经换成 Emojiall 联网图片（见 utils/emoji.js）。
+ *   category.icon 存的是 Unicode emoji 码点；这张 ICON_MAP：
  *     1. 保留旧 key → emoji 的映射，给老版本数据 / 老备份兜底；
  *     2. guessIconKeyByName() 仍按分类名猜一个语义 key，
- *        再由 OpenMoji 层转成码点（新分类没选图标时用）。
+ *        再由 emoji 层转成码点（新分类没选图标时用）。
  *   账户图标不走这张表（见 utils/accountIcons.js）。
  *
  * 为什么当初用 emoji：
@@ -245,7 +245,7 @@ export function guessIconKeyByName(name) {
   return 'more'
 }
 
-/** 兼容旧调用：按名字猜 emoji（新代码请用 guessIconKeyByName + OpenMoji） */
+/** 兼容旧调用：按名字猜 emoji（新代码请用 guessIconKeyByName + utils/emoji.js） */
 export function guessIconByName(name) {
   return ICON_MAP[guessIconKeyByName(name)] || ICON_MAP.more
 }

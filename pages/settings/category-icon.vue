@@ -3,21 +3,53 @@
     <PageNav title="选择图标" @back="goBack" />
 
     <view class="picker-body">
-      <!-- 左侧：分组 -->
+      <!-- 左：五个大类 + 二级分类 -->
       <scroll-view class="group-side" scroll-y>
+        <!-- 全部 -->
         <view
-          v-for="g in groupTabs"
-          :key="g.key"
-          class="group-item"
-          :class="{ active: activeGroup === g.key }"
-          @click="selectGroup(g.key)"
+          class="all-root"
+          :class="{ active: isAllActive }"
+          @click="selectAll"
         >
-          <text class="group-name">{{ g.name }}</text>
-          <text class="group-count">{{ g.count }}</text>
+          <text class="all-name">全部图标</text>
+          <text class="all-count">{{ totalCount }}</text>
+        </view>
+
+        <view v-for="g in groups" :key="g.key" class="group-block">
+          <view
+            class="group-root"
+            :class="{ active: isGroupActive(g) }"
+            @click="selectGroup(g)"
+          >
+            <CategoryGlyph :icon="g.icon" :name="g.name" size="34rpx" :remote-size="60" />
+            <view class="group-main">
+              <text class="group-name">{{ g.name }}</text>
+              <text class="group-count">{{ g.count }}</text>
+            </view>
+            <view
+              class="group-toggle"
+              :class="{ expanded: expanded[g.key] }"
+              @click.stop="toggleGroup(g)"
+            >{{ expanded[g.key] ? '−' : '+' }}</view>
+          </view>
+
+          <!-- 二级分类 -->
+          <view v-if="expanded[g.key]" class="sub-list">
+            <view
+              v-for="sg in g.subgroups"
+              :key="sg.key"
+              class="sub-item"
+              :class="{ active: isSubActive(g, sg) }"
+              @click="selectSub(g, sg)"
+            >
+              <text class="sub-name">{{ sg.name }}</text>
+              <text class="sub-count">{{ sg.icons.length }}</text>
+            </view>
+          </view>
         </view>
       </scroll-view>
 
-      <!-- 右侧：搜索 + 图标网格 -->
+      <!-- 右：搜索 + 图标网格 -->
       <view class="icon-side">
         <view class="search-row">
           <input
@@ -25,14 +57,14 @@
             class="search-input"
             type="text"
             confirm-type="search"
-            placeholder="搜索图标（中文 / 英文 / 码点）"
+            placeholder="搜索图标（中文 / 码点）"
             placeholder-class="search-placeholder"
           />
           <text v-if="query" class="search-clear" @click="query = ''">×</text>
         </view>
 
         <view class="result-head">
-          <text class="result-title">{{ activeGroupName }}</text>
+          <text class="result-title">{{ resultTitle }}</text>
           <text class="result-count">{{ filtered.length }} 个</text>
         </view>
 
@@ -48,19 +80,19 @@
 
           <view v-else class="icon-grid">
             <view
-              v-for="row in visibleIcons"
-              :key="row[0]"
+              v-for="item in visibleIcons"
+              :key="item.hex"
               class="icon-cell"
-              :class="{ active: currentIcon === row[0] }"
-              @click="choose(row[0])"
+              :class="{ active: currentIcon === item.hex }"
+              @click="choose(item.hex)"
             >
-              <image
-                class="icon-img"
-                :src="openmojiSrc(row[0])"
-                mode="aspectFit"
-                lazy-load
+              <CategoryGlyph
+                :icon="item.hex"
+                :name="item.name"
+                size="68rpx"
+                :remote-size="60"
               />
-              <text class="icon-name">{{ row[5] || row[1] }}</text>
+              <text class="icon-name">{{ item.name }}</text>
             </view>
           </view>
 
@@ -80,101 +112,152 @@
 
 <script>
 /**
- * 选择分类图标 —— 独立页面（左侧分组 / 右侧图标）
+ * 选择分类图标 —— 独立页面（左侧大类/二级分类，右侧联网图标）
  *
- * ★ 为什么从编辑器里搬出来 ★
- *   867 个图标塞进编辑弹层时，弹层里还要再套一层滚动区，
- *   滑动很容易和外层滚动打架；用户明确要求：
- *   「图标选择和搜索能不能是一个单独的弹层/页面，
- *     左边选择分类、右边显示图标」。
- *   现在编辑弹层只显示「当前图标 + 名称」一行，点进本页选择。
+ * ★ 图标不下载，联网读取 ★
+ *   元数据只保存码点和名称（utils/emojiData.js，约 33KB），
+ *   图片按码点拼 Emojiall CDN 地址，交给 <image> 按需加载。
+ *   加载中 / 失败时 CategoryGlyph 会显示系统 emoji，不会出现空白。
  *
- * ★ 只保留五个分组 ★
- *   表情 / 人物 / 组件 / 符号 / 旗帜 / 两个扩展组对记账分类没意义，
- *   已在生成元数据和拷贝资源时整体剔除，本页只有：
- *   动物自然、食物饮料、旅行地点、活动、物品（共 867 个）。
+ * ★ 二级分类 ★
+ *   左侧五个大类可以展开，展开后显示 Emojiall 的二级分类
+ *   （哺乳动物、陆路交通、球类…）；点二级分类只看这一组。
+ *   搜索是全局的：输入关键词时忽略当前分组，搜全部 836 个图标。
  *
  * ★ 选择结果怎么传回 ★
- *   本页 uni.$emit('category-icon-picked', 码点) 后 navigateBack；
+ *   uni.$emit('category-icon-picked', 码点) 后 navigateBack；
  *   分类管理页 onLoad 里 uni.$on 接收，编辑器弹层保持打开。
- *
- * ★ 搜索 ★
- *   输入关键词时自动切到「全部」并全局搜索（中文名 / 英文名 / tags / 码点）；
- *   点左侧分组会清空搜索，只看该组。
  */
-import { ref, computed, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
-  OPENMOJI_ICONS, OPENMOJI_GROUPS,
-  openmojiSrc, openmojiMeta, categoryIconCode, FALLBACK_OPENMOJI_CODE
-} from '@/utils/openmoji.js'
+  EMOJI_GROUPS, EMOJI_LIST,
+  categoryIconCode, emojiMeta, FALLBACK_EMOJI_CODE
+} from '@/utils/emoji.js'
 
 /** 每批渲染多少个图标 */
-const BATCH = 100
+const BATCH = 80
 
 export default {
-  components: { PageNav, UpdateDialog },
+  components: { PageNav, CategoryGlyph, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const pageStyle = computed(() => settingStore.cssVars)
 
     /** 当前已选图标（用于高亮；来自上一页传的 icon 参数） */
-    const currentIcon = ref(FALLBACK_OPENMOJI_CODE)
+    const currentIcon = ref(FALLBACK_EMOJI_CODE)
     const activeGroup = ref('all')
+    const activeSub = ref('')
     const query = ref('')
     const renderLimit = ref(BATCH)
 
-    const groupTabs = computed(() => {
-      const counts = {}
-      for (const r of OPENMOJI_ICONS) counts[r[2]] = (counts[r[2]] || 0) + 1
-      return [
-        { key: 'all', name: '全部', count: OPENMOJI_ICONS.length },
-        ...OPENMOJI_GROUPS.map((g) => ({ ...g, count: counts[g.key] || 0 }))
-      ]
-    })
+    /** 左侧大类的展开状态 */
+    const expanded = reactive({})
+    for (const g of EMOJI_GROUPS) expanded[g.key] = false
 
-    const activeGroupName = computed(() => {
-      if (query.value.trim()) return '搜索结果'
-      const g = groupTabs.value.find((x) => x.key === activeGroup.value)
-      return g ? g.name : '全部'
-    })
+    /** 五个大类 + 每组的图标数 */
+    const groups = computed(() =>
+      EMOJI_GROUPS.map((g) => ({
+        ...g,
+        count: g.subgroups.reduce((n, sg) => n + sg.icons.length, 0)
+      }))
+    )
+
+    const totalCount = EMOJI_LIST.length
+
+    const isAllActive = computed(() => !query.value && activeGroup.value === 'all')
+
+    function isGroupActive(g) {
+      return !query.value && activeGroup.value === g.key && !activeSub.value
+    }
+
+    function isSubActive(g, sg) {
+      return !query.value && activeGroup.value === g.key && activeSub.value === sg.key
+    }
 
     const filtered = computed(() => {
       const q = query.value.trim().toLowerCase()
 
-      let rows = OPENMOJI_ICONS
-      if (activeGroup.value !== 'all') {
-        rows = rows.filter((r) => r[2] === activeGroup.value)
-      }
+      // 搜索：全局，不受左侧选择影响
       if (q) {
-        rows = rows.filter((r) => {
-          const hay = `${r[0]} ${r[1]} ${r[4]} ${r[5]}`.toLowerCase()
-          return hay.indexOf(q) !== -1
-        })
+        return EMOJI_LIST.filter((e) => e.search.indexOf(q) !== -1)
       }
-      return rows
+
+      if (activeSub.value) {
+        return EMOJI_LIST.filter((e) => e.subgroup === activeSub.value)
+      }
+
+      if (activeGroup.value !== 'all') {
+        return EMOJI_LIST.filter((e) => e.group === activeGroup.value)
+      }
+
+      return EMOJI_LIST
     })
 
     const visibleIcons = computed(() => filtered.value.slice(0, renderLimit.value))
     const hasMore = computed(() => filtered.value.length > visibleIcons.value.length)
 
-    /** 切分组：清空搜索、回到第一批 */
-    function selectGroup(key) {
-      activeGroup.value = key
+    const resultTitle = computed(() => {
+      if (query.value.trim()) return '搜索结果'
+
+      if (activeSub.value) {
+        const item = EMOJI_LIST.find((e) => e.subgroup === activeSub.value)
+        return item ? item.subgroupName : '全部图标'
+      }
+
+      if (activeGroup.value !== 'all') {
+        const g = groups.value.find((x) => x.key === activeGroup.value)
+        return g ? g.name : '全部图标'
+      }
+
+      return '全部图标'
+    })
+
+    function selectAll() {
+      activeGroup.value = 'all'
+      activeSub.value = ''
       query.value = ''
       renderLimit.value = BATCH
     }
 
-    /*
-     * 搜索是全局的：一开始输入就切到「全部」，
-     * 避免用户以为只搜了左边当前分组。
-     */
-    watch(query, (v) => {
+    function selectGroup(g) {
+      activeGroup.value = g.key
+      activeSub.value = ''
+      query.value = ''
+      expanded[g.key] = true
       renderLimit.value = BATCH
-      if (v.trim() && activeGroup.value !== 'all') activeGroup.value = 'all'
+    }
+
+    function toggleGroup(g) {
+      const next = !expanded[g.key]
+      expanded[g.key] = next
+
+      if (next) {
+        activeGroup.value = g.key
+        activeSub.value = ''
+        query.value = ''
+      } else if (activeGroup.value === g.key) {
+        // 收起时把选中退回「该大类全部」，避免选中项藏在已折叠的列表里
+        activeSub.value = ''
+      }
+      renderLimit.value = BATCH
+    }
+
+    function selectSub(g, sg) {
+      activeGroup.value = g.key
+      activeSub.value = sg.key
+      expanded[g.key] = true
+      query.value = ''
+      renderLimit.value = BATCH
+    }
+
+    // 搜索 / 切换分组时回到第一批
+    watch([query, activeGroup, activeSub], () => {
+      renderLimit.value = BATCH
     })
 
     function loadMore() {
@@ -193,24 +276,29 @@ export default {
 
     onLoad((options) => {
       const raw = decodeURIComponent((options && options.icon) || '')
-      // 旧 key / 空值都归一成码点；空值落到包裹兜底
       currentIcon.value = categoryIconCode(raw, '')
-      const meta = openmojiMeta(currentIcon.value)
-      if (meta) activeGroup.value = meta.group
+      const meta = emojiMeta(currentIcon.value)
+      if (meta) {
+        activeGroup.value = meta.group
+        activeSub.value = meta.subgroup
+        expanded[meta.group] = true
+      }
     })
 
     return {
       settingStore, pageStyle,
-      currentIcon, activeGroup, query, groupTabs, activeGroupName,
-      filtered, visibleIcons, hasMore,
-      selectGroup, loadMore, choose, goBack, openmojiSrc
+      currentIcon, activeGroup, activeSub, query, expanded,
+      groups, totalCount, filtered, visibleIcons, hasMore, resultTitle,
+      isAllActive, isGroupActive, isSubActive,
+      selectAll, selectGroup, toggleGroup, selectSub,
+      loadMore, choose, goBack
     }
   }
 }
 </script>
 
 <style scoped>
-/* 左侧分组 + 右侧图标 */
+/* 左侧大类 + 右侧图标 */
 .picker-body {
   flex: 1;
   height: 0;
@@ -220,24 +308,66 @@ export default {
 }
 
 .group-side {
-  width: 190rpx;
+  width: 240rpx;
   height: 100%;
   flex-shrink: 0;
   background-color: var(--app-card);
   border-right: 1rpx solid var(--app-line);
 }
 
-.group-item {
+/* 全部 */
+.all-root {
   display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  padding: 26rpx 16rpx 26rpx 24rpx;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 18rpx 24rpx 24rpx;
   border-left: 6rpx solid transparent;
 }
 
-.group-item.active {
+.all-root.active {
   background-color: var(--app-primary-light);
   border-left-color: var(--app-primary);
+}
+
+.all-name {
+  font-size: 24rpx;
+  color: var(--app-text-2);
+  font-weight: 500;
+}
+
+.all-root.active .all-name {
+  color: var(--app-primary);
+}
+
+.all-count {
+  font-size: 18rpx;
+  color: var(--app-text-3);
+}
+
+/* 大类 */
+.group-block {
+  border-top: 1rpx solid var(--app-line);
+}
+
+.group-root {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 20rpx 12rpx 20rpx 20rpx;
+  border-left: 6rpx solid transparent;
+}
+
+.group-root.active {
+  background-color: var(--app-primary-light);
+  border-left-color: var(--app-primary);
+}
+
+.group-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
 }
 
 .group-name {
@@ -246,7 +376,7 @@ export default {
   line-height: 1.3;
 }
 
-.group-item.active .group-name {
+.group-root.active .group-name {
   color: var(--app-primary);
   font-weight: 600;
 }
@@ -256,6 +386,63 @@ export default {
   color: var(--app-text-3);
 }
 
+.group-toggle {
+  width: 34rpx;
+  height: 34rpx;
+  border-radius: 50%;
+  border: 1rpx solid var(--app-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  line-height: 1;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+.group-toggle.expanded {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+/* 二级分类 */
+.sub-list {
+  padding: 2rpx 0 8rpx;
+  background-color: var(--app-bg-2);
+}
+
+.sub-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8rpx;
+  padding: 14rpx 16rpx 14rpx 48rpx;
+  border-left: 6rpx solid transparent;
+}
+
+.sub-item.active {
+  background-color: var(--app-primary-light);
+  border-left-color: var(--app-primary);
+}
+
+.sub-name {
+  font-size: 21rpx;
+  color: var(--app-text-3);
+  line-height: 1.3;
+}
+
+.sub-item.active .sub-name {
+  color: var(--app-primary);
+  font-weight: 500;
+}
+
+.sub-count {
+  font-size: 17rpx;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+
+/* 右侧 */
 .icon-side {
   flex: 1;
   min-width: 0;
@@ -265,7 +452,6 @@ export default {
   padding: 20rpx 24rpx env(safe-area-inset-bottom);
 }
 
-/* 搜索 */
 .search-row {
   flex-shrink: 0;
   display: flex;
@@ -296,7 +482,6 @@ export default {
   padding: 0 4rpx;
 }
 
-/* 结果标题 */
 .result-head {
   flex-shrink: 0;
   display: flex;
@@ -316,7 +501,6 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 图标网格 */
 .icon-scroll {
   flex: 1;
   height: 0;
@@ -345,11 +529,6 @@ export default {
 .icon-cell.active {
   border-color: var(--app-primary);
   background-color: var(--app-primary-light);
-}
-
-.icon-img {
-  width: 68rpx;
-  height: 68rpx;
 }
 
 .icon-name {

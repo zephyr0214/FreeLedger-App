@@ -18,7 +18,7 @@
 
 自由记是一个跑在 Android 手机上的个人记账应用。
 
-所有数据只存在**本机 SQLite**，没有账号、没有云端、没有上传。AI 功能由你自己填 API Key 直连模型服务商——账本数据不经过任何第三方服务器，断网也能记账、查账。
+所有数据只存在**本机 SQLite**，没有账号、没有云端、没有上传。AI 功能由你自己填 API Key 直连模型服务商——账本数据不经过任何第三方服务器，断网也能记账、查账。分类图标图片按需从 Emojiall 联网加载（不随包下载），断网时回退为系统 emoji。
 
 ## 功能特性
 
@@ -51,7 +51,7 @@
 - 深度思考、图表均可开关
 
 **数据与外观**
-- 分类图标使用 OpenMoji 图标库（CC BY-SA 4.0），新建 / 编辑分类时可搜索并选择全部图标
+- 分类图标使用 Emojiall 图标库，按需联网加载、不占安装包；新建 / 编辑分类时可在大类与二级分类中搜索选择
 - 每日自动备份 + JSON 导出 / 导入
 - 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色，概览卡 / 人名栏 / 报销单卡头 / 个人信息卡统一主题色渐变（暗色下自动不显示渐变）
@@ -127,7 +127,7 @@ AndroidManifest.xml  自定义清单（仅用于外部打开，见上一节）
 ## 数据与隐私
 
 - 账本、设置、备份全部在本机：`_doc/books.db`
-- 唯一的网络请求是 AI 功能，直接从你的设备发往你自己填的模型服务商
+- 网络请求：AI 功能（发往你自己填的模型服务商）+ 分类图标图片（按需从 emojiall.com 加载，不上传账本数据）
 - 卸载 App 即数据随本机沙箱销毁；换机请先用「数据与备份」导出
 
 ---
@@ -170,7 +170,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 - Deep thinking and charts are both toggleable
 
 **Data & appearance**
-- Category icons use the OpenMoji set (CC BY-SA 4.0); search and pick any icon when creating or editing a category
+- Category icons come from Emojiall and load on demand over the network (nothing bundled); browse top-level groups and subcategories when creating or editing a category
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors; overview card, person header, reimbursement slip header and profile card share one theme gradient (automatically hidden in dark mode)
 - Structured database migrations (schema v24) — upgrades never lose data
@@ -216,5 +216,5 @@ scripts/    check & test scripts
 ## Data & privacy
 
 - Ledger, settings and backups stay on-device: `_doc/books.db`
-- The only network traffic is AI features, sent from your device straight to the provider you configured
+- Network traffic: AI features (to the provider you configured) + category icon images (loaded on demand from emojiall.com; no ledger data is uploaded)
 - Uninstalling destroys data with the sandbox; migrate devices via export/import first

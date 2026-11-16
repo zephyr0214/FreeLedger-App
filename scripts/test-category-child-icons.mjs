@@ -22,7 +22,7 @@ import {
   childIcon,
   childColor
 } from '../api/db/schema.js'
-import { toOpenmojiIconCode } from '../utils/openmojiLegacy.js'
+import { toEmojiIconCode } from '../utils/emojiLegacy.js'
 
 let pass = 0
 let fail = 0
@@ -207,17 +207,17 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
   const after = db.prepare(
     "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '奶茶饮料'"
   ).get()
-  check('迁移后「奶茶饮料」有自己的图标', after.icon, toOpenmojiIconCode('coffee'))
+  check('迁移后「奶茶饮料」有自己的图标', after.icon, toEmojiIconCode('coffee'))
 
   const breakfast = db.prepare(
     "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '日常三餐'"
   ).get()
-  check('迁移后「日常三餐」有自己的图标', breakfast.icon, toOpenmojiIconCode('food'))
+  check('迁移后「日常三餐」有自己的图标', breakfast.icon, toEmojiIconCode('food'))
 
   const snack = db.prepare(
     "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '零食小吃'"
   ).get()
-  check('迁移后「零食小吃」有自己的图标', snack.icon, toOpenmojiIconCode('snack'))
+  check('迁移后「零食小吃」有自己的图标', snack.icon, toEmojiIconCode('snack'))
 
   // 同一个父类下，二级图标不再是同一个
   const foodId = db.prepare(
@@ -233,16 +233,16 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
    *   改成和默认表比对，强度没降低：漏刷任何一个子类都会对不上。
    */
   const expectedIcons = DEFAULT_EXPENSE_CATEGORIES[0].children
-    .map((ch) => toOpenmojiIconCode(childIcon(ch, 'food')))
+    .map((ch) => toEmojiIconCode(childIcon(ch, 'food')))
     .sort()
   check('餐饮食品下二级图标与默认表一致', [...icons].sort(), expectedIcons)
   check('餐饮食品下二级图标不是全都一样', new Set(icons).size > 1, true)
 
   // ★ 用户自己的分类不能被动 ★
   const mine = db.prepare("SELECT icon FROM category WHERE id = 'u_mine'").get()
-  check('用户自建分类的图标没被改', mine.icon, toOpenmojiIconCode('gift'))
+  check('用户自建分类的图标没被改', mine.icon, toEmojiIconCode('gift'))
   const mineChild = db.prepare("SELECT icon FROM category WHERE id = 'u_mine_c'").get()
-  check('用户自建子分类的图标没被改', mineChild.icon, toOpenmojiIconCode('gift'))
+  check('用户自建子分类的图标没被改', mineChild.icon, toEmojiIconCode('gift'))
 
   // ★ 颜色不能被动 ★
   const color = db.prepare("SELECT color FROM category WHERE deleted_at IS NULL AND name = '奶茶饮料'").get()
@@ -271,7 +271,7 @@ console.log('=== 迁移 v6：幂等 —— 跑第二遍结果一样 ===')
   const rows = await db.prepare(
     "SELECT id FROM category WHERE deleted_at IS NULL AND name = '奶茶饮料' AND parent_id IS NOT NULL"
   ).all()
-  check('第一遍后「奶茶饮料」图标正确', rows[0] ? db.prepare('SELECT icon FROM category WHERE id = ?').get(rows[0].id).icon : null, toOpenmojiIconCode('coffee'))
+  check('第一遍后「奶茶饮料」图标正确', rows[0] ? db.prepare('SELECT icon FROM category WHERE id = ?').get(rows[0].id).icon : null, toEmojiIconCode('coffee'))
 
   // 手动再执行一次 v6 的 UPDATE（幂等性验证）
   const now = Date.now()
@@ -281,7 +281,7 @@ console.log('=== 迁移 v6：幂等 —— 跑第二遍结果一样 ===')
       db.prepare(
         `UPDATE category SET icon = ?, updated_at = ?
          WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = ?`
-      ).run(toOpenmojiIconCode(childIcon(child, p.icon)), now, name)
+      ).run(toEmojiIconCode(childIcon(child, p.icon)), now, name)
     }
   }
   check('再跑一遍结果不变', snap(), first)
@@ -303,12 +303,12 @@ console.log('=== 全新安装：二级分类直接就有自己的图标 ===')
   const drink = db.prepare(
     "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '奶茶饮料'"
   ).get()
-  check('新装的「奶茶饮料」有自己的图标', drink ? drink.icon : null, toOpenmojiIconCode('coffee'))
+  check('新装的「奶茶饮料」有自己的图标', drink ? drink.icon : null, toEmojiIconCode('coffee'))
 
   const food = db.prepare(
     "SELECT icon FROM category WHERE deleted_at IS NULL AND parent_id IS NOT NULL AND name = '日常三餐'"
   ).get()
-  check('新装的「日常三餐」有自己的图标', food ? food.icon : null, toOpenmojiIconCode('food'))
+  check('新装的「日常三餐」有自己的图标', food ? food.icon : null, toEmojiIconCode('food'))
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

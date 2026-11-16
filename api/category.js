@@ -4,7 +4,7 @@
 
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
-import { toOpenmojiIconCode } from '../utils/openmojiLegacy.js'
+import { toEmojiIconCode } from '../utils/emojiLegacy.js'
 import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
@@ -23,8 +23,9 @@ import {
  *   而本文件依赖 api/db/index.js，反过来 import 就成环了。
  *   schema.js 不依赖任何模块，是唯一能放「两边共用」的地方。
  *
- * icon 字段（v24 起）存 OpenMoji 码点；下面的默认表仍用语义 key，
- * 写库前由 writeIcon() 统一转换（旧 key -> 码点的表在 utils/openmojiLegacy.js）。
+ * icon 字段（v24 起）存 Unicode emoji 码点（Emojiall 图标）；
+ * 下面的默认表仍用语义 key，写库前由 writeIcon() 统一转换
+ * （旧 key -> 码点的表在 utils/emojiLegacy.js）。
  * ★ 二级分类有自己的图标（v6 起）★
  *   children 里每一项是 { name, icon }，颜色继承父级。
  *
@@ -44,21 +45,21 @@ function normalizeCategory(row) {
     ...row,
     /*
      * ★ 读的时候也做一次图标归一化 ★
-     *   v24 迁移会把库里的旧 key（food/car…）改成 OpenMoji 码点，
+     *   v24 迁移会把库里的旧 key（food/car…）改成 Unicode 码点，
      *   但迁移失败、老备份导入、或用户从很老的版本覆盖上来时，
      *   库里仍可能残留旧 key。在读取边界统一转一次，
      *   界面就不会出现「显示成兜底包裹」的情况。
      */
-    icon: toOpenmojiIconCode(row.icon) || row.icon || null,
+    icon: toEmojiIconCode(row.icon) || row.icon || null,
     sort: Number(row.sort) || 0,
     hidden: Number(row.hidden) === 1,
     isParent: !row.parent_id
   }
 }
 
-/** 写库前把图标归一成 OpenMoji 码点（空值保持 null） */
+/** 写库前把图标归一成 Unicode 码点（空值保持 null） */
 function writeIcon(icon) {
-  return toOpenmojiIconCode(icon) || icon || null
+  return toEmojiIconCode(icon) || icon || null
 }
 
 /** 全部分类（含二级），按 type 过滤 */
