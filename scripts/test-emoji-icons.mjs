@@ -17,7 +17,7 @@ import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import {
   EMOJI_GROUPS, EMOJI_LIST, EMOJI_STYLES, FALLBACK_EMOJI_CODE,
-  categoryIconCode, emojiImageSrc, emojiOutlineSrc, emojiChar, emojiMeta, isEmojiCode,
+  categoryIconCode, emojiImageSrc, emojiChar, emojiMeta, isEmojiCode,
   normalizeEmojiStyle
 } from '../utils/emoji.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from '../utils/emojiLegacy.js'
@@ -139,24 +139,19 @@ check(
   'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f415-200d-1f9ba.svg'
 )
 check(
-  'OpenMoji 高清 PNG（黑色描边，不依赖 SVG 渲染）',
+  'OpenMoji 用 SVG（矢量、约 2KB，不请求 618 PNG）',
   emojiImageSrc('1F35C', 120, 'openmoji'),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/618x618/1F35C.png'
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
 )
 check(
-  'OpenMoji 缩略图 PNG',
+  'OpenMoji 小尺寸也用同一个 SVG',
   emojiImageSrc('1F35C', 60, 'openmoji'),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/72x72/1F35C.png'
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
 )
 check(
-  'OpenMoji 灰色描边层（暗色用黑线稿 PNG）',
-  emojiOutlineSrc('1F35C', 120),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/black/618x618/1F35C.png'
-)
-check(
-  'OpenMoji 灰色描边缩略图',
-  emojiOutlineSrc('1F35C', 60),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/black/72x72/1F35C.png'
+  '不再请求 OpenMoji black 线稿',
+  /black\/(72x72|618x618)/.test(readFileSync(join(ROOT, 'utils', 'emoji.js'), 'utf-8')),
+  false
 )
 check(
   '旧 system 设置会加载 Noto 图片',
@@ -253,16 +248,15 @@ check('不再打包本地图标目录', existsSync(join(ROOT, 'static', 'openmoj
 
 /* ------------------------------------------------ 6. 图标加载与暗色配置 */
 
-console.log('=== 图标加载：防串图 / 灰色描边 / 选择页无灰块 ===')
+console.log('=== 图标加载：防串图 / OpenMoji SVG / 选择页无灰块 ===')
 
 const glyph = readFileSync(join(ROOT, 'components', 'CategoryGlyph.vue'), 'utf-8')
 const catPage = readFileSync(join(ROOT, 'pages', 'settings', 'category.vue'), 'utf-8')
 const iconPage = readFileSync(join(ROOT, 'pages', 'settings', 'category-icon.vue'), 'utf-8')
 
 check('图标节点按 src 重建（防止旧图串到新分类）', /:key="src"/.test(glyph), true)
-check('暗色 OpenMoji 叠灰色描边层', /emojiOutlineSrc/.test(glyph), true)
-check('描边层用 invert 变灰', /filter:\s*invert\(0\.5\)/.test(glyph), true)
-check('底图等描边加载完再显示（不闪黑边）', /visualReady/.test(glyph), true)
+check('不再有 OpenMoji 灰色描边双图层', /emojiOutlineSrc|cat-glyph-outline/.test(glyph), false)
+check('不再用 invert 滤镜处理第二张图', /filter:\s*invert\(0\.5\)/.test(glyph), false)
 check('全 App 默认不在加载中显示系统 emoji', /loadingFallback:\s*\{[^}]*default:\s*false/.test(glyph), true)
 check('部分失败且无一张成功时延迟回退系统样式', /FALLBACK_DELAY_MS/.test(glyph) && /emojiStyleHasSuccess/.test(glyph), true)
 check('系统 emoji 最大 44rpx（极小档）', /FALLBACK_EMOJI_RPX\s*=\s*44/.test(glyph), true)

@@ -61,7 +61,7 @@
           <!-- 图标样式：放在预览和大小调整之间 -->
           <view class="style-inline" @click="showStyleSheet = true">
             <view class="style-inline-left">
-              <!-- 当前样式预览走 CategoryGlyph，暗色 OpenMoji 也会显示灰色描边 -->
+              <!-- 当前样式预览走 CategoryGlyph，与实际图标完全一致 -->
               <CategoryGlyph
                 icon="1F600"
                 size="44rpx"

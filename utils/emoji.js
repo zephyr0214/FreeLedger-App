@@ -5,7 +5,7 @@
  *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
  *     noto     https://fonts.gstatic.com/s/e/notoemoji/latest/...
  *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/...
- *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/...
+ *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/...
  *   选择页缩略图用 60 档，分类列表 / 流水图标用 120 档。
  *
  * ★ 数据范围 ★
@@ -114,40 +114,17 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
     return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${lower}.svg`
   }
 
-  // OpenMoji 15.1：文件名是 1F415-200D-1F9BA.png
   /*
-   * ★ 用 PNG，不用 SVG（用户反馈暗色模式是白色描边）★
-   *   OpenMoji 的彩色图标本身是**黑色描边**；但 Android 的 <image>
-   *   对远程 SVG 的支持不稳定，加载失败后会回退系统 emoji（Noto），
-   *   而 Noto 的图标带白色描边 —— 用户看到的就是「OpenMoji 变成白描边」。
-   *   改用 OpenMoji 官方 PNG：黑色描边是图片本身画好的，不依赖 SVG 渲染。
-   *   缩略图用 72×72，列表 / 详情用 618×618（高清屏不糊）。
+   * OpenMoji 15.1：1F415-200D-1F9BA.svg
+   *
+   * ★ 用 SVG，不用 PNG ★
+   *   OpenMoji 官方只有 72×72 和 618×618 两档 PNG：
+   *   72 太小、618 太大，列表里十几张 618 PNG 解码很慢。
+   *   SVG 只有约 2KB，且矢量可缩放，小图标和大图都清晰；
+   *   Twemoji 也走 SVG，Android <image> 能正常渲染。
+   *   尺寸档对 SVG 不生效，统一返回同一个矢量地址。
    */
-  return small
-    ? `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/72x72/${hex}.png`
-    : `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/618x618/${hex}.png`
-}
-
-/**
- * OpenMoji 的「纯描边」图层地址（暗色模式用）
- *
- * ★ 为什么需要第二个 URL ★
- *   OpenMoji 彩色 PNG 的描边是黑色的，暗色背景上太硬；
- *   但官方没有「灰色描边」版本。black/ 目录是纯黑线稿，
- *   把它叠在彩色图上再做 invert 滤镜，就能只把描边变灰、
- *   保留彩色填充（见 CategoryGlyph）。
- *
- * @param {string} code 码点
- * @param {number} size 60 档 / 120 档
- * @returns {string}
- */
-export function emojiOutlineSrc(code, size = 120) {
-  let hex = toEmojiIconCode(code)
-  if (!hex || !META.has(hex)) hex = FALLBACK_EMOJI_CODE
-  const small = Number(size) <= 60
-  return small
-    ? `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/black/72x72/${hex}.png`
-    : `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/black/618x618/${hex}.png`
+  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/${hex}.svg`
 }
 
 /** 码点 -> 系统 emoji 字符（图片加载中 / 失败时的兜底） */

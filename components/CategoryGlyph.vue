@@ -29,27 +29,11 @@
         v-if="!offline && !failed && src"
         :key="src"
         class="cat-glyph-img"
-        :style="{ opacity: visualReady ? 1 : 0 }"
+        :style="{ opacity: loaded ? 1 : 0 }"
         :src="src"
         mode="aspectFit"
         @load="onLoad"
         @error="onError"
-      />
-      <!--
-        暗色 OpenMoji：在彩色图上叠一层「灰色描边」。
-        black/ 是纯黑线稿，用 invert(0.5) 变成 #808080；
-        它和彩色图的线稿来自同一份 SVG，位置严格对齐，
-        灰色线条正好盖住底图的黑色描边，彩色填充不受影响。
-      -->
-      <image
-        v-if="outlineSrc && !offline && !failed"
-        :key="outlineSrc"
-        class="cat-glyph-img cat-glyph-outline"
-        :style="{ opacity: outlineLoaded ? 1 : 0 }"
-        :src="outlineSrc"
-        mode="aspectFit"
-        @load="onOutlineLoad"
-        @error="onOutlineError"
       />
     </template>
   </view>
@@ -77,19 +61,14 @@
  *   分类图标在首页、流水、详情、面板、选择页里出现，
  *   旧 key → 码点、按名字猜、联网地址、失败兜底这一套只写一份。
  *
- * ★ 暗色 OpenMoji 的灰色描边 ★
- *   彩色 OpenMoji PNG 自带黑色描边，深色背景上太重。
- *   额外叠一张 black/ 线稿 PNG（invert 滤镜变灰），
- *   灰色线稿正好盖住黑色描边；浅色模式不加载第二张图。
- *   背景色开关 / 尺寸 / 圆角仍由外层组件（TxnIcon）控制。
- *
  * ★ 尺寸单位 ★
  *   size 传字符串时原样使用（'44rpx' / '20px'）；
- *   传数字时按 rpx 处理。remote-size 只影响请求 60 还是 120 的图。
+ *   传数字时按 rpx 处理。remote-size 只影响 Noto 请求 72 还是 128 的图；
+ *   Twemoji / OpenMoji 用 SVG，本身可缩放，不区分尺寸档。
  */
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { categoryIconCode, categoryIconSrc, emojiOutlineSrc, emojiChar } from '@/utils/emoji.js'
+import { categoryIconCode, categoryIconSrc, emojiChar } from '@/utils/emoji.js'
 import {
   noteEmojiLoad, emojiStyleFailed, emojiStyleHasSuccess
 } from '@/utils/emojiLoad.js'
@@ -134,10 +113,6 @@ export default {
     /** 图片是否加载失败 */
     const failed = ref(false)
 
-    /** 暗色 OpenMoji 的灰色描边层是否加载完成 / 失败 */
-    const outlineLoaded = ref(false)
-    const outlineFailed = ref(false)
-
     /**
      * 本张图失败、且该样式暂时一张都没成功时，延迟显示系统 emoji
      *
@@ -161,28 +136,6 @@ export default {
     const src = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize, style.value))
     const char = computed(() => emojiChar(code.value))
 
-    /**
-     * 暗色模式 + OpenMoji 才叠灰色描边层
-     *
-     * 其他样式没有独立线稿，硬套会改变图标本身；所以只在
-     * 当前样式是 openmoji 且深色模式时启用。
-     */
-    const outlineSrc = computed(() => {
-      if (!settingStore.isDark || style.value !== 'openmoji') return ''
-      return emojiOutlineSrc(code.value, props.remoteSize)
-    })
-
-    /**
-     * 底图是否已经可以显示
-     *
-     * 有描边层时，要等描边也加载完（或失败）再显示底图，
-     * 否则会先闪一下黑色描边。描边失败就退回底图自带的黑描边，
-     * 总比整个图标空白好。
-     */
-    const visualReady = computed(() =>
-      loaded.value && (!outlineSrc.value || outlineLoaded.value || outlineFailed.value)
-    )
-
     /** 该样式整体是否加载失败（断网 / CDN 不可用） */
     const offline = computed(() => emojiStyleFailed(style.value))
 
@@ -191,7 +144,7 @@ export default {
 
     /** 是否显示系统 emoji 兜底 */
     const showSystemEmoji = computed(() =>
-      offline.value || systemFallback.value || (props.loadingFallback && !visualReady.value)
+      offline.value || systemFallback.value || (props.loadingFallback && !loaded.value)
     )
 
     /**
@@ -253,16 +206,6 @@ export default {
       }, FALLBACK_DELAY_MS)
     }
 
-    function onOutlineLoad() {
-      outlineLoaded.value = true
-      outlineFailed.value = false
-    }
-
-    function onOutlineError() {
-      outlineFailed.value = true
-      outlineLoaded.value = false
-    }
-
     // 任意一张成功后，失败的图标不再显示系统 emoji，回到空白
     watch(styleHasSuccess, (ok) => {
       if (ok) {
@@ -271,12 +214,10 @@ export default {
       }
     })
 
-    // 换图标 / 换样式 / 换图片尺寸 / 切换深浅色时重新尝试加载
-    watch([code, style, () => props.remoteSize, () => settingStore.isDark], () => {
+    // 换图标 / 换样式 / 换图片尺寸时重新尝试加载
+    watch([code, style, () => props.remoteSize], () => {
       loaded.value = false
       failed.value = false
-      outlineLoaded.value = false
-      outlineFailed.value = false
       systemFallback.value = false
       clearFallbackTimer()
     })
@@ -286,8 +227,8 @@ export default {
     })
 
     return {
-      sizeText, boxStyle, src, outlineSrc, visualReady, showSystemEmoji, char, emojiStyle, symbolStyle, offline,
-      loaded, failed, outlineLoaded, onLoad, onError, onOutlineLoad, onOutlineError
+      sizeText, boxStyle, src, showSystemEmoji, char, emojiStyle, symbolStyle, offline,
+      loaded, failed, onLoad, onError
     }
   }
 }
@@ -311,16 +252,6 @@ export default {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-/*
- * 暗色 OpenMoji 的灰色描边层
- *
- * black/ 线稿是纯黑透明底，invert(0.5) 把黑线映射成 #808080，
- * 透明区域保持透明；叠在彩色图上即可只改描边、不改填充色。
- */
-.cat-glyph-outline {
-  filter: invert(0.5);
 }
 
 .cat-glyph-emoji,
