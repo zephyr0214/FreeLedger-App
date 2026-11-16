@@ -77,35 +77,6 @@ export const useUpdateStore = defineStore('update', {
     },
 
     /**
-     * 临时调试入口：不校验版本，直接拉取最新发行版并弹更新弹窗
-     *
-     * 只在「我的 → 关于 → 下载最新安装包（调试）」里使用，
-     * 用于真机验证 DownloadManager / 安装链路；发版前删掉入口即可。
-     */
-    async debugCheckLatest() {
-      if (this.checking) return false
-      if (this.phase === 'downloading') cancelDownload()
-      this.phase = 'idle'
-      this.checking = true
-      try {
-        const res = await fetchCheck({ ignoreVersion: true })
-        if (!res || !res.downloadUrl) throw new Error('最新发行版没有 APK 附件')
-        this.info = res
-        this.phase = 'idle'
-        this.dialogVisible = true
-        return true
-      } catch (e) {
-        await alertDialog({
-          title: '调试下载失败',
-          content: (e && e.message) || '网络错误'
-        })
-        return false
-      } finally {
-        this.checking = false
-      }
-    },
-
-    /**
      * 「下次再说」/「取消下载」：收弹窗
      *
      * ★ 下载中取消要连同系统下载任务一起撤掉 ★
