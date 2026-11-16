@@ -303,6 +303,7 @@ import {
 import { FALLBACK_EMOJI_CODE, categoryIconCode, emojiLabel } from '@/utils/emoji.js'
 import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
 import { categoryTint } from '@/utils/categoryIcon.js'
+import { syncCategoryIconCache, refreshCategoryIconCache } from '@/api/iconCache.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
@@ -567,6 +568,10 @@ export default {
         }
         closeEditor()
         await load()
+        // 新图标四种样式同步落到本地缓存；旧码点由 warm 里的 prune 清理
+        syncCategoryIconCache(editorForm.icon, editorForm.name.trim()).catch((e) => {
+          console.warn('[category] 同步图标缓存失败:', e && e.message)
+        })
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
@@ -607,6 +612,9 @@ export default {
         await deleteCategory(cat.id)
         if (fromEditor) showEditor.value = false
         await load()
+        refreshCategoryIconCache().catch((e) => {
+          console.warn('[category] 刷新图标缓存失败:', e && e.message)
+        })
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '无法删除', content: e.message })

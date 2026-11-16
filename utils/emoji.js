@@ -1,5 +1,5 @@
 /**
- * 分类图标 —— 元数据索引、三种联网样式、旧 key 兼容
+ * 分类图标 —— 元数据索引、四种联网样式、旧 key 兼容
  *
  * ★ 图标图片不随包下载 ★
  *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
@@ -7,7 +7,6 @@
  *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/...
  *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/...
  *     fluent   https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@.../assets/.../Flat/...svg
- *     fxemoji  https://cdn.jsdelivr.net/gh/mozilla/fxemoji@.../svgs/FirefoxEmoji/...svg
  *   选择页缩略图用 60 档，分类列表 / 流水图标用 120 档。
  *
  * ★ 数据范围 ★
@@ -30,7 +29,6 @@ import { EMOJI_GROUPS } from './emojiData.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from './emojiLegacy.js'
 import { guessIconKeyByName } from './icons.js'
 import { FLUENT_BASE, FLUENT_MAP } from './fluentEmojiMap.js'
-import { FXEMOJI_BASE, FXEMOJI_MAP } from './fxEmojiMap.js'
 
 export { EMOJI_GROUPS, LEGACY_ICON_CODES }
 
@@ -38,28 +36,24 @@ export { EMOJI_GROUPS, LEGACY_ICON_CODES }
 export const FALLBACK_EMOJI_CODE = '1F4E6'
 
 /**
- * 五种图标样式
+ * 四种图标样式
  *
  * 系统样式和 Noto 在 Android 上看不出差别，已去掉；
- * 五种样式都按需从各自 CDN 加载，不打包进 APK。
+ * 四种样式都按需从各自 CDN 加载，不打包进 APK。
  *
  * ★ 格式按加载速度选 ★
  *   Noto       128×128 PNG（官方 CDN 快、体积小）
  *   Twemoji    SVG（约 3.5KB）
  *   OpenMoji   SVG（官方没有 128 PNG，72 太小、618 太大）
  *   Fluent     Flat SVG（约 1–2KB）
- *   FxEmoji    完整 SVG（仓库只有 TTF 和分层 SVG，TTF 1.1MB 更慢）
  *
- * Fluent / FxEmoji 的收录范围不同：Fluent 覆盖全部 1037 个图标；
- * FxEmoji 覆盖 559/1037，缺的码点在 emojiImageSrc 里回退 Noto，
- * 保证不会出现空白图标。
+ * Fluent 覆盖全部 1037 个图标，不需要缺失回退。
  */
 export const EMOJI_STYLES = [
   { key: 'noto', name: 'Noto Color Emoji', desc: '(Android)' },
   { key: 'twemoji', name: 'Twemoji', desc: '(Twitter)' },
   { key: 'openmoji', name: 'OpenMoji', desc: '开源彩色图标' },
-  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平图标' },
-  { key: 'fxemoji', name: 'Firefox Emoji', desc: 'Firefox 经典 · 部分回退' }
+  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平图标' }
 ]
 
 /** 把设置里的样式 key 归一（非法值 / 旧 system 退回 Noto） */
@@ -110,7 +104,7 @@ export function isEmojiCode(code) {
  *
  * @param {string} code 码点（大小写 / FE0F 都会规范化）
  * @param {number} size 60 档（缩略图）或 120 档（列表 / 详情）
- * @param {string} style noto | twemoji | openmoji | fluent | fxemoji
+ * @param {string} style noto | twemoji | openmoji | fluent
  * @returns {string}
  */
 export function emojiImageSrc(code, size = 120, style = 'noto') {
@@ -121,7 +115,7 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
 
   const small = Number(size) <= 60
 
-  /** Noto 官方 CDN：72 / 128 PNG（也是 Fluent / FxEmoji 缺图标时的兜底） */
+  /** Noto 官方 CDN：72 / 128 PNG（也是 Fluent 缺图标时的兜底） */
   const notoUrl = () => {
     const lower = hex.toLowerCase()
     return `https://fonts.gstatic.com/s/e/notoemoji/latest/${lower.replace(/-/g, '_')}/${small ? 72 : 128}.png`
@@ -142,16 +136,6 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
      */
     const path = FLUENT_MAP[hex]
     return path ? FLUENT_BASE + encodeURI(path) : notoUrl()
-  }
-
-  if (st === 'fxemoji') {
-    /*
-     * Firefox Emoji：仓库只有 TTF（约 1.1MB）和分层 SVG，没有 128 PNG。
-     * 按图标取完整 SVG，单张约 8KB；虽然比 Fluent 大，但只加载可见图标，
-     * 比首屏拉一个 1.1MB 字体快。
-     */
-    const path = FXEMOJI_MAP[hex]
-    return path ? FXEMOJI_BASE + encodeURI(path) : notoUrl()
   }
 
   /*

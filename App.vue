@@ -13,6 +13,7 @@ import { catchUpCycles } from '@/api/cycle.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { useUpdateStore } from '@/stores/update.js'
 import { consumePendingInstall, resumePendingDownload } from '@/api/update.js'
+import { warmCategoryIconCache } from '@/api/iconCache.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
 import { clearSettingsCache } from '@/api/settings.js'
@@ -215,6 +216,16 @@ export default {
     setTimeout(() => {
       useUpdateStore().checkForUpdate(true)
     }, 3000)
+
+    /*
+     * 图标缓存预热：只下「所有分类正在用的图标 + 主题页预览」，
+     * 四种样式一起缓存；放到开屏关键路径之后，避免抢首屏网络。
+     */
+    setTimeout(() => {
+      warmCategoryIconCache().catch((e) => {
+        console.warn('[app] 预热图标缓存失败:', e && e.message)
+      })
+    }, 5000)
     // #endif
   },
 

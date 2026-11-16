@@ -41,7 +41,7 @@
 
 <script>
 /**
- * 分类图标（Noto / Twemoji / OpenMoji / Fluent / FxEmoji 五样式）
+ * 分类图标（Noto / Twemoji / OpenMoji / Fluent 四样式）
  *
  * 用法：
  *   <CategoryGlyph :icon="cat.icon" :name="cat.name" size="80rpx" />
@@ -69,6 +69,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { categoryIconCode, categoryIconSrc, emojiChar } from '@/utils/emoji.js'
+import { cachedIconPath, invalidateIcon } from '@/utils/iconCache.js'
 import {
   noteEmojiLoad, emojiStyleFailed, emojiStyleHasSuccess
 } from '@/utils/emojiLoad.js'
@@ -133,7 +134,12 @@ export default {
 
     const code = computed(() => categoryIconCode(props.icon, props.name))
     const style = computed(() => settingStore.emojiStyle)
-    const src = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize, style.value))
+    /** 远程 CDN 地址（未命中本地缓存时使用） */
+    const remoteSrc = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize, style.value))
+    /** 本地缓存路径（只对分类里用到的图标生效；选择页的候选图标不缓存） */
+    const cachedSrc = computed(() => cachedIconPath(code.value, style.value))
+    const src = computed(() => cachedSrc.value || remoteSrc.value)
+    const usingCache = computed(() => !!cachedSrc.value)
     const char = computed(() => emojiChar(code.value))
 
     /** 该样式整体是否加载失败（断网 / CDN 不可用） */
@@ -188,6 +194,18 @@ export default {
     }
 
     function onError() {
+      /*
+       * ★ 本地缓存坏了不要直接判死 ★
+       *   App 私有目录可能被系统清理 / 用户清缓存，manifest 仍在就会
+       *   指向一个不存在的文件。先失效这一条，src 会自动切回远程 URL；
+       *   只有远程也失败才进入「整套样式不可用」的统计。
+       */
+      if (usingCache.value) {
+        invalidateIcon(code.value, style.value)
+        loaded.value = false
+        failed.value = false
+        return
+      }
       failed.value = true
       loaded.value = false
       noteEmojiLoad(style.value, false)
@@ -215,7 +233,8 @@ export default {
     })
 
     // 换图标 / 换样式 / 换图片尺寸时重新尝试加载
-    watch([code, style, () => props.remoteSize], () => {
+    // src 变化（换图标 / 换样式 / 本地缓存命中或失效）时重新走加载流程
+    watch(src, () => {
       loaded.value = false
       failed.value = false
       systemFallback.value = false

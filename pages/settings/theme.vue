@@ -190,6 +190,7 @@ import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
 import { EMOJI_STYLES, emojiImageSrc } from '@/utils/emoji.js'
+import { cachedIconPath } from '@/utils/iconCache.js'
 import { categoryTint } from '@/utils/categoryIcon.js'
 import { TXN_ICON_SIZES, TXN_ICON_ROUNDS, TXN_ICON_BG_BOX, getTxnIconMetrics, txnIconSizeIndex, getTxnIconRadius } from '@/utils/txnIcon.js'
 
@@ -259,7 +260,7 @@ export default {
 
     /** 样式选择行里的预览图（60 档缩略图） */
     function emojiPreview(styleKey) {
-      return emojiImageSrc('1F35C', 60, styleKey)
+      return cachedIconPath('1F35C', styleKey) || emojiImageSrc('1F35C', 60, styleKey)
     }
 
     function onStylePicked(opt) {

@@ -10,7 +10,7 @@
  *   共 6 组、54 个二级分类、1037 个图标。
  *
  * ★ 图片不随包下载 ★
- *   运行时按码点 + 用户选的样式（Noto / Twemoji / OpenMoji / Fluent / FxEmoji）
+ *   运行时按码点 + 用户选的样式（Noto / Twemoji / OpenMoji / Fluent）
  *   拼对应 CDN 地址（见 utils/emoji.js 的 emojiImageSrc）。
  *
  * 每项 icons：[码点, 中文名, emoji 字符]

@@ -22,7 +22,6 @@ import {
 } from '../utils/emoji.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from '../utils/emojiLegacy.js'
 import { FLUENT_MAP } from '../utils/fluentEmojiMap.js'
-import { FXEMOJI_MAP } from '../utils/fxEmojiMap.js'
 import {
   TXN_ICON_SIZES, TXN_ICON_BG_BOX, TXN_ICON_ROUNDS,
   getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex,
@@ -122,7 +121,7 @@ check('isEmojiCode(1F35C) 为 true', isEmojiCode('1F35C'), true)
 check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_EMOJI_CODE)
-check('五种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji', 'fluent', 'fxemoji'])
+check('四种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji', 'fluent'])
 check('非法样式退回 noto', normalizeEmojiStyle('bad'), 'noto')
 check('旧 system 样式退回 noto', normalizeEmojiStyle('system'), 'noto')
 check(
@@ -166,24 +165,12 @@ check(
   'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/assets/Steaming%20bowl/Flat/steaming_bowl_flat.svg'
 )
 check(
-  'FxEmoji 用完整 SVG',
-  emojiImageSrc('1F35C', 120, 'fxemoji'),
-  'https://cdn.jsdelivr.net/gh/mozilla/fxemoji@270af343bee346d8221f87806d2b1eee0438431a/svgs/FirefoxEmoji/u1F35C-steamingbowl.svg'
-)
-check(
   'Fluent 全部图标都有 Flat SVG',
   emojiImageSrc('1F415-200D-1F9BA', 60, 'fluent').includes('Service%20dog'),
   true
 )
-check(
-  'FxEmoji 缺图标回退 Noto',
-  emojiImageSrc('1F98D', 60, 'fxemoji'),
-  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f98d/72.png'
-)
 check('Fluent 映射覆盖 1037 个图标', Object.keys(FLUENT_MAP).length, 1037)
-check('FxEmoji 映射覆盖 559 个图标', Object.keys(FXEMOJI_MAP).length, 559)
 check('Fluent 映射全部是 SVG', Object.values(FLUENT_MAP).every((p) => p.endsWith('.svg')), true)
-check('FxEmoji 映射全部是 SVG', Object.values(FXEMOJI_MAP).every((p) => p.endsWith('.svg')), true)
 check(
   '旧 system 设置会加载 Noto 图片',
   emojiImageSrc('1F35C', 120, 'system'),
@@ -301,6 +288,27 @@ check('流水图标断网时强制圆角背景 + 极小档', /getTxnIconMetrics\
 check('流水图标断网时背景仍保持 84rpx', /\{ icon: offlineIcon, box: TXN_ICON_BG_BOX \}/.test(txnIcon), true)
 check('流水图标断网时强制打开背景', /offline\.value \|\| settingStore\.txnIconShowBg/.test(txnIcon), true)
 check('流水图标断网时用 18rpx 圆角', /'18rpx'/.test(txnIcon), true)
+
+/* ------------------------------------------------ 7. 本地图标缓存 */
+
+console.log('=== 图标本地缓存：只用到的图标 / 四种样式同步 ===')
+
+const cacheUtil = readFileSync(join(ROOT, 'utils', 'iconCache.js'), 'utf-8')
+const cacheApi = readFileSync(join(ROOT, 'api', 'iconCache.js'), 'utf-8')
+const appSrc = readFileSync(join(ROOT, 'App.vue'), 'utf-8')
+const themeSrc = readFileSync(join(ROOT, 'pages', 'settings', 'theme.vue'), 'utf-8')
+
+check('存在本地缓存工具', existsSync(join(ROOT, 'utils', 'iconCache.js')), true)
+check('CategoryGlyph 优先用本地缓存', /cachedIconPath/.test(glyph) && /cachedSrc\.value \|\| remoteSrc\.value/.test(glyph), true)
+check('本地缓存坏掉会失效并回远程', /invalidateIcon\(code\.value/.test(glyph), true)
+check('主题页预览读本地缓存', /cachedIconPath\('1F35C'/.test(themeSrc), true)
+check('启动后后台预热', /warmCategoryIconCache/.test(appSrc), true)
+check('缓存只收集分类 + 主题预览，不扫全图库', /listCategories\(null, true\)/.test(cacheApi) && /THEME_PREVIEW_CODE/.test(cacheApi) && !/EMOJI_LIST/.test(cacheApi), true)
+check('分类保存后同步新图标缓存', /syncCategoryIconCache\(editorForm\.icon/.test(catPage), true)
+check('分类删除后清理旧缓存', /refreshCategoryIconCache\(\)/.test(catPage), true)
+check('缓存覆盖全部四种样式', /EMOJI_STYLES\.map\(\(s\) => cacheIcon/.test(cacheUtil), true)
+check('清理时会删掉已移除样式的缓存', /validStyles\.has\(style\)/.test(cacheUtil), true)
+check('FxEmoji 映射文件已删除', existsSync(join(ROOT, 'utils', 'fxEmojiMap.js')), false)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)
