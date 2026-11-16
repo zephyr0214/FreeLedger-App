@@ -225,9 +225,11 @@ check('系统固定分类图标都在五组内', badPreset, [])
 console.log('=== v24 迁移与本地资源 ===')
 
 const dbSrc = readFileSync(join(ROOT, 'api', 'db', 'index.js'), 'utf-8')
-check('SCHEMA_VERSION 是 24', SCHEMA_VERSION, 24)
+check('SCHEMA_VERSION 是 25', SCHEMA_VERSION, 25)
 check('迁移链有 v24', /version:\s*24/.test(dbSrc), true)
 check('v24 用 migrateCategoryIcons', /up:\s*migrateCategoryIcons/.test(dbSrc), true)
+check('迁移链有 v25', /version:\s*25/.test(dbSrc), true)
+check('v25 用 migrateCycleExtraRules', /up:\s*migrateCycleExtraRules/.test(dbSrc), true)
 check('v24 只改 category.icon', /UPDATE category SET icon = \? WHERE id = \?/.test(dbSrc), true)
 check('不再打包本地图标目录', existsSync(join(ROOT, 'static', 'openmoji')), false)
 

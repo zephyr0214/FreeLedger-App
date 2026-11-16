@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.24.0-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.25.0-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -34,7 +34,7 @@
 
 **账务管理**
 - 二级分类（自定义图标）、标签、预算（月预算 + 子预算，子预算支持自定义名称与多类别）
-- 周期账：按天 / 周 / 月自动补记，手动删掉的日期不会被重复补上；周期也能预设「不计入预算 / 待报销」
+- 周期账：按天 / 周 / 每两周 / 月 / 年 / 自定义间隔天数自动补记，手动删掉的日期不会被重复补上；周期也能预设「不计入预算 / 待报销」
 - 报销台账：支出标记「待报销」，收到钱后一键报销，差额自动记坏账或盈余；流水上直接显示「待报销 / 已报销」徽标
 - 报销单：每次报销自动生成一张单，显示报销金额、实报金额、报销时间、报销笔数，坏账/盈余也归在同一张单下
 - 借入借出按人员管理：未结清 / 已结清分组，借出可手动结清（差额自动记坏账或利息）；结清过又新借的，旧账自动折叠，已结清本金标删除线并标注「已结清 · 日期」
@@ -55,7 +55,7 @@
 - 每日自动备份 + JSON 导出 / 导入
 - 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色，概览卡 / 人名栏 / 报销单卡头 / 个人信息卡统一主题色渐变（暗色下自动不显示渐变）
-- 数据库结构化迁移（当前 schema v24），升级不丢数据
+- 数据库结构化迁移（当前 schema v25），升级不丢数据
 
 ## 技术栈与工程化
 
@@ -80,7 +80,7 @@ npm run test      # 全部测试（20+ 个测试文件，数百条断言）
 
 ## 版本规则
 
-- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v24 → v1.24.x）
+- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v25 → v1.25.x）
 - 无迁移 → 递增修订号（1.17.0 → 1.17.1）
 - 每个版本的用户可见变化见 App 内「我的 → 更新日志」
 
@@ -155,7 +155,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 **Management**
 - Two-level categories (custom icons), tags, budgets (total + per-category, with rollover)
 - Six badge types in a fixed order (tags, person, reimbursement status, cycle, combo account, excluded-from-stats), identical on every screen
-- Recurring transactions auto-posted by day / week / month; days you deliberately deleted are never re-posted — a cycle can preset "exclude from budget / to be reimbursed"
+- Recurring transactions auto-posted by day / week / every two weeks / month / year / custom day interval; days you deliberately deleted are never re-posted — a cycle can preset "exclude from budget / to be reimbursed"
 - Reimbursement ledger: mark an expense as pending, settle it in one tap, and the difference is auto-booked as bad debt or surplus; "pending / reimbursed" badges show up right in the transaction list
 - Loan badges, strike-through on settled principal, "settled on <date>" markers
 - Reimbursement slips: every settlement creates one slip with the original total, the actual amount received, the date and how many entries it covers (bad debt / surplus are listed under it, not counted as entries)
@@ -173,7 +173,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 - Category icons support system / Noto Color Emoji / Twemoji / OpenMoji styles, loaded on demand over the network (nothing bundled); browse top-level groups and subcategories when creating or editing a category
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors; overview card, person header, reimbursement slip header and profile card share one theme gradient (automatically hidden in dark mode)
-- Structured database migrations (schema v24) — upgrades never lose data
+- Structured database migrations (schema v25) — upgrades never lose data
 
 ## Tech & engineering
 
@@ -198,7 +198,7 @@ npm run test      # full test suite (20+ files, hundreds of assertions)
 
 ## Versioning
 
-- With a DB migration → minor version follows the schema version (schema v24 → v1.24.x)
+- With a DB migration → minor version follows the schema version (schema v25 → v1.25.x)
 - Without one → patch bump (1.16.2 → 1.16.3)
 - User-facing changes per version: in-app *Mine → Changelog*
 

@@ -507,6 +507,14 @@ const MIGRATIONS = [
     //   未知值保持原样，显示层会按分类名兜底。
     version: 24,
     up: migrateCategoryIcons
+  },
+  {
+    // ★ 周期新增「每年 / 每间隔天」规则（v25）★
+    //   month_of_year：每年周期的月份（1~12）
+    //   interval_days：每间隔天周期的间隔天数（1~365）
+    //   只加列，不动已有周期；老周期的 recurrence 仍是 daily/weekly/monthly。
+    version: 25,
+    up: migrateCycleExtraRules
   }
 ]
 
@@ -2431,6 +2439,37 @@ async function migrateCategoryIcons() {
   }
 
   console.log(`[db] migration v24: ${changed}/${list.length} 个分类图标已迁移到 Unicode 码点`)
+}
+
+/**
+ * 迁移 v25 —— 周期新增「每年 / 每间隔天」所需的列
+ *
+ * - month_of_year：每年周期的月份（1~12）
+ * - interval_days：每间隔天周期的间隔天数（1~365）
+ *
+ * 每两周不需要新列：以 created_at 当天为锚点，按周奇偶推算。
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateCycleExtraRules() {
+  const columns = [
+    'ALTER TABLE cycle ADD COLUMN month_of_year INTEGER',
+    'ALTER TABLE cycle ADD COLUMN interval_days INTEGER'
+  ]
+
+  for (const sql of columns) {
+    try {
+      await call('executeSql', { name: DB_NAME, sql })
+      console.log(`[db] migration v25: ${sql.split('ADD COLUMN ')[1]} 已添加`)
+    } catch (e) {
+      const msg = e && e.message ? e.message : ''
+      if (/duplicate|already exists/i.test(msg)) {
+        console.log(`[db] migration v25: ${sql.split('ADD COLUMN ')[1]} 已存在，跳过`)
+      } else {
+        console.warn('[db] migration v25 failed:', msg)
+      }
+    }
+  }
 }
 
 async function migrate() {

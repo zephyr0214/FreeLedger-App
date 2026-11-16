@@ -196,14 +196,6 @@
         </view>
       </view>
 
-      <view class="tip-card">
-        <text class="tip-text">
-          预算按自然月计算。子预算是月预算下设的子额度，
-          额度从月预算里分配出去，合计不能超过月预算；
-          一条子预算可以挂多个类别，名字可以自己起。
-        </text>
-      </view>
-
       <view class="bottom-space" />
     </scroll-view>
 
@@ -1128,16 +1120,6 @@ export default {
   color: #ffffff;
   font-size: 26rpx;
   font-weight: 500;
-}
-
-.tip-card {
-  padding: 0 12rpx;
-}
-
-.tip-text {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
 }
 
 .bottom-space {

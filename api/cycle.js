@@ -21,7 +21,10 @@ import { toDayKey, parseDayKey, clampDayOfMonth, toMonthKey, shiftDay } from '..
 export const CYCLE_RECURRENCES = [
   { key: 'daily', name: '每天' },
   { key: 'weekly', name: '每周' },
-  { key: 'monthly', name: '每月' }
+  { key: 'biweekly', name: '每两周' },
+  { key: 'monthly', name: '每月' },
+  { key: 'yearly', name: '每年' },
+  { key: 'interval', name: '每间隔天' }
 ]
 
 /** 周几中文（1=周一 … 7=周日） */
@@ -43,6 +46,9 @@ function normalizeCycle(row) {
     amount_cents: Number(row.amount_cents) || 0,
     weekday: row.weekday ? Number(row.weekday) : null,
     day_of_month: row.day_of_month ? Number(row.day_of_month) : null,
+    // v25：每年用 month_of_year；每间隔天用 interval_days
+    month_of_year: row.month_of_year ? Number(row.month_of_year) : null,
+    interval_days: row.interval_days ? Number(row.interval_days) : null,
     /*
      * 报销 / 预算标记（v22）
      * ★ 归一成布尔 + 数字 ★
@@ -60,7 +66,21 @@ export function recurrenceLabel(cycle) {
   if (cycle.recurrence === 'daily') return '每天'
   if (cycle.recurrence === 'weekly') {
     const w = Number(cycle.weekday) || 1
-    return `每周${WEEKDAY_NAMES[w] || '一'}`
+    // WEEKDAY_NAMES 是「周一…」；「每周」后面只留「三」，避免出现「每周周三」
+    return `每周${(WEEKDAY_NAMES[w] || '周一').replace('周', '')}`
+  }
+  if (cycle.recurrence === 'biweekly') {
+    const w = Number(cycle.weekday) || 1
+    return `每两周${WEEKDAY_NAMES[w] || '一'}`
+  }
+  if (cycle.recurrence === 'yearly') {
+    const mo = Number(cycle.month_of_year) || 1
+    const d = Number(cycle.day_of_month) || 1
+    return `每年${mo}月${d}日`
+  }
+  if (cycle.recurrence === 'interval') {
+    const n = Math.max(1, Number(cycle.interval_days) || 1)
+    return `每${n}天`
   }
   const d = Number(cycle.day_of_month) || 1
   return `每月${d}号`
@@ -79,12 +99,21 @@ function validateCycle(input) {
   } else if (!input.category_id) {
     throw new Error('周期必须指定分类')
   }
-  if (!['daily', 'weekly', 'monthly'].includes(input.recurrence)) throw new Error('周期规则不正确')
-  if (input.recurrence === 'weekly' && !(Number(input.weekday) >= 1 && Number(input.weekday) <= 7)) {
-    throw new Error('每周周期必须指定周几')
+  const rec = input.recurrence
+  if (!['daily', 'weekly', 'biweekly', 'monthly', 'yearly', 'interval'].includes(rec)) {
+    throw new Error('周期规则不正确')
   }
-  if (input.recurrence === 'monthly' && !(Number(input.day_of_month) >= 1 && Number(input.day_of_month) <= 31)) {
-    throw new Error('每月周期必须指定几号')
+  if ((rec === 'weekly' || rec === 'biweekly') && !(Number(input.weekday) >= 1 && Number(input.weekday) <= 7)) {
+    throw new Error(rec === 'weekly' ? '每周周期必须指定周几' : '每两周周期必须指定周几')
+  }
+  if ((rec === 'monthly' || rec === 'yearly') && !(Number(input.day_of_month) >= 1 && Number(input.day_of_month) <= 31)) {
+    throw new Error(rec === 'monthly' ? '每月周期必须指定几号' : '每年周期必须指定日期')
+  }
+  if (rec === 'yearly' && !(Number(input.month_of_year) >= 1 && Number(input.month_of_year) <= 12)) {
+    throw new Error('每年周期必须指定月份')
+  }
+  if (rec === 'interval' && !(Number(input.interval_days) >= 1 && Number(input.interval_days) <= 365)) {
+    throw new Error('间隔天数必须是 1~365')
   }
 }
 
@@ -135,9 +164,10 @@ export async function createCycle(input) {
   await execute(
     `INSERT INTO cycle (
       id, type, amount_cents, account_id, to_account_id, category_id, note,
-      recurrence, weekday, day_of_month, created_at, updated_at, deleted_at,
+      recurrence, weekday, day_of_month, month_of_year, interval_days,
+      created_at, updated_at, deleted_at,
       last_caught_up_day, exclude_from_budget, reimburse_status
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
     [
       id,
       input.type,
@@ -147,8 +177,10 @@ export async function createCycle(input) {
       input.type === 'transfer' ? null : (input.category_id || null),
       input.note || '',
       input.recurrence,
-      input.recurrence === 'weekly' ? (Number(input.weekday) || 1) : null,
-      input.recurrence === 'monthly' ? (Number(input.day_of_month) || 1) : null,
+      ['weekly', 'biweekly'].includes(input.recurrence) ? (Number(input.weekday) || 1) : null,
+      ['monthly', 'yearly'].includes(input.recurrence) ? (Number(input.day_of_month) || 1) : null,
+      input.recurrence === 'yearly' ? (Number(input.month_of_year) || 1) : null,
+      input.recurrence === 'interval' ? (Number(input.interval_days) || 1) : null,
       now,
       now,
       toDayKey(), // 游标初始化为今天：创建当天是否记，交给弹窗决定；历史不回补
@@ -187,9 +219,25 @@ export async function updateCycle(id, patch) {
   if (patch.to_account_id !== undefined) assign('to_account_id', patch.type === 'transfer' ? patch.to_account_id : null)
   if (patch.category_id !== undefined) assign('category_id', patch.type === 'transfer' ? null : patch.category_id)
   if (patch.note !== undefined) assign('note', patch.note || '')
+
+  const mergedRec = patch.recurrence !== undefined ? patch.recurrence : existing.recurrence
   if (patch.recurrence !== undefined) assign('recurrence', patch.recurrence)
-  if (patch.weekday !== undefined) assign('weekday', patch.recurrence === 'weekly' ? (Number(patch.weekday) || 1) : null)
-  if (patch.day_of_month !== undefined) assign('day_of_month', patch.recurrence === 'monthly' ? (Number(patch.day_of_month) || 1) : null)
+  if (patch.weekday !== undefined || patch.recurrence !== undefined) {
+    const w = patch.weekday !== undefined ? patch.weekday : existing.weekday
+    assign('weekday', ['weekly', 'biweekly'].includes(mergedRec) ? (Number(w) || 1) : null)
+  }
+  if (patch.day_of_month !== undefined || patch.recurrence !== undefined) {
+    const d = patch.day_of_month !== undefined ? patch.day_of_month : existing.day_of_month
+    assign('day_of_month', ['monthly', 'yearly'].includes(mergedRec) ? (Number(d) || 1) : null)
+  }
+  if (patch.month_of_year !== undefined || patch.recurrence !== undefined) {
+    const mo = patch.month_of_year !== undefined ? patch.month_of_year : existing.month_of_year
+    assign('month_of_year', mergedRec === 'yearly' ? (Number(mo) || 1) : null)
+  }
+  if (patch.interval_days !== undefined || patch.recurrence !== undefined) {
+    const n = patch.interval_days !== undefined ? patch.interval_days : existing.interval_days
+    assign('interval_days', mergedRec === 'interval' ? (Number(n) || 1) : null)
+  }
   /*
    * 报销 / 预算标记（v22）
    * ★ 只认支出的值 ★
@@ -245,6 +293,40 @@ export async function recordCycle(id) {
   })
 }
 
+/** 两个本地日期相差多少天（用 UTC 归一，避开夏令时） */
+function dayDiff(a, b) {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())
+  return Math.round((ub - ua) / 86400000)
+}
+
+/** 周期的锚点日（创建当天），每两周 / 每间隔天 / 每年都从这一天起算 */
+function anchorDayOf(cycle) {
+  const ms = Number(cycle && cycle.created_at)
+  return ms ? parseDayKey(toDayKey(new Date(ms))) : parseDayKey(toDayKey())
+}
+
+/** 某个日期所在周的周一（weekday 1=周一 … 7=周日） */
+function startOfWeek(date, weekday) {
+  const target = (Number(weekday) || 1) % 7 // 7→0（周日）
+  const diff = (date.getDay() - target + 7) % 7
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff)
+}
+
+/**
+ * 「每两周」的起始周：创建日当天或之后第一个目标周几所在的那一周
+ *
+ * 例：周三创建、目标周一 → 起始周是下周一所在周，
+ * 之后每隔一周的周一触发（而不是把创建那一周当成第 0 周）。
+ */
+function biweeklyAnchorWeek(cycle) {
+  const anchor = anchorDayOf(cycle)
+  const target = (Number(cycle.weekday) || 1) % 7
+  const diff = (target - anchor.getDay() + 7) % 7
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + diff)
+  return startOfWeek(first, cycle.weekday)
+}
+
 /**
  * 下一次触发日（从今天起，含今天）。
  * 返回 YYYY-MM-DD。
@@ -254,14 +336,45 @@ export function nextOccurrence(cycle) {
   const y = today.getFullYear()
   const m = today.getMonth()
   const d = today.getDate()
+  const rec = cycle.recurrence
 
-  if (cycle.recurrence === 'daily') return toDayKey(today)
+  if (rec === 'daily') return toDayKey(today)
 
-  if (cycle.recurrence === 'weekly') {
+  if (rec === 'weekly' || rec === 'biweekly') {
     const target = (Number(cycle.weekday) || 1) % 7 // 1=周一…7=周日 → JS getDay 0=周日
     let diff = (target - today.getDay() + 7) % 7
-    const next = new Date(y, m, d + diff)
-    return toDayKey(next)
+    if (rec === 'biweekly') {
+      const anchor = anchorDayOf(cycle)
+      const anchorWeek = biweeklyAnchorWeek(cycle)
+      // 最多往后找 3 周：起始周 / 下一周 / 下下周 必有一周与起始周同奇偶
+      for (let i = 0; i <= 20; i++) {
+        const next = new Date(y, m, d + i)
+        if (next.getDay() !== target || next < anchor) continue
+        const weeks = Math.round((startOfWeek(next, cycle.weekday) - anchorWeek) / 604800000)
+        if (weeks >= 0 && weeks % 2 === 0) return toDayKey(next)
+      }
+      // 理论上不会走到这里；兜底退回每周
+      return toDayKey(new Date(y, m, d + diff))
+    }
+    return toDayKey(new Date(y, m, d + diff))
+  }
+
+  if (rec === 'yearly') {
+    const mo = Math.max(1, Math.min(12, Number(cycle.month_of_year) || 1))
+    const day = clampDayOfMonth(y, mo, Number(cycle.day_of_month) || 1)
+    const thisYear = new Date(y, mo - 1, day)
+    if (thisYear >= today) return toDayKey(thisYear)
+    const ny = y + 1
+    return toDayKey(new Date(ny, mo - 1, clampDayOfMonth(ny, mo, Number(cycle.day_of_month) || 1)))
+  }
+
+  if (rec === 'interval') {
+    const n = Math.max(1, Number(cycle.interval_days) || 1)
+    const anchor = anchorDayOf(cycle)
+    if (today < anchor) return toDayKey(anchor)
+    const diff = dayDiff(anchor, today)
+    if (diff % n === 0) return toDayKey(today)
+    return shiftDay(toDayKey(today), n - (diff % n))
   }
 
   // monthly
@@ -346,6 +459,10 @@ export function occurrencesInRange(cycle, startDay, endDay) {
   const rec = cycle.recurrence
   const weekday = (Number(cycle.weekday) || 1) % 7 // 1=周一…7=周日 → JS getDay 0=周日
   const dom = Number(cycle.day_of_month) || 1
+  const monthOfYear = Math.max(1, Math.min(12, Number(cycle.month_of_year) || 1))
+  const intervalDays = Math.max(1, Number(cycle.interval_days) || 1)
+  const anchor = anchorDayOf(cycle)
+  const anchorWeek = rec === 'biweekly' ? biweeklyAnchorWeek(cycle) : null
 
   // 逐日扫描区间（区间最多几十/几百天，JS 循环成本可忽略）
   const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate())
@@ -358,8 +475,22 @@ export function occurrencesInRange(cycle, startDay, endDay) {
       hit = true
     } else if (rec === 'weekly') {
       hit = cur.getDay() === weekday
+    } else if (rec === 'biweekly') {
+      if (cur.getDay() === weekday && cur >= anchor) {
+        const weeks = Math.round((startOfWeek(cur, cycle.weekday) - anchorWeek) / 604800000)
+        hit = weeks % 2 === 0
+      }
     } else if (rec === 'monthly') {
       hit = d === clampDayOfMonth(y, m + 1, dom)
+    } else if (rec === 'yearly') {
+      hit = cur >= anchor &&
+        (m + 1) === monthOfYear &&
+        d === clampDayOfMonth(y, m + 1, dom)
+    } else if (rec === 'interval') {
+      if (cur >= anchor) {
+        const diff = dayDiff(anchor, cur)
+        hit = diff >= 0 && diff % intervalDays === 0
+      }
     }
     if (hit) out.push(toDayKey(cur))
     cur.setDate(cur.getDate() + 1)

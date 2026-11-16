@@ -1034,14 +1034,17 @@ export async function importPayload(payload, opt = {}) {
         if (exists) { report.skipped++; continue }
         await execute(
           `INSERT INTO cycle (id, type, amount_cents, account_id, to_account_id, category_id, note,
-            recurrence, weekday, day_of_month, last_caught_up_day, created_at, updated_at, deleted_at,
+            recurrence, weekday, day_of_month, month_of_year, interval_days,
+            last_caught_up_day, created_at, updated_at, deleted_at,
             exclude_from_budget, reimburse_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             cy.id, cy.type, cy.amount_cents, cy.account_id, cy.to_account_id || null,
             cy.category_id || null, cy.note || null,
             cy.recurrence || 'monthly', cy.weekday === undefined ? null : cy.weekday,
             cy.day_of_month === undefined ? null : cy.day_of_month,
+            cy.month_of_year === undefined ? null : cy.month_of_year,
+            cy.interval_days === undefined ? null : cy.interval_days,
             cy.last_caught_up_day || null,
             cy.created_at || Date.now(), cy.updated_at || Date.now(), cy.deleted_at || null,
             /*

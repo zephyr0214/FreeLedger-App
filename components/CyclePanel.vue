@@ -179,13 +179,53 @@
             </view>
           </view>
           <view
-            v-if="form.recurrence !== 'daily'"
+            v-if="isWeekdayRecurrence"
             class="form-cell cell-right"
-            @click="form.recurrence === 'weekly' ? openWeekdayPicker() : openDayPicker()"
+            @click="openWeekdayPicker"
           >
-            <text class="cell-label">{{ form.recurrence === 'weekly' ? '周几' : '几号' }}</text>
+            <text class="cell-label">周几</text>
             <view class="cell-value">
-              <text class="cell-text">{{ form.recurrence === 'weekly' ? weekdayLabel : dayOfMonthLabel }}</text>
+              <text class="cell-text">{{ weekdayLabel }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
+          </view>
+          <view
+            v-else-if="form.recurrence === 'monthly'"
+            class="form-cell cell-right"
+            @click="openDayPicker"
+          >
+            <text class="cell-label">几号</text>
+            <view class="cell-value">
+              <text class="cell-text">{{ dayOfMonthLabel }}</text>
+              <text class="cell-arrow">›</text>
+            </view>
+          </view>
+          <view
+            v-else-if="form.recurrence === 'yearly'"
+            class="form-cell cell-right"
+          >
+            <text class="cell-label">月份 / 日期</text>
+            <picker
+              class="cell-picker"
+              mode="multiSelector"
+              :range="yearlyRanges"
+              :value="yearlyValue"
+              @change="onYearlyPick"
+            >
+              <view class="cell-value">
+                <text class="cell-text">{{ monthDayLabel }}</text>
+                <text class="cell-arrow">›</text>
+              </view>
+            </picker>
+          </view>
+          <view
+            v-else-if="form.recurrence === 'interval'"
+            class="form-cell cell-right"
+            @click="openIntervalPrompt"
+          >
+            <text class="cell-label">间隔天数</text>
+            <view class="cell-value">
+              <text class="cell-text">{{ intervalDaysLabel }}</text>
               <text class="cell-arrow">›</text>
             </view>
           </view>
@@ -317,7 +357,7 @@ import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
-import { confirmDialog, alertDialog } from '@/utils/dialog.js'
+import { confirmDialog, alertDialog, promptDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
 import { pushLayer } from '@/utils/layerStack.js'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
@@ -326,7 +366,10 @@ const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '�
 const RECURRENCES = [
   { key: 'daily', name: '每天' },
   { key: 'weekly', name: '每周' },
-  { key: 'monthly', name: '每月' }
+  { key: 'biweekly', name: '每两周' },
+  { key: 'monthly', name: '每月' },
+  { key: 'yearly', name: '每年' },
+  { key: 'interval', name: '每间隔天' }
 ]
 
 export default {
@@ -374,6 +417,8 @@ export default {
       recurrence: 'monthly',
       weekday: 1,
       day_of_month: 1,
+      month_of_year: 1,
+      interval_days: 7,
       /** 外币：币种代码（CNY = 本位币），与记账面板一致 */
       currency: 'CNY',
       /*
@@ -577,6 +622,27 @@ export default {
 
     const dayOfMonthLabel = computed(() => `${Number(form.day_of_month) || 1} 号`)
 
+    /** 每年：月份 + 日期，用原生 multiSelector 一次选完 */
+    const yearlyRanges = [
+      Array.from({ length: 12 }, (_, i) => `${i + 1} 月`),
+      Array.from({ length: 31 }, (_, i) => `${i + 1} 号`)
+    ]
+    const yearlyValue = computed(() => [
+      Math.max(0, Math.min(11, (Number(form.month_of_year) || 1) - 1)),
+      Math.max(0, Math.min(30, (Number(form.day_of_month) || 1) - 1))
+    ])
+    const monthDayLabel = computed(
+      () => `${Number(form.month_of_year) || 1} 月 ${Number(form.day_of_month) || 1} 日`
+    )
+
+    /** 每间隔天：N 天 */
+    const intervalDaysLabel = computed(() => `${Math.max(1, Number(form.interval_days) || 1)} 天`)
+
+    /** 每周 / 每两周都要选周几 */
+    const isWeekdayRecurrence = computed(
+      () => form.recurrence === 'weekly' || form.recurrence === 'biweekly'
+    )
+
     /* ------------------------------------------------------ 方法 */
 
     /**
@@ -691,7 +757,37 @@ export default {
       const r = RECURRENCES[index]
       if (!r) return
       form.recurrence = r.key
+      if (r.key === 'yearly' && !form.month_of_year) form.month_of_year = 1
+      if (r.key === 'interval' && !form.interval_days) form.interval_days = 7
       showRecurrencePicker.value = false
+    }
+
+    function onYearlyPick(e) {
+      const v = (e && e.detail && e.detail.value) || []
+      const mi = Number(v[0]) || 0
+      const di = Number(v[1]) || 0
+      const month = Math.max(1, Math.min(12, mi + 1))
+      // 2 月按 29 天兜底，避免显示「2 月 31 日」
+      const maxDay = new Date(2024, month, 0).getDate()
+      form.month_of_year = month
+      form.day_of_month = Math.max(1, Math.min(maxDay, di + 1))
+    }
+
+    async function openIntervalPrompt() {
+      const input = await promptDialog({
+        title: '间隔天数',
+        content: '每隔多少天记一笔？（1~365）',
+        placeholder: '如 14',
+        confirmText: '确定',
+        cancelText: '取消'
+      })
+      if (input === null) return
+      const n = Math.floor(Number(input))
+      if (!(n >= 1 && n <= 365)) {
+        await alertDialog({ title: '天数不正确', content: '请输入 1~365 之间的整数' })
+        return
+      }
+      form.interval_days = n
     }
 
     function onWeekdaySelect({ index }) {
@@ -720,6 +816,8 @@ export default {
       form.recurrence = 'monthly'
       form.weekday = 1
       form.day_of_month = 1
+      form.month_of_year = 1
+      form.interval_days = 7
       form.to_account_id = ''
       // 报销/预算标记是「这个周期」的属性，不粘到下一个周期
       form.excludeBudget = false
@@ -762,6 +860,8 @@ export default {
       form.recurrence = c.recurrence || 'monthly'
       form.weekday = Number(c.weekday) || 1
       form.day_of_month = Number(c.day_of_month) || 1
+      form.month_of_year = Number(c.month_of_year) || 1
+      form.interval_days = Number(c.interval_days) || 7
       /* 报销/预算标记随周期回显（v22 起入库；老周期没有这两个字段就都是 false/0） */
       form.excludeBudget = c.exclude_from_budget === true
       form.reimburseStatus = Number(c.reimburse_status) || 0
@@ -839,8 +939,10 @@ export default {
         category_id: form.type === 'transfer' ? null : form.category_id,
         note: form.note.trim(),
         recurrence: form.recurrence,
-        weekday: form.recurrence === 'weekly' ? Number(form.weekday) : null,
-        day_of_month: form.recurrence === 'monthly' ? Number(form.day_of_month) : null,
+        weekday: ['weekly', 'biweekly'].includes(form.recurrence) ? Number(form.weekday) : null,
+        day_of_month: ['monthly', 'yearly'].includes(form.recurrence) ? Number(form.day_of_month) : null,
+        month_of_year: form.recurrence === 'yearly' ? Number(form.month_of_year) : null,
+        interval_days: form.recurrence === 'interval' ? Number(form.interval_days) : null,
         // 外币模板（人民币为 null）
         original_currency: isForeign.value ? form.currency : null,
         original_amount_cents: isForeign.value ? cents : null,
@@ -1046,6 +1148,8 @@ export default {
       sourceAccountList, toAccountList, currentAccountName, toAccountName,
       recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
       dayActions, dayOfMonthLabel, onFlagsUpdate, reimburseDisabled,
+      isWeekdayRecurrence, yearlyRanges, yearlyValue, monthDayLabel,
+      intervalDaysLabel, onYearlyPick, openIntervalPrompt,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
       showWeekdayPicker, showDayPicker,
       catIconStyle, switchType, pickCategory,
@@ -1373,6 +1477,12 @@ export default {
   min-width: 0;
   justify-content: flex-end;
   flex: 1;
+}
+
+/* 每年：原生 multiSelector 需要占满右格的剩余宽度 */
+.cell-picker {
+  flex: 1;
+  min-width: 0;
 }
 
 .cell-text {

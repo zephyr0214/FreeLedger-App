@@ -100,9 +100,12 @@ check(
   true
 )
 check(
-  '「周期」和「几号」都在这一行的两格里',
+  '「周期」和具体规则都在这一行',
   /cell-label">周期/.test(cycTpl) &&
-    /form\.recurrence === 'weekly' \? '周几' : '几号'/.test(cycTpl),
+    /isWeekdayRecurrence/.test(cycTpl) &&
+    /form\.recurrence === 'monthly'/.test(cycTpl) &&
+    /form\.recurrence === 'yearly'/.test(cycTpl) &&
+    /form\.recurrence === 'interval'/.test(cycTpl),
   true
 )
 check('只有支出才显示这两个勾选', /form\.type === 'expense'/.test(cycTpl), true)

@@ -6,23 +6,16 @@
       <!-- 深浅模式：下拉选择 -->
       <view class="section">
         <text class="section-title">深浅模式</text>
-        <picker
-          mode="selector"
-          :range="modeLabels"
-          :value="modeIndex"
-          @change="onModePick"
-        >
-          <view class="select-row">
-            <view class="select-left">
-              <LineIcon :name="currentMode.icon" :size="20" :color="primaryColor" />
-              <view class="select-texts">
-                <text class="select-name">{{ currentMode.name }}</text>
-                <text class="select-desc">{{ currentMode.desc }}</text>
-              </view>
+        <view class="select-row" @click="showModeSheet = true">
+          <view class="select-left">
+            <LineIcon :name="currentMode.icon" :size="20" :color="primaryColor" />
+            <view class="select-texts">
+              <text class="select-name">{{ currentMode.name }}</text>
+              <text class="select-desc">{{ currentMode.desc }}</text>
             </view>
-            <text class="select-arrow">▾</text>
           </view>
-        </picker>
+          <text class="select-arrow">▾</text>
+        </view>
       </view>
 
       <!-- 主题色 -->
@@ -53,23 +46,16 @@
       <!-- 图标样式：下拉选择 -->
       <view class="section">
         <text class="section-title">图标样式</text>
-        <picker
-          mode="selector"
-          :range="emojiStyleLabels"
-          :value="emojiStyleIndex"
-          @change="onStylePick"
-        >
-          <view class="select-row">
-            <view class="select-left">
-              <image class="select-style-img" :src="emojiPreview(currentStyle.key)" mode="aspectFit" />
-              <view class="select-texts">
-                <text class="select-name">{{ currentStyle.name }}</text>
-                <text class="select-desc">{{ currentStyle.desc }}</text>
-              </view>
+        <view class="select-row" @click="showStyleSheet = true">
+          <view class="select-left">
+            <image class="select-style-img" :src="emojiPreview(currentStyle.key)" mode="aspectFit" />
+            <view class="select-texts">
+              <text class="select-name">{{ currentStyle.name }}</text>
+              <text class="select-desc">{{ currentStyle.desc }}</text>
             </view>
-            <text class="select-arrow">▾</text>
           </view>
-        </picker>
+          <text class="select-arrow">▾</text>
+        </view>
       </view>
 
       <view class="section">
@@ -162,6 +148,22 @@
       <view class="bottom-space" />
     </scroll-view>
 
+    <!-- 深浅模式 / 图标样式：与账户选择面板同款底部单选弹层 -->
+    <OptionPickerSheet
+      v-model="showModeSheet"
+      title="深浅模式"
+      :options="modeOptions"
+      :selected-key="themeMode"
+      @picked="onModePicked"
+    />
+    <OptionPickerSheet
+      v-model="showStyleSheet"
+      title="图标样式"
+      :options="emojiStyleOptions"
+      :selected-key="settingStore.emojiStyle"
+      @picked="onStylePicked"
+    />
+
     <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
     <UpdateDialog />
   </view>
@@ -172,6 +174,7 @@ import { ref, computed, watch } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import OptionPickerSheet from '@/components/OptionPickerSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
@@ -179,7 +182,7 @@ import { EMOJI_STYLES, emojiImageSrc } from '@/utils/emoji.js'
 import { TXN_ICON_SIZES, TXN_ICON_ROUNDS, TXN_ICON_BG_BOX, getTxnIconMetrics, txnIconSizeIndex, getTxnIconRadius } from '@/utils/txnIcon.js'
 
 export default {
-  components: { PageNav, LineIcon, CategoryGlyph, UpdateDialog },
+  components: { PageNav, LineIcon, CategoryGlyph, OptionPickerSheet, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -208,42 +211,47 @@ export default {
 
     /* ------------------------------------------------ 下拉选择 */
 
-    const modeLabels = modes.map((m) => m.name)
-    const modeIndex = computed(() => {
-      const i = modes.findIndex((m) => m.key === themeMode.value)
-      return i < 0 ? 0 : i
-    })
-    const currentMode = computed(() => modes[modeIndex.value] || modes[0])
+    const showModeSheet = ref(false)
+    const showStyleSheet = ref(false)
 
-    function onModePick(e) {
-      const i = Number(e && e.detail ? e.detail.value : 0)
-      const m = modes[i]
-      if (m) setMode(m.key)
+    const modeOptions = computed(() =>
+      modes.map((m) => ({ key: m.key, label: m.name, desc: m.desc, icon: m.icon }))
+    )
+
+    const currentMode = computed(() => {
+      const m = modes.find((x) => x.key === themeMode.value)
+      return m || modes[0]
+    })
+
+    function onModePicked(opt) {
+      if (opt && opt.key) setMode(opt.key)
     }
 
     /* ------------------------------------------------ 图标样式 */
 
     const emojiStyles = EMOJI_STYLES
-    const emojiStyleLabels = emojiStyles.map((s) => s.name)
-    const emojiStyleIndex = computed(() => {
-      const i = emojiStyles.findIndex((s) => s.key === settingStore.emojiStyle)
-      return i < 0 ? 0 : i
+
+    const currentStyle = computed(() => {
+      const s = emojiStyles.find((x) => x.key === settingStore.emojiStyle)
+      return s || emojiStyles[0]
     })
-    const currentStyle = computed(() => emojiStyles[emojiStyleIndex.value] || emojiStyles[0])
+
+    const emojiStyleOptions = computed(() =>
+      emojiStyles.map((s) => ({
+        key: s.key,
+        label: s.name,
+        desc: s.desc,
+        image: emojiPreview(s.key)
+      }))
+    )
 
     /** 样式选择行里的预览图（60 档缩略图） */
     function emojiPreview(styleKey) {
       return emojiImageSrc('1F600', 60, styleKey)
     }
 
-    function onStylePick(e) {
-      const i = Number(e && e.detail ? e.detail.value : 0)
-      const s = emojiStyles[i]
-      if (s) setEmojiStyle(s.key)
-    }
-
-    async function setEmojiStyle(key) {
-      await settingStore.setEmojiStyle(key)
+    function onStylePicked(opt) {
+      if (opt && opt.key) settingStore.setEmojiStyle(opt.key)
     }
 
     /* ------------------------------------------------ 交易流水图标 */
@@ -365,8 +373,8 @@ export default {
 
     return {
       presets, themeMode, themePreset,
-      modeLabels, modeIndex, currentMode, onModePick,
-      emojiStyles, emojiStyleLabels, emojiStyleIndex, currentStyle, onStylePick, emojiPreview,
+      showModeSheet, showStyleSheet, modeOptions, currentMode, onModePicked,
+      emojiStyles, emojiStyleOptions, currentStyle, onStylePicked, emojiPreview,
       txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, txnPreviewDesc, sliderInactiveColor,
       txnIconRounds, txnBgRoundIndex, txnBgRoundName,
       onSizeMove, onSizeEnd, setTxnSize, onTxnBgChange,
