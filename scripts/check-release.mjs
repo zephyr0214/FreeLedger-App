@@ -27,6 +27,31 @@ console.log('=== 1. manifest.json ===')
     m.name ? ok(`应用名: ${m.name}`) : warn('没有应用名')
     m.appid ? ok(`appid: ${m.appid}`) : warn('★ 没有 appid，云打包会失败')
 
+    /*
+     * ★ Android 包名必须显式固定 ★
+     *   包名跟着 appid 变，老用户就无法覆盖安装：系统会把新包
+     *   当成另一个应用（签名相同也没用）。项目历史上 appid 从
+     *   __UNI__9AC9784 改成了 __UNI__8E8C7CE，而老用户装的是
+     *   uni.app.UNI9AC9784，必须用 packagename 锁死。
+     *   同时要求 AndroidManifest.xml 的 package 与它一致。
+     */
+    const androidCfg = (((m['app-plus'] || {}).distribute || {}).android) || {}
+    const pkgName = String(androidCfg.packagename || '').trim()
+    if (!pkgName) {
+      warn('★ 没有 app-plus.distribute.android.packagename；包名会跟着 appid 变，老用户无法覆盖安装')
+    } else {
+      ok(`Android 包名: ${pkgName}`)
+      try {
+        const mf = fs.readFileSync(path.join(ROOT, 'AndroidManifest.xml'), 'utf8')
+        const mfPkg = (mf.match(/<manifest[^>]*\bpackage="([^"]+)"/) || [])[1] || ''
+        mfPkg === pkgName
+          ? ok('AndroidManifest.xml 的 package 与 packagename 一致')
+          : warn(`★ AndroidManifest.xml 的 package="${mfPkg}" 与 packagename="${pkgName}" 不一致`)
+      } catch (e) {
+        warn('读不到 AndroidManifest.xml: ' + e.message)
+      }
+    }
+
     const mods = Object.keys((m['app-plus'] || {}).modules || {})
     console.log('     modules:', mods.join(', ') || '(空)')
 

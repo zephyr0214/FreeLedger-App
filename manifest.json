@@ -37,6 +37,15 @@
         "distribute" : {
             /* android打包配置 */
             "android" : {
+                /* ★ Android 包名必须锁定，不能跟着 appid 变 ★
+                   老版本用 appid __UNI__9AC9784 打包，用户手机里安装的
+                   包名是 uni.app.UNI9AC9784。后来 HBuilderX 把项目 appid
+                   改成了 __UNI__8E8C7CE；如果不显式指定 packagename，
+                   新 APK 的包名会变成 uni.app.UNI8E8C7CE，系统会当成
+                   另一个应用，老用户无法覆盖安装（签名相同也没用）。
+                   这里固定为历史包名；AndroidManifest.xml 的 package
+                   也必须保持同一个值。 */
+                "packagename" : "uni.app.UNI9AC9784",
                 "permissions" : [
                     "<uses-permission android:name=\"android.permission.INTERNET\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",

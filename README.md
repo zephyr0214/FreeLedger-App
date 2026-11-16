@@ -77,6 +77,7 @@ npm run test      # 全部测试（20+ 个测试文件，数百条断言）
 3. 运行 → 运行到手机（Android 真机或模拟器）
 4. AI 功能：App 内「我的 → AI 大模型」填入 OpenAI 兼容接口的 Base URL / API Key / 模型名（DeepSeek、通义、Kimi、OpenRouter 等均可）
 5. 正式包：发行 → 原生 App-云打包
+   - 必须保持 `manifest.json` 里的 `app-plus.distribute.android.packagename = uni.app.UNI9AC9784`。这是老用户已安装的包名；包名跟着 appid 变会导致无法覆盖安装，签名相同也不行。
 
 ## 版本规则
 
