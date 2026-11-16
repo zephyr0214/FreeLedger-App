@@ -18,7 +18,7 @@
 
 自由记是一个跑在 Android 手机上的个人记账应用。
 
-所有数据只存在**本机 SQLite**，没有账号、没有云端、没有上传。AI 功能由你自己填 API Key 直连模型服务商——账本数据不经过任何第三方服务器，断网也能记账、查账。分类图标支持 Noto / Twemoji / OpenMoji 三种样式，图片按需联网加载（不随包下载），断网时回退为系统 emoji。
+所有数据只存在**本机 SQLite**，没有账号、没有云端、没有上传。AI 功能由你自己填 API Key 直连模型服务商——账本数据不经过任何第三方服务器，断网也能记账、查账。分类图标支持 Noto / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji 五种样式，图片按需联网加载（不随包下载），断网时回退为系统 emoji。
 
 ## 功能特性
 
@@ -51,7 +51,7 @@
 - 深度思考、图表均可开关
 
 **数据与外观**
-- 分类图标支持 Noto Color Emoji / Twemoji / OpenMoji 三种样式，按需联网加载、不占安装包；新建 / 编辑分类时可在大类与二级分类中搜索选择
+- 分类图标支持 Noto Color Emoji / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji 五种样式，按需联网加载、不占安装包；新建 / 编辑分类时可在大类与二级分类中搜索选择
 - 每日自动备份 + JSON 导出 / 导入
 - 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色，概览卡 / 人名栏 / 报销单卡头 / 个人信息卡统一主题色渐变（暗色下自动不显示渐变）
@@ -128,7 +128,7 @@ AndroidManifest.xml  自定义清单（仅用于外部打开，见上一节）
 ## 数据与隐私
 
 - 账本、设置、备份全部在本机：`_doc/books.db`
-- 网络请求：AI 功能（发往你自己填的模型服务商）+ 分类图标图片（按需从 Noto / Twemoji / OpenMoji 的 CDN 加载，不上传账本数据）
+- 网络请求：AI 功能（发往你自己填的模型服务商）+ 分类图标图片（按需从 Noto / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji 的 CDN 加载，不上传账本数据）
 - 卸载 App 即数据随本机沙箱销毁；换机请先用「数据与备份」导出
 
 ---
@@ -171,7 +171,7 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 - Deep thinking and charts are both toggleable
 
 **Data & appearance**
-- Category icons support system / Noto Color Emoji / Twemoji / OpenMoji styles, loaded on demand over the network (nothing bundled); browse top-level groups and subcategories when creating or editing a category
+- Category icons support system / Noto Color Emoji / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji styles, loaded on demand over the network (nothing bundled); browse top-level groups and subcategories when creating or editing a category
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors; overview card, person header, reimbursement slip header and profile card share one theme gradient (automatically hidden in dark mode)
 - Structured database migrations (schema v25) — upgrades never lose data
@@ -217,5 +217,5 @@ scripts/    check & test scripts
 ## Data & privacy
 
 - Ledger, settings and backups stay on-device: `_doc/books.db`
-- Network traffic: AI features (to the provider you configured) + category icon images (loaded on demand from the Noto / Twemoji / OpenMoji CDNs; no ledger data is uploaded)
+- Network traffic: AI features (to the provider you configured) + category icon images (loaded on demand from the Noto / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji CDNs; no ledger data is uploaded)
 - Uninstalling destroys data with the sandbox; migrate devices via export/import first

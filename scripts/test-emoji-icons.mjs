@@ -21,6 +21,8 @@ import {
   normalizeEmojiStyle
 } from '../utils/emoji.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from '../utils/emojiLegacy.js'
+import { FLUENT_MAP } from '../utils/fluentEmojiMap.js'
+import { FXEMOJI_MAP } from '../utils/fxEmojiMap.js'
 import {
   TXN_ICON_SIZES, TXN_ICON_BG_BOX, TXN_ICON_ROUNDS,
   getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex,
@@ -115,7 +117,7 @@ check('isEmojiCode(1F35C) 为 true', isEmojiCode('1F35C'), true)
 check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_EMOJI_CODE)
-check('三种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji'])
+check('五种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji', 'fluent', 'fxemoji'])
 check('非法样式退回 noto', normalizeEmojiStyle('bad'), 'noto')
 check('旧 system 样式退回 noto', normalizeEmojiStyle('system'), 'noto')
 check(
@@ -153,6 +155,30 @@ check(
   /black\/(72x72|618x618)/.test(readFileSync(join(ROOT, 'utils', 'emoji.js'), 'utf-8')),
   false
 )
+check(
+  'Fluent 用 Flat SVG',
+  emojiImageSrc('1F35C', 120, 'fluent'),
+  'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/assets/Steaming%20bowl/Flat/steaming_bowl_flat.svg'
+)
+check(
+  'FxEmoji 用完整 SVG',
+  emojiImageSrc('1F35C', 120, 'fxemoji'),
+  'https://cdn.jsdelivr.net/gh/mozilla/fxemoji@270af343bee346d8221f87806d2b1eee0438431a/svgs/FirefoxEmoji/u1F35C-steamingbowl.svg'
+)
+check(
+  'Fluent 缺图标回退 Noto',
+  emojiImageSrc('1F415-200D-1F9BA', 60, 'fluent'),
+  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f415_200d_1f9ba/72.png'
+)
+check(
+  'FxEmoji 缺图标回退 Noto',
+  emojiImageSrc('1F98D', 60, 'fxemoji'),
+  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f98d/72.png'
+)
+check('Fluent 映射覆盖 715 个图标', Object.keys(FLUENT_MAP).length, 715)
+check('FxEmoji 映射覆盖 533 个图标', Object.keys(FXEMOJI_MAP).length, 533)
+check('Fluent 映射全部是 SVG', Object.values(FLUENT_MAP).every((p) => p.endsWith('.svg')), true)
+check('FxEmoji 映射全部是 SVG', Object.values(FXEMOJI_MAP).every((p) => p.endsWith('.svg')), true)
 check(
   '旧 system 设置会加载 Noto 图片',
   emojiImageSrc('1F35C', 120, 'system'),

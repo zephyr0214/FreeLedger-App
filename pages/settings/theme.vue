@@ -63,7 +63,7 @@
             <view class="style-inline-left">
               <!-- 当前样式预览走 CategoryGlyph，与实际图标完全一致 -->
               <CategoryGlyph
-                icon="1F600"
+                icon="1F35C"
                 size="44rpx"
                 :remote-size="60"
                 :loading-fallback="false"
@@ -259,7 +259,7 @@ export default {
 
     /** 样式选择行里的预览图（60 档缩略图） */
     function emojiPreview(styleKey) {
-      return emojiImageSrc('1F600', 60, styleKey)
+      return emojiImageSrc('1F35C', 60, styleKey)
     }
 
     function onStylePicked(opt) {

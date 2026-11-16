@@ -41,7 +41,7 @@
 
 <script>
 /**
- * 分类图标（Noto / Twemoji / OpenMoji 三样式）
+ * 分类图标（Noto / Twemoji / OpenMoji / Fluent / FxEmoji 五样式）
  *
  * 用法：
  *   <CategoryGlyph :icon="cat.icon" :name="cat.name" size="80rpx" />

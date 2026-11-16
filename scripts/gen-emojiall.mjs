@@ -11,7 +11,7 @@
  *   https://www.emojiall.com/zh-hans/categories/H  （物品）
  *
  * ★ 只抓分类/名称，不下载任何图片 ★
- *   图标图片由 App 运行时按码点拼当前样式（系统 / Noto / Twemoji / OpenMoji）
+ *   图标图片由 App 运行时按码点拼当前样式（Noto / Twemoji / OpenMoji / Fluent / FxEmoji）
  *   的 CDN 地址，本脚本不关心图片。
  *
  * ★ 只保留五个大类 ★
@@ -192,7 +192,7 @@ ${subsText}
  *   共 ${groups.length} 组、${groups.reduce((n, g) => n + g.subgroups.length, 0)} 个二级分类、${total} 个图标。
  *
  * ★ 图片不随包下载 ★
- *   运行时按码点 + 用户选的样式（系统 / Noto / Twemoji / OpenMoji）
+ *   运行时按码点 + 用户选的样式（Noto / Twemoji / OpenMoji / Fluent / FxEmoji）
  *   拼对应 CDN 地址（见 utils/emoji.js 的 emojiImageSrc）。
  *
  * 每项 icons：[码点, 中文名, emoji 字符]
