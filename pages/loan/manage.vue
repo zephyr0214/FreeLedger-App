@@ -207,9 +207,11 @@
                     class="txn-icon"
                     :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
                   >
-                    <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
-                      {{ iconChar(t) }}
-                    </text>
+                    <CategoryGlyph
+                      :icon="t.category_icon"
+                      :name="t.category_name"
+                      size="38rpx"
+                    />
                   </view>
 
                   <view class="txn-info">
@@ -343,6 +345,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView,
@@ -355,7 +358,7 @@ import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatTime, shortDateWithYear } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog },
+  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
 
@@ -487,21 +490,6 @@ export default {
     /** 余额颜色：结清走次要色，未结清走主题色 */
     function balanceColor(g) {
       return g.settled ? 'var(--app-text-3)' : accentColor.value
-    }
-
-    /**
-     * 组内流水的分类图标
-     *
-     * ★ 按分类名取，不按 category_icon 的 key ★
-     *   这几类的 icon key 在库里分别指向 lend/borrow/more/chart，
-     *   要转成 emoji 还得再引一张 key 表；而这一页的分类最多就八种，
-     *   直接按名字查一张 8 项的映射最直白，也不会因为图标库改名而失效。
-     *
-     * @param {{category_name?:string}} t
-     * @returns {string} emoji，拿不到时给一个中性符号
-     */
-    function iconChar(t) {
-      return ICON_FALLBACK[t && t.category_name] || '¥'
     }
 
     /** 组内流水的副标题：时间 · 账户 */
@@ -887,7 +875,7 @@ export default {
       pageStyle, primaryColor, isIncome, pageTitle, headEmoji, currentLabel, directionText,
       accentColor, statusTabs, emptyTitle, emptyDesc,
       avatarText, balanceText, balanceLabel, balanceColor,
-      iconChar, txnSub, timeLabel, goTxnDetail,
+      txnSub, timeLabel, goTxnDetail,
       /*
        * 徽标：badgesOf 负责注入主题色与标签表，顺序规则在 utils/txnBadges.js；
        * isLoanPrincipalCategory 决定「已结清段里哪几笔划删除线」——
@@ -901,25 +889,6 @@ export default {
   }
 }
 
-/**
- * 分类名 → 图标 emoji
- *
- * ★ 为什么在页面里写死一张小表 ★
- *   组内流水用的是「八类借款分类」，图标固定就这几个；
- *   走 utils/icons.js 的 iconEmoji(key) 也能拿到，但那张表是按 key 取的，
- *   而这里手上只有分类名。写一张 8 项的映射最直白，也省一次 import。
- *   取值与 api/db/schema.js 的 SYSTEM_PRESET_CHILDREN 对齐。
- */
-const ICON_FALLBACK = {
-  借出: '📤',
-  借款收回: '📥',
-  借入: '📥',
-  借款归还: '📤',
-  借出坏账: '📦',
-  借出利息: '📈',
-  借入未还: '📦',
-  借入利息: '📈'
-}
 </script>
 
 <style scoped>

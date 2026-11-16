@@ -1,12 +1,15 @@
 /**
- * 分类图标 —— 用 emoji 而非字体图标
+ * 分类图标 —— 旧版 emoji 表（保留用于迁移与按名字猜图标）
  *
- * 为什么不用组件库的图标字体：
- *   wd-icons.ttf 里与消费相关的字形只有 fork / shop / home / read / video /
- *   heart / gift / wallet / creditcard 不到十个，覆盖不了餐饮、交通、医疗、
- *   教育、人情、理财等二十多个分类。硬凑会出现大量分类共用同一个图标。
+ * ★ 现状（v1.24 起）★
+ *   分类图标已经换成 OpenMoji（见 utils/openmoji.js 与 static/openmoji/）。
+ *   category.icon 存的是 OpenMoji 码点；这张 ICON_MAP：
+ *     1. 保留旧 key → emoji 的映射，给老版本数据 / 老备份兜底；
+ *     2. guessIconKeyByName() 仍按分类名猜一个语义 key，
+ *        再由 OpenMoji 层转成码点（新分类没选图标时用）。
+ *   账户图标不走这张表（见 utils/accountIcons.js）。
  *
- * 为什么用 emoji：
+ * 为什么当初用 emoji：
  *   1. 原生渲染，Android / iOS 都自带，不需要任何图片资源
  *   2. 彩色，视觉上比单色字体图标更清晰
  *   3. 数量足够，可以给每个分类配一个贴切的
@@ -133,11 +136,14 @@ export function iconEmoji(key) {
 }
 
 /**
- * 按分类名猜一个图标（用于历史数据没有 icon 字段的情况）
- * 只做最粗的匹配，命中就返回，不命中给 📦
+ * 按分类名猜一个图标 key（用于历史数据没有 icon 字段 / 新分类没选图标）
+ * 只做最粗的匹配，命中就返回，不命中给 more
+ *
+ * @param {string} name 分类名
+ * @returns {string} ICON_MAP 里的 key
  */
-export function guessIconByName(name) {
-  if (!name) return ICON_MAP.more
+export function guessIconKeyByName(name) {
+  if (!name) return 'more'
   const n = String(name)
 
   /*
@@ -234,7 +240,12 @@ export function guessIconByName(name) {
   ]
 
   for (const [keywords, key] of rules) {
-    if (keywords.some((k) => n.includes(k))) return ICON_MAP[key]
+    if (keywords.some((k) => n.includes(k))) return key
   }
-  return ICON_MAP.more
+  return 'more'
+}
+
+/** 兼容旧调用：按名字猜 emoji（新代码请用 guessIconKeyByName + OpenMoji） */
+export function guessIconByName(name) {
+  return ICON_MAP[guessIconKeyByName(name)] || ICON_MAP.more
 }

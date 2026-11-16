@@ -88,6 +88,10 @@ src = src.replace(
   /import\s*\{[^}]*\}\s*from\s*'\.\/category\.js'/,
   `const { seedDefaultCategories, syncDefaultCategories } = globalThis.__STUB_CAT__;`
 )
+src = src.replace(
+  /import\s*\{[^}]*\}\s*from\s*'\.\.\/utils\/openmojiLegacy\.js'/,
+  `const { toOpenmojiIconCode } = globalThis.__STUB_OPENMOJI__;`
+)
 
 // 2) 把 ESM export 改成 CommonJS 导出，使文件能在 Node 里用 _compile 加载
 src = src.replace(/export\s+async\s+function\s+(\w+)/g, 'module.exports.$1 = async function $1')
@@ -98,6 +102,8 @@ globalThis.__STUB_DB__ = fakeDb
 globalThis.__STUB_ACC__ = fakeAccount
 globalThis.__STUB_SET__ = fakeSettings
 globalThis.__STUB_ID__ = fakeId
+// 真实的 OpenMoji 旧 key 映射（纯函数，不碰 plus / uni）
+globalThis.__STUB_OPENMOJI__ = await import('../utils/openmojiLegacy.js')
 globalThis.__STUB_CAT__ = fakeCategory
 
 const m = new Module(backupPath, null)

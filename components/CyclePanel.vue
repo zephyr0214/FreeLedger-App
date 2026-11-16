@@ -105,7 +105,7 @@
               （以前这里是「深色实底 + 白图标」，选中时整块分类色，和流水对不上）
             -->
             <view class="cat-icon-wrap" :style="catIconStyle(cat, form.category_id === cat.id)">
-              <text class="cat-icon-text">{{ iconChar(cat) }}</text>
+              <CategoryGlyph :icon="cat.icon" :name="cat.name" size="48rpx" />
             </view>
             <text
               class="cat-name"
@@ -313,7 +313,7 @@ import { createCycle, updateCycle, deleteCycle, occursOnDay, recordCycleForDay, 
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
 import { evaluateAmount } from '@/utils/money.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
 import { getCategoryUsageCounts } from '@/api/stats.js'
@@ -331,7 +331,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags },
+  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags, CategoryGlyph },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -578,10 +578,6 @@ export default {
     const dayOfMonthLabel = computed(() => `${Number(form.day_of_month) || 1} 号`)
 
     /* ------------------------------------------------------ 方法 */
-
-    function iconChar(cat) {
-      return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
-    }
 
     /**
      * 分类图标的配色。
@@ -1052,7 +1048,7 @@ export default {
       dayActions, dayOfMonthLabel, onFlagsUpdate, reimburseDisabled,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
       showWeekdayPicker, showDayPicker,
-      iconChar, catIconStyle, switchType, pickCategory,
+      catIconStyle, switchType, pickCategory,
       openAccountPicker, openToAccountPicker, openRecurrencePicker,
       openWeekdayPicker, openDayPicker,
       onAccountPicked, onToAccountPicked, onRecurrenceSelect,

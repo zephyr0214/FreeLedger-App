@@ -73,7 +73,7 @@
         >
           <view class="parent-row" @click="toggleExpand(parent.id)">
             <view class="parent-icon" :style="{ backgroundColor: (parent.color || primaryColor) + '22' }">
-              <text class="parent-emoji">{{ iconEmoji(parent.icon) }}</text>
+              <CategoryGlyph :icon="parent.icon" :name="parent.name" size="44rpx" />
             </view>
             <text class="parent-name" @click.stop="goDetail(parent)">{{ parent.name }}</text>
             <text v-if="isFixed(parent)" class="parent-locked">固定分类</text>
@@ -137,7 +137,7 @@
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
               <view class="child-icon" :style="{ backgroundColor: (child.color || parent.color || primaryColor) + '22' }">
-                <text class="child-emoji">{{ iconEmoji(child.icon) }}</text>
+                <CategoryGlyph :icon="child.icon" :name="child.name" size="32rpx" />
               </view>
               <text class="child-name" @click="goDetail(child)">{{ child.name }}</text>
               <!--
@@ -209,24 +209,12 @@
 
           <!--
             图标选择器：一级和二级都显示。
-            二级分类现在可以有自己的图标（v6 起）。
+            OpenMoji 全量图标（4567 个），支持搜索与分组；
+            旧版 emoji key 会在打开时自动定位到对应图标。
           -->
           <view class="editor-row editor-row-column">
             <text class="editor-label">图标</text>
-            <scroll-view class="icon-scroll" scroll-y>
-              <view class="icon-grid">
-                <view
-                  v-for="opt in iconOptions"
-                  :key="opt.key"
-                  class="icon-cell"
-                  :class="{ active: editorForm.icon === opt.key }"
-                  @click="editorForm.icon = opt.key"
-                >
-                  <text class="icon-emoji">{{ iconEmoji(opt.key) }}</text>
-                  <text class="icon-name">{{ opt.label }}</text>
-                </view>
-              </view>
-            </scroll-view>
+            <CategoryIconPicker v-model="editorForm.icon" />
           </view>
 
           <!-- 颜色只有一级能改：二级继承父级的颜色 -->
@@ -281,18 +269,23 @@ import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import CategoryIconPicker from '@/components/CategoryIconPicker.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, createCategory, updateCategory, deleteCategory,
   isReconcileCategory, isFixedCategory, isPresetGroupCategory
 } from '@/api/category.js'
-import { ICON_OPTIONS, iconEmoji } from '@/utils/icons.js'
+import { FALLBACK_OPENMOJI_CODE, categoryIconCode } from '@/utils/openmoji.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, UpdateDialog },
+  components: {
+    PageNav, EmptyState, AppDialog, LineIcon,
+    CategoryGlyph, CategoryIconPicker, UpdateDialog
+  },
   setup() {
     const settingStore = useSettingStore()
 
@@ -301,7 +294,7 @@ export default {
     const expandedIds = ref([])
     const showEditor = ref(false)
     const editingId = ref('')
-    const editorForm = reactive({ name: '', color: '', icon: 'more', parent_id: null })
+    const editorForm = reactive({ name: '', color: '', icon: FALLBACK_OPENMOJI_CODE, parent_id: null })
 
     /**
      * wd-swipe-action 的展开状态。
@@ -339,8 +332,6 @@ export default {
     function closeAllSwipes() {
       closeSwipe()
     }
-
-    const iconOptions = ICON_OPTIONS
 
     const types = [
       { key: 'expense', name: '支出分类' },
@@ -448,7 +439,9 @@ export default {
        * 用户要能给每个子类单独配图标，默认给父级的，
        * 但用户可以改。（颜色仍然继承父级。）
        */
-      editorForm.icon = parent ? (parent.icon || 'more') : 'more'
+      editorForm.icon = parent
+        ? categoryIconCode(parent.icon, parent.name)
+        : FALLBACK_OPENMOJI_CODE
       if (parent && parent.color) editorForm.color = parent.color
       editorForm.parent_id = parent ? parent.id : null
       showEditor.value = true
@@ -463,7 +456,7 @@ export default {
       editingId.value = cat.id
       editorForm.name = cat.name
       editorForm.color = cat.color || colors[0]
-      editorForm.icon = cat.icon || 'more'
+      editorForm.icon = categoryIconCode(cat.icon, cat.name)
       editorForm.parent_id = cat.parent_id
       showEditor.value = true
     }
@@ -663,7 +656,7 @@ export default {
     return {
       settingStore, activeType, tree, expandedIds,
       showEditor, editingId, editorForm, types, colors, swipeStates,
-      iconOptions, iconEmoji, editorTitle, isEditingFixed,
+      editorTitle, isEditingFixed,
       primaryColor, pageStyle,
       switchType, toggleExpand, openCreate, openEdit, parentNameOf,
       isFixed, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
@@ -734,11 +727,6 @@ export default {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.parent-emoji {
-  font-size: 34rpx;
-  line-height: 1;
 }
 
 .parent-name {
@@ -833,11 +821,6 @@ export default {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.child-emoji {
-  font-size: 26rpx;
-  line-height: 1;
 }
 
 .child-name {
@@ -1048,44 +1031,8 @@ export default {
   box-shadow: inset 0 0 0 4rpx var(--app-text);
 }
 
-/* 图标选择 */
-.icon-scroll {
-  width: 100%;
-  max-height: 380rpx;
-}
-
-.icon-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-}
-
-.icon-cell {
-  width: calc((100% - 60rpx) / 6);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4rpx;
-  padding: 12rpx 4rpx;
-  border-radius: 12rpx;
-  background-color: var(--app-card-2);
-  border: 2rpx solid transparent;
-}
-
-.icon-cell.active {
-  border-color: var(--app-primary);
-  background-color: var(--app-primary-light);
-}
-
-.icon-emoji {
-  font-size: 36rpx;
-  line-height: 1.1;
-}
-
-.icon-name {
-  font-size: 16rpx;
-  color: var(--app-text-3);
-  text-align: center;
-  line-height: 1.2;
-}
+/*
+ * 图标选择器已经抽成 <CategoryIconPicker>（components/CategoryIconPicker.vue），
+ * 网格 / 搜索 / 分组样式都在那个组件里。
+ */
 </style>

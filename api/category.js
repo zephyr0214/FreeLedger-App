@@ -4,6 +4,7 @@
 
 import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
+import { toOpenmojiIconCode } from '../utils/openmojiLegacy.js'
 import {
   RECONCILE_CATEGORIES, RECONCILE_LEGACY_NAME,
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
@@ -22,7 +23,8 @@ import {
  *   而本文件依赖 api/db/index.js，反过来 import 就成环了。
  *   schema.js 不依赖任何模块，是唯一能放「两边共用」的地方。
  *
- * icon 字段的取值必须是 utils/icons.js 里 ICON_MAP / ICON_OPTIONS 的键。
+ * icon 字段（v24 起）存 OpenMoji 码点；下面的默认表仍用语义 key，
+ * 写库前由 writeIcon() 统一转换（旧 key -> 码点的表在 utils/openmojiLegacy.js）。
  * ★ 二级分类有自己的图标（v6 起）★
  *   children 里每一项是 { name, icon }，颜色继承父级。
  *
@@ -40,10 +42,23 @@ export { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS }
 function normalizeCategory(row) {
   return {
     ...row,
+    /*
+     * ★ 读的时候也做一次图标归一化 ★
+     *   v24 迁移会把库里的旧 key（food/car…）改成 OpenMoji 码点，
+     *   但迁移失败、老备份导入、或用户从很老的版本覆盖上来时，
+     *   库里仍可能残留旧 key。在读取边界统一转一次，
+     *   界面就不会出现「显示成兜底包裹」的情况。
+     */
+    icon: toOpenmojiIconCode(row.icon) || row.icon || null,
     sort: Number(row.sort) || 0,
     hidden: Number(row.hidden) === 1,
     isParent: !row.parent_id
   }
+}
+
+/** 写库前把图标归一成 OpenMoji 码点（空值保持 null） */
+function writeIcon(icon) {
+  return toOpenmojiIconCode(icon) || icon || null
 }
 
 /** 全部分类（含二级），按 type 过滤 */
@@ -96,7 +111,7 @@ export async function createCategory(input) {
       input.parent_id || null,
       input.name,
       input.type || 'expense',
-      input.icon || null,
+      writeIcon(input.icon),
       input.color || null,
       sort,
       input.hidden ? 1 : 0,
@@ -123,7 +138,7 @@ export async function updateCategory(id, patch) {
   const assign = (col, val) => { fields.push(`${col} = ?`); params.push(val) }
 
   if (patch.name !== undefined) assign('name', patch.name)
-  if (patch.icon !== undefined) assign('icon', patch.icon)
+  if (patch.icon !== undefined) assign('icon', writeIcon(patch.icon))
   if (patch.color !== undefined) assign('color', patch.color)
   if (patch.sort !== undefined) assign('sort', patch.sort)
   if (patch.hidden !== undefined) assign('hidden', patch.hidden ? 1 : 0)
@@ -477,7 +492,7 @@ async function ensurePresetGroupRow(type) {
   await execute(
     `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
      VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-    [id, null, def.name, def.type, def.icon, def.color, 999, now, now]
+    [id, null, def.name, def.type, writeIcon(def.icon), def.color, 999, now, now]
   )
   return id
 }
@@ -524,7 +539,7 @@ async function ensurePresetChildRow(type, name) {
   if (legacy) {
     await execute(
       'UPDATE category SET parent_id = ?, icon = ?, color = ?, sort = ?, updated_at = ? WHERE id = ?',
-      [groupId, def.icon, def.color, def.sort, now, legacy.id]
+      [groupId, writeIcon(def.icon), def.color, def.sort, now, legacy.id]
     )
     return legacy.id
   }
@@ -539,7 +554,7 @@ async function ensurePresetChildRow(type, name) {
   await execute(
     `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,NULL)`,
-    [id, groupId, name, type, def.icon, def.color, def.sort, def.hidden ? 1 : 0, now, now]
+    [id, groupId, name, type, writeIcon(def.icon), def.color, def.sort, def.hidden ? 1 : 0, now, now]
   )
   return id
 }
@@ -681,7 +696,7 @@ async function insertDefaultCategories(exec, makeId, now) {
       await exec(
         `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
          VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-        [parentId, null, item.name, type, item.icon, item.color, i, now, now]
+        [parentId, null, item.name, type, writeIcon(item.icon), item.color, i, now, now]
       )
       n++
 
@@ -696,7 +711,7 @@ async function insertDefaultCategories(exec, makeId, now) {
            VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
           [
             makeId(), parentId, childName, type,
-            childIcon(child, item.icon), childColor(child, item.color),
+            writeIcon(childIcon(child, item.icon)), childColor(child, item.color),
             j, now, now
           ]
         )
@@ -718,7 +733,7 @@ async function insertDefaultCategories(exec, makeId, now) {
     await exec(
       `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
        VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-      [groupId, null, groupDef.name, type, groupDef.icon, groupDef.color, 999, now, now]
+      [groupId, null, groupDef.name, type, writeIcon(groupDef.icon), groupDef.color, 999, now, now]
     )
     n++
 
@@ -726,7 +741,7 @@ async function insertDefaultCategories(exec, makeId, now) {
       await exec(
         `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
          VALUES (?,?,?,?,?,?,?,0,?,?,NULL)`,
-        [makeId(), groupId, def.name, type, def.icon, def.color, def.sort, now, now]
+        [makeId(), groupId, def.name, type, writeIcon(def.icon), def.color, def.sort, now, now]
       )
       n++
     }

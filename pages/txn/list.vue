@@ -136,9 +136,17 @@
               class="txn-icon"
               :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
             >
-              <text class="txn-icon-text" :style="{ color: txn.category_color || '#969799' }">
-                {{ iconChar(txn) }}
-              </text>
+              <text
+                v-if="txn.type === 'transfer'"
+                class="txn-icon-text"
+                :style="{ color: txn.category_color || '#969799' }"
+              >⇄</text>
+              <CategoryGlyph
+                v-else
+                :icon="txn.category_icon"
+                :name="txn.category_name"
+                size="40rpx"
+              />
             </view>
 
             <view class="txn-info">
@@ -481,7 +489,7 @@ import {
   formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey,
   customToRange, customRangeLabel, defaultCustomRange, toDayKey
 } from '@/utils/date.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { parseAmountInput, formatWanYuan } from '@/utils/money.js'
@@ -493,7 +501,7 @@ import { createRowPressController } from '@/utils/rowPress.js'
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AccountPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog },
+  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AccountPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -1466,13 +1474,6 @@ export default {
 
     /* ------------------------------------------------------ 交互 */
 
-    function iconChar(txn) {
-      if (txn.type === 'transfer') return '⇄'
-      return txn.category_icon
-        ? iconEmoji(txn.category_icon)
-        : guessIconByName(txn.category_name)
-    }
-
     function txnTitle(txn) {
       if (txn.type === 'transfer') {
         // ★ 账户被删除后 account_name 为空 —— 显示「无账户」而不是 '-' ★
@@ -1887,7 +1888,7 @@ export default {
       onSwipeDelete, onSwipeTag,
       onBatchDelete, openBatchTag, onBatchExcludeBudget, onBatchPendingReimburse,
       onTagSheetPicked,
-      iconChar, txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
+      txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
     }
   }
 }

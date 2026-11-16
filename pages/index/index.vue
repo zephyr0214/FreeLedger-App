@@ -327,9 +327,16 @@
                 :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }"
               >
                 <text
+                  v-if="txn.type === 'transfer'"
                   class="txn-icon-text"
                   :style="{ color: txn.category_color || '#969799' }"
-                >{{ iconChar(txn) }}</text>
+                >⇄</text>
+                <CategoryGlyph
+                  v-else
+                  :icon="txn.category_icon"
+                  :name="txn.category_name"
+                  size="38rpx"
+                />
               </view>
 
               <view class="txn-info">
@@ -479,7 +486,7 @@ import { getBudgetUsage } from '@/api/stats.js'
 import { getSetting, setSetting } from '@/api/settings.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel, formatTime } from '@/utils/date.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { formatWanYuan } from '@/utils/money.js'
@@ -488,7 +495,7 @@ import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -876,14 +883,6 @@ export default {
 
     /* ------------------------------------------------------ 展示辅助 */
 
-    function iconChar(txn) {
-      if (txn.type === 'transfer') return '⇄'
-      // 优先用分类自带的 icon 键，没有就按名称猜
-      return txn.category_icon
-        ? iconEmoji(txn.category_icon)
-        : guessIconByName(txn.category_name)
-    }
-
     function txnTitle(txn) {
       if (txn.type === 'transfer') {
         return `${txn.account_name || '-'} → ${txn.to_account_name || '-'}`
@@ -1036,7 +1035,7 @@ export default {
       shiftCalMonth, backToCurrentMonth, isCurrentMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
-      iconChar, txnTitle, txnSub, txnBadges, timeLabel,
+      txnTitle, txnSub, txnBadges, timeLabel,
       /*
        * ★ tags 必须暴露给模板（bug 修复）★
        *   <TxnTagSheet :tags="tags"> 读的是模板作用域里的 tags，

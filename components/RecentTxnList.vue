@@ -30,7 +30,8 @@
           >
             <!-- 分类图标（带背景色） -->
             <view class="txn-icon" :style="iconBgStyle(txn)">
-              <text class="txn-icon-text" :style="iconFgStyle(txn)">{{ iconChar(txn) }}</text>
+              <text v-if="txn.type === 'transfer'" class="txn-icon-text" :style="iconFgStyle(txn)">⇄</text>
+              <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="38rpx" />
             </view>
 
             <!-- 名称 + 副标题（时间 / 账户 / 备注） -->
@@ -102,8 +103,8 @@ import { computed, ref, onMounted, watch } from 'vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 import { listTags } from '@/api/tag.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
@@ -111,7 +112,7 @@ import { useSettingStore } from '@/stores/setting.js'
 
 export default {
   name: 'RecentTxnList',
-  components: { MoneyText, EmptyState, HeaderAction },
+  components: { MoneyText, EmptyState, HeaderAction, CategoryGlyph },
   props: {
     /** 交易列表（已按时间倒序） */
     txns: { type: Array, default: () => [] },
@@ -268,14 +269,6 @@ export default {
 
     /* ------------------------------------------------------ 展示内容 */
 
-    /** 图标 */
-    function iconChar(txn) {
-      if (txn.type === 'transfer') return '⇄'
-      return txn.category_icon
-        ? iconEmoji(txn.category_icon)
-        : guessIconByName(txn.category_name)
-    }
-
     /** 图标背景色（分类色 + 浅色底；转账走中性变量） */
     function iconBgStyle(txn) {
       if (txn.type === 'transfer') {
@@ -388,7 +381,7 @@ export default {
 
     return {
       visibleTxns, groups, hasMoreThanShown,
-      iconChar, iconBgStyle, iconFgStyle,
+      iconBgStyle, iconFgStyle,
       txnTitle, txnSub, txnBadges, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore
     }

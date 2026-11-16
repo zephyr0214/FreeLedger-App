@@ -4,7 +4,7 @@
 
 **隐私优先的本地记账 App · Privacy-first local bookkeeping app**
 
-[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.23.10-orange)](#)
+[![platform](https://img.shields.io/badge/platform-Android-green)](#) [![framework](https://img.shields.io/badge/uni--app-Vue%203-42b883)](#) [![storage](https://img.shields.io/badge/storage-SQLite-blue)](#) [![version](https://img.shields.io/badge/version-1.24.0-orange)](#)
 
 [中文](#中文) | [English](#english)
 
@@ -51,10 +51,11 @@
 - 深度思考、图表均可开关
 
 **数据与外观**
+- 分类图标使用 OpenMoji 图标库（CC BY-SA 4.0），新建 / 编辑分类时可搜索并选择全部图标
 - 每日自动备份 + JSON 导出 / 导入
 - 从微信 / 文件管理器「用其他应用打开」JSON，确认后导入
 - 深浅色跟随系统 + 多主题色，概览卡 / 人名栏 / 报销单卡头 / 个人信息卡统一主题色渐变（暗色下自动不显示渐变）
-- 数据库结构化迁移（当前 schema v23），升级不丢数据
+- 数据库结构化迁移（当前 schema v24），升级不丢数据
 
 ## 技术栈与工程化
 
@@ -79,7 +80,7 @@ npm run test      # 全部测试（20+ 个测试文件，数百条断言）
 
 ## 版本规则
 
-- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v23 → v1.23.x）
+- 有数据库迁移 → 次版本号跟随数据库结构版本（schema v24 → v1.24.x）
 - 无迁移 → 递增修订号（1.17.0 → 1.17.1）
 - 每个版本的用户可见变化见 App 内「我的 → 更新日志」
 
@@ -169,9 +170,10 @@ All data lives in **on-device SQLite** — no account, no cloud, no upload. The 
 - Deep thinking and charts are both toggleable
 
 **Data & appearance**
+- Category icons use the OpenMoji set (CC BY-SA 4.0); search and pick any icon when creating or editing a category
 - Daily auto-backup + JSON export / import
 - System dark mode + multiple theme colors; overview card, person header, reimbursement slip header and profile card share one theme gradient (automatically hidden in dark mode)
-- Structured database migrations (schema v23) — upgrades never lose data
+- Structured database migrations (schema v24) — upgrades never lose data
 
 ## Tech & engineering
 
@@ -196,7 +198,7 @@ npm run test      # full test suite (20+ files, hundreds of assertions)
 
 ## Versioning
 
-- With a DB migration → minor version follows the schema version (schema v23 → v1.23.x)
+- With a DB migration → minor version follows the schema version (schema v24 → v1.24.x)
 - Without one → patch bump (1.16.2 → 1.16.3)
 - User-facing changes per version: in-app *Mine → Changelog*
 

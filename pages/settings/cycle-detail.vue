@@ -5,7 +5,12 @@
         <view class="summary-card">
           <view class="summary-head">
             <view class="summary-icon" :style="{ backgroundColor: iconColor }">
-              <text class="summary-icon-text">{{ cycle.iconChar }}</text>
+              <CategoryGlyph
+                :icon="cycle.icon"
+                :name="cycle.iconName"
+                :symbol="cycle.iconSymbol"
+                size="52rpx"
+              />
             </view>
             <view class="summary-info">
               <text class="summary-name">{{ cycleName }}</text>
@@ -83,6 +88,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -90,10 +96,9 @@ import {
   getCycle, listRecentCycleTxns, countCycleTxns, recurrenceLabel, nextOccurrence
 } from '@/api/cycle.js'
 import { listCategories } from '@/api/category.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -147,12 +152,12 @@ export default {
       return (cat && cat.color) || primaryColor.value
     })
 
-    const cycleIconChar = computed(() => {
+    const cycleIcon = computed(() => {
       const c = cycle.value
-      if (!c) return '❔'
-      if (c.type === 'transfer') return '⇄'
+      if (!c) return { symbol: '❔', icon: '', name: '' }
+      if (c.type === 'transfer') return { symbol: '⇄', icon: '', name: '' }
       const cat = categories.value.find((x) => x.id === c.category_id)
-      return cat && cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat ? cat.name : '')
+      return { symbol: '', icon: cat ? cat.icon : '', name: cat ? cat.name : '' }
     })
 
     const accountName = computed(() => {
@@ -212,7 +217,9 @@ export default {
     const cycleView = computed(() => {
       if (!cycle.value) return null
       return Object.assign({}, cycle.value, {
-        iconChar: cycleIconChar.value,
+        icon: cycleIcon.value.icon,
+        iconName: cycleIcon.value.name,
+        iconSymbol: cycleIcon.value.symbol,
         recurrenceText: recurrenceLabel(cycle.value)
       })
     })

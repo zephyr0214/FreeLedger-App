@@ -68,7 +68,7 @@ const schemaSrc = read('api/db/schema.js')
 const dbSrc = read('api/db/index.js')
 const reimbSrc = read('api/reimburse.js')
 
-check('SCHEMA_VERSION 是 23', SCHEMA_VERSION, 23)
+check('SCHEMA_VERSION 至少是 23', SCHEMA_VERSION >= 23, true)
 check('迁移 v23 已注册', /version:\s*23,\s*\n\s*up:\s*migrateReimburseBatch/.test(dbSrc), true)
 check('迁移函数存在', /async function migrateReimburseBatch\s*\(/.test(dbSrc), true)
 
@@ -401,7 +401,7 @@ console.log('=== 3. 迁移 v23 在 v22 的库上 ===')
 
   /* user_version 被推进到 23 */
   const ver = db.prepare('PRAGMA user_version').get().user_version
-  check('user_version 推进到 23', Number(ver), 23)
+  check('user_version 推进到最新', Number(ver), SCHEMA_VERSION)
 }
 
 /* ==================== 3b. 全新安装：从 0 跑到 23 也要有表 */
@@ -429,7 +429,7 @@ console.log('=== 3b. 全新安装（空库 + user_version=0）跑完整迁移链
   ok('全新安装的 txn 有 batch_id 列', cols.includes('batch_id'))
 
   const ver = db.prepare('PRAGMA user_version').get().user_version
-  check('全新安装后 user_version = 23', Number(ver), 23)
+  check('全新安装后 user_version = 最新', Number(ver), SCHEMA_VERSION)
 
   /* 索引也建出来了（列表页排序要它） */
   const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name)

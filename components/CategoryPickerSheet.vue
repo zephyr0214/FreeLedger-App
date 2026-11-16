@@ -21,7 +21,7 @@
             -->
             <view v-if="sec.title" class="group-head">
               <view class="group-icon" :style="groupIconStyle(sec.parent)">
-                <text class="group-icon-text">{{ sec.icon }}</text>
+                <CategoryGlyph :icon="sec.parent.icon" :name="sec.parent.name" size="28rpx" />
               </view>
               <text class="group-name">{{ sec.title }}</text>
             </view>
@@ -35,7 +35,7 @@
                 @click="onPick(cat)"
               >
                 <view class="more-icon-wrap" :style="iconStyle(cat, selectedId === cat.id)">
-                  <text class="more-icon-text">{{ iconChar(cat) }}</text>
+                  <CategoryGlyph :icon="cat.icon" :name="cat.name" size="44rpx" />
                 </view>
                 <text
                   class="more-name"
@@ -74,13 +74,14 @@
  */
 import { computed, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { groupCategoriesByParent } from '@/utils/categorySort.js'
 import { categoryIconFullStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'CategoryPickerSheet',
+  components: { CategoryGlyph },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 可选分类（已按使用频率排序） */
@@ -114,16 +115,10 @@ export default {
           key: g.parent.id,
           parent: g.parent,
           title: isSelf ? '' : g.parent.name,
-          icon: isSelf ? '' : iconChar(g.parent),
           members: g.members
         }
       })
     )
-
-    /** 图标 emoji */
-    function iconChar(cat) {
-      return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
-    }
 
     /**
      * 分类图标的配色（未选中浅灰底；选中浅色底 + 主题色圈；图标始终是分类本色）
@@ -187,7 +182,7 @@ export default {
 
     return {
       visible, sections, primaryColor,
-      iconChar, iconStyle, groupIconStyle, onPick, close
+      iconStyle, groupIconStyle, onPick, close
     }
   }
 }

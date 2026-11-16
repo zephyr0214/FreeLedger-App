@@ -6,7 +6,7 @@
         <view class="summary-card">
           <view class="summary-head">
             <view class="summary-icon" :style="{ backgroundColor: iconBg }">
-              <text class="summary-icon-text" :style="{ color: iconFg }">{{ iconChar }}</text>
+              <CategoryGlyph :icon="usage.icon" :name="usage.name" size="52rpx" />
             </view>
             <view class="summary-info">
               <text class="summary-name">{{ usage.name }}</text>
@@ -115,6 +115,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getBudgetUsage } from '@/api/stats.js'
@@ -122,10 +123,9 @@ import { getCategory, listCategories } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
 import { formatWanYuan } from '@/utils/money.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
 
@@ -145,13 +145,6 @@ export default {
     const monthKey = computed(() => toMonthKey())
 
     const budgetTitle = computed(() => (usage.value ? usage.value.name : '预算详情'))
-
-    const iconChar = computed(() => {
-      if (!usage.value) return '📊'
-      return usage.value.icon
-        ? iconEmoji(usage.value.icon)
-        : guessIconByName(usage.value.name)
-    })
 
     const iconBg = computed(() =>
       usage.value && usage.value.over ? 'var(--app-danger)' : 'var(--app-primary-light)'
@@ -329,7 +322,7 @@ export default {
     return {
       formatWanYuan,
       settingStore, usage, txnList, monthStats, categories, loading, notFound,
-      primaryColor, pageStyle, monthKey, budgetTitle, iconChar, iconBg, iconFg,
+      primaryColor, pageStyle, monthKey, budgetTitle, iconBg, iconFg,
       scopeLabel, goAllTxn, goBack
     }
   }

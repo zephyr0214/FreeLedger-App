@@ -24,6 +24,7 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN
 } from '../api/db/schema.js'
+import { toOpenmojiIconCode } from '../utils/openmojiLegacy.js'
 
 let pass = 0
 let fail = 0
@@ -230,7 +231,7 @@ console.log('=== 场景 1：老库（对账支出/对账收入是独立一级）
     const row = db.prepare(
       'SELECT icon FROM category WHERE deleted_at IS NULL AND name = ? AND type = ? AND parent_id IS NOT NULL'
     ).get(def.name, def.type)
-    check(`固定子类「${def.name}」的图标`, row ? row.icon : '', def.icon)
+    check(`固定子类「${def.name}」的图标`, row ? row.icon : '', toOpenmojiIconCode(def.icon))
   }
 }
 
@@ -329,7 +330,7 @@ console.log('=== 场景 4：组已经存在、子类也在 -> 只刷新图标，
   check(
     '「借出」的图标被刷成定义里的',
     lend.icon,
-    SYSTEM_PRESET_CHILDREN.find((d) => d.name === '借出').icon
+    toOpenmojiIconCode(SYSTEM_PRESET_CHILDREN.find((d) => d.name === '借出').icon)
   )
   const lendCount = db.prepare(
     "SELECT COUNT(*) AS c FROM category WHERE deleted_at IS NULL AND name = '借出' AND type = 'expense'"

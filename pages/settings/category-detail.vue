@@ -6,7 +6,7 @@
         <view class="summary-card">
           <view class="summary-head">
             <view class="summary-icon" :style="{ backgroundColor: categoryColor + '22' }">
-              <text class="summary-icon-text" :style="{ color: categoryColor }">{{ iconChar }}</text>
+              <CategoryGlyph :icon="category.icon" :name="category.name" size="52rpx" />
             </view>
             <view class="summary-info">
               <text class="summary-name">{{ category.name }}</text>
@@ -105,15 +105,15 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getCategory } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
 
@@ -141,13 +141,6 @@ export default {
     const categoryColor = computed(() =>
       (category.value && category.value.color) || '#969799'
     )
-
-    const iconChar = computed(() => {
-      if (!category.value) return '📦'
-      return category.value.icon
-        ? iconEmoji(category.value.icon)
-        : guessIconByName(category.value.name)
-    })
 
     /**
      * 这个分类是收入还是支出
@@ -287,7 +280,7 @@ export default {
 
     return {
       settingStore, category, txnList, monthStats, totalStats, loading, notFound,
-      pageStyle, isParent, categoryColor, iconChar,
+      pageStyle, isParent, categoryColor,
       statType, statWord, monthAmount, totalAmount,
       sharePercent, totalSharePercent,
       goAllTxn, goBack

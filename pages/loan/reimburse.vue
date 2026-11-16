@@ -120,9 +120,11 @@
                   class="txn-icon"
                   :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
                 >
-                  <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
-                    {{ iconChar(t) }}
-                  </text>
+                  <CategoryGlyph
+                    :icon="t.category_icon"
+                    :name="t.category_name"
+                    size="38rpx"
+                  />
                 </view>
 
                 <view class="txn-info">
@@ -288,9 +290,11 @@
                 class="txn-icon"
                 :style="{ backgroundColor: (d.category_color || '#969799') + '22' }"
               >
-                <text class="txn-icon-text" :style="{ color: d.category_color || '#969799' }">
-                  {{ iconChar(d) }}
-                </text>
+                <CategoryGlyph
+                  :icon="d.category_icon"
+                  :name="d.category_name"
+                  size="38rpx"
+                />
               </view>
 
               <view class="txn-info">
@@ -340,9 +344,11 @@
                 class="txn-icon"
                 :style="{ backgroundColor: (t.category_color || '#969799') + '22' }"
               >
-                <text class="txn-icon-text" :style="{ color: t.category_color || '#969799' }">
-                  {{ iconChar(t) }}
-                </text>
+                <CategoryGlyph
+                  :icon="t.category_icon"
+                  :name="t.category_name"
+                  size="38rpx"
+                />
               </view>
 
               <view class="txn-info">
@@ -556,6 +562,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns, voidReimburseBatch } from '@/api/reimburse.js'
@@ -570,15 +577,8 @@ import { createRowPressController } from '@/utils/rowPress.js'
 /** 汇总卡图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const ACCENT_COLOR = '#FF8F1F'
 
-/** 分类名 → 图标 emoji（这几类的 icon key 在库里是固定的） */
-const ICON_FALLBACK = {
-  借出: '📤', 借款收回: '📥', 借入: '📥', 借款归还: '📤',
-  借出坏账: '📦', 借出利息: '📈', 借入未还: '📦', 借入利息: '📈',
-  报销到账: '🧾', 报销坏账: '📦', 报销盈余: '📈'
-}
-
 export default {
-  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog },
+  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -736,10 +736,6 @@ export default {
      */
     function yuan(cents) {
       return formatWanYuan(cents)
-    }
-
-    function iconChar(t) {
-      return ICON_FALLBACK[t && t.category_name] || '🧾'
     }
 
     /** 报销单卡头的日期：和流水列表的日期条同一套文案（今天/昨天 + 月日 周几） */
@@ -1209,7 +1205,7 @@ export default {
       swipeStates, selectMode, selectedIds,
       showSheet, showAccountPicker, sheet, accountName, reimburseAccountList, diffText, diffColor,
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
-      badgesOf, iconChar, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
+      badgesOf, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
       // 行手势（长按进多选）—— 见 utils/rowPress.js
       onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,

@@ -32,7 +32,13 @@
             >
               <view class="row" @click="goDetail(c)">
                 <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
-                  <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
+                  <CategoryGlyph
+                    :icon="c.icon"
+                    :name="c.iconName"
+                    :symbol="c.iconSymbol"
+                    :color="c.color || primaryColor"
+                    size="34rpx"
+                  />
                 </view>
 
                 <view class="row-info">
@@ -99,7 +105,13 @@
             >
               <view class="row" @click="goDetail(c)">
                 <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
-                  <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
+                  <CategoryGlyph
+                    :icon="c.icon"
+                    :name="c.iconName"
+                    :symbol="c.iconSymbol"
+                    :color="c.color || primaryColor"
+                    size="34rpx"
+                  />
                 </view>
 
                 <view class="row-info">
@@ -166,7 +178,13 @@
             >
               <view class="row" @click="goDetail(c)">
                 <view class="row-icon" :style="{ backgroundColor: (c.color || primaryColor) + '22' }">
-                  <text class="row-icon-text" :style="{ color: c.color || primaryColor }">{{ c.iconChar }}</text>
+                  <CategoryGlyph
+                    :icon="c.icon"
+                    :name="c.iconName"
+                    :symbol="c.iconSymbol"
+                    :color="c.color || primaryColor"
+                    size="34rpx"
+                  />
                 </view>
 
                 <view class="row-info">
@@ -245,18 +263,19 @@ import LineIcon from '@/components/LineIcon.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import CyclePanel from '@/components/CyclePanel.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listCycles, deleteCycle, recurrenceLabel, listCycleCounts, nextOccurrence } from '@/api/cycle.js'
 import { listCategories } from '@/api/category.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+
 import { toDayKey } from '@/utils/date.js'
 import { onBackPress } from '@dcloudio/uni-app'
 import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel, UpdateDialog },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, CyclePanel, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -275,18 +294,22 @@ export default {
     function decorate(c) {
       const cat = categories.value.find((x) => x.id === c.category_id)
       let name = '未分类'
-      let iconChar = '❔'
+      let icon = ''
+      let iconName = ''
+      let iconSymbol = '❔'
       let color = c.color || primaryColor.value
 
       if (c.type === 'transfer') {
         const from = accountStore.list.find((a) => a.id === c.account_id)
         const to = accountStore.list.find((a) => a.id === c.to_account_id)
         name = `${from ? from.name : '账户'} → ${to ? to.name : '账户'}`
-        iconChar = '⇄'
+        iconSymbol = '⇄'
         color = '#7D5FFF'
       } else if (cat) {
         name = cat.name
-        iconChar = cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
+        icon = cat.icon
+        iconName = cat.name
+        iconSymbol = ''
         color = cat.color || primaryColor.value
       }
 
@@ -324,7 +347,9 @@ export default {
       return {
         ...c,
         name,
-        iconChar,
+        icon,
+        iconName,
+        iconSymbol,
         color,
         accountName,
         recurrenceText: recurrenceLabel(c),

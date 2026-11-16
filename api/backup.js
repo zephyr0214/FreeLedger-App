@@ -14,6 +14,7 @@
 import { query, queryOne, execute, transaction, truncateAll } from './db/index.js'
 import { getAllSettings, setSettings, clearSettingsCache } from './settings.js'
 import { prefixedId } from '../utils/id.js'
+import { toOpenmojiIconCode } from '../utils/openmojiLegacy.js'
 import { recalcAllBalances } from './account.js'
 // ★ 覆盖导入时补默认分类 ★
 //   （为什么必须补，见 importPayload 的 overwrite 分支注释）
@@ -821,7 +822,8 @@ export async function importPayload(payload, opt = {}) {
           `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           [
-            c.id, c.parent_id || null, c.name, c.type, c.icon || null, c.color || null,
+            c.id, c.parent_id || null, c.name, c.type,
+            toOpenmojiIconCode(c.icon) || c.icon || null, c.color || null,
             c.sort || 0, c.hidden || 0, c.created_at || Date.now(), c.updated_at || Date.now(), c.deleted_at || null
           ]
         )

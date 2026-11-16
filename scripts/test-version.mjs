@@ -85,13 +85,19 @@ check('当前版本写全三段而不是 1.16', /^\d+\.\d+\.\d+$/.test(APP_VERSI
 
 check('toSemver 兜底补零', toSemver('1.16'), '1.16.0')
 check('toSemver 三段原样', toSemver('1.16.1'), '1.16.1')
-check('toVersionCode(1.16.0) = 1160', toVersionCode('1.16.0'), 1160)
-check('toVersionCode(1.16.1) = 1161', toVersionCode('1.16.1'), 1161)
-check('toVersionCode(1.16.2) = 1162', toVersionCode('1.16.2'), 1162)
+check('toVersionCode(1.16.0) = 11600', toVersionCode('1.16.0'), 11600)
+check('toVersionCode(1.16.1) = 11601', toVersionCode('1.16.1'), 11601)
+check('toVersionCode(1.16.2) = 11602', toVersionCode('1.16.2'), 11602)
 // 修订号递增时 versionCode 必须递增（安卓覆盖安装的硬要求）
 check(
   '修订号递增时 versionCode 也递增',
   toVersionCode('1.16.2') > toVersionCode('1.16.1'),
+  true
+)
+// 旧公式在 1.23.10 / 1.24.0 上会撞车（都是 1240），新公式必须能区分
+check(
+  '1.24.0 的 versionCode 大于 1.23.10',
+  toVersionCode('1.24.0') > toVersionCode('1.23.10'),
   true
 )
 
@@ -129,7 +135,7 @@ console.log('=== manifest.json 与 APP_VERSION 同步 ===')
 
   check('versionName 与 toSemver(APP_VERSION) 一致', m.versionName, toSemver(APP_VERSION))
   check('versionCode 与 toVersionCode(APP_VERSION) 一致', m.versionCode, String(toVersionCode(APP_VERSION)))
-  check('versionCode 比 1.13.0 的 1130 大（可覆盖安装）', Number(m.versionCode) > 1130, true)
+  check('versionCode 比 1.13.0 的 11300 大（可覆盖安装）', Number(m.versionCode) > 11300, true)
 }
 
 /* ---------------------------------------------------- 3. 更新日志本身 */

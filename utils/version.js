@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.23.10'
+export const APP_VERSION = '1.24.0'
 
 /**
  * 三段式版本号（兜底补零）
@@ -63,16 +63,22 @@ export function toSemver(version = APP_VERSION) {
  *
  * manifest.json 要求 versionCode 是整数且每次发版都必须变大，
  * 否则安卓不允许覆盖安装。规则：
- *   1.16   -> 1160
- *   1.16.1 -> 1161
- *   1.16.2 -> 1162
- *   1.16.3 -> 1163
- *   1.16.4 -> 1164
- *   1.16.5 -> 1165
+ *   1.16.0  -> 11600
+ *   1.16.1  -> 11601
+ *   1.23.10 -> 12310
+ *   1.24.0  -> 12400
+ *
+ * ★ 为什么是 ×10000 / ×100，而不是旧版的 ×1000 / ×10 ★
+ *   旧公式 `major*1000 + minor*10 + patch` 在修订号到 10 时会撞车：
+ *     1.23.10 -> 1000 + 230 + 10 = 1240
+ *     1.24.0  -> 1000 + 240 + 0  = 1240
+ *   两个版本拿到同一个 versionCode，安卓会认为是同一个包、拒绝覆盖安装。
+ *   1.23.10 正好是当前版本，所以 v24 必须换公式。
+ *   新公式留出两位修订号，后续 1.24.10 -> 12410 也不会撞。
  */
 export function toVersionCode(version = APP_VERSION) {
   const [major = '1', minor = '16', patch = '0'] = toSemver(version).split('.')
-  return Number(major) * 1000 + Number(minor) * 10 + Number(patch)
+  return Number(major) * 10000 + Number(minor) * 100 + Number(patch)
 }
 
 /**
@@ -106,10 +112,10 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   v1.13.0 是开发者手工定的版本号，它恰好等于当时的 SCHEMA_VERSION = 13。
  *   所以规则就是：**次版本号 == 当时的数据库结构版本**。
  *
- *   当前 SCHEMA_VERSION = 23（v17 外币记账、v18 子预算多类别、
+ *   当前 SCHEMA_VERSION = 24（v17 外币记账、v18 子预算多类别、
  *   v19 借款不进收支 + 结清派生分类、v20 系统分类全部可选、
- *   v21 报销台账、v22 周期的报销/预算标记、v23 报销单），
- *   所以当前版本是 **1.23.0**。
+ *   v21 报销台账、v22 周期的报销/预算标记、v23 报销单、
+ *   v24 分类图标 OpenMoji），所以当前版本是 **1.24.0**。
  *   ★ 这三条迁移没有拆成 1.14 / 1.15 / 1.16 三个版本 ★
  *     它们是同一天、同一批需求做出来的、一次打包发出去的，
  *     版本号直接对齐到最终的结构版本 16，中间不单独发版。
@@ -146,6 +152,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *     v1.23.7 schema 23   报销单撤销、日趋势拖动查看、应收含待报销、借还页统一主题色
  *     v1.23.8 schema 23   后台下载不中断、通知栏可安装、更新功能不再假死
  *     v1.23.10 schema 23  全部交易批量操作与右滑快捷、标签多选、长按误触、收入分类口径、总结余与查看全部、返回键收弹窗
+ *     v1.24.0 schema 24   分类图标改用 OpenMoji，支持搜索/分组选择全部图标，旧图标自动迁移
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -156,6 +163,33 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.24.0',
+    date: '2026-11-16',
+    schemaVersion: 24,
+    sections: [
+      {
+        title: '新增',
+        items: [
+          '分类图标改用 OpenMoji 图标库：新建 / 编辑分类时可搜索、按分组挑选全部 4500+ 个图标',
+          '已有分类的旧图标会自动迁移到对应的 OpenMoji 图标'
+        ]
+      },
+      {
+        title: '优化',
+        items: [
+          '分类列表、记账面板、流水列表与详情页的分类图标统一为 OpenMoji 彩色图标',
+          '图标选择器支持中文 / 英文 / 码点搜索，按 OpenMoji 分组浏览，滑到底自动加载更多'
+        ]
+      },
+      {
+        title: '数据迁移',
+        items: [
+          '升级时自动把分类图标的旧 key（如 food、car）改写为 OpenMoji 码点，不影响账目和分类结构'
+        ]
+      }
+    ]
+  },
   {
     version: '1.23.10',
     date: '2026-11-15',

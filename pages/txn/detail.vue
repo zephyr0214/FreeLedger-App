@@ -12,9 +12,17 @@
       <!-- 金额头 -->
       <view class="detail-head">
         <view class="head-icon" :style="{ backgroundColor: (txn.category_color || '#969799') + '22' }">
-          <text class="head-icon-text" :style="{ color: txn.category_color || '#969799' }">
-            {{ iconChar }}
-          </text>
+          <text
+            v-if="txn.type === 'transfer'"
+            class="head-icon-text"
+            :style="{ color: txn.category_color || '#969799' }"
+          >⇄</text>
+          <CategoryGlyph
+            v-else
+            :icon="txn.category_icon"
+            :name="txn.category_name"
+            size="64rpx"
+          />
         </view>
         <!--
           金额：支出 -、收入 +，转账不加符号（符号规则全页面统一）。
@@ -152,12 +160,12 @@ import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } f
 import { isSystemPresetName } from '@/api/category.js'
 import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog },
+  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog, CategoryGlyph },
   setup() {
     const settingStore = useSettingStore()
     const txnStore = useTransactionStore()
@@ -187,14 +195,6 @@ export default {
      * 数据库也不再记录（见 api/db/index.js 的 v10 迁移）。
      * 所以这里不再有 sourceLabel，模板里对应的两行也删掉了。
      */
-
-    const iconChar = computed(() => {
-      if (!txn.value) return ''
-      if (txn.value.type === 'transfer') return '⇄'
-      return txn.value.category_icon
-        ? iconEmoji(txn.value.category_icon)
-        : guessIconByName(txn.value.category_name)
-    })
 
     const dayLabel = computed(() => txn.value ? formatDayHeader(txn.value.occurred_day) : '')
     const timeLabel = computed(() => txn.value ? formatTime(txn.value.occurred_at) : '')
@@ -355,7 +355,7 @@ export default {
 
     return {
       settingStore, statusBarHeight, txn, tags, badges, showPanel, loadingText,
-      primaryColor, pageStyle, typeLabel, iconChar,
+      primaryColor, pageStyle, typeLabel,
       dayLabel, timeLabel, excludeFromBudget,
       onEdit, onSaved, onDelete, goBack,
       reimburseStatus, reimburseDisabled, onFlagsUpdate

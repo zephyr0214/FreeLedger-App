@@ -119,6 +119,20 @@
       </view>
 
       <view class="section">
+        <text class="section-title">开源与许可</text>
+        <view class="card">
+          <view class="tech-row">
+            <text class="tech-name">OpenMoji</text>
+            <text class="tech-desc">分类图标 · CC BY-SA 4.0</text>
+          </view>
+          <view class="tech-row">
+            <text class="tech-name">simple-icons</text>
+            <text class="tech-desc">账户品牌图标 · CC0-1.0</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="section">
         <text class="section-title">排查</text>
         <view class="card">
           <view class="info-row" @click="onDiagnose">

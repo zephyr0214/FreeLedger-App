@@ -123,7 +123,7 @@
               （以前这里是「深色实底 + 白图标」，选中时整块分类色，和流水对不上）
             -->
             <view class="cat-icon-wrap" :style="catIconStyle(cat, form.category_id === cat.id)">
-              <text class="cat-icon-text">{{ iconChar(cat) }}</text>
+              <CategoryGlyph :icon="cat.icon" :name="cat.name" size="48rpx" />
             </view>
             <text
               class="cat-name"
@@ -429,7 +429,7 @@ import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combi
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta, buildOriginalNoteTag, applyNoteTag, stripNoteTag } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
-import { iconEmoji, guessIconByName } from '@/utils/icons.js'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { sortCategoriesByUsage, isSelectableCategory, isInternalOnlyCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
 import { alertDialog } from '@/utils/dialog.js'
@@ -437,7 +437,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
-  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet },
+  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet, CategoryGlyph },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -903,10 +903,6 @@ export default {
     })
 
     /* ------------------------------------------------------ 方法 */
-
-    function iconChar(cat) {
-      return cat.icon ? iconEmoji(cat.icon) : guessIconByName(cat.name)
-    }
 
     /**
      * 分类图标的配色。
@@ -1594,7 +1590,7 @@ export default {
       selectedTags, selectedTagNames, selectedTagDisplay, quickDays, isQuickDay, shortDate,
       showAccountPicker, showToAccountPicker, showTagPicker, onTagSheetPicked, calendarRef, calendarValue, maxDate, minDate,
       timePickerRef, timePickerValue, openTimePicker, onTimeConfirm,
-      iconChar, catIconStyle, isSameDay, switchType, pickCategory, pickDay,
+      catIconStyle, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,
       onAccountPicked, onToAccountPicked, removeTag,
       onCalendarConfirm, onFinish, onSave, onClose

@@ -210,7 +210,7 @@ check('差额文案分多了/少了/相等', /刚好相等/.test(REIMB) && /多�
 
 console.log('=== 6. 周期标记的数据库迁移 ===')
 
-check('SCHEMA_VERSION 是 23（v23 报销单）', SCHEMA_VERSION, 23)
+check('SCHEMA_VERSION 至少是 23（v23 报销单）', SCHEMA_VERSION >= 23, true)
 check('有 v22 迁移', /version: 22,\s*\n\s*up: migrateCycleFlags/.test(DB), true)
 check('迁移建 exclude_from_budget 列', /migrateCycleFlags[\s\S]{0,900}'exclude_from_budget INTEGER NOT NULL DEFAULT 0'/.test(DB), true)
 check('迁移建 reimburse_status 列', /migrateCycleFlags[\s\S]{0,900}'reimburse_status INTEGER NOT NULL DEFAULT 0'/.test(DB), true)

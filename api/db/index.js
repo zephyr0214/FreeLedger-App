@@ -18,6 +18,8 @@ import {
 } from './schema.js'
 // ★ utils/id.js 是纯函数（不碰数据库），在迁移里用它生成 id 不会有循环依赖 ★
 import { prefixedId } from '../../utils/id.js'
+// ★ 图标 key -> OpenMoji 码点，纯表驱动，不依赖 static / 大元数据 ★
+import { toOpenmojiIconCode } from '../../utils/openmojiLegacy.js'
 // ★ date.js 也是纯函数 ★
 import { toDayKey } from '../../utils/date.js'
 
@@ -497,6 +499,14 @@ const MIGRATIONS = [
      */
     version: 23,
     up: migrateReimburseBatch
+  },
+  {
+    // ★ 分类图标迁到 OpenMoji（v24）★
+    //   只改写 category.icon，不动任何交易 / 金额 / 分类结构。
+    //   旧 key -> 码点的映射见 utils/openmojiLegacy.js；
+    //   未知值保持原样，显示层会按分类名兜底。
+    version: 24,
+    up: migrateCategoryIcons
   }
 ]
 
@@ -2370,6 +2380,57 @@ async function migrateReimburseBatch() {
   await run('CREATE INDEX IF NOT EXISTS idx_txn_batch ON txn(batch_id)')
 
   console.log('[db] migration v23: reimburse_batch 表已就绪（老数据不回填，见注释）')
+}
+
+/**
+ * 迁移 v24 —— 分类图标从语义 key 迁到 OpenMoji 码点
+ *
+ * ★ 为什么要迁移 ★
+ *   v24 起分类图标换成 OpenMoji（static/openmoji/ + utils/openmoji.js），
+ *   category.icon 的取值从 'food' / 'car' 这类语义 key
+ *   改成 '1F35C' / '1F697' 这类 OpenMoji 码点。
+ *   老库里的 key 如果不改写，界面虽然有兼容映射能显示，
+ *   但「编辑分类」时选择器拿不到对应码点，会定位不到当前图标。
+ *
+ * ★ 只改能认出来的 ★
+ *   - null / 空串：保持原样（显示时按分类名猜图标）
+ *   - 已知旧 key：查 utils/openmojiLegacy.js 的表
+ *   - 已经是码点：跳过
+ *   - 未知值：保持原样，不猜、不覆盖
+ *
+ * ★ 必须用底层 call()，不能 query()/execute()（openDb 内死锁，见 v16 注释）★
+ */
+async function migrateCategoryIcons() {
+  let rows = []
+  try {
+    rows = await call('selectSql', {
+      name: DB_NAME,
+      sql: 'SELECT id, icon FROM category'
+    })
+  } catch (e) {
+    console.warn('[db] migration v24 select failed:', e && e.message)
+    return
+  }
+
+  const list = Array.isArray(rows) ? rows : []
+  let changed = 0
+
+  for (const row of list) {
+    const next = toOpenmojiIconCode(row.icon)
+    if (!next || next === row.icon) continue
+
+    try {
+      await call('executeSql', {
+        name: DB_NAME,
+        sql: bindParams('UPDATE category SET icon = ? WHERE id = ?', [next, row.id])
+      })
+      changed++
+    } catch (e) {
+      console.warn('[db] migration v24 update failed:', e && e.message)
+    }
+  }
+
+  console.log(`[db] migration v24: ${changed}/${list.length} 个分类图标已迁移到 OpenMoji`)
 }
 
 async function migrate() {
