@@ -203,13 +203,11 @@
                   class="txn-item"
                   @click="goTxnDetail(t.id)"
                 >
-                  <view class="txn-icon">
-                    <CategoryGlyph
-                      :icon="t.category_icon"
-                      :name="t.category_name"
-                      size="80rpx"
-                    />
-                  </view>
+                  <TxnIcon
+                    :icon="t.category_icon"
+                    :name="t.category_name"
+                    :color="t.category_color"
+                  />
 
                   <view class="txn-info">
                     <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
@@ -342,7 +340,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView,
@@ -355,7 +353,7 @@ import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatTime, shortDateWithYear } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, CategoryGlyph },
+  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -1291,20 +1289,6 @@ export default {
   gap: 16rpx;
   padding: 16rpx 24rpx;
   border-top: 1rpx solid var(--app-line);
-}
-
-.txn-icon {
-  width: 84rpx;
-  height: 84rpx;
-  border-radius: 18rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.txn-icon-text {
-  font-size: 64rpx;
 }
 
 .txn-info {

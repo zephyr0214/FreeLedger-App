@@ -23,7 +23,7 @@ import {
  *   而本文件依赖 api/db/index.js，反过来 import 就成环了。
  *   schema.js 不依赖任何模块，是唯一能放「两边共用」的地方。
  *
- * icon 字段（v24 起）存 Unicode emoji 码点（Emojiall 图标）；
+ * icon 字段（v24 起）存 Unicode emoji 码点（按码点联网取图）；
  * 下面的默认表仍用语义 key，写库前由 writeIcon() 统一转换
  * （旧 key -> 码点的表在 utils/emojiLegacy.js）。
  * ★ 二级分类有自己的图标（v6 起）★

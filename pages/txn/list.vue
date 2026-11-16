@@ -132,19 +132,12 @@
             <view v-if="selectMode" class="row-check" :class="{ on: isSelected(txn.id) }">
               <text v-if="isSelected(txn.id)" class="row-check-tick">✓</text>
             </view>
-            <view class="txn-icon">
-              <text
-                v-if="txn.type === 'transfer'"
-                class="txn-icon-text"
-                :style="{ color: txn.category_color || '#969799' }"
-              >⇄</text>
-              <CategoryGlyph
-                v-else
-                :icon="txn.category_icon"
-                :name="txn.category_name"
-                size="80rpx"
-              />
-            </view>
+            <TxnIcon
+              :icon="txn.category_icon"
+              :name="txn.category_name"
+              :color="txn.category_color"
+              :symbol="txn.type === 'transfer' ? '⇄' : ''"
+            />
 
             <view class="txn-info">
               <view class="txn-name-row">
@@ -486,7 +479,7 @@ import {
   formatDayHeader, formatTime, selectionToRange, defaultSelection, selectionFromDayKey,
   customToRange, customRangeLabel, defaultCustomRange, toDayKey
 } from '@/utils/date.js'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { parseAmountInput, formatWanYuan } from '@/utils/money.js'
@@ -498,7 +491,7 @@ import { createRowPressController } from '@/utils/rowPress.js'
 const PAGE_SIZE = 50
 
 export default {
-  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AccountPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog, CategoryGlyph },
+  components: { MoneyText, EmptyState, DateFilterBar, CategoryMultiPickerSheet, AccountPickerSheet, TxnSwipeActions, TxnTagSheet, AppDialog, UpdateDialog, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -2220,21 +2213,6 @@ export default {
  */
 .bottom-space--batch {
   height: calc(env(safe-area-inset-bottom) + 160rpx);
-}
-
-.txn-icon {
-  width: 84rpx;
-  height: 84rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.txn-icon-text {
-  font-size: 64rpx;
-  font-weight: 500;
 }
 
 .txn-info {

@@ -41,6 +41,21 @@ export const DEFAULT_SETTINGS = {
   themePreset: 'green',
   privacyMode: false,         // 金额脱敏
 
+  /**
+   * 分类图标样式
+   *   system | noto | twemoji | openmoji
+   * 系统样式直接用手机 emoji；其余三种按需联网加载。
+   */
+  emojiStyle: 'noto',
+
+  /**
+   * 交易流水左侧图标
+   *   txnIconSize    xs | s | m | l | xl（极小…极大，默认大）
+   *   txnIconShowBg  是否显示分类浅色圆底（默认关，和 v1.24 的观感一致）
+   */
+  txnIconSize: 'l',
+  txnIconShowBg: false,
+
   // AI —— 公共配置（两端共用：接口地址 / Key / 模型 / 超时）
   ai: {
     baseUrl: 'https://api.deepseek.com/v1',

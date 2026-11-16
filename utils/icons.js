@@ -2,7 +2,7 @@
  * 分类图标 —— 旧版 emoji 表（保留用于迁移与按名字猜图标）
  *
  * ★ 现状（v1.24 起）★
- *   分类图标已经换成 Emojiall 联网图片（见 utils/emoji.js）。
+ *   分类图标已经换成四种联网样式（见 utils/emoji.js）。
  *   category.icon 存的是 Unicode emoji 码点；这张 ICON_MAP：
  *     1. 保留旧 key → emoji 的映射，给老版本数据 / 老备份兜底；
  *     2. guessIconKeyByName() 仍按分类名猜一个语义 key，

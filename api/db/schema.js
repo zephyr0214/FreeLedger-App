@@ -283,7 +283,7 @@ export const LOAN_SETTLE_CATEGORY_NAMES = {
  *
  * ★ icon 字段（v24 起）★
  *   库里存 **Unicode emoji 码点**（如 `1F35C`），
- *   显示时按码点拼 Emojiall 图片地址（utils/emoji.js）。
+ *   显示时按码点拼当前样式（系统/Noto/Twemoji/OpenMoji）的图片地址（utils/emoji.js）。
  *   v24 迁移会把老库的语义 key（food / car…）改写过去；
  *   下面默认表仍写语义 key，由 api/category.js 写入时统一转换
  *   （这样默认表保持可读，老测试 / 老备份 / 迁移都能按名字维护）。

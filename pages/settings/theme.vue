@@ -56,6 +56,91 @@
         </view>
       </view>
 
+      <view class="section">
+        <text class="section-title">图标样式</text>
+        <view class="mode-list">
+          <view
+            v-for="s in emojiStyles"
+            :key="s.key"
+            class="mode-row"
+            @click="setEmojiStyle(s.key)"
+          >
+            <view class="style-preview">
+              <text v-if="s.key === 'system'" class="style-emoji">😀</text>
+              <image
+                v-else
+                class="style-img"
+                :src="emojiPreview(s.key)"
+                mode="aspectFit"
+              />
+            </view>
+            <view class="mode-info">
+              <text class="mode-name">{{ s.name }}</text>
+              <text class="mode-desc">{{ s.desc }}</text>
+            </view>
+            <view class="radio" :class="{ checked: settingStore.emojiStyle === s.key }">
+              <view
+                v-if="settingStore.emojiStyle === s.key"
+                class="radio-dot"
+                :style="{ backgroundColor: primaryColor }"
+              />
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="section">
+        <text class="section-title">交易流水图标</text>
+        <view class="card txn-setting-card">
+          <view class="txn-size-head">
+            <view class="txn-size-preview">
+              <CategoryGlyph icon="1F35C" :size="txnPreviewMetrics.icon + 'rpx'" />
+            </view>
+            <view class="txn-size-info">
+              <text class="txn-size-name">图标大小</text>
+              <text class="txn-size-desc">{{ txnSizeLabel }}</text>
+            </view>
+          </view>
+
+          <view class="size-slider">
+            <!-- 用 uni-app 原生 slider，避免引入额外 TS 组件 -->
+            <slider
+              :value="txnSizeIndex"
+              :min="0"
+              :max="4"
+              :step="1"
+              :active-color="primaryColor"
+              :background-color="sliderInactiveColor"
+              block-size="20"
+              @changing="onSizeMove"
+              @change="onSizeEnd"
+            />
+          </view>
+
+          <view class="size-labels">
+            <text
+              v-for="(s, i) in txnIconSizes"
+              :key="s.key"
+              class="size-label"
+              :class="{ active: txnSizeIndex === i }"
+              @click="setTxnSize(i)"
+            >{{ s.name }}</text>
+          </view>
+
+          <view class="setting-row">
+            <view class="setting-row-text">
+              <text class="setting-row-name">分类背景色</text>
+              <text class="setting-row-desc">流水左侧图标显示浅色圆底</text>
+            </view>
+            <switch
+              :checked="settingStore.txnIconShowBg"
+              :color="primaryColor"
+              @change="onTxnBgChange"
+            />
+          </view>
+        </view>
+      </view>
+
       <view class="bottom-space" />
     </scroll-view>
 
@@ -65,15 +150,18 @@
 </template>
 
 <script>
-import { computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
+import { EMOJI_STYLES, emojiImageSrc } from '@/utils/emoji.js'
+import { TXN_ICON_SIZES, getTxnIconMetrics, txnIconSizeIndex } from '@/utils/txnIcon.js'
 
 export default {
-  components: { PageNav, LineIcon, UpdateDialog },
+  components: { PageNav, LineIcon, CategoryGlyph, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -100,6 +188,70 @@ export default {
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
 
+    /* ------------------------------------------------ 图标样式 */
+
+    const emojiStyles = EMOJI_STYLES
+
+    /** 样式选择行里的预览图（60 档缩略图） */
+    function emojiPreview(styleKey) {
+      return emojiImageSrc('1F600', 60, styleKey)
+    }
+
+    async function setEmojiStyle(key) {
+      await settingStore.setEmojiStyle(key)
+    }
+
+    /* ------------------------------------------------ 交易流水图标 */
+
+    const txnIconSizes = TXN_ICON_SIZES
+    const txnSizeIndex = ref(txnIconSizeIndex(settingStore.txnIconSize))
+
+    // 如果别处改了尺寸（例如备份导入），滑块跟着同步
+    watch(() => settingStore.txnIconSize, () => {
+      txnSizeIndex.value = txnIconSizeIndex(settingStore.txnIconSize)
+    })
+
+    const txnSizeLabel = computed(() => {
+      const s = TXN_ICON_SIZES[txnSizeIndex.value] || TXN_ICON_SIZES[3]
+      return s.name
+    })
+
+    const txnPreviewMetrics = computed(() => {
+      const s = TXN_ICON_SIZES[txnSizeIndex.value] || TXN_ICON_SIZES[3]
+      return getTxnIconMetrics(s.key)
+    })
+
+    /** 原生 slider 的未激活轨道色（深浅模式各一个） */
+    const sliderInactiveColor = computed(() => (settingStore.isDark ? '#2E2E31' : '#EBEDF0'))
+
+    /** uni-app 原生 slider / switch 的事件值都在 e.detail.value 里 */
+    function eventValue(e) {
+      if (e && e.detail && e.detail.value !== undefined) return Number(e.detail.value)
+      return Number(e && e.value)
+    }
+
+    function onSizeMove(e) {
+      const v = eventValue(e)
+      if (Number.isFinite(v)) txnSizeIndex.value = Math.max(0, Math.min(4, Math.round(v)))
+    }
+
+    function onSizeEnd(e) {
+      onSizeMove(e)
+      const s = TXN_ICON_SIZES[txnSizeIndex.value] || TXN_ICON_SIZES[3]
+      settingStore.setTxnIconSize(s.key)
+    }
+
+    function setTxnSize(index) {
+      const i = Math.max(0, Math.min(4, Number(index) || 0))
+      txnSizeIndex.value = i
+      settingStore.setTxnIconSize(TXN_ICON_SIZES[i].key)
+    }
+
+    function onTxnBgChange(e) {
+      const v = e && e.detail ? e.detail.value : (e && e.value)
+      settingStore.setTxnIconShowBg(!!v)
+    }
+
     async function setMode(key) {
       await settingStore.setThemeMode(key)
       uni.showToast({ title: '已切换', icon: 'none' })
@@ -115,6 +267,9 @@ export default {
 
     return {
       presets, modes, themeMode, themePreset,
+      emojiStyles, setEmojiStyle, emojiPreview,
+      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, sliderInactiveColor,
+      onSizeMove, onSizeEnd, setTxnSize, onTxnBgChange,
       primaryColor, pageStyle,
       setMode, setPreset, goBack, settingStore
     }
@@ -181,6 +336,112 @@ export default {
 }
 
 .mode-desc {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+/* 图标样式预览 */
+.style-preview {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 16rpx;
+  background-color: var(--app-card-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.style-emoji {
+  font-size: 40rpx;
+  line-height: 1;
+}
+
+.style-img {
+  width: 48rpx;
+  height: 48rpx;
+}
+
+/* 交易流水图标设置 */
+.txn-setting-card {
+  background-color: var(--app-card);
+  border-radius: 20rpx;
+  padding: 24rpx 28rpx;
+}
+
+.txn-size-head {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-bottom: 20rpx;
+}
+
+.txn-size-preview {
+  width: 108rpx;
+  height: 108rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.txn-size-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.txn-size-name {
+  font-size: 28rpx;
+  color: var(--app-text);
+}
+
+.txn-size-desc {
+  font-size: 22rpx;
+  color: var(--app-primary);
+}
+
+.size-slider {
+  padding: 0 8rpx;
+}
+
+.size-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 8rpx 4rpx 20rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.size-label {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+}
+
+.size-label.active {
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding-top: 22rpx;
+}
+
+.setting-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.setting-row-name {
+  font-size: 28rpx;
+  color: var(--app-text);
+}
+
+.setting-row-desc {
   font-size: 22rpx;
   color: var(--app-text-3);
 }

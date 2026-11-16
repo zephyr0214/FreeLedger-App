@@ -10,7 +10,7 @@
       -->
       <text v-if="!loaded" class="cat-glyph-emoji" :style="emojiStyle">{{ char }}</text>
       <image
-        v-if="!failed"
+        v-if="!failed && src"
         class="cat-glyph-img"
         :src="src"
         mode="aspectFit"
@@ -23,7 +23,7 @@
 
 <script>
 /**
- * 分类图标（Emojiall / 联网图片）
+ * 分类图标（系统 / Noto / Twemoji / OpenMoji 四样式）
  *
  * 用法：
  *   <CategoryGlyph :icon="cat.icon" :name="cat.name" size="80rpx" />
@@ -31,7 +31,7 @@
  *   <CategoryGlyph symbol="⇄" size="64rpx" />
  *
  * ★ 图片是联网的 ★
- *   utils/emoji.js 按码点拼 Emojiall CDN 地址，
+ *   utils/emoji.js 按当前样式拼 CDN 地址，
  *   图片加载成功前 / 失败后显示系统 emoji 字符（emojiChar），
  *   所以断网时分类图标退化成系统 emoji，不会出现空白或裂图。
  *
@@ -44,6 +44,7 @@
  *   传数字时按 rpx 处理。remote-size 只影响请求 60 还是 120 的图。
  */
 import { ref, computed, watch } from 'vue'
+import { useSettingStore } from '@/stores/setting.js'
 import { categoryIconCode, categoryIconSrc, emojiChar } from '@/utils/emoji.js'
 
 export default {
@@ -63,6 +64,8 @@ export default {
     color: { type: String, default: '' }
   },
   setup(props) {
+    const settingStore = useSettingStore()
+
     /** 图片是否已成功加载 */
     const loaded = ref(false)
     /** 图片是否加载失败 */
@@ -78,7 +81,8 @@ export default {
     }))
 
     const code = computed(() => categoryIconCode(props.icon, props.name))
-    const src = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize))
+    const style = computed(() => settingStore.emojiStyle)
+    const src = computed(() => categoryIconSrc(props.icon, props.name, props.remoteSize, style.value))
     const char = computed(() => emojiChar(code.value))
 
     const emojiStyle = computed(() => ({
@@ -102,8 +106,8 @@ export default {
       loaded.value = false
     }
 
-    // 换图标 / 换名字 / 换图片尺寸时重新尝试加载
-    watch([code, () => props.remoteSize], () => {
+    // 换图标 / 换样式 / 换图片尺寸时重新尝试加载
+    watch([code, style, () => props.remoteSize], () => {
       loaded.value = false
       failed.value = false
     })

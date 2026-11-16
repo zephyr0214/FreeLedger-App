@@ -29,10 +29,12 @@
             @click="goDetail(txn.id)"
           >
             <!-- 分类图标（无底色，直接显示联网 emoji 图片） -->
-            <view class="txn-icon">
-              <text v-if="txn.type === 'transfer'" class="txn-icon-text" :style="iconFgStyle(txn)">⇄</text>
-              <CategoryGlyph v-else :icon="txn.category_icon" :name="txn.category_name" size="80rpx" />
-            </view>
+            <TxnIcon
+              :icon="txn.category_icon"
+              :name="txn.category_name"
+              :color="txn.category_color"
+              :symbol="txn.type === 'transfer' ? '⇄' : ''"
+            />
 
             <!-- 名称 + 副标题（时间 / 账户 / 备注） -->
             <view class="txn-info">
@@ -103,7 +105,7 @@ import { computed, ref, onMounted, watch } from 'vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
 import { listTags } from '@/api/tag.js'
 import { isLoanPersonCategory } from '@/api/loan.js'
@@ -112,7 +114,7 @@ import { useSettingStore } from '@/stores/setting.js'
 
 export default {
   name: 'RecentTxnList',
-  components: { MoneyText, EmptyState, HeaderAction, CategoryGlyph },
+  components: { MoneyText, EmptyState, HeaderAction, TxnIcon },
   props: {
     /** 交易列表（已按时间倒序） */
     txns: { type: Array, default: () => [] },
@@ -269,14 +271,6 @@ export default {
 
     /* ------------------------------------------------------ 展示内容 */
 
-    /** 图标前景色 */
-    function iconFgStyle(txn) {
-      if (txn.type === 'transfer') {
-        return { color: 'var(--app-text-2)' }
-      }
-      return { color: txn.category_color || '#969799' }
-    }
-
     /** 标题（分类名 / 转账对象） */
     function txnTitle(txn) {
       if (txn.type === 'transfer') {
@@ -372,7 +366,6 @@ export default {
 
     return {
       visibleTxns, groups, hasMoreThanShown,
-      iconFgStyle,
       txnTitle, txnSub, txnBadges, amountCents, amountType, amountSign, amountColor,
       goDetail, onMore
     }
@@ -456,22 +449,6 @@ export default {
 
 .txn-item:last-child {
   border-bottom: none;
-}
-
-/* 图标 */
-.txn-icon {
-  width: 84rpx;
-  height: 84rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.txn-icon-text {
-  font-size: 64rpx;
-  font-weight: 500;
 }
 
 /* 名称与副标题 */

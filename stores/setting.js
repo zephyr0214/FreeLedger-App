@@ -16,6 +16,10 @@ import {
   applyNativeTheme
 } from '@/utils/theme.js'
 import { hideNativeTabBar } from '@/utils/tabBar.js'
+import { normalizeEmojiStyle } from '@/utils/emoji.js'
+import {
+  normalizeTxnIconSize, getTxnIconMetrics, txnIconSizeIndex
+} from '@/utils/txnIcon.js'
 
 /**
  * 启动后多久之内还要「补一次」隐藏原生 tabBar（毫秒）。
@@ -43,6 +47,9 @@ export const useSettingStore = defineStore('setting', {
       firstRunDone: false,
       themeMode: THEME_MODE.SYSTEM,
       themePreset: 'green',
+      emojiStyle: 'noto',
+      txnIconSize: 'l',
+      txnIconShowBg: false,
       privacyMode: false,
       quickAddHoldAction: 'manual',
       quickAddTapAction: 'ai',
@@ -129,6 +136,26 @@ export const useSettingStore = defineStore('setting', {
      */
     quickAddHoldAction(state) {
       return normalizeQuickAddAction(state.settings.quickAddHoldAction, 'manual')
+    },
+    /** 分类图标样式：system | noto | twemoji | openmoji */
+    emojiStyle(state) {
+      return normalizeEmojiStyle(state.settings.emojiStyle)
+    },
+    /** 流水图标尺寸 key：xs | s | m | l | xl */
+    txnIconSize(state) {
+      return normalizeTxnIconSize(state.settings.txnIconSize)
+    },
+    /** 流水图标尺寸对应的 { icon, box }（rpx） */
+    txnIconMetrics(state) {
+      return getTxnIconMetrics(state.settings.txnIconSize)
+    },
+    /** 流水图标当前档位序号 0..4 */
+    txnIconSizeIndex(state) {
+      return txnIconSizeIndex(state.settings.txnIconSize)
+    },
+    /** 流水图标是否显示分类浅色圆底 */
+    txnIconShowBg(state) {
+      return !!state.settings.txnIconShowBg
     },
     /**
      * 悬浮「+」按钮短按触发什么
@@ -309,6 +336,30 @@ export const useSettingStore = defineStore('setting', {
       this.applyTheme()
       this.markTabBarThemeDirty()
       await setSettings({ themePreset: key })
+    },
+
+    /** 改分类图标样式（四种，见 utils/emoji.js 的 EMOJI_STYLES） */
+    async setEmojiStyle(key) {
+      const value = normalizeEmojiStyle(key)
+      this.settings.emojiStyle = value
+      await setSettings({ emojiStyle: value })
+      return value
+    },
+
+    /** 改流水图标尺寸（五档） */
+    async setTxnIconSize(key) {
+      const value = normalizeTxnIconSize(key)
+      this.settings.txnIconSize = value
+      await setSettings({ txnIconSize: value })
+      return value
+    },
+
+    /** 流水图标是否显示分类浅色圆底 */
+    async setTxnIconShowBg(on) {
+      const value = !!on
+      this.settings.txnIconShowBg = value
+      await setSettings({ txnIconShowBg: value })
+      return value
     },
 
     async update(patch) {

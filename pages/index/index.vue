@@ -322,19 +322,12 @@
                 class="txn-item"
                 @click="goTxnDetail(txn.id)"
               >
-              <view class="txn-icon">
-                <text
-                  v-if="txn.type === 'transfer'"
-                  class="txn-icon-text"
-                  :style="{ color: txn.category_color || '#969799' }"
-                >⇄</text>
-                <CategoryGlyph
-                  v-else
-                  :icon="txn.category_icon"
-                  :name="txn.category_name"
-                  size="80rpx"
-                />
-              </view>
+              <TxnIcon
+                :icon="txn.category_icon"
+                :name="txn.category_name"
+                :color="txn.category_color"
+                :symbol="txn.type === 'transfer' ? '⇄' : ''"
+              />
 
               <view class="txn-info">
                 <view class="txn-name-row">
@@ -483,7 +476,7 @@ import { getBudgetUsage } from '@/api/stats.js'
 import { getSetting, setSetting } from '@/api/settings.js'
 import { listTags } from '@/api/tag.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel, formatTime } from '@/utils/date.js'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { formatWanYuan } from '@/utils/money.js'
@@ -492,7 +485,7 @@ import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet, CategoryGlyph },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -1500,10 +1493,6 @@ export default {
   flex-shrink: 0;
 }
 
-.txn-icon-text {
-  font-size: 64rpx;
-  font-weight: 500;
-}
 
 .txn-info {
   flex: 1;

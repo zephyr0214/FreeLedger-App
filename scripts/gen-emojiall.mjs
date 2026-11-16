@@ -10,10 +10,9 @@
  *   https://www.emojiall.com/zh-hans/categories/G  （活动）
  *   https://www.emojiall.com/zh-hans/categories/H  （物品）
  *
- * ★ 为什么不下载图片 ★
- *   图标显示时按码点拼 Emojiall 的 CDN 地址：
- *     https://www.emojiall.com/images/{60|120}/apple/<小写码点>.png
- *   App 里 <image> 按需加载，系统 HTTP 缓存会复用，不占安装包体积。
+ * ★ 只抓分类/名称，不下载任何图片 ★
+ *   图标图片由 App 运行时按码点拼当前样式（系统 / Noto / Twemoji / OpenMoji）
+ *   的 CDN 地址，本脚本不关心图片。
  *
  * ★ 只保留五个大类 ★
  *   表情 / 人物 / 肤色 / 符号 / 旗帜不在本脚本的抓取范围。
@@ -57,7 +56,7 @@ function decodeEntities(s) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
 }
 
-/** emoji 字符 -> 规范化码点（去掉 FE0F / FE0E，Emojiall 图片路径不带它们） */
+/** emoji 字符 -> 规范化码点（去掉 FE0F / FE0E，各 CDN 图片路径不带它们） */
 function hexOf(emoji) {
   return [...String(emoji)]
     .map((c) => c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0'))
@@ -183,7 +182,7 @@ ${subsText}
   }).join(',\n')
 
   const out = `/**
- * Emojiall 分类图标元数据 —— 由 scripts/gen-emojiall.mjs 生成，不要手改
+ * Emojiall 分类图标元数据（分类/名称来源）—— 由 scripts/gen-emojiall.mjs 生成，不要手改
  *
  * 数据来源：https://www.emojiall.com/zh-hans/categories/{D,E,F,G,H}
  * 生成时间：${new Date().toISOString().slice(0, 10)}
@@ -192,10 +191,9 @@ ${subsText}
  *   动物与自然 / 食物与饮料 / 旅行与地点 / 活动 / 物品
  *   共 ${groups.length} 组、${groups.reduce((n, g) => n + g.subgroups.length, 0)} 个二级分类、${total} 个图标。
  *
- * ★ 图标图片不随包下载 ★
- *   运行时按码点拼：
- *     https://www.emojiall.com/images/{60|120}/apple/<小写码点>.png
- *   60 给选择页缩略图，120 给分类列表 / 流水图标。
+ * ★ 图片不随包下载 ★
+ *   运行时按码点 + 用户选的样式（系统 / Noto / Twemoji / OpenMoji）
+ *   拼对应 CDN 地址（见 utils/emoji.js 的 emojiImageSrc）。
  *
  * 每项 icons：[码点, 中文名, emoji 字符]
  */

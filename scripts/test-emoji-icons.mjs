@@ -16,10 +16,14 @@ import { readFileSync, existsSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import {
-  EMOJI_GROUPS, EMOJI_LIST, FALLBACK_EMOJI_CODE,
-  categoryIconCode, emojiImageSrc, emojiChar, emojiMeta, isEmojiCode
+  EMOJI_GROUPS, EMOJI_LIST, EMOJI_STYLES, FALLBACK_EMOJI_CODE,
+  categoryIconCode, emojiImageSrc, emojiChar, emojiMeta, isEmojiCode,
+  normalizeEmojiStyle
 } from '../utils/emoji.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from '../utils/emojiLegacy.js'
+import {
+  TXN_ICON_SIZES, getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex
+} from '../utils/txnIcon.js'
 import { ICON_MAP } from '../utils/icons.js'
 import {
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
@@ -108,26 +112,59 @@ check('isEmojiCode(1F35C) 为 true', isEmojiCode('1F35C'), true)
 check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_EMOJI_CODE)
+check('四种图标样式', EMOJI_STYLES.map((s) => s.key), ['system', 'noto', 'twemoji', 'openmoji'])
+check('非法样式退回 system', normalizeEmojiStyle('bad'), 'system')
 check(
-  '120 图片地址',
+  'Noto 120 地址',
   emojiImageSrc('1F35C'),
-  'https://www.emojiall.com/images/120/apple/1f35c.png'
+  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f35c/128.png'
 )
 check(
-  '60 缩略图地址',
+  'Noto 60 缩略图地址',
   emojiImageSrc('1F35C', 60),
-  'https://www.emojiall.com/images/60/apple/1f35c.png'
+  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f35c/72.png'
 )
 check(
-  '多码点连字符（小写）',
+  'Noto 多码点用下划线',
   emojiImageSrc('1F415-200D-1F9BA'),
-  'https://www.emojiall.com/images/120/apple/1f415-200d-1f9ba.png'
+  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f415_200d_1f9ba/128.png'
 )
-check('FE0F 不出现在地址里', emojiImageSrc('26FD-FE0F'), 'https://www.emojiall.com/images/120/apple/26fd.png')
+check(
+  'Twemoji 地址',
+  emojiImageSrc('1F415-200D-1F9BA', 60, 'twemoji'),
+  'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f415-200d-1f9ba.svg'
+)
+check(
+  'OpenMoji 地址',
+  emojiImageSrc('1F35C', 120, 'openmoji'),
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
+)
+check('系统样式不联网', emojiImageSrc('1F35C', 120, 'system'), '')
+check('FE0F 不出现在地址里', emojiImageSrc('26FD-FE0F'), 'https://fonts.gstatic.com/s/e/notoemoji/latest/26fd/128.png')
 check('兜底图标字符非空', !!emojiChar(FALLBACK_EMOJI_CODE), true)
 check('emojiMeta 能定位二级分类', emojiMeta('1F35C').subgroupName.length > 0, true)
 
-/* ------------------------------------------------ 4. 默认分类 */
+/* ------------------------------------------------ 4. 流水图标尺寸 / tabBar */
+
+console.log('=== 流水图标尺寸与 tabBar 资源 ===')
+
+check('五档尺寸名称', TXN_ICON_SIZES.map((s) => s.name), ['极小', '小', '中', '大', '极大'])
+check('默认尺寸是「大」', normalizeTxnIconSize('bad'), 'l')
+check('默认大档 80/84', getTxnIconMetrics('l').icon, 80)
+check('默认大档外框 84', getTxnIconMetrics('l').box, 84)
+check('极小档序号 0', txnIconSizeIndex('xs'), 0)
+check('极大档序号 4', txnIconSizeIndex('xl'), 4)
+for (const preset of ['teal', 'pink']) {
+  for (const name of ['home', 'account', 'stats', 'mine']) {
+    check(
+      `tabBar ${name} ${preset} 选中图标存在`,
+      existsSync(join(ROOT, 'static', 'tabbar', `${name}-active-${preset}-v2.png`)),
+      true
+    )
+  }
+}
+
+/* ------------------------------------------------ 5. 默认分类 */
 
 console.log('=== 默认分类与系统分类 ===')
 

@@ -116,13 +116,11 @@
                   <text v-if="isSelected(t.id)" class="row-check-tick">✓</text>
                 </view>
 
-                <view class="txn-icon">
-                  <CategoryGlyph
-                    :icon="t.category_icon"
-                    :name="t.category_name"
-                    size="80rpx"
-                  />
-                </view>
+                <TxnIcon
+                  :icon="t.category_icon"
+                  :name="t.category_name"
+                  :color="t.category_color"
+                />
 
                 <view class="txn-info">
                   <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
@@ -283,13 +281,11 @@
               class="txn-item txn-item-derived"
               @click="goTxnDetail(d.id)"
             >
-              <view class="txn-icon">
-                <CategoryGlyph
-                  :icon="d.category_icon"
-                  :name="d.category_name"
-                  size="80rpx"
-                />
-              </view>
+              <TxnIcon
+                :icon="d.category_icon"
+                :name="d.category_name"
+                :color="d.category_color"
+              />
 
               <view class="txn-info">
                 <!--
@@ -334,13 +330,11 @@
               class="txn-item"
               @click="goTxnDetail(t.id)"
             >
-              <view class="txn-icon">
-                <CategoryGlyph
-                  :icon="t.category_icon"
-                  :name="t.category_name"
-                  size="80rpx"
-                />
-              </view>
+              <TxnIcon
+                :icon="t.category_icon"
+                :name="t.category_name"
+                :color="t.category_color"
+              />
 
               <view class="txn-info">
                 <text class="txn-name ellipsis">{{ t.category_name || '未分类' }}</text>
@@ -553,7 +547,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns, voidReimburseBatch } from '@/api/reimburse.js'
@@ -569,7 +563,7 @@ import { createRowPressController } from '@/utils/rowPress.js'
 const ACCENT_COLOR = '#FF8F1F'
 
 export default {
-  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, CategoryGlyph },
+  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -1354,20 +1348,6 @@ export default {
   font-size: 22rpx;
   color: #ffffff;
   line-height: 1;
-}
-
-.txn-icon {
-  width: 84rpx;
-  height: 84rpx;
-  border-radius: 18rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.txn-icon-text {
-  font-size: 64rpx;
 }
 
 .txn-info {

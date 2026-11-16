@@ -1,5 +1,5 @@
 /**
- * Emojiall 分类图标元数据 —— 由 scripts/gen-emojiall.mjs 生成，不要手改
+ * Emojiall 分类图标元数据（分类/名称来源）—— 由 scripts/gen-emojiall.mjs 生成，不要手改
  *
  * 数据来源：https://www.emojiall.com/zh-hans/categories/{D,E,F,G,H}
  * 生成时间：2026-11-16
@@ -8,10 +8,9 @@
  *   动物与自然 / 食物与饮料 / 旅行与地点 / 活动 / 物品
  *   共 5 组、49 个二级分类、836 个图标。
  *
- * ★ 图标图片不随包下载 ★
- *   运行时按码点拼：
- *     https://www.emojiall.com/images/{60|120}/apple/<小写码点>.png
- *   60 给选择页缩略图，120 给分类列表 / 流水图标。
+ * ★ 图片不随包下载 ★
+ *   运行时按码点 + 用户选的样式（系统 / Noto / Twemoji / OpenMoji）
+ *   拼对应 CDN 地址（见 utils/emoji.js 的 emojiImageSrc）。
  *
  * 每项 icons：[码点, 中文名, emoji 字符]
  */

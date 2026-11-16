@@ -2386,7 +2386,7 @@ async function migrateReimburseBatch() {
  * 迁移 v24 —— 分类图标从语义 key 迁到 Unicode emoji 码点
  *
  * ★ 为什么要迁移 ★
- *   v24 起分类图标换成 Emojiall（按码点联网加载图片），
+ *   v24 起分类图标换成按码点联网取图（系统 / Noto / Twemoji / OpenMoji），
  *   category.icon 的取值从 'food' / 'car' 这类语义 key
  *   改成 '1F35C' / '1F697' 这类 Unicode emoji 码点。
  *   老库里的 key 如果不改写，界面虽然有兼容映射能显示，

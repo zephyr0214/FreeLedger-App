@@ -1,11 +1,13 @@
 /**
- * Emojiall 分类图标 —— 元数据索引、联网图片地址、旧 key 兼容
+ * 分类图标 —— 元数据索引、四种联网样式、旧 key 兼容
  *
  * ★ 图标图片不随包下载 ★
- *   运行时按码点拼 Emojiall 的 CDN 地址：
- *     https://www.emojiall.com/images/{60|120}/apple/<小写码点>.png
- *   选择页缩略图用 60，分类列表 / 流水图标用 120。
- *   图片由系统 HTTP 缓存复用，安装包不增加图片体积。
+ *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
+ *     system   系统 emoji（不联网，直接用字符）
+ *     noto     https://fonts.gstatic.com/s/e/notoemoji/latest/...
+ *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/...
+ *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/...
+ *   选择页缩略图用 60 档，分类列表 / 流水图标用 120 档。
  *
  * ★ 数据范围 ★
  *   只有五个大类：动物与自然 / 食物与饮料 / 旅行与地点 / 活动 / 物品
@@ -31,8 +33,23 @@ export { EMOJI_GROUPS, LEGACY_ICON_CODES }
 /** 兜底图标：包裹（「其他」） */
 export const FALLBACK_EMOJI_CODE = '1F4E6'
 
-/** Emojiall 图片 CDN 根路径 */
-export const EMOJI_IMAGE_BASE = 'https://www.emojiall.com/images'
+/**
+ * 四种图标样式（与 haoemoji.com 的样式选择一致）
+ *
+ * system 不联网；其余三种按需从各自 CDN 加载。
+ */
+export const EMOJI_STYLES = [
+  { key: 'system', name: '系统样式', desc: '跟随手机系统 emoji' },
+  { key: 'noto', name: 'Noto Color Emoji', desc: '(Android)' },
+  { key: 'twemoji', name: 'Twemoji', desc: '(Twitter)' },
+  { key: 'openmoji', name: 'OpenMoji', desc: '开源彩色图标' }
+]
+
+/** 把设置里的样式 key 归一（非法值退回系统样式） */
+export function normalizeEmojiStyle(key) {
+  const raw = String(key || '').trim()
+  return EMOJI_STYLES.some((s) => s.key === raw) ? raw : 'system'
+}
 
 /** 码点 -> 元数据（扁平索引） */
 const META = new Map()
@@ -72,17 +89,35 @@ export function isEmojiCode(code) {
 }
 
 /**
- * 码点 -> Emojiall 图片地址
+ * 码点 -> 指定样式的联网图片地址
  *
  * @param {string} code 码点（大小写 / FE0F 都会规范化）
- * @param {number} size 60 或 120（其他值按 120 处理）
- * @returns {string}
+ * @param {number} size 60 档（缩略图）或 120 档（列表 / 详情）
+ * @param {string} style system | noto | twemoji | openmoji
+ * @returns {string} system 样式返回空串（直接用系统 emoji 字符）
  */
-export function emojiImageSrc(code, size = 120) {
+export function emojiImageSrc(code, size = 120, style = 'noto') {
   let hex = toEmojiIconCode(code)
   if (!hex || !META.has(hex)) hex = FALLBACK_EMOJI_CODE
-  const bucket = Number(size) <= 60 ? 60 : 120
-  return `${EMOJI_IMAGE_BASE}/${bucket}/apple/${hex.toLowerCase()}.png`
+
+  const st = normalizeEmojiStyle(style)
+  if (st === 'system') return ''
+
+  const small = Number(size) <= 60
+  const lower = hex.toLowerCase()
+
+  if (st === 'noto') {
+    // Google Noto Color Emoji：1f415_200d_1f9ba / 72.png | 128.png
+    return `https://fonts.gstatic.com/s/e/notoemoji/latest/${lower.replace(/-/g, '_')}/${small ? 72 : 128}.png`
+  }
+
+  if (st === 'twemoji') {
+    // Twemoji（jdecked 维护的 15.1 分支，覆盖到较新的 emoji）：1f415-200d-1f9ba.svg
+    return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${lower}.svg`
+  }
+
+  // OpenMoji 15.1：1F415-200D-1F9BA.svg
+  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/${hex}.svg`
 }
 
 /** 码点 -> 系统 emoji 字符（图片加载中 / 失败时的兜底） */
@@ -124,7 +159,7 @@ export function categoryIconCode(icon, name = '') {
   return FALLBACK_EMOJI_CODE
 }
 
-/** 分类图标 -> 联网图片地址 */
-export function categoryIconSrc(icon, name = '', size = 120) {
-  return emojiImageSrc(categoryIconCode(icon, name), size)
+/** 分类图标 -> 指定样式的联网图片地址 */
+export function categoryIconSrc(icon, name = '', size = 120, style = 'noto') {
+  return emojiImageSrc(categoryIconCode(icon, name), size, style)
 }

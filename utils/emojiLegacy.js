@@ -89,7 +89,7 @@ export const LEGACY_ICON_CODES = {
  * - 空 / 未知值 → 返回空串，由调用方决定兜底
  *
  * ★ 去掉 FE0F / FE0E ★
- *   Emojiall 的图片路径不带变体选择符（26fd.png 而不是 26fd-fe0f.png），
+ *   Noto / Twemoji / OpenMoji 的图片路径都不带变体选择符（26fd.png 而不是 26fd-fe0f.png），
  *   所以统一在边界上规范一次；老库里带 FE0F 的码点也能正常拼图片地址。
  *
  * @param {string} icon
