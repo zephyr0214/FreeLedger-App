@@ -26,7 +26,7 @@ import {
   getTxnIconMetrics, normalizeTxnIconSize, txnIconSizeIndex,
   normalizeTxnIconRound, getTxnIconRadius
 } from '../utils/txnIcon.js'
-import { noteEmojiLoad, emojiStyleFailed, resetEmojiLoad } from '../utils/emojiLoad.js'
+import { noteEmojiLoad, emojiStyleFailed, resetEmojiLoad, emojiStyleHasSuccess } from '../utils/emojiLoad.js'
 import { ICON_MAP } from '../utils/icons.js'
 import {
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES,
@@ -192,12 +192,15 @@ check('圆形圆角 50%', getTxnIconRadius(4), '50%')
 /* 图标库整体加载状态：连续 6 次失败且 0 成功才回退系统 emoji */
 resetEmojiLoad('noto')
 check('初始样式可用', emojiStyleFailed('noto'), false)
+check('初始没有成功记录', emojiStyleHasSuccess('noto'), false)
 for (let i = 0; i < 5; i++) noteEmojiLoad('noto', false)
 check('五次失败仍不整体回退', emojiStyleFailed('noto'), false)
+check('失败不会伪装成成功', emojiStyleHasSuccess('noto'), false)
 noteEmojiLoad('noto', false)
 check('六次失败且零成功 → 整体回退', emojiStyleFailed('noto'), true)
 noteEmojiLoad('noto', true)
 check('任意一张成功后恢复正常', emojiStyleFailed('noto'), false)
+check('任意一张成功后记为有成功', emojiStyleHasSuccess('noto'), true)
 resetEmojiLoad('noto')
 for (const preset of ['teal', 'pink']) {
   for (const name of ['home', 'account', 'stats', 'mine']) {
@@ -260,10 +263,18 @@ check('图标节点按 src 重建（防止旧图串到新分类）', /:key="src"
 check('暗色 OpenMoji 叠灰色描边层', /emojiOutlineSrc/.test(glyph), true)
 check('描边层用 invert 变灰', /filter:\s*invert\(0\.5\)/.test(glyph), true)
 check('底图等描边加载完再显示（不闪黑边）', /visualReady/.test(glyph), true)
+check('全 App 默认不在加载中显示系统 emoji', /loadingFallback:\s*\{[^}]*default:\s*false/.test(glyph), true)
+check('部分失败且无一张成功时延迟回退系统样式', /FALLBACK_DELAY_MS/.test(glyph) && /emojiStyleHasSuccess/.test(glyph), true)
+check('系统 emoji 最大 44rpx（极小档）', /FALLBACK_EMOJI_RPX\s*=\s*44/.test(glyph), true)
 check('分类管理图标加载中不用系统 emoji 占位', /:loading-fallback="false"/.test(catPage), true)
 check('分类管理小图标请求 60 档', /:remote-size="60"/.test(catPage), true)
 check('选择页暗色图标格去掉灰底', /icon-cell--bare/.test(iconPage), true)
 check('选择页暗色灰底样式是 transparent', /\.icon-cell--bare\s*\{[^}]*background-color:\s*transparent/.test(iconPage), true)
+
+const txnIcon = readFileSync(join(ROOT, 'components', 'TxnIcon.vue'), 'utf-8')
+check('流水图标断网时强制圆形背景 + 极小档', /getTxnIconMetrics\('xs'\)/.test(txnIcon), true)
+check('流水图标断网时强制打开背景', /offline\.value \|\| settingStore\.txnIconShowBg/.test(txnIcon), true)
+check('流水图标断网时用 18rpx 圆角', /'18rpx'/.test(txnIcon), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

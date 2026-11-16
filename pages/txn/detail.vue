@@ -12,13 +12,11 @@
       <!-- 金额头 -->
       <view class="detail-head">
         <!--
-          ★ 直接复用流水行图标组件 ★
-            用户要求详情页最上方的背景形状 / 大小和「图标配置」一致。
-            TxnIcon 就是全 App 流水图标的唯一实现：尺寸、
-            分类背景开关、方圆形、分类色浅底全由设置决定，
-            这里不再手写一套 112rpx 的圆形底。
+          ★ 详情页统一图标：固定圆角方底 + 固定 44rpx + 跟随图标样式 ★
+            与分类详情 / 预算详情 / 标签详情 / 借入借出 / 报销 / 周期详情
+            共用 DetailSummaryIcon，不再跟「流水图标大小」设置变形。
         -->
-        <TxnIcon
+        <DetailSummaryIcon
           :icon="txn.type === 'transfer' ? '' : txn.category_icon"
           :name="txn.category_name"
           :color="txn.category_color || '#969799'"
@@ -161,12 +159,12 @@ import { getTransaction, deleteTransaction, getTxnTags, setExcludeFromBudget } f
 import { isSystemPresetName } from '@/api/category.js'
 import { setTxnPendingReimburse } from '@/api/reimburse.js'
 import { formatDayHeader, formatTime } from '@/utils/date.js'
-import TxnIcon from '@/components/TxnIcon.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
 export default {
-  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog, TxnIcon },
+  components: { MoneyText, ExcludeFlags, TxnPanel, AppDialog, UpdateDialog, DetailSummaryIcon },
   setup() {
     const settingStore = useSettingStore()
     const txnStore = useTransactionStore()

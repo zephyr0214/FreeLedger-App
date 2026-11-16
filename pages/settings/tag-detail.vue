@@ -5,7 +5,7 @@
         <!-- 汇总卡：本月支出/收入 + 笔数 -->
         <view class="summary-card">
           <view class="summary-head">
-            <view class="summary-dot" :style="{ backgroundColor: tagColor }" />
+            <DetailSummaryIcon icon="1F3F7" :color="tagColor" />
             <view class="summary-info">
               <text class="summary-name">{{ tag.name }}</text>
               <text class="summary-type">标签（项目）· 共 {{ totalStats.count }} 笔交易</text>
@@ -113,6 +113,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getTag } from '@/api/tag.js'
@@ -120,7 +121,7 @@ import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, DetailSummaryIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -223,13 +224,6 @@ export default {
   align-items: center;
   gap: 20rpx;
   margin-bottom: 32rpx;
-}
-
-.summary-dot {
-  width: 48rpx;
-  height: 48rpx;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .summary-info {

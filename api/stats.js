@@ -1552,7 +1552,7 @@ async function loadBudgetCategories(budgets) {
   if (ids.length === 0) return map
 
   const rows = await query(
-    `SELECT bc.budget_id AS bid, c.id AS cid, c.name AS cname, c.icon AS cicon
+    `SELECT bc.budget_id AS bid, c.id AS cid, c.name AS cname, c.icon AS cicon, c.color AS ccolor
      FROM budget_category bc
      JOIN category c ON c.id = bc.category_id AND c.deleted_at IS NULL
      WHERE bc.budget_id IN (${ids.map(() => '?').join(',')})
@@ -1561,19 +1561,26 @@ async function loadBudgetCategories(budgets) {
   )
   rows.forEach((r) => {
     if (!map[r.bid]) map[r.bid] = []
-    map[r.bid].push({ id: r.cid, name: r.cname || '', icon: r.cicon || '' })
+    map[r.bid].push({
+      id: r.cid,
+      name: r.cname || '',
+      icon: r.cicon || '',
+      color: r.ccolor || ''
+    })
   })
 
   const legacy = list.filter((b) => b.scope === 'category' && !map[b.id] && b.category_id)
   if (legacy.length > 0) {
     const catIds = legacy.map((b) => b.category_id)
     const catRows = await query(
-      `SELECT id, name, icon FROM category
+      `SELECT id, name, icon, color FROM category
        WHERE deleted_at IS NULL AND id IN (${catIds.map(() => '?').join(',')})`,
       catIds
     )
     const byId = {}
-    catRows.forEach((c) => { byId[c.id] = { id: c.id, name: c.name || '', icon: c.icon || '' } })
+    catRows.forEach((c) => {
+      byId[c.id] = { id: c.id, name: c.name || '', icon: c.icon || '', color: c.color || '' }
+    })
     legacy.forEach((b) => {
       const c = byId[b.category_id]
       if (c) map[b.id] = [c]
@@ -1734,6 +1741,8 @@ export async function getBudgetUsage(monthKey) {
       categoryNames: cats.map((c) => c.name),
       name: budgetDisplayName(b, cats),
       icon: isTotal ? 'chart' : ((cats[0] && cats[0].icon) || 'more'),
+      /* 详情页汇总图标用：子预算取第一个分类的颜色；月预算固定账本蓝 */
+      color: isTotal ? '#1989FA' : ((cats[0] && cats[0].color) || '#969799'),
       limit,
       baseLimit,
       monthly,
@@ -1965,6 +1974,8 @@ export async function getBudgetUsageRange(range) {
       categoryNames: cats.map((c) => c.name),
       name: budgetDisplayName(b, cats),
       icon: isTotal ? 'chart' : ((cats[0] && cats[0].icon) || 'more'),
+      /* 详情页汇总图标用：子预算取第一个分类的颜色；月预算固定账本蓝 */
+      color: isTotal ? '#1989FA' : ((cats[0] && cats[0].color) || '#969799'),
       limit,
       baseLimit: monthly * effective.length,
       monthly,

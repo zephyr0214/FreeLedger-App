@@ -5,9 +5,11 @@
         <!-- 汇总卡：本月支出/收入 + 笔数 + 占比 -->
         <view class="summary-card">
           <view class="summary-head">
-            <view class="summary-icon" :style="{ backgroundColor: categoryTint(categoryColor, settingStore.isDark) }">
-              <CategoryGlyph :icon="category.icon" :name="category.name" size="52rpx" />
-            </view>
+            <DetailSummaryIcon
+              :icon="category.icon"
+              :name="category.name"
+              :color="categoryColor"
+            />
             <view class="summary-info">
               <text class="summary-name">{{ category.name }}</text>
               <text class="summary-type">
@@ -105,16 +107,15 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getCategory } from '@/api/category.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
-import { categoryTint } from '@/utils/categoryIcon.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, DetailSummaryIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -281,7 +282,7 @@ export default {
 
     return {
       settingStore, category, txnList, monthStats, totalStats, loading, notFound,
-      pageStyle, isParent, categoryColor, categoryTint,
+      pageStyle, isParent, categoryColor,
       statType, statWord, monthAmount, totalAmount,
       sharePercent, totalSharePercent,
       goAllTxn, goBack
@@ -311,20 +312,6 @@ export default {
   align-items: center;
   gap: 20rpx;
   margin-bottom: 32rpx;
-}
-
-.summary-icon {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.summary-icon-text {
-  font-size: 40rpx;
 }
 
 .summary-info {

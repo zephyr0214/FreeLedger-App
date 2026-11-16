@@ -5,14 +5,14 @@
 
     <template v-else>
       <!--
-        系统 emoji 只在两种情况下显示：
+        系统 emoji 只在三种情况下显示：
           1）该样式整体加载失败（断网 / CDN 不可用）
-          2）loadingFallback = true（列表页）且这张图还没加载好
-        图标选择页把 loadingFallback 设为 false：没加载出来的先留空，
-        避免一屏系统 emoji 乱跳。
+          2）单张失败、且延迟后整个样式仍一张都没成功
+          3）调用方显式 loadingFallback=true（默认已关闭）
+        其余加载中 / 部分失败的情况一律留空，避免一屏系统 emoji 乱跳。
       -->
       <text
-        v-if="offline || (loadingFallback && !visualReady)"
+        v-if="showSystemEmoji"
         class="cat-glyph-emoji"
         :style="emojiStyle"
       >{{ char }}</text>
@@ -22,8 +22,8 @@
           <image> 节点，Android 可能在新图加载完成前继续显示旧图，
           看起来就是「分类图标串了」。强制按 URL 重建节点。
         ★ 加载完成前 opacity 为 0 ★
-          配合上面的系统 emoji 占位，不会旧图叠新图；
-          分类管理 / 选择页把 loadingFallback 设为 false 时显示为空白。
+          不会旧图叠新图；没加载出来时保持空白，
+          只有上面的系统兜底条件成立才显示 emoji。
       -->
       <image
         v-if="!offline && !failed && src"
@@ -66,10 +66,12 @@
  *
  * ★ 图片是联网的 ★
  *   utils/emoji.js 按当前样式拼 CDN 地址。
- *   - 列表页：图片加载中 / 单张失败时显示系统 emoji，避免空白
- *   - 选择页：loadingFallback=false，没加载出来先留空；
- *     如果整个样式一张都没加载出来（utils/emojiLoad.js），
- *     才整体回退系统 emoji。
+ *   ★ 全 App 统一加载策略（用户要求）★
+ *     部分图片加载出来时，没加载出来的先留空；
+ *     只有整套样式一张都加载不出来，才显示系统 emoji。
+ *     · 单张失败后等 1.2 秒：期间任意一张成功，就保持空白
+ *     · 6 次失败且 0 成功（utils/emojiLoad.js）→ 整页系统 emoji
+ *     · 系统 emoji 最大 44rpx（极小档），字号不会随大图标档放大
  *
  * ★ 为什么抽组件 ★
  *   分类图标在首页、流水、详情、面板、选择页里出现，
@@ -85,10 +87,18 @@
  *   size 传字符串时原样使用（'44rpx' / '20px'）；
  *   传数字时按 rpx 处理。remote-size 只影响请求 60 还是 120 的图。
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { categoryIconCode, categoryIconSrc, emojiOutlineSrc, emojiChar } from '@/utils/emoji.js'
-import { noteEmojiLoad, emojiStyleFailed } from '@/utils/emojiLoad.js'
+import {
+  noteEmojiLoad, emojiStyleFailed, emojiStyleHasSuccess
+} from '@/utils/emojiLoad.js'
+
+/** 系统 emoji 兜底的最大字号（对应图标配置的「极小」档 44rpx） */
+const FALLBACK_EMOJI_RPX = 44
+
+/** 单张失败后等多久再判断「这个样式是不是一张都没加载出来」 */
+const FALLBACK_DELAY_MS = 1200
 
 export default {
   name: 'CategoryGlyph',
@@ -104,10 +114,13 @@ export default {
     /**
      * 图片没加载好时是否先用系统 emoji 占位
      *
-     * 列表页默认 true（避免空白）；
-     * 图标选择页传 false（先留空，全部失败才整体回退系统 emoji）。
+     * ★ 全 App 统一为 false ★
+     *   用户要求：部分图标加载出来时，没加载出来的先留空；
+     *   只有整套样式一张都加载不出来时，才显示系统 emoji。
+     *   这个判断由下面的 systemFallback + emojiStyleFailed 负责，
+     *   不再由各页面自己传 true/false。
      */
-    loadingFallback: { type: Boolean, default: true },
+    loadingFallback: { type: Boolean, default: false },
     /** 非分类图标（转账 ⇄ / 未知 ❔）用文字渲染 */
     symbol: { type: String, default: '' },
     /** 文字符号的颜色（图片本身是彩色的，不受它影响） */
@@ -124,6 +137,15 @@ export default {
     /** 暗色 OpenMoji 的灰色描边层是否加载完成 / 失败 */
     const outlineLoaded = ref(false)
     const outlineFailed = ref(false)
+
+    /**
+     * 本张图失败、且该样式暂时一张都没成功时，延迟显示系统 emoji
+     *
+     * 页面只有一个图标（详情页）时，6 次失败阈值永远达不到；
+     * 这个状态让「一个都没加载出来」也能回退系统样式。
+     */
+    const systemFallback = ref(false)
+    let fallbackTimer = null
 
     const sizeText = computed(() =>
       typeof props.size === 'number' ? `${props.size}rpx` : props.size
@@ -164,8 +186,30 @@ export default {
     /** 该样式整体是否加载失败（断网 / CDN 不可用） */
     const offline = computed(() => emojiStyleFailed(style.value))
 
+    /** 该样式是否至少成功加载过一张（响应式读取 emojiLoad 的内部状态） */
+    const styleHasSuccess = computed(() => emojiStyleHasSuccess(style.value))
+
+    /** 是否显示系统 emoji 兜底 */
+    const showSystemEmoji = computed(() =>
+      offline.value || systemFallback.value || (props.loadingFallback && !visualReady.value)
+    )
+
+    /**
+     * 系统 emoji 字号
+     *
+     * ★ 用户要求「系统默认样式 = 圆角背景色 + 极小」★
+     *   网络图片正常时按传入 size 显示；回退系统 emoji 时
+     *   最大不超过极小档 44rpx，避免大档图标断网后变成一坨。
+     *   小于 44 的（分类弹层分组标题 28rpx 等）保持原尺寸。
+     */
+    const emojiSizeText = computed(() => {
+      const m = /^([\d.]+)rpx$/.exec(sizeText.value)
+      if (!m) return sizeText.value
+      return `${Math.min(Number(m[1]), FALLBACK_EMOJI_RPX)}rpx`
+    })
+
     const emojiStyle = computed(() => ({
-      fontSize: sizeText.value,
+      fontSize: emojiSizeText.value,
       lineHeight: 1
     }))
 
@@ -175,9 +219,18 @@ export default {
       color: props.color || undefined
     }))
 
+    function clearFallbackTimer() {
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer)
+        fallbackTimer = null
+      }
+    }
+
     function onLoad() {
       loaded.value = true
       failed.value = false
+      systemFallback.value = false
+      clearFallbackTimer()
       noteEmojiLoad(style.value, true)
     }
 
@@ -185,6 +238,19 @@ export default {
       failed.value = true
       loaded.value = false
       noteEmojiLoad(style.value, false)
+
+      /*
+       * ★ 单张失败后的兜底判断 ★
+       *   如果 1.2 秒后这个样式仍然一张都没成功，
+       *   说明不是「个别图标 404」而是整套加载不出来，显示系统 emoji。
+       *   如果期间任意一张成功，styleHasSuccess 会把 systemFallback 关掉，
+       *   这张图就保持空白 —— 符合「部分加载出来时，未加载出的留空」。
+       */
+      clearFallbackTimer()
+      fallbackTimer = setTimeout(() => {
+        fallbackTimer = null
+        if (!emojiStyleHasSuccess(style.value)) systemFallback.value = true
+      }, FALLBACK_DELAY_MS)
     }
 
     function onOutlineLoad() {
@@ -197,16 +263,30 @@ export default {
       outlineLoaded.value = false
     }
 
+    // 任意一张成功后，失败的图标不再显示系统 emoji，回到空白
+    watch(styleHasSuccess, (ok) => {
+      if (ok) {
+        systemFallback.value = false
+        clearFallbackTimer()
+      }
+    })
+
     // 换图标 / 换样式 / 换图片尺寸 / 切换深浅色时重新尝试加载
     watch([code, style, () => props.remoteSize, () => settingStore.isDark], () => {
       loaded.value = false
       failed.value = false
       outlineLoaded.value = false
       outlineFailed.value = false
+      systemFallback.value = false
+      clearFallbackTimer()
+    })
+
+    onUnmounted(() => {
+      clearFallbackTimer()
     })
 
     return {
-      sizeText, boxStyle, src, outlineSrc, visualReady, char, emojiStyle, symbolStyle, offline,
+      sizeText, boxStyle, src, outlineSrc, visualReady, showSystemEmoji, char, emojiStyle, symbolStyle, offline,
       loaded, failed, outlineLoaded, onLoad, onError, onOutlineLoad, onOutlineError
     }
   }

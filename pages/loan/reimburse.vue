@@ -39,9 +39,7 @@
       -->
       <view class="summary-card">
         <view class="summary-head">
-          <view class="summary-icon" :style="{ backgroundColor: accentColor + '22' }">
-            <text class="summary-icon-text">🧾</text>
-          </view>
+          <DetailSummaryIcon icon="1F9FE" :color="accentColor" />
           <view class="summary-info">
             <text class="summary-name">待报销</text>
             <text class="summary-type">等公司打钱回来的钱</text>
@@ -547,6 +545,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -563,7 +562,7 @@ import { createRowPressController } from '@/utils/rowPress.js'
 const ACCENT_COLOR = '#FF8F1F'
 
 export default {
-  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, TxnIcon },
+  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, DetailSummaryIcon, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -1228,20 +1227,6 @@ export default {
   align-items: center;
   gap: 20rpx;
   margin-bottom: 28rpx;
-}
-
-.summary-icon {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.summary-icon-text {
-  font-size: 40rpx;
 }
 
 .summary-info {

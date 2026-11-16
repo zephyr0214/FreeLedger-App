@@ -4,14 +4,12 @@
       <template v-if="cycle">
         <view class="summary-card">
           <view class="summary-head">
-            <view class="summary-icon" :style="{ backgroundColor: iconColor }">
-              <CategoryGlyph
-                :icon="cycle.icon"
-                :name="cycle.iconName"
-                :symbol="cycle.iconSymbol"
-                size="52rpx"
-              />
-            </view>
+            <DetailSummaryIcon
+              :icon="cycle.icon"
+              :name="cycle.iconName"
+              :symbol="cycle.iconSymbol"
+              :color="iconColor"
+            />
             <view class="summary-info">
               <text class="summary-name">{{ cycleName }}</text>
               <text class="summary-type">{{ typeName }} · {{ cycle.recurrenceText }}</text>
@@ -88,7 +86,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -98,7 +96,7 @@ import {
 import { listCategories } from '@/api/category.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, DetailSummaryIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -293,21 +291,6 @@ export default {
   align-items: center;
   gap: 20rpx;
   margin-bottom: 28rpx;
-}
-
-.summary-icon {
-  width: 56rpx;
-  height: 56rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.summary-icon-text {
-  font-size: 28rpx;
-  color: #fff;
-  font-weight: 500;
 }
 
 .summary-info {

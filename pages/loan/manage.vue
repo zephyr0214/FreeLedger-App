@@ -20,9 +20,7 @@
       -->
       <view class="summary-card">
         <view class="summary-head">
-          <view class="summary-icon" :style="{ backgroundColor: accentColor + '22' }">
-            <text class="summary-icon-text">{{ headEmoji }}</text>
-          </view>
+          <DetailSummaryIcon :icon="headIcon" :color="accentColor" />
           <view class="summary-info">
             <text class="summary-name">{{ currentLabel }}</text>
             <text class="summary-type">{{ directionText }}</text>
@@ -340,6 +338,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
@@ -353,7 +352,7 @@ import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatTime, shortDateWithYear } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, TxnIcon },
+  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, DetailSummaryIcon, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -409,6 +408,8 @@ export default {
 
     const pageTitle = computed(() => (isIncome.value ? '借入管理' : '借出管理'))
     const headEmoji = computed(() => (isIncome.value ? '📥' : '📤'))
+    /** 汇总卡图标：借出=发件箱 / 借入=收件箱（与系统固定分类的 lend/borrow 一致） */
+    const headIcon = computed(() => (isIncome.value ? '1F4E5' : '1F4E4'))
     const currentLabel = computed(() => (isIncome.value ? '当前借入' : '当前借出'))
     const directionText = computed(() =>
       isIncome.value ? '还欠别人多少' : '还有多少没收回来'
@@ -867,7 +868,7 @@ export default {
 
     return {
       settingStore, loanType, status, loading, groups, openCount, settledCount, openTotal,
-      pageStyle, primaryColor, isIncome, pageTitle, headEmoji, currentLabel, directionText,
+      pageStyle, primaryColor, isIncome, pageTitle, headEmoji, headIcon, currentLabel, directionText,
       accentColor, statusTabs, emptyTitle, emptyDesc,
       avatarText, balanceText, balanceLabel, balanceColor,
       txnSub, timeLabel, goTxnDetail,
@@ -905,20 +906,6 @@ export default {
   align-items: center;
   gap: 20rpx;
   margin-bottom: 28rpx;
-}
-
-.summary-icon {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.summary-icon-text {
-  font-size: 40rpx;
 }
 
 .summary-info {

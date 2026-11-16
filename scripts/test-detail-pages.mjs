@@ -304,7 +304,7 @@ const txnApi = read('api/transaction.js')
  * 用户要求：
  *   1. 分类显示「一级 - 二级」；
  *   2. 日期和时间合并成一行「时间」；
- *   3. 图标样式跟设置走（TxnIcon → CategoryGlyph 读 settingStore.emojiStyle）。
+ *   3. 图标样式跟设置走（DetailSummaryIcon → CategoryGlyph 读 settingStore.emojiStyle）。
  */
 check(
   '交易查询带上一级分类名',
@@ -328,8 +328,8 @@ check(
   true
 )
 check(
-  '详情页图标复用 TxnIcon（尺寸/背景形状/圆角跟随设置）',
-  /<TxnIcon[\s\S]{0,220}?:icon="txn\.type === 'transfer' \? '' : txn\.category_icon"/.test(txnDetail),
+  '详情页图标用 DetailSummaryIcon（固定圆角底 + 固定 44rpx + 样式切换）',
+  /<DetailSummaryIcon[\s\S]{0,260}?:icon="txn\.type === 'transfer' \? '' : txn\.category_icon"/.test(txnDetail),
   true
 )
 check(
@@ -338,8 +338,49 @@ check(
   false
 )
 check(
-  '详情页引入 TxnIcon',
-  /import TxnIcon from '@\/components\/TxnIcon\.vue'/.test(txnDetail),
+  '详情页引入 DetailSummaryIcon',
+  /import DetailSummaryIcon from '@\/components\/DetailSummaryIcon\.vue'/.test(txnDetail),
+  true
+)
+
+/* ------------------------------------------------ 7. 详情页左上角图标统一 */
+
+console.log('=== 详情页左上角图标统一 ===')
+const summaryIcon = read('components/DetailSummaryIcon.vue')
+
+check('统一图标底 88rpx', /width:\s*88rpx/.test(summaryIcon), true)
+check('统一图标圆角 20rpx', /border-radius:\s*20rpx/.test(summaryIcon), true)
+check('统一图标固定 44rpx（极小档）', /size="44rpx"/.test(summaryIcon), true)
+check('统一图标底色走 categoryTint', /categoryTint\(/.test(summaryIcon), true)
+check('统一图标请求 60 档小图', /:remote-size="60"/.test(summaryIcon), true)
+
+const SUMMARY_PAGES = [
+  ['pages/txn/detail.vue', '交易详情'],
+  ['pages/settings/category-detail.vue', '分类详情'],
+  ['pages/settings/budget-detail.vue', '预算详情'],
+  ['pages/settings/tag-detail.vue', '标签详情'],
+  ['pages/settings/cycle-detail.vue', '周期详情'],
+  ['pages/loan/manage.vue', '借入借出'],
+  ['pages/loan/reimburse.vue', '报销']
+]
+for (const [rel, label] of SUMMARY_PAGES) {
+  const code = read(rel)
+  check(
+    `${label} 使用 DetailSummaryIcon`,
+    /<DetailSummaryIcon/.test(code) &&
+      /import DetailSummaryIcon from '@\/components\/DetailSummaryIcon\.vue'/.test(code),
+    true
+  )
+  // 旧的各页自绘图标容器必须清掉，否则新旧尺寸会打架
+  check(`${label} 不再自绘 summary-icon/dot`, /class="summary-(icon|dot)"/.test(code), false)
+}
+
+check('标签详情固定用标签图标', /<DetailSummaryIcon icon="1F3F7"/.test(read('pages/settings/tag-detail.vue')), true)
+check('报销固定用收据图标', /<DetailSummaryIcon icon="1F9FE"/.test(read('pages/loan/reimburse.vue')), true)
+check('借入借出图标随方向切换', /headIcon/.test(read('pages/loan/manage.vue')), true)
+check(
+  '预算用量返回分类颜色',
+  /color: isTotal \? '#1989FA'/.test(read('api/stats.js')),
   true
 )
 

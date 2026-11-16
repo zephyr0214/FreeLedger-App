@@ -59,6 +59,20 @@ export function emojiStyleFailed(style) {
   return !!(s && s.failed)
 }
 
+/**
+ * 该样式是否至少成功加载过一张
+ *
+ * ★ 用途：单个图标加载失败后的兜底判断 ★
+ *   页面只有一个图标时，6 次失败阈值永远达不到；
+ *   CategoryGlyph 会在失败后等一小段时间，如果这时该样式
+ *   还是一张都没成功，就按「一个都没加载出来」显示系统 emoji。
+ *   一旦任意一张成功（本页或别处），失败的那张就保持空白。
+ */
+export function emojiStyleHasSuccess(style) {
+  const s = state[style]
+  return !!(s && s.ok > 0)
+}
+
 /** 重置某样式（切样式时重试 / 测试用） */
 export function resetEmojiLoad(style) {
   if (!style) {

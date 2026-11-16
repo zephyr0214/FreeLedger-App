@@ -5,9 +5,11 @@
         <!-- 汇总卡：额度 / 已用 / 剩余 / 百分比 + 进度条 -->
         <view class="summary-card">
           <view class="summary-head">
-            <view class="summary-icon" :style="{ backgroundColor: iconBg }">
-              <CategoryGlyph :icon="usage.icon" :name="usage.name" size="52rpx" />
-            </view>
+            <DetailSummaryIcon
+              :icon="usage.icon"
+              :name="usage.name"
+              :color="usage.color || primaryColor"
+            />
             <view class="summary-info">
               <text class="summary-name">{{ usage.name }}</text>
               <text class="summary-type">
@@ -115,7 +117,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
-import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getBudgetUsage } from '@/api/stats.js'
@@ -125,7 +127,7 @@ import { toMonthKey } from '@/utils/date.js'
 import { formatWanYuan } from '@/utils/money.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, CategoryGlyph },
+  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, DetailSummaryIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -145,14 +147,6 @@ export default {
     const monthKey = computed(() => toMonthKey())
 
     const budgetTitle = computed(() => (usage.value ? usage.value.name : '预算详情'))
-
-    const iconBg = computed(() =>
-      usage.value && usage.value.over ? 'var(--app-danger)' : 'var(--app-primary-light)'
-    )
-
-    const iconFg = computed(() =>
-      usage.value && usage.value.over ? 'var(--app-danger)' : 'var(--app-primary)'
-    )
 
     /**
      * 「月预算 / 子预算」这行小字
@@ -322,7 +316,7 @@ export default {
     return {
       formatWanYuan,
       settingStore, usage, txnList, monthStats, categories, loading, notFound,
-      primaryColor, pageStyle, monthKey, budgetTitle, iconBg, iconFg,
+      primaryColor, pageStyle, monthKey, budgetTitle,
       scopeLabel, goAllTxn, goBack
     }
   }
@@ -344,20 +338,6 @@ export default {
   align-items: center;
   gap: 20rpx;
   margin-bottom: 32rpx;
-}
-
-.summary-icon {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.summary-icon-text {
-  font-size: 40rpx;
 }
 
 .summary-info {
