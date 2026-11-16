@@ -172,7 +172,7 @@ export const RELEASES = [
       {
         title: '新增',
         items: [
-          '分类图标支持 Noto / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji 五种联网样式，可按五个大类与二级分类搜索选择 836 个图标，图片按需加载、不增加安装包体积',
+          '分类图标支持 Noto / Twemoji / OpenMoji / Microsoft Fluent / Firefox Emoji 五种联网样式，可按六大类与二级分类搜索选择 1037 个图标，图片按需加载、不增加安装包体积',
           '周期新增每两周、每年、每间隔天三种规则',
           '图标配置支持五档尺寸与五档方圆背景；主题外观的深浅模式与图标样式改为下拉选择；我的页合并为「记账功能」2×4 宫格',
           '更新包改用系统 DownloadManager 下载，退后台、锁屏可继续'

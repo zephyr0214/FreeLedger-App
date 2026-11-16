@@ -3,7 +3,7 @@
     <PageNav title="选择图标" @back="goBack" />
 
     <view class="picker-body">
-      <!-- 左：五个大类 + 二级分类 -->
+      <!-- 左：六个大类 + 二级分类 -->
       <scroll-view class="group-side" scroll-y>
         <!-- 全部 -->
         <view
@@ -115,14 +115,14 @@
  * 选择分类图标 —— 独立页面（左侧大类/二级分类，右侧联网图标）
  *
  * ★ 图标不下载，联网读取 ★
- *   元数据只保存码点和名称（utils/emojiData.js，约 33KB），
+ *   元数据只保存码点和名称（utils/emojiData.js，约 42KB），
  *   图片按码点拼当前样式的 CDN 地址，交给 <image> 按需加载。
  *   加载中 / 失败时 CategoryGlyph 会显示系统 emoji，不会出现空白。
  *
  * ★ 二级分类 ★
- *   左侧五个大类可以展开，展开后显示图库的二级分类
- *   （哺乳动物、陆路交通、球类…）；点二级分类只看这一组。
- *   搜索是全局的：输入关键词时忽略当前分组，搜全部 836 个图标。
+ *   左侧六个大类可以展开，展开后显示图库的二级分类
+ *   （职业与角色、哺乳动物、陆路交通、球类…）；点二级分类只看这一组。
+ *   搜索是全局的：输入关键词时忽略当前分组，搜全部 1037 个图标。
  *
  * ★ 选择结果怎么传回 ★
  *   uni.$emit('category-icon-picked', 码点) 后 navigateBack；
@@ -159,7 +159,7 @@ export default {
     const expanded = reactive({})
     for (const g of EMOJI_GROUPS) expanded[g.key] = false
 
-    /** 五个大类 + 每组的图标数 */
+    /** 六个大类 + 每组的图标数 */
     const groups = computed(() =>
       EMOJI_GROUPS.map((g) => ({
         ...g,

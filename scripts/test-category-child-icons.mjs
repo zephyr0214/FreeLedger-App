@@ -244,9 +244,27 @@ console.log('=== 迁移 v6：给二级分类补上各自的图标 ===')
   const mineChild = db.prepare("SELECT icon FROM category WHERE id = 'u_mine_c'").get()
   check('用户自建子分类的图标没被改', mineChild.icon, toEmojiIconCode('gift'))
 
-  // ★ 颜色不能被动 ★
+  // ★ 颜色不能被动（迁移本身不改颜色）★
   const color = db.prepare("SELECT color FROM category WHERE deleted_at IS NULL AND name = '奶茶饮料'").get()
   check('二级分类的颜色不变', color.color, '#FF976A')
+
+  /*
+   * ★ 父类改颜色，子类必须一起改 ★
+   *   子分类没有自己的颜色选项，UI 写的是「跟随父级」；
+   *   只更新父级会留下旧色，界面上子类图标就不跟着变。
+   */
+  const catApi = await import('../api/category.js?t=' + Math.random())
+  const beforeChildColor = db.prepare(
+    "SELECT color FROM category WHERE deleted_at IS NULL AND parent_id = ? AND name = '奶茶饮料'"
+  ).get(foodId).color
+  await catApi.updateCategory(foodId, { color: '#123456' })
+  const childColors = db.prepare(
+    'SELECT color FROM category WHERE deleted_at IS NULL AND parent_id = ?'
+  ).all(foodId).map((r) => r.color)
+  check('父类改色后所有子类跟随', childColors.every((c) => c === '#123456'), true)
+  check('子类原色确实变了（不是本来就这样）', beforeChildColor !== '#123456', true)
+  const foodColor = db.prepare('SELECT color FROM category WHERE id = ?').get(foodId).color
+  check('父类自己的颜色也更新了', foodColor, '#123456')
 
   // 版本被推进
   const ver = db.prepare('PRAGMA user_version').get().user_version

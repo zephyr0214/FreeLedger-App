@@ -4,6 +4,7 @@
  *   node scripts/gen-emojiall.mjs
  *
  * ★ 数据来源 ★
+ *   https://www.emojiall.com/zh-hans/categories/B  （人物与身体：只取职业与角色 / 奇幻人物 / 人物活动 / 运动中的人 / 人物休息）
  *   https://www.emojiall.com/zh-hans/categories/D  （动物与自然）
  *   https://www.emojiall.com/zh-hans/categories/E  （食物与饮料）
  *   https://www.emojiall.com/zh-hans/categories/F  （旅行与地点）
@@ -14,8 +15,9 @@
  *   图标图片由 App 运行时按码点拼当前样式（Noto / Twemoji / OpenMoji / Fluent / FxEmoji）
  *   的 CDN 地址，本脚本不关心图片。
  *
- * ★ 只保留五个大类 ★
- *   表情 / 人物 / 肤色 / 符号 / 旗帜不在本脚本的抓取范围。
+ * ★ 人物与身体只取五个子类 ★
+ *   B 大类下还有手势、身体部位、家庭等子类，本 App 只收用户指定的
+ *   职业与角色 / 奇幻人物 / 人物活动 / 运动中的人 / 人物休息。
  *   二级分类（Subgroups）保留中文名，供图标选择页左侧树使用。
  */
 
@@ -29,12 +31,26 @@ const ROOT = resolve(__dirname, '..')
 const BASE = 'https://www.emojiall.com/zh-hans'
 
 /**
- * 五个大类
+ * 六个大类
  *
  * icon / char 是左侧分组标题上显示的代表图标（与 Emojiall 分组截图一致）：
- *   动物 🐵 / 食物 🍓 / 旅行 🚍 / 活动 ⚽ / 物品 🥤
+ *   人物 🧑‍💼 / 动物 🐵 / 食物 🍓 / 旅行 🚍 / 活动 ⚽ / 物品 🥤
  */
 const GROUP_DEFS = [
+  {
+    key: 'B',
+    name: '人物与身体',
+    icon: '1F9D1-200D-1F4BC',
+    char: '🧑‍💼',
+    /* 只取这五个二级分类，其余手势 / 身体部位 / 家庭等不要 */
+    subgroupKeys: ['B10', 'B11', 'B12', 'B13', 'B14'],
+    /* 用户指定的中文名；Emojiall 原页叫「职业和角色 / 虚构人物 / 运动」 */
+    subgroupNames: {
+      B10: '职业与角色',
+      B11: '奇幻人物',
+      B13: '运动中的人'
+    }
+  },
   { key: 'D', name: '动物与自然', icon: '1F435', char: '🐵' },
   { key: 'E', name: '食物与饮料', icon: '1F353', char: '🍓' },
   { key: 'F', name: '旅行与地点', icon: '1F68D', char: '🚍' },
@@ -91,13 +107,16 @@ function parseGroup(html, def) {
   for (const block of blocks) {
     const href = (block.match(/sub-categories\/([A-Z]\d+)/) || [])[1]
     if (!href) continue
+    // B 大类只保留用户指定的五个子类，其余整块跳过
+    if (def.subgroupKeys && !def.subgroupKeys.includes(href)) continue
 
     const h2 = block.match(
       /<span class="emoji_font line">([^<]*)<\/span>([^<]*)<span class="item_count">(\d+)<\/span>/
     )
     if (!h2) continue
 
-    const subName = decodeEntities(h2[2]).trim()
+    let subName = decodeEntities(h2[2]).trim()
+    if (def.subgroupNames && def.subgroupNames[href]) subName = def.subgroupNames[href]
     const expected = Number(h2[3]) || 0
     const icons = []
     const seen = new Set()
@@ -184,10 +203,11 @@ ${subsText}
   const out = `/**
  * Emojiall 分类图标元数据（分类/名称来源）—— 由 scripts/gen-emojiall.mjs 生成，不要手改
  *
- * 数据来源：https://www.emojiall.com/zh-hans/categories/{D,E,F,G,H}
+ * 数据来源：https://www.emojiall.com/zh-hans/categories/{B,D,E,F,G,H}
  * 生成时间：${new Date().toISOString().slice(0, 10)}
  *
- * ★ 只包含五个大类 ★
+ * ★ 包含六个大类 ★
+ *   人物与身体（职业与角色 / 奇幻人物 / 人物活动 / 运动中的人 / 人物休息）
  *   动物与自然 / 食物与饮料 / 旅行与地点 / 活动 / 物品
  *   共 ${groups.length} 组、${groups.reduce((n, g) => n + g.subgroups.length, 0)} 个二级分类、${total} 个图标。
  *

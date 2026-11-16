@@ -142,7 +142,7 @@
           >
             <view class="child-row">
               <!-- 子类自己的图标（v6 起二级分类有独立图标） -->
-              <view class="child-icon" :style="{ backgroundColor: categoryTint(child.color || parent.color || primaryColor, settingStore.isDark) }">
+              <view class="child-icon" :style="{ backgroundColor: categoryTint(parent.color || primaryColor, settingStore.isDark) }">
                 <CategoryGlyph
                   :icon="child.icon"
                   :name="child.name"
@@ -544,11 +544,18 @@ export default {
 
       try {
         if (editingId.value) {
-          await updateCategory(editingId.value, {
+          /*
+           * ★ 编辑子分类时不要回写颜色 ★
+           *   子分类颜色只跟随父级，编辑弹层也不显示颜色选项。
+           *   如果这里把 openEdit 读到的旧 color 再写回去，
+           *   父类刚刚级联更新的颜色会被这一个操作覆盖回旧值。
+           */
+          const patch = {
             name: editorForm.name.trim(),
-            color: editorForm.color,
             icon: editorForm.icon
-          })
+          }
+          if (!editorForm.parent_id) patch.color = editorForm.color
+          await updateCategory(editingId.value, patch)
         } else {
           await createCategory({
             name: editorForm.name.trim(),

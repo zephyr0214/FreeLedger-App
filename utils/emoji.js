@@ -11,11 +11,12 @@
  *   选择页缩略图用 60 档，分类列表 / 流水图标用 120 档。
  *
  * ★ 数据范围 ★
- *   只有五个大类：动物与自然 / 食物与饮料 / 旅行与地点 / 活动 / 物品
- *   共 49 个二级分类、836 个图标（utils/emojiData.js 生成）。
+ *   六大类：人物与身体（职业与角色 / 奇幻人物 / 人物活动 / 运动中的人 / 人物休息）
+ *   + 动物与自然 / 食物与饮料 / 旅行与地点 / 活动 / 物品
+ *   共 54 个二级分类、1037 个图标（utils/emojiData.js 生成）。
  *
  * ★ 显示兜底链 ★
- *   1. icon 本身是五组内的合法码点 → 用它
+ *   1. icon 本身是六组内的合法码点 → 用它
  *   2. icon 是旧 key（food / car…）→ 查 utils/emojiLegacy.js
  *   3. icon 为空/未知 → 按分类名猜旧 key，再查表
  *   4. 都失败 → 包裹（1F4E6）
@@ -49,15 +50,15 @@ export const FALLBACK_EMOJI_CODE = '1F4E6'
  *   Fluent     Flat SVG（约 1–2KB）
  *   FxEmoji    完整 SVG（仓库只有 TTF 和分层 SVG，TTF 1.1MB 更慢）
  *
- * Fluent / FxEmoji 的年代和收录范围不同：Fluent 覆盖 715/836，
- * FxEmoji 覆盖 533/836；缺的码点在 emojiImageSrc 里回退 Noto，
+ * Fluent / FxEmoji 的收录范围不同：Fluent 覆盖全部 1037 个图标；
+ * FxEmoji 覆盖 559/1037，缺的码点在 emojiImageSrc 里回退 Noto，
  * 保证不会出现空白图标。
  */
 export const EMOJI_STYLES = [
   { key: 'noto', name: 'Noto Color Emoji', desc: '(Android)' },
   { key: 'twemoji', name: 'Twemoji', desc: '(Twitter)' },
   { key: 'openmoji', name: 'OpenMoji', desc: '开源彩色图标' },
-  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平 · 少量回退' },
+  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平图标' },
   { key: 'fxemoji', name: 'Firefox Emoji', desc: 'Firefox 经典 · 部分回退' }
 ]
 
@@ -97,7 +98,7 @@ for (const g of EMOJI_GROUPS) {
   }
 }
 
-/** 这个字符串本身是不是五组内的一个码点（旧 key 不算） */
+/** 这个字符串本身是不是六组内的一个码点（旧 key 不算） */
 export function isEmojiCode(code) {
   const raw = String(code === undefined || code === null ? '' : code).trim()
   if (!/^[0-9A-F]+(?:-[0-9A-F]+)*$/i.test(raw)) return false
@@ -172,7 +173,7 @@ export function emojiChar(code) {
   const meta = META.get(hex)
   if (meta && meta.char) return meta.char
 
-  // 元数据里没有时按码点还原（老数据 / 五组之外的码点）
+  // 元数据里没有时按码点还原（老数据 / 六组之外的码点）
   try {
     return hex
       .split('-')
@@ -194,7 +195,7 @@ export function emojiLabel(code) {
   return meta ? meta.name : ''
 }
 
-/** 分类图标 -> 最终码点（永远返回五组内存在的码点） */
+/** 分类图标 -> 最终码点（永远返回六组内存在的码点） */
 export function categoryIconCode(icon, name = '') {
   const direct = toEmojiIconCode(icon)
   if (direct && META.has(direct)) return direct

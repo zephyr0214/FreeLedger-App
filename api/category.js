@@ -144,10 +144,27 @@ export async function updateCategory(id, patch) {
   if (patch.sort !== undefined) assign('sort', patch.sort)
   if (patch.hidden !== undefined) assign('hidden', patch.hidden ? 1 : 0)
   if (patch.parent_id !== undefined) assign('parent_id', patch.parent_id || null)
-  assign('updated_at', Date.now())
+  const now = Date.now()
+  assign('updated_at', now)
   params.push(id)
 
-  await execute(`UPDATE category SET ${fields.join(', ')} WHERE id = ?`, params)
+  /*
+   * ★ 父类改颜色时，子类必须一起改 ★
+   *   子分类编辑器里没有颜色选项，UI 明确写着「子分类颜色跟随父级」。
+   *   但种子数据/旧版本曾把父级颜色复制进每个子类；如果只更新父类，
+   *   子类图标仍会显示旧色（用户反馈的 bug）。
+   *   这里在同一个事务里把直属子类一起刷新，保证数据库和界面一致。
+   */
+  await transaction(async () => {
+    await execute(`UPDATE category SET ${fields.join(', ')} WHERE id = ?`, params)
+    if (patch.color !== undefined && !existing.parent_id) {
+      await execute(
+        `UPDATE category SET color = ?, updated_at = ?
+         WHERE parent_id = ? AND deleted_at IS NULL`,
+        [patch.color, now, id]
+      )
+    }
+  })
   return getCategory(id)
 }
 

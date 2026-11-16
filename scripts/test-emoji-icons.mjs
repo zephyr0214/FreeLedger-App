@@ -4,9 +4,9 @@
  *   node scripts/test-emoji-icons.mjs
  *
  * 守的东西：
- *   1. 只有五个大类，二级分类和图标数量完整
+ *   1. 六个大类，二级分类和图标数量完整
  *   2. 每个图标都有码点 / 中文名 / emoji 字符
- *   3. 旧 icon key（food / car…）的目标都在五组内
+ *   3. 旧 icon key（food / car…）的目标都在六组内
  *   4. 联网图片地址按码点拼接，60 / 120 两种尺寸
  *   5. FE0F / 大小写会被规范化
  *   6. v24 迁移仍在，SCHEMA_VERSION 对得上
@@ -53,19 +53,24 @@ function check(name, actual, expected) {
   }
 }
 
-/* ------------------------------------------------ 1. 五组与二级分类 */
+/* ------------------------------------------------ 1. 六组与二级分类 */
 
-console.log('=== 五个大类与二级分类 ===')
+console.log('=== 六个大类与二级分类 ===')
 
-const GROUP_NAMES = ['动物与自然', '食物与饮料', '旅行与地点', '活动', '物品']
+const GROUP_NAMES = ['人物与身体', '动物与自然', '食物与饮料', '旅行与地点', '活动', '物品']
 
-check('大类数量 5', EMOJI_GROUPS.length, 5)
+check('大类数量 6', EMOJI_GROUPS.length, 6)
 check('大类名称', EMOJI_GROUPS.map((g) => g.name), GROUP_NAMES)
-check('图标总数 836', EMOJI_LIST.length, 836)
+check('图标总数 1037', EMOJI_LIST.length, 1037)
 check(
-  '二级分类数量 49',
+  '二级分类数量 54',
   EMOJI_GROUPS.reduce((n, g) => n + g.subgroups.length, 0),
-  49
+  54
+)
+check(
+  '人物与身体只收指定的五个子类',
+  EMOJI_GROUPS.find((g) => g.name === '人物与身体').subgroups.map((s) => s.name),
+  ['职业与角色', '奇幻人物', '人物活动', '运动中的人', '人物休息']
 )
 
 const subgroups = EMOJI_GROUPS.flatMap((g) => g.subgroups)
@@ -102,7 +107,7 @@ const badTargets = []
 for (const [key, code] of Object.entries(LEGACY_ICON_CODES)) {
   if (!metaMap.has(code)) badTargets.push(`${key}->${code}`)
 }
-check('旧 key 的目标都在五组内', badTargets, [])
+check('旧 key 的目标都在六组内', badTargets, [])
 check('toEmojiIconCode(food)', toEmojiIconCode('food'), LEGACY_ICON_CODES.food)
 check('toEmojiIconCode(码点原样)', toEmojiIconCode('1F35C'), '1F35C')
 check('toEmojiIconCode(去掉 FE0F)', toEmojiIconCode('26FD-FE0F'), '26FD')
@@ -166,17 +171,17 @@ check(
   'https://cdn.jsdelivr.net/gh/mozilla/fxemoji@270af343bee346d8221f87806d2b1eee0438431a/svgs/FirefoxEmoji/u1F35C-steamingbowl.svg'
 )
 check(
-  'Fluent 缺图标回退 Noto',
-  emojiImageSrc('1F415-200D-1F9BA', 60, 'fluent'),
-  'https://fonts.gstatic.com/s/e/notoemoji/latest/1f415_200d_1f9ba/72.png'
+  'Fluent 全部图标都有 Flat SVG',
+  emojiImageSrc('1F415-200D-1F9BA', 60, 'fluent').includes('Service%20dog'),
+  true
 )
 check(
   'FxEmoji 缺图标回退 Noto',
   emojiImageSrc('1F98D', 60, 'fxemoji'),
   'https://fonts.gstatic.com/s/e/notoemoji/latest/1f98d/72.png'
 )
-check('Fluent 映射覆盖 715 个图标', Object.keys(FLUENT_MAP).length, 715)
-check('FxEmoji 映射覆盖 533 个图标', Object.keys(FXEMOJI_MAP).length, 533)
+check('Fluent 映射覆盖 1037 个图标', Object.keys(FLUENT_MAP).length, 1037)
+check('FxEmoji 映射覆盖 559 个图标', Object.keys(FXEMOJI_MAP).length, 559)
 check('Fluent 映射全部是 SVG', Object.values(FLUENT_MAP).every((p) => p.endsWith('.svg')), true)
 check('FxEmoji 映射全部是 SVG', Object.values(FXEMOJI_MAP).every((p) => p.endsWith('.svg')), true)
 check(
@@ -247,7 +252,7 @@ for (const list of [DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES]) {
     }
   }
 }
-check('默认分类图标都在五组内', badDefaults, [])
+check('默认分类图标都在六组内', badDefaults, [])
 
 const badPreset = []
 for (const type of ['expense', 'income']) {
@@ -257,7 +262,7 @@ for (const type of ['expense', 'income']) {
 for (const def of SYSTEM_PRESET_CHILDREN) {
   if (!metaMap.has(toEmojiIconCode(def.icon))) badPreset.push(def.name)
 }
-check('系统固定分类图标都在五组内', badPreset, [])
+check('系统固定分类图标都在六组内', badPreset, [])
 
 /* ------------------------------------------------ 5. 迁移与资源 */
 
