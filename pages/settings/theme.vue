@@ -46,16 +46,20 @@
       <view class="section">
         <text class="section-title">图标配置</text>
         <view class="card txn-setting-card">
-          <view class="txn-size-head">
-            <view class="txn-preview-area">
-              <view class="txn-preview-box" :style="txnPreviewBoxStyle">
-                <CategoryGlyph icon="1F35C" :size="txnPreviewMetrics.icon + 'rpx'" />
-              </view>
-            </view>
-            <view class="txn-size-info">
-              <text class="txn-size-name">当前预览</text>
-              <text class="txn-size-desc">{{ txnPreviewDesc }}</text>
-            </view>
+          <!-- 当前预览标题 + 大小/背景摘要：预览在最上方，摘要在标题右下角 -->
+          <view class="txn-preview-head">
+            <text class="txn-preview-title">当前预览</text>
+            <text class="txn-preview-meta">{{ txnPreviewDesc }}</text>
+          </view>
+
+          <!-- 五种分类图标同一行预览，直接复用流水图标组件 -->
+          <view class="txn-preview-row">
+            <TxnIcon
+              v-for="p in previewIcons"
+              :key="p.code"
+              :icon="p.code"
+              :color="p.color"
+            />
           </view>
 
           <!-- 图标样式：放在预览和大小调整之间 -->
@@ -185,17 +189,17 @@ import { ref, computed, watch } from 'vue'
 import PageNav from '@/components/PageNav.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import TxnIcon from '@/components/TxnIcon.vue'
 import OptionPickerSheet from '@/components/OptionPickerSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { THEME_PRESETS, THEME_MODE } from '@/utils/theme.js'
 import { EMOJI_STYLES, emojiImageSrc } from '@/utils/emoji.js'
 import { cachedIconPath } from '@/utils/iconCache.js'
-import { categoryTint } from '@/utils/categoryIcon.js'
-import { TXN_ICON_SIZES, TXN_ICON_ROUNDS, TXN_ICON_BG_BOX, getTxnIconMetrics, txnIconSizeIndex, getTxnIconRadius } from '@/utils/txnIcon.js'
+import { TXN_ICON_SIZES, TXN_ICON_ROUNDS, txnIconSizeIndex } from '@/utils/txnIcon.js'
 
 export default {
-  components: { PageNav, LineIcon, CategoryGlyph, OptionPickerSheet, UpdateDialog },
+  components: { PageNav, LineIcon, CategoryGlyph, TxnIcon, OptionPickerSheet, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -282,10 +286,14 @@ export default {
       return s.name
     })
 
-    const txnPreviewMetrics = computed(() => {
-      const s = TXN_ICON_SIZES[txnSizeIndex.value] || TXN_ICON_SIZES[3]
-      return getTxnIconMetrics(s.key)
-    })
+    /** 图标配置顶部的五个真实预览：面条 / 芒果 / 迎面公交 / 礼物 / 钱袋 */
+    const previewIcons = [
+      { code: '1F35C', color: '#FF976A' },
+      { code: '1F96D', color: '#FFD60A' },
+      { code: '1F68D', color: '#1989FA' },
+      { code: '1F381', color: '#FF6B9D' },
+      { code: '1F4B0', color: '#07C160' }
+    ]
 
     /* ------------------------------------------------ 背景形状 */
 
@@ -305,23 +313,6 @@ export default {
     const txnPreviewDesc = computed(() => {
       if (!settingStore.txnIconShowBg) return `${txnSizeLabel.value} · 无背景`
       return `${txnSizeLabel.value} · ${txnBgRoundName.value}`
-    })
-
-    /**
-     * 左上角预览：真实尺寸 + 真实背景色 + 当前圆角
-     *
-     * 背景开关关闭时预览不画底色（和实际流水一致），
-     * 但外框仍按当前图标尺寸显示，用户能看到大小变化。
-     */
-    const txnPreviewBoxStyle = computed(() => {
-      const bgOn = settingStore.txnIconShowBg
-      const size = bgOn ? TXN_ICON_BG_BOX : txnPreviewMetrics.value.box
-      return {
-        width: `${size}rpx`,
-        height: `${size}rpx`,
-        borderRadius: bgOn ? getTxnIconRadius(txnBgRoundIndex.value) : '0',
-        backgroundColor: bgOn ? categoryTint(primaryColor.value, settingStore.isDark) : 'transparent'
-      }
     })
 
     /** 原生 slider 的未激活轨道色（深浅模式各一个） */
@@ -399,7 +390,7 @@ export default {
       presets, themeMode, themePreset,
       showModeSheet, showStyleSheet, modeOptions, currentMode, onModePicked,
       emojiStyles, emojiStyleOptions, currentStyle, onStylePicked, emojiPreview,
-      txnIconSizes, txnSizeIndex, txnSizeLabel, txnPreviewMetrics, txnPreviewBoxStyle, txnPreviewDesc, sliderInactiveColor, sliderBlockColor,
+      txnIconSizes, txnSizeIndex, txnSizeLabel, previewIcons, txnPreviewDesc, sliderInactiveColor, sliderBlockColor,
       txnIconRounds, txnBgRoundIndex, txnBgRoundName,
       onSizeMove, onSizeEnd, setTxnSize, onTxnBgChange,
       onRoundMove, onRoundEnd, setTxnRound,
@@ -496,44 +487,34 @@ export default {
   padding: 24rpx 28rpx;
 }
 
-.txn-size-head {
+/* 当前预览标题 + 大小/背景摘要 */
+.txn-preview-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 20rpx;
-  margin-bottom: 20rpx;
+  margin-bottom: 18rpx;
 }
 
-.txn-preview-area {
-  width: 120rpx;
-  height: 120rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-/* 真实尺寸 + 真实底色 + 当前圆角的预览块 */
-.txn-preview-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: width 0.15s, height 0.15s, border-radius 0.15s, background-color 0.15s;
-}
-
-.txn-size-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.txn-size-name {
+.txn-preview-title {
   font-size: 28rpx;
+  font-weight: 600;
   color: var(--app-text);
 }
 
-.txn-size-desc {
+.txn-preview-meta {
   font-size: 22rpx;
-  color: var(--app-primary);
+  color: var(--app-text-3);
+  text-align: right;
+}
+
+/* 五种分类图标同一行预览 */
+.txn-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
 }
 
 .size-slider {

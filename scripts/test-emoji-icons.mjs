@@ -329,6 +329,7 @@ check('本地缓存坏掉会失效并回远程', /invalidateIcon\(code\.value/.t
 check('主题页预览读本地缓存', /cachedIconPath\('1F35C'/.test(themeSrc), true)
 check('启动后后台预热', /warmCategoryIconCache/.test(appSrc), true)
 check('缓存只收集分类 + 主题预览，不扫全图库', /listCategories\(null, true\)/.test(cacheApi) && /THEME_PREVIEW_CODE/.test(cacheApi) && !/EMOJI_LIST/.test(cacheApi), true)
+check('主题预览缓存五个示例图标', /\['1F35C', '1F96D', '1F68D', '1F381', '1F4B0'\]/.test(cacheApi), true)
 check('分类保存后同步新图标缓存', /syncCategoryIconCache\(editorForm\.icon/.test(catPage), true)
 check('分类删除后清理旧缓存', /refreshCategoryIconCache\(\)/.test(catPage), true)
 check('缓存覆盖全部五种样式', /EMOJI_STYLES\.map\(\(s\) => cacheIcon/.test(cacheUtil), true)

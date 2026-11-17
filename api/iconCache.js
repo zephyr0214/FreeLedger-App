@@ -15,11 +15,11 @@ import {
   cacheCodes, cacheCodeAllStyles, pruneIconCache
 } from '../utils/iconCache.js'
 
-/** 主题外观预览 / 样式选择行使用的码点 */
-export const THEME_PREVIEW_CODE = '1F35C'
+/** 主题外观预览用的五个分类图标码点：面条 / 芒果 / 公交 / 礼物 / 钱袋 */
+export const THEME_PREVIEW_CODES = ['1F35C', '1F96D', '1F68D', '1F381', '1F4B0']
 
 function collectCodes(categories) {
-  const set = new Set([THEME_PREVIEW_CODE])
+  const set = new Set(THEME_PREVIEW_CODES)
   for (const cat of categories || []) {
     const code = categoryIconCode(cat.icon, cat.name)
     if (code) set.add(code)
