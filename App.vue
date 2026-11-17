@@ -12,7 +12,7 @@ import { confirmDialog } from '@/utils/dialog.js'
 import { catchUpCycles } from '@/api/cycle.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { useUpdateStore } from '@/stores/update.js'
-import { consumePendingInstall, resumePendingDownload } from '@/api/update.js'
+import { consumePendingInstall, resumePendingDownload, setUpdateAppVisible } from '@/api/update.js'
 import { warmCategoryIconCache } from '@/api/iconCache.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -230,6 +230,7 @@ export default {
   },
 
   onShow() {
+    setUpdateAppVisible(true)
     // 兜底：部分 Android 机型 uni.onThemeChange 不触发，每次回前台重读一次
     try {
       const settingStore = useSettingStore()
@@ -275,6 +276,7 @@ export default {
   },
 
   onHide() {
+    setUpdateAppVisible(false)
     console.log('[app] hide')
   },
 

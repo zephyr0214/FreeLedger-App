@@ -590,6 +590,22 @@ console.log('=== 后台下载不中断（用户反馈 bug）===')
   check('phase 卡住时强行复位', /phase === 'downloading' && !isDownloading\(\)/.test(storeSrc), true)
 }
 
+console.log('=== 后台完成 / 通知安装不重复弹窗 ===')
+
+{
+  const apiSrc = read('api/update.js')
+  const storeSrc = read('stores/update.js')
+  const appSrc = read('App.vue')
+
+  check('记录下载版本', /DOWNLOAD_VERSION_KEY/.test(apiSrc), true)
+  check('记录下载期间是否进过后台', /DOWNLOAD_BACKGROUND_KEY/.test(apiSrc), true)
+  check('App onShow / onHide 同步可见性', /setUpdateAppVisible\(true\)/.test(appSrc) && /setUpdateAppVisible\(false\)/.test(appSrc), true)
+  check('后台完成不自动拉起安装器', /wasDownloadCompletedInBackground/.test(storeSrc), true)
+  check('下载时把版本交给 api', /downloadApk\(this\.info\.downloadUrl, name, null, this\.info\.version\)/.test(storeSrc), true)
+  check('后台完成的 pending 记录会清理', /hadBackgroundDownload\(\)/.test(apiSrc) && /clearDownloadStorage\(\)/.test(apiSrc), true)
+  check('已安装的新版本不会再次 resume 安装', /compareVersions\(pendingVersion, APP_VERSION\) <= 0/.test(apiSrc), true)
+}
+
 console.log('=== API 级别换算（真机日志：android=17 → api 曾算出 0）===')
 
 {

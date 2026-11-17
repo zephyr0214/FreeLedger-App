@@ -31,6 +31,8 @@ import { INSTALL_EXTRA_KEY } from './notifier.js'
  */
 const DOWNLOAD_ID_KEY = 'update_download_id'
 const DOWNLOAD_PATH_KEY = 'update_download_path'
+const DOWNLOAD_VERSION_KEY = 'update_download_version'
+const DOWNLOAD_BACKGROUND_KEY = 'update_download_background'
 const DM_PENDING = 1
 const DM_RUNNING = 2
 const DM_PAUSED = 4
@@ -41,6 +43,33 @@ const DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000
 /** 轮询定时器 / 当前下载的 reject（用户取消时用来结束 Promise） */
 let pollTimer = null
 let activeCancel = null
+
+/*
+ * App 前后台状态
+ *
+ * ★ 为什么需要它 ★
+ *   DownloadManager 在后台下载，JS 定时器会被挂起；用户回到 App 后
+ *   poll 才看到「已完成」。如果不记录「下载期间进过后台」，
+ *   App 会误以为刚在前台下载完，又自动拉起一次安装器 ——
+ *   用户看到的就是「App 退后台下载完，回前台又弹安装界面」。
+ */
+let appVisible = true
+let hiddenDuringDownload = false
+let downloadActive = false
+
+/** App.vue onShow / onHide 调用 */
+export function setUpdateAppVisible(visible) {
+  appVisible = !!visible
+  if (!appVisible && downloadActive) {
+    hiddenDuringDownload = true
+    try { uni.setStorageSync(DOWNLOAD_BACKGROUND_KEY, 1) } catch (e) {}
+  }
+}
+
+/** 这次下载是否在 App 退后台期间完成（完成后由 store 决定是否跳过自动安装） */
+export function wasDownloadCompletedInBackground() {
+  return hiddenDuringDownload || hadBackgroundDownload()
+}
 
 /** 请求 Gitee 最新发行版原始数据 */
 async function fetchLatestReleaseData() {
@@ -208,14 +237,33 @@ function readDownloadPath() {
   }
 }
 
+function readDownloadVersion() {
+  try {
+    return String(uni.getStorageSync(DOWNLOAD_VERSION_KEY) || '')
+  } catch (e) {
+    return ''
+  }
+}
+
+function hadBackgroundDownload() {
+  try { return uni.getStorageSync(DOWNLOAD_BACKGROUND_KEY) === 1 } catch (e) { return false }
+}
+
+function clearBackgroundDownloadFlag() {
+  try { uni.removeStorageSync(DOWNLOAD_BACKGROUND_KEY) } catch (e) {}
+}
+
 function clearDownloadStorage() {
   try { uni.removeStorageSync(DOWNLOAD_ID_KEY) } catch (e) {}
   try { uni.removeStorageSync(DOWNLOAD_PATH_KEY) } catch (e) {}
+  try { uni.removeStorageSync(DOWNLOAD_VERSION_KEY) } catch (e) {}
+  clearBackgroundDownloadFlag()
 }
 
-/** 安装完成后清掉路径记录（下载文件本身保留，系统 Downloads 里可见） */
+/** 安装完成后清掉路径/版本记录（下载文件本身保留，系统 Downloads 里可见） */
 export function clearDownloadedPath() {
   try { uni.removeStorageSync(DOWNLOAD_PATH_KEY) } catch (e) {}
+  try { uni.removeStorageSync(DOWNLOAD_VERSION_KEY) } catch (e) {}
 }
 
 function stopPolling() {
@@ -410,6 +458,8 @@ function querySystemDownload(id) {
 /** 取消 / 清理旧任务（下载列表 + 本地文件 + storage） */
 export function abortDownload() {
   stopPolling()
+  downloadActive = false
+  hiddenDuringDownload = false
   if (activeCancel) {
     const cancel = activeCancel
     activeCancel = null
@@ -436,7 +486,7 @@ export function abortDownload() {
  * @param {Function} onProgress 可选，进度回调（0~100）
  * @returns {Promise<string>} 本地绝对路径（供 installApk）
  */
-export function downloadApk(url, filename, onProgress) {
+export function downloadApk(url, filename, onProgress, version = '') {
   // #ifdef APP-PLUS
   return new Promise((resolve, reject) => {
     try {
@@ -447,9 +497,12 @@ export function downloadApk(url, filename, onProgress) {
       // 同名文件存在会让 DownloadManager 直接失败，先删掉
       deleteLocalFile(path)
 
+      downloadActive = true
+      hiddenDuringDownload = false
       const id = enqueueSystemDownload(url, filename, path)
       uni.setStorageSync(DOWNLOAD_ID_KEY, id)
       uni.setStorageSync(DOWNLOAD_PATH_KEY, path)
+      if (version) uni.setStorageSync(DOWNLOAD_VERSION_KEY, version)
 
       activeCancel = reject
       const startedAt = Date.now()
@@ -457,6 +510,7 @@ export function downloadApk(url, filename, onProgress) {
       const fail = (message) => {
         stopPolling()
         activeCancel = null
+        downloadActive = false
         // 超时 / 任务丢失时把系统任务也撤掉，避免通知栏留一条僵尸进度
         try {
           const dm = getDownloadManager()
@@ -483,8 +537,18 @@ export function downloadApk(url, filename, onProgress) {
 
         if (st.status === DM_SUCCESSFUL) {
           activeCancel = null
-          // ID 可以清掉；路径留着，安装成功后才清（进程被杀后 resume 还能装）
+          downloadActive = false
+          // ID 可以清掉；路径/版本留着，安装成功后才清（进程被杀后 resume 还能装）
           try { uni.removeStorageSync(DOWNLOAD_ID_KEY) } catch (e) {}
+          /*
+           * ★ 后台完成：清掉 pending 记录，只让系统通知负责安装 ★
+           *   否则下次冷启动 resumePendingDownload 还会再拉一次安装器，
+           *   用户会看到「更新完又弹一次」。
+           */
+          if (hiddenDuringDownload || hadBackgroundDownload()) {
+            clearDownloadedPath()
+            clearBackgroundDownloadFlag()
+          }
           onProgress && onProgress(100)
           resolve(path)
           return
@@ -505,6 +569,7 @@ export function downloadApk(url, filename, onProgress) {
 
       poll()
     } catch (e) {
+      downloadActive = false
       reject(e)
     }
   })
@@ -612,6 +677,30 @@ export async function resumePendingDownload() {
   // #ifdef APP-PLUS
   let id = readDownloadId()
   let path = readDownloadPath()
+
+  /*
+   * ★ 后台完成的下载不在这里补装 ★
+   *   系统通知已经可以点按安装；再自动拉起安装器就是重复弹窗。
+   *   清掉 pending 记录，安装包仍保留在原位置供通知栏使用。
+   */
+  if (hadBackgroundDownload()) {
+    clearDownloadStorage()
+    return { handled: false }
+  }
+
+  /*
+   * ★ 已经装上了就不要再恢复安装 ★
+   *   用户可能直接点系统通知栏完成安装，然后才打开 App；
+   *   这时 pending 路径还在，如果不比对版本就会再弹一次安装器。
+   *   版本优先读 storage；老数据没有版本字段时从文件名解析。
+   */
+  const fileVersion = (String(path).match(/FreeLedger-v([\d.]+)\.apk$/i) || [])[1] || ''
+  const pendingVersion = readDownloadVersion() || fileVersion
+  if (pendingVersion && compareVersions(pendingVersion, APP_VERSION) <= 0) {
+    clearDownloadStorage()
+    deleteLocalFile(path)
+    return { handled: false }
+  }
 
   if (id) {
     const st = querySystemDownload(id)

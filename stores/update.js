@@ -20,7 +20,7 @@
 import { defineStore } from 'pinia'
 import {
   checkUpdate as fetchCheck, downloadApk, installApkWithFallback, cancelDownload,
-  openUnknownSourceSettings, isDownloading
+  openUnknownSourceSettings, isDownloading, wasDownloadCompletedInBackground
 } from '@/api/update.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 
@@ -134,7 +134,17 @@ export const useUpdateStore = defineStore('update', {
       try {
         const name = 'FreeLedger-v' + this.info.version + '.apk'
         // onProgress 传空函数：进度只走通知栏，不写回 store（界面已关闭）
-        const local = await downloadApk(this.info.downloadUrl, name, null)
+        const local = await downloadApk(this.info.downloadUrl, name, null, this.info.version)
+        this.phase = 'idle'
+        /*
+         * ★ 后台下载完成：不要自动拉起安装器 ★
+         *   DownloadManager 完成时 App 可能还在后台；用户回到前台时
+         *   JS 才轮询到成功。如果这里继续 install，会突然弹出安装界面，
+         *   看起来像「下载完又弹一次」。交给系统下载通知点击安装。
+         */
+        if (wasDownloadCompletedInBackground()) {
+          return
+        }
         this.phase = 'installing'
         await installApkWithFallback(local)
         // install 成功 = 系统安装器已拉起；复位状态
