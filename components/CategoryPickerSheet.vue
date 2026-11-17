@@ -21,7 +21,7 @@
             -->
             <view v-if="sec.title" class="group-head">
               <view class="group-icon" :style="groupIconStyle(sec.parent)">
-                <CategoryGlyph :icon="sec.parent.icon" :name="sec.parent.name" size="28rpx" />
+                <CategoryGlyph :icon="sec.parent.icon" :name="sec.parent.name" size="28rpx" :remote-size="60" />
               </view>
               <text class="group-name">{{ sec.title }}</text>
             </view>
@@ -35,7 +35,7 @@
                 @click="onPick(cat)"
               >
                 <view class="more-icon-wrap" :style="iconStyle(cat, selectedId === cat.id)">
-                  <CategoryGlyph :icon="cat.icon" :name="cat.name" size="44rpx" />
+                  <CategoryGlyph :icon="cat.icon" :name="cat.name" size="44rpx" :remote-size="60" />
                 </view>
                 <text
                   class="more-name"

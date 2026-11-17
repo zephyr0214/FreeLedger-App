@@ -174,14 +174,14 @@ export const RELEASES = [
         title: '新增',
         items: [
           '新增「人物与身体」图标大类，包含职业与角色、奇幻人物、人物活动、运动中的人、人物休息 5 个子类，图标库扩至 1037 个',
-          '新增 Microsoft Fluent 图标样式，共四种样式可选',
-          '分类与主题预览图标增加本地缓存：只缓存实际用到的图标，四种样式同步，后续打开更快'
+          '新增 Microsoft Fluent 与 Microsoft Fluent 3D 图标样式，共五种样式可选（3D 加载较慢）',
+          '分类与主题预览图标增加本地缓存：只缓存实际用到的图标，五种样式同步，后续打开更快'
         ]
       },
       {
         title: '优化',
         items: [
-          'OpenMoji 改用 SVG 单图加载；移除 Firefox Emoji，图标样式精简为 Noto / Twemoji / OpenMoji / Microsoft Fluent 四种',
+          'OpenMoji 改用 SVG 单图加载；移除 Firefox Emoji，图标样式精简为 Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D 五种',
           '系统分类支持编辑图标和颜色，名称与删除仍锁定；子分类颜色统一跟随父级，父类改色自动同步',
           '分类修改 / 删除时同步更新本地缓存，不再使用的旧缓存自动清理；缓存文件失效自动回退联网'
         ]

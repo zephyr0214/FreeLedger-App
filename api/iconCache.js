@@ -30,7 +30,7 @@ function collectCodes(categories) {
 let warming = null
 
 /**
- * 预热所有在用分类图标（四种样式一起）
+ * 预热所有在用分类图标（五种样式一起）
  *
  * 由 App.vue 在启动稳定后延迟调用；重复调用会复用同一个 Promise。
  */
@@ -54,7 +54,7 @@ export function warmCategoryIconCache() {
 }
 
 /**
- * 分类图标新增 / 修改后同步：先把新码点的四种样式缓存好，
+ * 分类图标新增 / 修改后同步：先把新码点的五种样式缓存好，
  * 再交给 warm 重新收集 + 清理旧码点。
  */
 export async function syncCategoryIconCache(icon, name) {

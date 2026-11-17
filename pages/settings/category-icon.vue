@@ -140,7 +140,7 @@ import {
 } from '@/utils/emoji.js'
 
 /** 每批渲染多少个图标 */
-const BATCH = 80
+const BATCH = 40
 
 export default {
   components: { PageNav, CategoryGlyph, UpdateDialog },

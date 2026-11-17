@@ -1,7 +1,7 @@
 <template>
   <view class="txn-icon" :style="boxStyle">
     <text v-if="symbol" class="txn-icon-symbol" :style="symbolStyle">{{ symbol }}</text>
-    <CategoryGlyph v-else :icon="icon" :name="name" :size="metrics.icon + 'rpx'" />
+    <CategoryGlyph v-else :icon="icon" :name="name" :size="metrics.icon + 'rpx'" :remote-size="60" />
   </view>
 </template>
 

@@ -9,9 +9,9 @@
  *     · 主题外观页预览用的 1F35C
  *   用户在选择图标页浏览其它图标时仍按需联网，不写缓存。
  *
- * ★ 为什么四种样式一起缓存 ★
+ * ★ 为什么五种样式一起缓存 ★
  *   用户切换样式后应该立刻有图，而不是再等一轮网络。
- *   cacheIcon() 会按 EMOJI_STYLES 把同一个码点的四种样式都下下来；
+ *   cacheIcon() 会按 EMOJI_STYLES 把同一个码点的五种样式都下下来；
  *   当前样式只是选择显示哪一份本地文件。
  *
  * ★ 什么时候同步 ★
@@ -20,8 +20,9 @@
  *   · 分类删除后重新 prune（只保留仍在用的码点）
  *
  * ★ 存储 ★
- *   uni.saveFile 把文件放进 App 私有目录；manifest 存 uni storage，
- *   只记录「样式:码点 -> 本地路径 + 原始 URL」。
+ *   plus.downloader 下载到 App 私有目录 `_doc/icon-cache/`，
+ *   文件名 = 样式-码点-URL hash，避免 Twemoji / OpenMoji 同码点互相覆盖。
+ *   manifest 存 uni storage，只记录「样式:码点 -> 本地路径 + 原始 URL」。
  *   CDN 地址已固定版本，URL 不变即可复用；URL 变了视为失效。
  *
  * 纯本地模块，不直接依赖 api/，避免 utils → api 的反向依赖。
@@ -47,8 +48,13 @@ function cacheKey(style, code) {
   return `${style}:${code}`
 }
 
+/** 新版缓存文件固定放在 _doc/icon-cache/ 下；旧的 uni.saveFile 路径不再信任 */
+function isCachePath(path) {
+  return typeof path === 'string' && path.indexOf('_doc/icon-cache/') === 0
+}
+
 function isApp() {
-  return typeof uni !== 'undefined' && typeof uni.downloadFile === 'function'
+  return typeof plus !== 'undefined' && !!plus.downloader && !!plus.io
 }
 
 function loadManifest() {
@@ -93,14 +99,57 @@ function schedulePersist() {
   }, 300)
 }
 
+/**
+ * 删除本地缓存文件
+ *
+ * ★ 不能用 uni.saveFile 的自动命名 ★
+ *   Twemoji 和 OpenMoji 的同一个码点都可能被保存成 1f35c.svg／1F35C.svg；
+ *   uni.saveFile 按临时文件名保存时，OpenMoji 可能直接拿到 Twemoji 的路径
+ *   —— 表现就是「选了 OpenMoji，预览却是 Twemoji」。
+ *   所以现在下载到我们自己的固定目录，文件名带 style + code + URL hash。
+ */
 function removeFile(path) {
-  if (!path || typeof uni.removeSavedFile !== 'function') return
-  uni.removeSavedFile({
-    filePath: path,
-    fail: () => {
-      // 文件可能已被系统清理；清掉清单即可
+  if (!path) return Promise.resolve()
+  return new Promise((resolve) => {
+    if (typeof plus !== 'undefined' && plus.io) {
+      plus.io.resolveLocalFileSystemURL(
+        path,
+        (entry) => entry.remove(() => resolve(), () => resolve()),
+        () => resolve()
+      )
+      return
     }
+    if (typeof uni !== 'undefined' && typeof uni.removeSavedFile === 'function') {
+      uni.removeSavedFile({ filePath: path, complete: () => resolve() })
+      return
+    }
+    resolve()
   })
+}
+
+/** 缓存目录只建一次 */
+let dirPromise = null
+function ensureCacheDir() {
+  if (dirPromise) return dirPromise
+  dirPromise = new Promise((resolve, reject) => {
+    if (typeof plus === 'undefined' || !plus.io) {
+      reject(new Error('plus.io 不可用'))
+      return
+    }
+    plus.io.requestFileSystem(plus.io.PRIVATE_DOC, (fs) => {
+      fs.root.getDirectory('icon-cache', { create: true }, resolve, reject)
+    }, reject)
+  })
+  return dirPromise
+}
+
+/** 文件名里带上样式和 URL hash，彻底避免不同样式/版本互相覆盖 */
+function cacheFileName(style, code, url) {
+  let hash = 0
+  for (let i = 0; i < url.length; i++) hash = (hash * 31 + url.charCodeAt(i)) >>> 0
+  const extMatch = /\.([a-z0-9]+)(?:\?|#|$)/i.exec(url)
+  const ext = extMatch ? extMatch[1].toLowerCase() : 'img'
+  return `${style}-${code}-${hash.toString(36)}.${ext}`
 }
 
 /**
@@ -113,7 +162,7 @@ export function cachedIconPath(code, style) {
   const c = categoryIconCode(code)
   const key = cacheKey(style, c)
   const item = manifest[key]
-  if (!item || !item.path) return ''
+  if (!item || !item.path || !isCachePath(item.path)) return ''
   if (item.url !== emojiImageSrc(c, 120, style)) return ''
   return paths[key] || item.path
 }
@@ -149,34 +198,43 @@ function enqueue(run) {
   })
 }
 
-function downloadOne(style, code) {
+async function downloadOne(style, code) {
   const key = cacheKey(style, code)
   const url = emojiImageSrc(code, 120, style)
+  const filename = cacheFileName(style, code, url)
+  const dest = `_doc/icon-cache/${filename}`
+
+  try {
+    await ensureCacheDir()
+    // 上一次同 URL 下载可能留下半截文件；先删掉
+    await removeFile(dest)
+  } catch (e) {
+    return false
+  }
+
   return new Promise((resolve) => {
-    uni.downloadFile({
-      url,
-      success: (res) => {
-        if (!res || res.statusCode !== 200 || !res.tempFilePath) {
-          resolve(false)
+    let task = null
+    try {
+      task = plus.downloader.createDownload(url, { filename: dest, timeout: 30 }, (d, status) => {
+        if (status === 200) {
+          manifest[key] = { path: dest, url }
+          paths[key] = dest
+          schedulePersist()
+          resolve(true)
           return
         }
-        uni.saveFile({
-          tempFilePath: res.tempFilePath,
-          success: (saved) => {
-            if (!saved || !saved.savedFilePath) {
-              resolve(false)
-              return
-            }
-            manifest[key] = { path: saved.savedFilePath, url }
-            paths[key] = saved.savedFilePath
-            schedulePersist()
-            resolve(true)
-          },
-          fail: () => resolve(false)
-        })
-      },
-      fail: () => resolve(false)
-    })
+        // 失败时不要留下半截文件，否则下次会命中坏缓存
+        removeFile(dest)
+        resolve(false)
+      })
+      task.start()
+    } catch (e) {
+      if (task) {
+        try { task.abort() } catch (err) {}
+      }
+      removeFile(dest)
+      resolve(false)
+    }
   })
 }
 
@@ -186,7 +244,7 @@ export function cacheIcon(code, style) {
   loadManifest()
   const c = categoryIconCode(code)
   const key = cacheKey(style, c)
-  if (manifest[key] && manifest[key].url === emojiImageSrc(c, 120, style)) {
+  if (manifest[key] && manifest[key].url === emojiImageSrc(c, 120, style) && isCachePath(manifest[key].path)) {
     return Promise.resolve(true)
   }
   // URL 变了（CDN 升级 / 样式资源换地址）：旧文件先清掉，避免成为孤儿
@@ -205,7 +263,7 @@ export function cacheIcon(code, style) {
   return p
 }
 
-/** 把一个码点的四种样式都缓存好（不抛错，失败就等下次） */
+/** 把一个码点的五种样式都缓存好（不抛错，失败就等下次） */
 export function cacheCodeAllStyles(code) {
   return Promise.all(EMOJI_STYLES.map((s) => cacheIcon(code, s.key)))
 }
@@ -231,11 +289,12 @@ export function pruneIconCache(keepCodes) {
     const i = key.indexOf(':')
     const style = i >= 0 ? key.slice(0, i) : ''
     const code = i >= 0 ? key.slice(i + 1) : ''
-    if (validStyles.has(style) && keep.has(code)) continue
     const item = manifest[key]
-    if (item && item.path) removeFile(item.path)
-    delete manifest[key]
-    delete paths[key]
+    if (!item || !isCachePath(item.path) || !validStyles.has(style) || !keep.has(code)) {
+      if (item && item.path) removeFile(item.path)
+      delete manifest[key]
+      delete paths[key]
+    }
   }
   persist()
 }

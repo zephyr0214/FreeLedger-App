@@ -121,7 +121,7 @@ check('isEmojiCode(1F35C) 为 true', isEmojiCode('1F35C'), true)
 check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_EMOJI_CODE)
-check('四种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji', 'fluent'])
+check('五种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji', 'fluent', 'fluent3d'])
 check('非法样式退回 noto', normalizeEmojiStyle('bad'), 'noto')
 check('旧 system 样式退回 noto', normalizeEmojiStyle('system'), 'noto')
 check(
@@ -171,6 +171,21 @@ check(
 )
 check('Fluent 映射覆盖 1037 个图标', Object.keys(FLUENT_MAP).length, 1037)
 check('Fluent 映射全部是 SVG', Object.values(FLUENT_MAP).every((p) => p.endsWith('.svg')), true)
+check(
+  'Twemoji 人物组合自动补 FE0F',
+  emojiImageSrc('1F9D1-200D-2695', 60, 'twemoji'),
+  'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f9d1-200d-2695-fe0f.svg'
+)
+check(
+  'OpenMoji 人物组合自动补 FE0F',
+  emojiImageSrc('1F9D1-200D-2695', 120, 'openmoji'),
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F9D1-200D-2695-FE0F.svg'
+)
+check(
+  'Fluent 3D 用 256 PNG',
+  emojiImageSrc('1F35C', 120, 'fluent3d'),
+  'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/assets/Steaming%20bowl/3D/steaming_bowl_3d.png'
+)
 check(
   '旧 system 设置会加载 Noto 图片',
   emojiImageSrc('1F35C', 120, 'system'),
@@ -291,7 +306,7 @@ check('流水图标断网时用 18rpx 圆角', /'18rpx'/.test(txnIcon), true)
 
 /* ------------------------------------------------ 7. 本地图标缓存 */
 
-console.log('=== 图标本地缓存：只用到的图标 / 四种样式同步 ===')
+console.log('=== 图标本地缓存：只用到的图标 / 五种样式同步 ===')
 
 const cacheUtil = readFileSync(join(ROOT, 'utils', 'iconCache.js'), 'utf-8')
 const cacheApi = readFileSync(join(ROOT, 'api', 'iconCache.js'), 'utf-8')
@@ -306,9 +321,18 @@ check('启动后后台预热', /warmCategoryIconCache/.test(appSrc), true)
 check('缓存只收集分类 + 主题预览，不扫全图库', /listCategories\(null, true\)/.test(cacheApi) && /THEME_PREVIEW_CODE/.test(cacheApi) && !/EMOJI_LIST/.test(cacheApi), true)
 check('分类保存后同步新图标缓存', /syncCategoryIconCache\(editorForm\.icon/.test(catPage), true)
 check('分类删除后清理旧缓存', /refreshCategoryIconCache\(\)/.test(catPage), true)
-check('缓存覆盖全部四种样式', /EMOJI_STYLES\.map\(\(s\) => cacheIcon/.test(cacheUtil), true)
+check('缓存覆盖全部五种样式', /EMOJI_STYLES\.map\(\(s\) => cacheIcon/.test(cacheUtil), true)
 check('清理时会删掉已移除样式的缓存', /validStyles\.has\(style\)/.test(cacheUtil), true)
 check('FxEmoji 映射文件已删除', existsSync(join(ROOT, 'utils', 'fxEmojiMap.js')), false)
+check(
+  '缓存文件名带样式和 URL hash（避免 Twemoji/OpenMoji 覆盖）',
+  /function cacheFileName\(style, code, url\)/.test(cacheUtil) &&
+    /style}-\$\{code\}-\$\{hash/.test(cacheUtil),
+  true
+)
+check('缓存不再用 uni.saveFile 自动命名', /uni\.saveFile\(/.test(cacheUtil), false)
+check('图标选择页首批 40 个', /const BATCH = 40/.test(iconPage), true)
+check('流水/面板小图标请求 60 档', /:remote-size="60"/.test(txnIcon), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

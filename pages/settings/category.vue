@@ -539,7 +539,7 @@ export default {
         }
         closeEditor()
         await load()
-        // 新图标四种样式同步落到本地缓存；旧码点由 warm 里的 prune 清理
+        // 新图标五种样式同步落到本地缓存；旧码点由 warm 里的 prune 清理
         syncCategoryIconCache(editorForm.icon, editorForm.name.trim()).catch((e) => {
           console.warn('[category] 同步图标缓存失败:', e && e.message)
         })

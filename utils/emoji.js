@@ -1,5 +1,5 @@
 /**
- * 分类图标 —— 元数据索引、四种联网样式、旧 key 兼容
+ * 分类图标 —— 元数据索引、五种联网样式、旧 key 兼容
  *
  * ★ 图标图片不随包下载 ★
  *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
@@ -29,6 +29,7 @@ import { EMOJI_GROUPS } from './emojiData.js'
 import { LEGACY_ICON_CODES, toEmojiIconCode } from './emojiLegacy.js'
 import { guessIconKeyByName } from './icons.js'
 import { FLUENT_BASE, FLUENT_MAP } from './fluentEmojiMap.js'
+import { FE0F_VARIANT_CODES } from './emojiAssetCodes.js'
 
 export { EMOJI_GROUPS, LEGACY_ICON_CODES }
 
@@ -36,16 +37,17 @@ export { EMOJI_GROUPS, LEGACY_ICON_CODES }
 export const FALLBACK_EMOJI_CODE = '1F4E6'
 
 /**
- * 四种图标样式
+ * 五种图标样式
  *
  * 系统样式和 Noto 在 Android 上看不出差别，已去掉；
- * 四种样式都按需从各自 CDN 加载，不打包进 APK。
+ * 五种样式都按需从各自 CDN 加载，不打包进 APK。
  *
  * ★ 格式按加载速度选 ★
  *   Noto       128×128 PNG（官方 CDN 快、体积小）
  *   Twemoji    SVG（约 3.5KB）
  *   OpenMoji   SVG（官方没有 128 PNG，72 太小、618 太大）
  *   Fluent     Flat SVG（约 1–2KB）
+ *   Fluent 3D  256 PNG（约 28–35KB，加载较慢，提供本地缓存）
  *
  * Fluent 覆盖全部 1037 个图标，不需要缺失回退。
  */
@@ -53,7 +55,8 @@ export const EMOJI_STYLES = [
   { key: 'noto', name: 'Noto Color Emoji', desc: '(Android)' },
   { key: 'twemoji', name: 'Twemoji', desc: '(Twitter)' },
   { key: 'openmoji', name: 'OpenMoji', desc: '开源彩色图标' },
-  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平图标' }
+  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平图标' },
+  { key: 'fluent3d', name: 'Microsoft Fluent 3D', desc: '加载速度较慢' }
 ]
 
 /** 把设置里的样式 key 归一（非法值 / 旧 system 退回 Noto） */
@@ -104,7 +107,7 @@ export function isEmojiCode(code) {
  *
  * @param {string} code 码点（大小写 / FE0F 都会规范化）
  * @param {number} size 60 档（缩略图）或 120 档（列表 / 详情）
- * @param {string} style noto | twemoji | openmoji | fluent
+ * @param {string} style noto | twemoji | openmoji | fluent | fluent3d
  * @returns {string}
  */
 export function emojiImageSrc(code, size = 120, style = 'noto') {
@@ -114,6 +117,8 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
   const st = normalizeEmojiStyle(style)
 
   const small = Number(size) <= 60
+  /** Twemoji / OpenMoji 有 88 个人物组合必须带 FE0F，否则 CDN 404 */
+  const assetCode = FE0F_VARIANT_CODES[hex] || hex
 
   /** Noto 官方 CDN：72 / 128 PNG（也是 Fluent 缺图标时的兜底） */
   const notoUrl = () => {
@@ -125,7 +130,7 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
 
   if (st === 'twemoji') {
     // Twemoji（jdecked 维护的 15.1 分支，覆盖到较新的 emoji）：1f415-200d-1f9ba.svg
-    return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${hex.toLowerCase()}.svg`
+    return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${assetCode.toLowerCase()}.svg`
   }
 
   if (st === 'fluent') {
@@ -138,6 +143,20 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
     return path ? FLUENT_BASE + encodeURI(path) : notoUrl()
   }
 
+  if (st === 'fluent3d') {
+    /*
+     * Microsoft Fluent 3D：256×256 PNG，单张约 28–35KB，明显更重。
+     * 只给愿意接受较慢加载的用户使用；本地缓存会把它也缓存下来。
+     * 3D 路径可由 Flat 路径推导：
+     *   .../Flat/xxx_flat.svg -> .../3D/xxx_3d.png
+     *   .../Default/Flat/xxx_flat_default.svg -> .../Default/3D/xxx_3d_default.png
+     */
+    const flat = FLUENT_MAP[hex]
+    if (!flat) return notoUrl()
+    const png = flat.replace('/Flat/', '/3D/').replace(/_flat([^/]*)\.svg$/i, '_3d$1.png')
+    return FLUENT_BASE + encodeURI(png)
+  }
+
   /*
    * OpenMoji 15.1：1F415-200D-1F9BA.svg
    *
@@ -148,7 +167,7 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
    *   Twemoji 也走 SVG，Android <image> 能正常渲染。
    *   尺寸档对 SVG 不生效，统一返回同一个矢量地址。
    */
-  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/${hex}.svg`
+  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/${assetCode}.svg`
 }
 
 /** 码点 -> 系统 emoji 字符（图片加载中 / 失败时的兜底） */

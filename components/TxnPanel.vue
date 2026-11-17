@@ -123,7 +123,7 @@
               （以前这里是「深色实底 + 白图标」，选中时整块分类色，和流水对不上）
             -->
             <view class="cat-icon-wrap" :style="catIconStyle(cat, form.category_id === cat.id)">
-              <CategoryGlyph :icon="cat.icon" :name="cat.name" size="48rpx" />
+              <CategoryGlyph :icon="cat.icon" :name="cat.name" size="48rpx" :remote-size="60" />
             </view>
             <text
               class="cat-name"
