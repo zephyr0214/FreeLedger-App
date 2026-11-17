@@ -52,11 +52,11 @@ export const FALLBACK_EMOJI_CODE = '1F4E6'
  * Fluent 覆盖全部 1037 个图标，不需要缺失回退。
  */
 export const EMOJI_STYLES = [
-  { key: 'noto', name: 'Noto Color Emoji', desc: '(Android)' },
-  { key: 'twemoji', name: 'Twemoji', desc: '(Twitter)' },
-  { key: 'openmoji', name: 'OpenMoji', desc: '开源彩色图标' },
-  { key: 'fluent', name: 'Microsoft Fluent', desc: '微软扁平图标' },
-  { key: 'fluent3d', name: 'Microsoft Fluent 3D', desc: '加载速度较慢' }
+  { key: 'noto', name: '安卓原生风格图标', desc: 'Noto Color Emoji' },
+  { key: 'twemoji', name: 'Twitter风格图标', desc: 'Twemoji' },
+  { key: 'openmoji', name: '开源彩色风格图标', desc: 'OpenMoji' },
+  { key: 'fluent', name: '微软扁平风格图标', desc: 'Microsoft Fluent' },
+  { key: 'fluent3d', name: '微软 3D 风格图标', desc: 'Microsoft Fluent 3D' }
 ]
 
 /** 把设置里的样式 key 归一（非法值 / 旧 system 退回 Noto） */

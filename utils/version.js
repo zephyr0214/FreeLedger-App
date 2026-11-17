@@ -174,7 +174,7 @@ export const RELEASES = [
         title: '新增',
         items: [
           '新增「人物与身体」图标大类，包含职业与角色、奇幻人物、人物活动、运动中的人、人物休息 5 个子类，图标库扩至 1037 个',
-          '新增 Microsoft Fluent 与 Microsoft Fluent 3D 图标样式，共五种样式可选（3D 加载较慢）',
+          '新增 Microsoft Fluent 与 Microsoft Fluent 3D 图标样式，共五种样式可选',
           '分类与主题预览图标增加本地缓存：只缓存实际用到的图标，五种样式同步，后续打开更快'
         ]
       },

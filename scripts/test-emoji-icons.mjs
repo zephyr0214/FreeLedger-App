@@ -122,6 +122,16 @@ check('categoryIconCode(food)', categoryIconCode('food'), LEGACY_ICON_CODES.food
 check('categoryIconCode(空, 餐饮食品)', categoryIconCode('', '餐饮食品'), LEGACY_ICON_CODES.food)
 check('categoryIconCode(未知, 未知)', categoryIconCode('WRONG', '不存在的分类'), FALLBACK_EMOJI_CODE)
 check('五种图标样式', EMOJI_STYLES.map((s) => s.key), ['noto', 'twemoji', 'openmoji', 'fluent', 'fluent3d'])
+check(
+  '样式中文名',
+  EMOJI_STYLES.map((s) => s.name),
+  ['安卓原生风格图标', 'Twitter风格图标', '开源彩色风格图标', '微软扁平风格图标', '微软 3D 风格图标']
+)
+check(
+  '英文名唯一作为备注',
+  EMOJI_STYLES.map((s) => s.desc),
+  ['Noto Color Emoji', 'Twemoji', 'OpenMoji', 'Microsoft Fluent', 'Microsoft Fluent 3D']
+)
 check('非法样式退回 noto', normalizeEmojiStyle('bad'), 'noto')
 check('旧 system 样式退回 noto', normalizeEmojiStyle('system'), 'noto')
 check(
