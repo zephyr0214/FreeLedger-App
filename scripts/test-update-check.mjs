@@ -118,23 +118,18 @@ check(
 )
 check('assets 字段缺失', resolveUpdate({ tag_name: 'v1.16.3' }, '1.16.2').hasUpdate, false)
 
-console.log('=== 临时调试下载入口 ===')
+console.log('=== 临时调试下载入口已删除 ===')
 
 {
   /*
    * ★ 用户要求 ★
-   *   临时给一个「下载最新安装包（调试）」按钮，不校验版本，
-   *   用于真机验证 DownloadManager 下载 / 安装链路。
+   *   测试完成后删除「下载最新安装包（调试）」入口，
+   *   避免发行版里留一个绕过版本校验的隐藏后门。
    *   正式入口仍然必须比较版本。
    */
   check('同版本正常不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2').hasUpdate, false)
   check('更旧版本正常不弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2').hasUpdate, false)
   check('更新版本正常弹', resolveUpdate(giteeFixture({ tag_name: 'v1.16.3' }), '1.16.2').hasUpdate, true)
-  check(
-    'ignoreVersion 下同版本也能弹',
-    resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2', true).hasUpdate,
-    true
-  )
 
   const src = read('api/update.js')
   const storeSrc = read('stores/update.js')
@@ -142,13 +137,11 @@ console.log('=== 临时调试下载入口 ===')
   const aboutSrc = read('pages/settings/about.vue')
   const dlgSrc = read('components/UpdateDialog.vue')
 
-  check('resolveUpdate 支持 ignoreVersion', /export function resolveUpdate\(data, current, ignoreVersion = false\)/.test(src), true)
-  check('checkUpdate 支持 opt 参数', /export async function checkUpdate\(opt = \{\}\)/.test(src), true)
-  check('正常入口仍比较版本', /if \(!ignoreVersion\)/.test(src), true)
-  check('store 有 debugCheckLatest', /debugCheckLatest/.test(storeSrc), true)
-  check('调试入口传 ignoreVersion', /ignoreVersion: true/.test(storeSrc), true)
-  check('关于页有调试下载入口', /下载最新安装包（调试）/.test(aboutSrc), true)
-  check('关于页点击走 debugCheckLatest', /debugCheckLatest\(\)/.test(aboutSrc), true)
+  check('resolveUpdate 不再有 ignoreVersion', /ignoreVersion/.test(src), false)
+  check('checkUpdate 不再接收 opt 参数', /export async function checkUpdate\(opt/.test(src), false)
+  check('store 不再有 debugCheckLatest', /debugCheckLatest/.test(storeSrc), false)
+  check('关于页不再有调试下载入口', /下载最新安装包（调试）/.test(aboutSrc), false)
+  check('关于页不再引用 debugCheckLatest', /debugCheckLatest/.test(aboutSrc), false)
   check('我的页没有「测试更新」条目', /name: '测试更新'/.test(mineSrc), false)
 
   check('弹窗徽标固定为「新版本」', />新版本<\/text>/.test(dlgSrc), true)

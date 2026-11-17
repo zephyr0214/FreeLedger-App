@@ -162,15 +162,6 @@
             <text class="info-label">更新日志</text>
             <text class="info-value" style="color: var(--app-primary)">v{{ APP_VERSION }} ›</text>
           </view>
-          <!--
-            ★ 临时调试入口（发版前删除）★
-              不校验版本，直接拉取 Gitee 最新发行版并弹更新弹窗，
-              用于真机验证系统 DownloadManager 的下载 / 安装链路。
-          -->
-          <view class="info-row" @click="onDebugDownload">
-            <text class="info-label">下载最新安装包（调试）</text>
-            <text class="info-value" style="color: var(--app-primary)">不校验版本</text>
-          </view>
         </view>
       </view>
 
@@ -195,7 +186,6 @@ import PageNav from '@/components/PageNav.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { useUpdateStore } from '@/stores/update.js'
 import { showDbDiagnostics } from '@/api/db/diagnose.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { APP_VERSION, APP_VERSION_LABEL } from '@/utils/version.js'
@@ -204,7 +194,6 @@ export default {
   components: { PageNav, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
-    const updateStore = useUpdateStore()
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -273,11 +262,6 @@ export default {
       }
     }
 
-    /** 临时调试：不校验版本，拉取最新版并走正常下载/安装流程 */
-    async function onDebugDownload() {
-      await updateStore.debugCheckLatest()
-    }
-
     function goBack() {
       uni.navigateBack()
     }
@@ -291,7 +275,7 @@ export default {
       settingStore, primaryColor, pageStyle,
       APP_VERSION, APP_VERSION_LABEL,
       privacyParas, safetyParas, featureParas,
-      onDiagnose, onDebugDownload, goChangelog, goBack
+      onDiagnose, goChangelog, goBack
     }
   }
 }

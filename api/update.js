@@ -93,15 +93,13 @@ async function fetchLatestReleaseData() {
 /**
  * 请求 Gitee 最新发行版并和本地版本比较
  *
- * @param {object} [opt]
- *   ignoreVersion=true 时跳过版本比较（**临时调试入口专用**，见 About 页）
  * @returns {Promise<{hasUpdate:boolean, version?:string, notes?:string,
  *   downloadUrl?:string, sizeBytes?:number}>}
  * @throws {Error} 网络失败 / 接口异常（由调用方决定静默还是提示）
  */
-export async function checkUpdate(opt = {}) {
+export async function checkUpdate() {
   const data = await fetchLatestReleaseData()
-  return resolveUpdate(data, APP_VERSION, !!opt.ignoreVersion)
+  return resolveUpdate(data, APP_VERSION)
 }
 
 /**
@@ -111,23 +109,19 @@ export async function checkUpdate(opt = {}) {
  *   Gitee 会自动附带源码 zip / tar.gz，不能把它们当安装包。
  * @param {object} data /releases/latest 的响应
  * @param {string} current 本地版本号
- * @param {boolean} ignoreVersion 跳过版本比较（临时调试入口用）
  */
-export function resolveUpdate(data, current, ignoreVersion = false) {
+export function resolveUpdate(data, current) {
   if (!data || !data.tag_name) return { hasUpdate: false }
   const version = String(data.tag_name).replace(/^v/i, '').trim()
   const apk = (data.assets || []).find((a) => /\.apk$/i.test(a.name || ''))
   if (!version || !apk) return { hasUpdate: false }
 
   /*
-   * ★ 正常入口永远比较版本，不提示降级 ★
-   *   ignoreVersion 只给「我的 → 关于 → 下载最新安装包（调试）」用，
-   *   方便真机验证 DownloadManager / 安装链路；发版前删掉调试入口即可。
+   * ★ 永远比较版本，不提示降级 ★
+   *   调试入口已删除；正式版本不再提供「跳过版本比较」的暗路。
    */
-  if (!ignoreVersion) {
-    const cmp = compareVersions(version, current)
-    if (cmp <= 0) return { hasUpdate: false }
-  }
+  const cmp = compareVersions(version, current)
+  if (cmp <= 0) return { hasUpdate: false }
 
   return {
     hasUpdate: true,

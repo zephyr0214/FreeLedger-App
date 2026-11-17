@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.25.1'
+export const APP_VERSION = '1.25.2'
 
 /**
  * 三段式版本号（兜底补零）
@@ -116,7 +116,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   v19 借款不进收支 + 结清派生分类、v20 系统分类全部可选、
  *   v21 报销台账、v22 周期的报销/预算标记、v23 报销单、
  *   v24 分类图标三样式、v25 周期新增每年/每间隔天），
- *   结构版本仍是 25；1.25.0 之后没有新迁移，按修订号递增，当前 **1.25.1**。
+ *   结构版本仍是 25；1.25.0 之后没有新迁移，按修订号递增，当前 **1.25.2**。
  *   ★ 这三条迁移没有拆成 1.14 / 1.15 / 1.16 三个版本 ★
  *     它们是同一天、同一批需求做出来的、一次打包发出去的，
  *     版本号直接对齐到最终的结构版本 16，中间不单独发版。
@@ -155,6 +155,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *     v1.23.10 schema 23  全部交易批量操作与右滑快捷、标签多选、长按误触、收入分类口径、总结余与查看全部、返回键收弹窗
  *     v1.25.0 schema 25   合并 1.24 / 1.25：分类图标三样式与图标配置、周期新增规则、主题外观下拉、我的页 2×4 宫格
  *     v1.25.1 schema 25   人物与身体图标大类、Fluent 样式与本地缓存、系统分类可改图标/颜色
+ *     v1.25.2 schema 25   Fluent 3D 与五图预览、图标库升级 17、后台下载与通知安装修复
  *
  * ★ 写什么 ★
  *   只写「用户能感知到的变化」：新功能、行为改动、修掉的 bug。
@@ -166,6 +167,36 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  */
 export const RELEASES = [
   {
+    version: '1.25.2',
+    date: '2026-11-17',
+    schemaVersion: 25,
+    sections: [
+      {
+        title: '新增',
+        items: [
+          '新增 Microsoft Fluent 3D 图标样式，图标样式扩至五种',
+          '图标配置顶部增加面条、芒果、公交、礼物、钱袋五个真实预览，并同步缓存到本地'
+        ]
+      },
+      {
+        title: '优化',
+        items: [
+          'Twemoji 升级到 17.0.3、OpenMoji 升级到 17.0.0，补充新 emoji',
+          '图标样式名称改为中文，原英文图标库名作为备注',
+          '小尺寸图标统一按 60 档加载，图标选择页首批渲染从 80 个减至 40 个，打开更快'
+        ]
+      },
+      {
+        title: '修复',
+        items: [
+          '修复 OpenMoji 与 Twemoji 本地缓存串样式、人物组合图标缺少 FE0F 后缀导致的空白',
+          '修复 App 在后台下载完成后仍自动弹出安装器',
+          '修复点击通知栏安装后，再次打开 App 仍弹出更新提示'
+        ]
+      }
+    ]
+  },
+  {
     version: '1.25.1',
     date: '2026-11-17',
     schemaVersion: 25,
@@ -174,15 +205,14 @@ export const RELEASES = [
         title: '新增',
         items: [
           '新增「人物与身体」图标大类，包含职业与角色、奇幻人物、人物活动、运动中的人、人物休息 5 个子类，图标库扩至 1037 个',
-          '新增 Microsoft Fluent 与 Microsoft Fluent 3D 图标样式，共五种样式可选',
-          '分类与主题预览图标增加本地缓存：只缓存实际用到的图标，五种样式同步，后续打开更快'
+          '新增 Microsoft Fluent 图标样式，共四种样式可选',
+          '分类与主题预览图标增加本地缓存：只缓存实际用到的图标，四种样式同步，后续打开更快'
         ]
       },
       {
         title: '优化',
         items: [
-          'OpenMoji 改用 SVG 单图加载；移除 Firefox Emoji，图标样式精简为 Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D 五种',
-          'Twemoji / OpenMoji 图标库升级到 17.x，补充新 emoji',
+          'OpenMoji 改用 SVG 单图加载；移除 Firefox Emoji，图标样式精简为 Noto / Twemoji / OpenMoji / Microsoft Fluent 四种',
           '系统分类支持编辑图标和颜色，名称与删除仍锁定；子分类颜色统一跟随父级，父类改色自动同步',
           '分类修改 / 删除时同步更新本地缓存，不再使用的旧缓存自动清理；缓存文件失效自动回退联网'
         ]
