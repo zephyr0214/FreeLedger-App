@@ -7,6 +7,8 @@ dist/
 .idea/
 .vscode/
 agent.md
+# AGENTS.md 需要随仓库分发；这条规则只挡住本地副本被重复 git add
+AGENTS.md
 
 # HBuilderX 自动生成的隐私协议配置（每次打包都会重写）
 androidPrivacy.json
