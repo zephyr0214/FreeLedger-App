@@ -7,8 +7,8 @@
  * emojiImageSrc 拼 URL 时优先使用实际码点。
  *
  * 来源：
- *   Twemoji  jdecked/twemoji@15.1.0 assets/svg 文件列表
- *   OpenMoji hfg-gmuend/openmoji@15.1.0 color/svg 文件列表
+ *   Twemoji  jdecked/twemoji@17.0.3 assets/svg 文件列表
+ *   OpenMoji hfg-gmuend/openmoji@17.0.0 color/svg 文件列表
  */
 export const FE0F_VARIANT_CODES = {
   "1F3C3-200D-2640": "1F3C3-200D-2640-FE0F",

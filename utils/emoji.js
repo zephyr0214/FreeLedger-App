@@ -4,8 +4,8 @@
  * ★ 图标图片不随包下载 ★
  *   用户在「我的 → 主题外观」里选样式，运行时按码点拼对应 CDN：
  *     noto     https://fonts.gstatic.com/s/e/notoemoji/latest/...
- *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/...
- *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/...
+ *     twemoji  https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/...
+ *     openmoji https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@17.0.0/color/svg/...
  *     fluent   https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@.../assets/.../Flat/...svg
  *   选择页缩略图用 60 档，分类列表 / 流水图标用 120 档。
  *
@@ -129,8 +129,8 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
   if (st === 'noto') return notoUrl()
 
   if (st === 'twemoji') {
-    // Twemoji（jdecked 维护的 15.1 分支，覆盖到较新的 emoji）：1f415-200d-1f9ba.svg
-    return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${assetCode.toLowerCase()}.svg`
+    // Twemoji（jdecked 维护的 17.0 分支，覆盖到较新的 emoji）：1f415-200d-1f9ba.svg
+    return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/${assetCode.toLowerCase()}.svg`
   }
 
   if (st === 'fluent') {
@@ -158,7 +158,7 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
   }
 
   /*
-   * OpenMoji 15.1：1F415-200D-1F9BA.svg
+   * OpenMoji 17.0：1F415-200D-1F9BA.svg
    *
    * ★ 用 SVG，不用 PNG ★
    *   OpenMoji 官方只有 72×72 和 618×618 两档 PNG：
@@ -167,7 +167,7 @@ export function emojiImageSrc(code, size = 120, style = 'noto') {
    *   Twemoji 也走 SVG，Android <image> 能正常渲染。
    *   尺寸档对 SVG 不生效，统一返回同一个矢量地址。
    */
-  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/${assetCode}.svg`
+  return `https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@17.0.0/color/svg/${assetCode}.svg`
 }
 
 /** 码点 -> 系统 emoji 字符（图片加载中 / 失败时的兜底） */

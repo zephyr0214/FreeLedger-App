@@ -182,6 +182,7 @@ export const RELEASES = [
         title: '优化',
         items: [
           'OpenMoji 改用 SVG 单图加载；移除 Firefox Emoji，图标样式精简为 Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D 五种',
+          'Twemoji / OpenMoji 图标库升级到 17.x，补充新 emoji',
           '系统分类支持编辑图标和颜色，名称与删除仍锁定；子分类颜色统一跟随父级，父类改色自动同步',
           '分类修改 / 删除时同步更新本地缓存，不再使用的旧缓存自动清理；缓存文件失效自动回退联网'
         ]

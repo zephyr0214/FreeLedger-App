@@ -142,17 +142,17 @@ check(
 check(
   'Twemoji 地址',
   emojiImageSrc('1F415-200D-1F9BA', 60, 'twemoji'),
-  'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f415-200d-1f9ba.svg'
+  'https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/1f415-200d-1f9ba.svg'
 )
 check(
   'OpenMoji 用 SVG（矢量、约 2KB，不请求 618 PNG）',
   emojiImageSrc('1F35C', 120, 'openmoji'),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@17.0.0/color/svg/1F35C.svg'
 )
 check(
   'OpenMoji 小尺寸也用同一个 SVG',
   emojiImageSrc('1F35C', 60, 'openmoji'),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F35C.svg'
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@17.0.0/color/svg/1F35C.svg'
 )
 check(
   '不再请求 OpenMoji black 线稿',
@@ -174,12 +174,12 @@ check('Fluent 映射全部是 SVG', Object.values(FLUENT_MAP).every((p) => p.end
 check(
   'Twemoji 人物组合自动补 FE0F',
   emojiImageSrc('1F9D1-200D-2695', 60, 'twemoji'),
-  'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f9d1-200d-2695-fe0f.svg'
+  'https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/1f9d1-200d-2695-fe0f.svg'
 )
 check(
   'OpenMoji 人物组合自动补 FE0F',
   emojiImageSrc('1F9D1-200D-2695', 120, 'openmoji'),
-  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@15.1.0/color/svg/1F9D1-200D-2695-FE0F.svg'
+  'https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji@17.0.0/color/svg/1F9D1-200D-2695-FE0F.svg'
 )
 check(
   'Fluent 3D 用 256 PNG',
