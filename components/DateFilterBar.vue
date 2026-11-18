@@ -110,7 +110,7 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 import DropdownArrow from '@/components/DropdownArrow.vue'
 import { toDayKey, parseDayKey, shiftDay } from '@/utils/date.js'
@@ -368,7 +368,7 @@ export default {
      *   用户会以为自己已经选过了。
      *   用「近一个月」作为初始视图最符合记账习惯（大多数人看的就是最近一个月）。
      */
-    function openCalendar() {
+    async function openCalendar() {
       const a = props.startDay ? parseDayKey(props.startDay).getTime() : null
       const b = props.endDay ? parseDayKey(props.endDay).getTime() : null
       if (a && b) {
@@ -378,6 +378,16 @@ export default {
         const start = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
         rangeValue.value = [start.getTime(), today.getTime()]
       }
+      /*
+       * ★ 等子组件的 prop 更新完再 open ★
+       *   rangeValue 是 v-model，给 ref 赋值后 wd-calendar 的
+       *   calendarValue 要等一次渲染才同步。同步调 open() 的话，
+       *   它内部的 lastCalendarValue 会拿到旧值（甚至是 null），
+       *   随后 props 更新又覆盖一次 —— 表现就是「日历打开了，
+       *   但区间选不上 / 一选就回退」。筛选条件变化会触发整页重渲染，
+       *   这个时序问题更容易出现，所以必须 await nextTick。
+       */
+      await nextTick()
       if (rangeCalRef.value && typeof rangeCalRef.value.open === 'function') {
         rangeCalRef.value.open()
       }
@@ -430,9 +440,15 @@ export default {
       if (periodRef.value && typeof periodRef.value.collapse === 'function') {
         periodRef.value.collapse()
       }
-      if (rangeCalRef.value && typeof rangeCalRef.value.close === 'function') {
-        rangeCalRef.value.close()
-      }
+      /*
+       * ★ 不在这里 close 区间日历 ★
+       *   区间日历是模态弹层，打开时筛选按钮/更多筛选按钮被遮罩盖住，
+       *   用户根本点不到 —— 能走到这里的只可能是「日历本来就没开」。
+       *   对没打开的 wd-calendar 调 close() 会启动一个 250ms 的
+       *   「恢复上次值」定时器，之后真正打开日历时它会把刚喂进去的
+       *   区间覆盖掉，表现成「日期区间选不上」。所以这里只收
+       *   年月日下拉，不动模态日历。
+       */
     }
 
     return {

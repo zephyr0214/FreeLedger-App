@@ -235,10 +235,11 @@ check('maxDate 截到今天 23:59:59', /23, 59, 59\)\.getTime\(\)/.test(barCode)
 
 // ★ 打开前必须先喂当前区间，否则会停在今天
 check(
-  'openCalendar 先赋值再 open',
-  /function openCalendar\(\)[\s\S]{0,600}?rangeValue\.value = [\s\S]{0,300}?\.open\(\)/.test(barCode),
+  'openCalendar 先赋值、等渲染后再 open',
+  /async function openCalendar\(\)[\s\S]{0,900}?rangeValue\.value = [\s\S]{0,300}?await nextTick\(\)[\s\S]{0,200}?\.open\(\)/.test(barCode),
   true
 )
+check('collapse 不再关闭模态区间日历', /rangeCalRef\.value\.close/.test(barCode), false)
 check('open() 有存在性检查', /typeof rangeCalRef\.value\.open === 'function'/.test(barCode), true)
 check('没选日期时给一个合理默认区间', /getMonth\(\) - 1/.test(barCode), true)
 
