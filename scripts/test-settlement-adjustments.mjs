@@ -197,15 +197,14 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   check('只统计存活行', segments.map((ep) => ep.txns.length), [3, 1, 2])
 
   /*
-   * 未结清页：第 2 单显示，第 1/3 单合成一个折叠条。
-   * 段序倒序后是 [第3单, 第2单, 第1单]，
-   * 折叠条占第 3 单位置，第 2 单紧随其后，第 1 单被 skip。
+   * 未结清页：第 2 单显示，第 1/3 单合成一个折叠条放在下面。
+   * 未结清段永远排在已结清历史之前（用户本轮截图反馈）。
    */
   const view = buildLoanEpisodeView(segments, { status: 'open' }).filter((v) => !v.skip)
   check(
-    '第 1/3 单折叠、第 2 单显示',
+    '第 2 单在上显示、第 1/3 单折叠在下',
     view.map((v) => [v.rowIndex, v.collapsed]),
-    [[-1, true], [1, false]]
+    [[0, false], [-1, true]]
   )
 }
 
@@ -253,11 +252,19 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
     [['o2m']]
   )
   check(
-    '删第 2 单收回：未结清页第 1/3 单折叠、第 2 单显示',
+    '删第 2 单收回：未结清页第 2 单在上，第 1/3 单折叠在下',
     buildLoanEpisodeView(middleEpisodes, { status: 'open' })
       .filter((v) => !v.skip)
       .map((v) => [v.rowIndex, v.collapsed]),
-    [[-1, true], [1, false]]
+    [[0, false], [-1, true]]
+  )
+  check(
+    '删第 2 单收回：展开历史后已结清单也在当前流水下方',
+    buildLoanEpisodeView(middleEpisodes, {
+      status: 'open',
+      isExpanded: (index) => index === -1
+    }).map((v) => [v.rowIndex, !!v.showDividerBefore, !!v.showCollapseBtn]),
+    [[0, false, false], [-1, true, false], [-1, true, true]]
   )
 
   /*
@@ -328,6 +335,42 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
     '删中间收回、第三单仍未结清：中间单和第三单各占一段',
     openThirdEpisodes.filter((ep) => !ep.settled).map((ep) => ep.txns.map((t) => t.id)),
     [['o2m'], ['o3m']]
+  )
+}
+
+/*
+ * 借入方向同一套展示规则：删中间那笔「借款归还」后，
+ * 当前未结清的借入也要排在上面，已结清历史折叠在下面。
+ */
+{
+  const BORROW = { mainId: 'bm', backId: 'bb', positiveId: 'bp', negativeId: 'bn' }
+  const borrowRow = (id, cat, yuan, day, hour = 12) => ({
+    ...loanRow(id, cat, yuan, day, hour),
+    category_id: cat
+  })
+  const rows = [
+    borrowRow('q1m', 'bm', 500, '2026-09-01'),
+    borrowRow('q1b', 'bb', 500, '2026-09-02'),
+    borrowRow('q2m', 'bm', 300, '2026-09-03'),
+    borrowRow('q2b', 'bb', 300, '2026-09-04'),
+    borrowRow('q3m', 'bm', 200, '2026-09-05'),
+    borrowRow('q3b', 'bb', 200, '2026-09-06')
+  ].map((t) => (t.id === 'q2b'
+    ? { ...t, deleted_at: 1000, via_combo_id: LOAN_BOUNDARY_MARK }
+    : t))
+  const live = rows.filter((t) => !t.deleted_at)
+  const eps = chooseLoanEpisodes(live, filterLoanBoundaryRows(rows), BORROW)
+  check(
+    '借入：删中间归还后只中间单未结清',
+    eps.map((ep) => ep.settled),
+    [true, false, true]
+  )
+  check(
+    '借入：未结清流水在上、历史折叠在下',
+    buildLoanEpisodeView(eps, { status: 'open' })
+      .filter((v) => !v.skip)
+      .map((v) => [v.rowIndex, v.collapsed]),
+    [[0, false], [-1, true]]
   )
 }
 

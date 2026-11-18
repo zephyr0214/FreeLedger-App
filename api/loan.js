@@ -1129,6 +1129,21 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
   const ordered = eps.slice().reverse()
 
   /*
+   * ★ 未结清 tab：当前未结清的段全部排在前面，已结清历史统一放到下面 ★
+   *   只按时间倒序的话，如果「中间那单收回被删、后面那单已经结清」，
+   *   后面的已结清段会排在中间单本金前面 —— 折叠条就跑到当前流水上方了。
+   *   用户要求「当前流水在上、历史已结清在下」，
+   *   所以未结清 tab 里先把所有 settled=false 的段挑出来，
+   *   再把已结清段接在后面（两组内部仍保持时间倒序）。
+   *   已结清 tab 不受影响，继续全部按时间倒序。
+   */
+  const orderedForRender = isSettledTab
+    ? ordered
+    : ordered
+      .filter((ep) => !(ep && ep.settled))
+      .concat(ordered.filter((ep) => ep && ep.settled))
+
+  /*
    * ★ 未结清 tab：所有已结清段合成一个「历史」折叠组（用户本轮第 5 条）★
    *   用户原话：「历史有多次已结清时，未结清页面现在会显示多个展开按钮，
    *   修复一下这个 bug，只显示一个」。
@@ -1148,16 +1163,16 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
   const historyExpanded = !isSettledTab && isExpanded(-1)
   // 历史组里最后一段的下标（收起按钮挂在它后面）
   let lastSettledIndex = -1
-  for (let i = 0; i < ordered.length; i++) {
-    const ep = ordered[i]
+  for (let i = 0; i < orderedForRender.length; i++) {
+    const ep = orderedForRender[i]
     if (ep && ep.settled && visibleTxnsOf(ep).length > 0) lastSettledIndex = i
   }
 
   const out = []
   let historyBarPlaced = false
 
-  for (let i = 0; i < ordered.length; i++) {
-    const ep = ordered[i]
+  for (let i = 0; i < orderedForRender.length; i++) {
+    const ep = orderedForRender[i]
     if (!ep || visibleTxnsOf(ep).length === 0) continue
 
     /*
