@@ -207,6 +207,17 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   )
 }
 
+/* 软删行导致原始段未收口、但存活行刚好归零时，日期要能兜底 */
+{
+  const rows = [
+    loanRow('m6', 'm', 500, '2026-04-01'),
+    loanRow('b6', 'b', 500, '2026-04-02'),
+    { ...loanRow('m7', 'm', 100, '2026-04-03'), deleted_at: Date.now() }
+  ]
+  const eps = buildLoanOrderEpisodes(rows, PAIR)
+  check('存活行刚好归零时仍给出结清日期', eps[0] ? eps[0].closingDay : '', '2026-04-02')
+}
+
 /*
  * 删本金：本单的收回/归还 + 差额一起删，剩余本金变为未结清。
  */
@@ -273,7 +284,7 @@ check('借出借入右上角快捷按钮', /HeaderAction/.test(loanPage) && /ope
 check('快捷按钮文案随方向切换', /isIncome \? '借款归还' : '借款收回'/.test(loanPage), true)
 check('借出借入页挂记账面板', /<TxnPanel/.test(loanPage), true)
 check('快捷记账预置收回/归还分类', /borrowBackId/.test(loanPage) && /lendBackId/.test(loanPage), true)
-check('已结清后再借会重新折叠旧单', /lastSettled\[g\.person\] === true && !g\.settled/.test(loanPage), true)
+check('已结清后再借会重新折叠旧单', /lastOpenSignature\[g\.person\] !== sig/.test(loanPage), true)
 check('清理折叠状态包含历史组 key', /clearEpisodeStates/.test(loanPage), true)
 check('API 生成 displayTxns', /g\.displayTxns\s*=/.test(loanSrc), true)
 check('报销单头显示完整年月日', /年\$\{Number\(m\)\}月\$\{Number\(d\)\}日/.test(reimbursePage), true)

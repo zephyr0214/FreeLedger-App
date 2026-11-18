@@ -577,6 +577,19 @@ export async function listLoanGroups(direction, status = 'all') {
      */
     const closed = g.episodes.filter((ep) => ep.settled && ep.closingDay)
     g.lastClosingDay = closed.length > 0 ? closed[closed.length - 1].closingDay : ''
+    /*
+     * 兜底：极端脏数据下可能连分段都切不出来（分类 id 对不上等），
+     * 但组头仍显示已结清。这时至少用最后一笔存活流水的日期，
+     * 不能把日期整块丢掉。
+     */
+    if (!g.lastClosingDay && g.settled) {
+      const days = g.txns
+        .map((t) => String(t.occurred_day || '') ||
+          (t.occurred_at ? toDayKey(new Date(Number(t.occurred_at))) : ''))
+        .filter(Boolean)
+        .sort()
+      g.lastClosingDay = days.length > 0 ? days[days.length - 1] : ''
+    }
 
     /*
      * 页面展示用：
@@ -646,6 +659,9 @@ export function buildLoanOrderEpisodes(allTxns, pair) {
   }
 
   const out = []
+  const dayOf = (t) => String((t && t.occurred_day) || '') ||
+    (t && t.occurred_at ? toDayKey(new Date(Number(t.occurred_at))) : '')
+
   for (const ep of segments) {
     const live = (ep.txns || []).filter((t) => !t.deleted_at)
     if (live.length === 0) continue
@@ -654,16 +670,33 @@ export function buildLoanOrderEpisodes(allTxns, pair) {
     const settled = balance === 0
     const displayTxns = live.filter((t) => !isSettlementAdjustmentName(t.category_name))
 
+    /*
+     * 收口日期：
+     *   正常情况下用原始分段的 closingDay（含软删除行切出来的边界）。
+     *   但删过流水后，存活行可能刚好归零、原始段却是「最后一段未收口」，
+     *   这时 closingDay 是空串 —— 日期不能因此消失。
+     *   退化成「存活行里最后一次余额归零的那一天」，再不行用最后一笔的日期。
+     */
+    let closingDay = ep.closingDay || ''
+    if (settled && !closingDay) {
+      let running = 0
+      let lastZeroDay = ''
+      for (const t of live) {
+        running += deltaOf(t)
+        if (running === 0) lastZeroDay = dayOf(t)
+      }
+      closingDay = lastZeroDay || dayOf(live[live.length - 1])
+    }
+
     out.push({
       ...ep,
       txns: live,
       displayTxns,
       balance,
       settled,
-      // 未结清段不显示「结清日期」；已结清仍用当初的收口日
-      closingDay: settled ? (ep.closingDay || '') : '',
-      fromDay: live[0] ? String(live[0].occurred_day || '') : ep.fromDay,
-      toDay: live[live.length - 1] ? String(live[live.length - 1].occurred_day || '') : ep.toDay
+      closingDay,
+      fromDay: live[0] ? dayOf(live[0]) : ep.fromDay,
+      toDay: live[live.length - 1] ? dayOf(live[live.length - 1]) : ep.toDay
     })
   }
   return out

@@ -651,15 +651,15 @@ export default {
     const episodeOpen = reactive({})
 
     /**
-     * 上一次加载时每个人的结清状态（person -> settled）
+     * 上一次加载时每个人的「当前未结清单」指纹（person -> signature）
      *
-     * ★ 用来识别「已结清的人又新增了借入借出」★
-     *   一旦从已结清变成未结清，说明产生了新的一单；
-     *   这时必须清掉这个人的折叠状态，让之前的已结清单重新折叠。
-     *   否则用户上次在未结清页手动展开过历史，新增一单后历史仍然张着，
-     *   看起来不像「新单出现、旧单自动收起」。
+     * ★ 用来识别「这个人的当前单发生了变化」★
+     *   用户新增一笔借出/借入、或删除当前单的流水后，
+     *   未结清单的流水 id 组合会变；这时清掉折叠状态，
+     *   让历史已结清单重新折叠。
+     *   普通刷新、切 tab 指纹不变，不会打断用户手动展开。
      */
-    const lastSettled = {}
+    const lastOpenSignature = {}
 
     /** 人员 + 段序号 → 折叠状态 key */
     function episodeKey(person, index) {
@@ -678,16 +678,20 @@ export default {
     function episodesOf(g) {
       const eps = g && Array.isArray(g.episodes) ? g.episodes : []
       if (eps.length > 0) return eps
+      const txns = (g && Array.isArray(g.txns)) ? g.txns : []
       return [{
-        settled: false,
-        txns: (g && Array.isArray(g.txns)) ? g.txns : [],
-        displayTxns: (g && Array.isArray(g.displayTxns))
-          ? g.displayTxns
-          : ((g && Array.isArray(g.txns)) ? g.txns : []),
+        /*
+         * 兜底也要尊重组头的结清状态：
+         *   以前一律 settled:false，脏数据/分段异常时会出现
+         *   「组头写已结清、下面却没有日期标注」的矛盾。
+         */
+        settled: !!g.settled,
+        txns,
+        displayTxns: (g && Array.isArray(g.displayTxns)) ? g.displayTxns : txns,
         balance: Number(g && g.balance) || 0,
         fromDay: '',
         toDay: '',
-        closingDay: ''
+        closingDay: g && g.settled ? (g.lastClosingDay || '') : ''
       }]
     }
 
@@ -808,22 +812,31 @@ export default {
         const settled = all.filter((g) => g.settled)
 
         /*
-         * ★ 已结清 → 又有新借入借出：把旧单重新折叠 ★
+         * ★ 当前未结清单变了：把历史已结清单重新折叠 ★
          *   用户场景：张三原来已经全部结清，后来再借一笔；
          *   如果他上次在未结清页把历史展开过，新增这一单后
-         *   旧的已结清单应该自动收起，而不是继续张着。
-         *   只在这个状态真的翻转时清，避免每次刷新都打断用户手动展开。
+         *   旧的已结清单应该自动收起。
+         *   用「当前未结清单的流水 id 组合」做指纹：
+         *     · 新增借款 / 删除当前单流水 → 指纹变 → 清折叠状态
+         *     · 普通刷新 / 切 tab → 指纹不变 → 保留用户手动展开
          */
         const seenPeople = new Set()
         for (const g of all) {
           seenPeople.add(g.person)
-          if (lastSettled[g.person] === true && !g.settled) {
+          const sig = (g.episodes || [])
+            .filter((ep) => !ep.settled)
+            .map((ep) => (ep.txns || []).map((t) => t.id).join(','))
+            .join('|')
+          if (
+            Object.prototype.hasOwnProperty.call(lastOpenSignature, g.person) &&
+            lastOpenSignature[g.person] !== sig
+          ) {
             clearEpisodeStates(g.person)
           }
-          lastSettled[g.person] = !!g.settled
+          lastOpenSignature[g.person] = sig
         }
-        for (const person of Object.keys(lastSettled)) {
-          if (!seenPeople.has(person)) delete lastSettled[person]
+        for (const person of Object.keys(lastOpenSignature)) {
+          if (!seenPeople.has(person)) delete lastOpenSignature[person]
         }
 
         openCount.value = open.length
