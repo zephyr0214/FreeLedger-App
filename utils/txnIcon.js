@@ -9,8 +9,8 @@
  *   key  名称   图标    外框
  *   xs   极小   44rpx   48rpx
  *   s    小     52rpx   56rpx
- *   m    中     60rpx   64rpx
- *   l    大     68rpx   72rpx   ← 默认
+ *   m    中     60rpx   64rpx   ← 默认
+ *   l    大     68rpx   72rpx
  *   xl   极大   76rpx   80rpx
  *
  * ★ 背景形状档位（0=方形，4=圆形）★
@@ -42,8 +42,8 @@ export const TXN_ICON_ROUNDS = [
   { key: 'circle', name: '圆形', radius: '50%' }
 ]
 
-const DEFAULT_KEY = 'l'
-const DEFAULT_ROUND = 2
+const DEFAULT_KEY = 'm'
+const DEFAULT_ROUND = 3
 
 /** 设置里的尺寸值归一成合法 key */
 export function normalizeTxnIconSize(key) {
@@ -53,7 +53,7 @@ export function normalizeTxnIconSize(key) {
 
 /** key -> { key, name, icon, box } */
 export function getTxnIconMetrics(key) {
-  return TXN_ICON_SIZES.find((s) => s.key === normalizeTxnIconSize(key)) || TXN_ICON_SIZES[3]
+  return TXN_ICON_SIZES.find((s) => s.key === normalizeTxnIconSize(key)) || TXN_ICON_SIZES[2]
 }
 
 /** key -> 滑块序号（0..4） */

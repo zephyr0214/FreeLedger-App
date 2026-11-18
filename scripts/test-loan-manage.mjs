@@ -383,8 +383,13 @@ check(
   true
 )
 check(
-  '支出/收入两套口径都排除（categoryStatsByScope）',
-  /categoryStatsByScope[\s\S]{0,600}NOT_EXCLUDED_STATS/.test(STATS),
+  '支出/收入金额排除不计收支（categoryStatsByScope）',
+  /function categoryStatsByScope[\s\S]{0,600}COALESCE\(t\.exclude_from_stats, 0\) = 0[\s\S]{0,160}t\.amount_cents/.test(STATS),
+  true
+)
+check(
+  '分类笔数仍统计全部流水',
+  /function categoryStatsByScope[\s\S]{0,600}COUNT\(\*\) AS cnt/.test(STATS),
   true
 )
 

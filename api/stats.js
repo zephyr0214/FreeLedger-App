@@ -363,20 +363,28 @@ export async function getMonthComparison(monthKey) {
 async function categoryStatsByScope(scope, type) {
   const rows = await query(
     `SELECT COALESCE(c.parent_id, c.id) AS root_id,
-            SUM(t.amount_cents) AS amt,
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
             COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY root_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
   )
 
-  if (rows.length === 0) return []
+  /*
+   * 只保留有「计入收支」金额的分类：
+   * 借出/借入等分类的金额为 0，但仍会因 COUNT(*) 出现一行；
+   * 统计页是金额排行，0 元分类不该占一行。
+   * 保留下来的分类，count 已经包含该分类下所有流水（含不计收支）。
+   */
+  const shown = rows.filter((r) => (Number(r.amt) || 0) > 0)
+  if (shown.length === 0) return []
 
   // 取一级分类名称与图标
-  const ids = rows.map((r) => r.root_id).filter(Boolean)
+  const ids = shown.map((r) => r.root_id).filter(Boolean)
   let cats = []
   if (ids.length > 0) {
     cats = await query(
@@ -387,7 +395,7 @@ async function categoryStatsByScope(scope, type) {
   const catMap = {}
   cats.forEach((c) => { catMap[c.id] = c })
 
-  return rows.map((r) => {
+  return shown.map((r) => {
     const meta = catMap[r.root_id] || {}
     return {
       // ★ 分类被删除后，交易的 category_id 变成 NULL，
@@ -459,24 +467,27 @@ export async function getCategoryStatsRange(range, type = 'expense') {
  *   parentName:string,amount:number,count:number}>>}
  */
 export async function getSubCategoryStatsRange(range, type = 'expense') {
+  const scope = rangeScope(range)
   const rows = await query(
     `SELECT t.category_id AS id,
             c.name, c.icon, c.color,
             c.parent_id AS parent_id,
             COALESCE(p.name, '未分类') AS parent_name,
             COALESCE(p.color, c.color) AS parent_color,
-            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN category p ON p.id = c.parent_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', rangeScope(range))}
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY t.category_id
      ORDER BY amt DESC`,
-    [type].concat(rangeScope(range).params)
+    [type].concat(scope.params)
   )
 
-  // 按调色板顺序取色：每块颜色都不同
-  return rows.map((r, i) => ({
+  // 只展示有金额的分类；count 含该分类下全部流水
+  return rows.filter((r) => (Number(r.amt) || 0) > 0).map((r, i) => ({
     // ★ 分类被删除后，交易的 category_id 变成 NULL ★
     //   给个非空 id 给列表的 v-for key 用，名字显示「未分类」。
     id: r.id || 'none',
@@ -518,17 +529,18 @@ export const PIE_PALETTE = [
 export async function getSubCategoryStats(parentId, monthKey, type = 'expense') {
   const rows = await query(
     `SELECT t.category_id AS id, c.name, c.icon, c.color,
-            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      WHERE t.deleted_at IS NULL AND t.type = ? AND t.month_key = ?
-       AND ${NOT_EXCLUDED_STATS}
        AND (t.category_id = ? OR c.parent_id = ?)
      GROUP BY t.category_id
      ORDER BY amt DESC`,
     [type, monthKey || toMonthKey(), parentId, parentId]
   )
-  return rows.map((r) => ({
+  return rows.filter((r) => (Number(r.amt) || 0) > 0).map((r) => ({
     id: r.id,
     name: r.name || '未分类',
     icon: r.icon || 'more',
@@ -544,15 +556,17 @@ export async function getSubCategoryStats(parentId, monthKey, type = 'expense') 
 async function accountStatsByScope(scope, type) {
   const rows = await query(
     `SELECT t.account_id AS id, a.name, a.icon, a.color, a.type AS account_type,
-            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN account a ON a.id = t.account_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY t.account_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
   )
-  return rows.map((r) => ({
+  return rows.filter((r) => (Number(r.amt) || 0) > 0).map((r) => ({
     // ★ 账户被删除后，交易的 account_id 变成空字符串 ★
     //   这里给个非空的 id（列表的 v-for key 用），
     //   名字显示「无账户」，和用户删除账户后的预期一致。
@@ -592,21 +606,26 @@ export async function getAccountStatsRange(range, type = 'expense') {
  * @returns {Promise<Array<{key:string,name:string,icon:string,color:string,amount:number,count:number}>>}
  */
 export async function getAccountTypeStatsRange(range, type = 'expense') {
+  const scope = rangeScope(range)
   const rows = await query(
     `SELECT COALESCE(a.type, 'other') AS account_type,
-            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(*) AS cnt
      FROM txn t
      LEFT JOIN account a ON a.id = t.account_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', rangeScope(range))}
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY COALESCE(a.type, 'other')
      ORDER BY amt DESC`,
-    [type].concat(rangeScope(range).params)
+    [type].concat(scope.params)
   )
 
   // 按 ACCOUNT_TYPES 的顺序输出，颜色用类型自己的颜色
   const order = ACCOUNT_TYPES.map((t) => t.key)
   const rowMap = {}
   for (const r of rows) {
+    // 只有「不计收支」流水的账户类别金额为 0，不占饼图一块；count 仍含全部
+    if ((Number(r.amt) || 0) <= 0) continue
     rowMap[r.account_type || 'other'] = r
   }
 
@@ -669,16 +688,19 @@ const ACCOUNT_TYPE_COLORS = {
 /** 标签聚合主体 */
 async function tagStatsByScope(scope, type) {
   const rows = await query(
-    `SELECT tg.id, tg.name, tg.color, SUM(t.amount_cents) AS amt, COUNT(DISTINCT t.id) AS cnt
+    `SELECT tg.id, tg.name, tg.color,
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(DISTINCT t.id) AS cnt
      FROM txn t
      JOIN txn_tag tt ON tt.txn_id = t.id
      JOIN tag tg ON tg.id = tt.tag_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)} AND tg.deleted_at IS NULL
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)} AND tg.deleted_at IS NULL
      GROUP BY tg.id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
   )
-  return rows.map((r) => ({
+  return rows.filter((r) => (Number(r.amt) || 0) > 0).map((r) => ({
     id: r.id,
     name: r.name || '未命名',
     color: r.color || '#1989FA',
@@ -920,17 +942,25 @@ export async function getDailyTrendRange(range) {
 /** 平均值聚合主体（daysPassed 由调用方给，两套口径的「已过天数」定义不同） */
 async function averagesByScope(scope, daysPassed, type = 'expense') {
   const row = await queryOne(
-    `SELECT COALESCE(SUM(t.amount_cents),0) AS total, COUNT(*) AS cnt
-     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
+    `SELECT COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                              THEN t.amount_cents ELSE 0 END),0) AS total,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                              THEN 1 ELSE 0 END),0) AS stats_cnt
+     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}`,
     [type].concat(scope.params)
   )
   const total = Number(row ? row.total : 0)
+  // count 含全部流水；笔均金额只除以「计入收支」的笔数，避免均价被借还款拉低
   const cnt = Number(row ? row.cnt : 0)
+  const statsCnt = Number(row ? row.stats_cnt : 0)
 
   // 最高单日
   const maxDay = await queryOne(
-    `SELECT t.occurred_day AS day, SUM(t.amount_cents) AS amt
-     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
+    `SELECT t.occurred_day AS day,
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt
+     FROM txn t WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY t.occurred_day ORDER BY amt DESC LIMIT 1`,
     [type].concat(scope.params)
   )
@@ -939,7 +969,7 @@ async function averagesByScope(scope, daysPassed, type = 'expense') {
     total,
     count: cnt,
     avgPerDay: daysPassed > 0 ? Math.round(total / daysPassed) : 0,
-    avgPerTxn: cnt > 0 ? Math.round(total / cnt) : 0,
+    avgPerTxn: statsCnt > 0 ? Math.round(total / statsCnt) : 0,
     daysPassed,
     maxDay: maxDay ? { day: maxDay.day, amount: Number(maxDay.amt) || 0 } : null
   }
@@ -1049,10 +1079,14 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
 
   const rows = await query(
     `SELECT COALESCE(c.parent_id, c.id) AS root_id,
-            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                              THEN 1 ELSE 0 END),0) AS stats_cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY root_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
@@ -1060,8 +1094,11 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
 
   if (rows.length === 0) return []
 
+  // 只保留有金额的分类；count 含全部流水，avgPerTxn 只除以计入收支的笔数
+  const shown = rows.filter((r) => (Number(r.amt) || 0) > 0)
+
   // 取一级分类的名称、图标、颜色
-  const ids = rows.map((r) => r.root_id).filter(Boolean)
+  const ids = shown.map((r) => r.root_id).filter(Boolean)
   let cats = []
   if (ids.length > 0) {
     cats = await query(
@@ -1072,10 +1109,11 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
   const catMap = {}
   cats.forEach((c) => { catMap[c.id] = c })
 
-  return rows.map((r) => {
+  return shown.map((r) => {
     const meta = catMap[r.root_id] || {}
     const amount = Number(r.amt) || 0
     const count = Number(r.cnt) || 0
+    const statsCnt = Number(r.stats_cnt) || 0
     return {
       // ★ 分类被删除后 root_id 为 NULL —— 给个非空 id 给列表 key 用
       id: r.root_id || 'none',
@@ -1084,8 +1122,8 @@ export async function getCategoryAveragesRange(range, type = 'expense') {
       color: meta.color || '#969799',
       amount,
       count,
-      // 笔均：该分类平均每笔花多少
-      avgPerTxn: count > 0 ? Math.round(amount / count) : 0,
+      // 笔均：该分类平均每笔花多少（分母只含计入收支的笔数）
+      avgPerTxn: statsCnt > 0 ? Math.round(amount / statsCnt) : 0,
       // 日均：该分类平均每天花多少
       avgPerDay: daysPassed > 0 ? Math.round(amount / daysPassed) : 0,
       totalDays: daysPassed
@@ -1116,19 +1154,24 @@ export async function getSubCategoryAveragesRange(range, type = 'expense') {
     `SELECT t.category_id AS id,
             c.name, c.icon, c.color,
             COALESCE(p.name, '未分类') AS parent_name,
-            SUM(t.amount_cents) AS amt, COUNT(*) AS cnt
+            SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                     THEN t.amount_cents ELSE 0 END) AS amt,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                              THEN 1 ELSE 0 END),0) AS stats_cnt
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN category p ON p.id = c.parent_id
-     WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
+     WHERE t.deleted_at IS NULL AND t.type = ?${withScope('', scope)}
      GROUP BY t.category_id
      ORDER BY amt DESC`,
     [type].concat(scope.params)
   )
 
-  return rows.map((r, i) => {
+  return rows.filter((r) => (Number(r.amt) || 0) > 0).map((r, i) => {
     const amount = Number(r.amt) || 0
     const count = Number(r.cnt) || 0
+    const statsCnt = Number(r.stats_cnt) || 0
     return {
       // ★ 分类被删除后 id 为 NULL —— 给个非空 id 给列表 key 用
       id: r.id || 'none',
@@ -1138,8 +1181,8 @@ export async function getSubCategoryAveragesRange(range, type = 'expense') {
       parentName: r.parent_name || '未分类',
       amount,
       count,
-      // 笔均：该分类平均每笔花多少
-      avgPerTxn: count > 0 ? Math.round(amount / count) : 0,
+      // 笔均：该分类平均每笔花多少（分母只含计入收支的笔数）
+      avgPerTxn: statsCnt > 0 ? Math.round(amount / statsCnt) : 0,
       // 日均：该分类平均每天花多少
       avgPerDay: daysPassed > 0 ? Math.round(amount / daysPassed) : 0,
       totalDays: daysPassed

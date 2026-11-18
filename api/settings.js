@@ -38,25 +38,25 @@ export const DEFAULT_SETTINGS = {
 
   // 外观
   themeMode: 'system',        // system | light | dark
-  themePreset: 'green',
+  themePreset: 'blue',
   privacyMode: false,         // 金额脱敏
 
   /**
    * 分类图标样式
-   *   noto | twemoji | openmoji
-   * 三种样式都按需联网加载。
+   *   noto | twemoji | openmoji | fluent | fluent3d
+   * 五种样式都按需联网加载。
    */
-  emojiStyle: 'noto',
+  emojiStyle: 'fluent',
 
   /**
    * 交易流水左侧图标
-   *   txnIconSize      xs | s | m | l | xl（极小…极大，默认大）
-   *   txnIconShowBg    是否显示分类浅色方底（默认关）
-   *   txnIconBgRound   背景形状 0..4（方形 → 圆形，默认 2 圆角）
+   *   txnIconSize      xs | s | m | l | xl（极小…极大，默认中）
+   *   txnIconShowBg    是否显示分类浅色方底（默认开）
+   *   txnIconBgRound   背景形状 0..4（方形 → 圆形，默认大圆）
    */
-  txnIconSize: 'l',
-  txnIconShowBg: false,
-  txnIconBgRound: 2,
+  txnIconSize: 'm',
+  txnIconShowBg: true,
+  txnIconBgRound: 3,
 
   // AI —— 公共配置（两端共用：接口地址 / Key / 模型 / 超时）
   ai: {

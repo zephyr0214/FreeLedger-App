@@ -378,23 +378,28 @@ export async function sumTransactions(opt = {}) {
   const { where, params } = buildFilterWhere(opt)
 
   /*
-   * ★ 汇总不带「不计入收支」的那几笔（v19）★
-   *   借出 / 借入 / 借款归还 / 借款收回是资金往来，不是消费也不是收入。
-   *   列表本身仍然把这几笔**列出来**（用户要看到它们），
-   *   但顶部的「支出 X / 收入 Y」小计必须把它们排除 ——
-   *   否则借出去 500 块，列表顶上就显示「支出 500」，用户以为花掉了。
+   * ★ 笔数含全部流水，金额排除「不计入收支」★
+   *   用户要求全 App 的笔数统一口径：
+   *   借出 / 借入 / 借款归还 / 借款收回、待报销等虽然不计收支，
+   *   但它们是真实记过的流水，必须算进「共 N 笔」。
+   *   金额汇总仍然排除它们，否则借出去 500 会显示成支出 500。
    *
-   * ★ 为什么 WHERE 而不是只在 SUM 里排除 ★
-   *   count 也要一起排除：不然会出现「3 笔 · 支出 0.00」这种读不通的组合。
+   * ★ 为什么用 CASE 而不是两套 WHERE ★
+   *   count 和金额来自同一条查询，范围完全一致；
+   *   分成两条 SQL 容易出现「笔数算了、金额没算」或反过来。
    */
-  const statsWhere = where.concat(['COALESCE(t.exclude_from_stats, 0) = 0'])
-
   const row = await queryOne(
     `SELECT COUNT(*) AS cnt,
-            COALESCE(SUM(CASE WHEN t.type='expense'  THEN t.amount_cents ELSE 0 END),0) AS expense,
-            COALESCE(SUM(CASE WHEN t.type='income'   THEN t.amount_cents ELSE 0 END),0) AS income,
-            COALESCE(SUM(CASE WHEN t.type='transfer' THEN t.amount_cents ELSE 0 END),0) AS transfer
-     FROM txn t WHERE ${statsWhere.join(' AND ')}`,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                               AND t.type='expense'
+                              THEN t.amount_cents ELSE 0 END),0) AS expense,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                               AND t.type='income'
+                              THEN t.amount_cents ELSE 0 END),0) AS income,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                               AND t.type='transfer'
+                              THEN t.amount_cents ELSE 0 END),0) AS transfer
+     FROM txn t WHERE ${where.join(' AND ')}`,
     params
   )
 

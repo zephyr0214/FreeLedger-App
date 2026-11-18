@@ -210,9 +210,9 @@ check('emojiMeta 能定位二级分类', emojiMeta('1F35C').subgroupName.length 
 console.log('=== 流水图标尺寸与 tabBar 资源 ===')
 
 check('五档尺寸名称', TXN_ICON_SIZES.map((s) => s.name), ['极小', '小', '中', '大', '极大'])
-check('默认尺寸是「大」', normalizeTxnIconSize('bad'), 'l')
-check('默认大档 68/72', getTxnIconMetrics('l').icon, 68)
-check('默认大档外框 72', getTxnIconMetrics('l').box, 72)
+check('默认尺寸是「中」', normalizeTxnIconSize('bad'), 'm')
+check('中档 60/64', getTxnIconMetrics('m').icon, 60)
+check('中档外框 64', getTxnIconMetrics('m').box, 64)
 check('极小档序号 0', txnIconSizeIndex('xs'), 0)
 check('极大档序号 4', txnIconSizeIndex('xl'), 4)
 check(
@@ -223,7 +223,19 @@ check(
 check('背景方块 84rpx', TXN_ICON_BG_BOX, 84)
 
 check('五档背景形状', TXN_ICON_ROUNDS.map((r) => r.name), ['方形', '微圆', '圆角', '大圆', '圆形'])
-check('默认形状是圆角', normalizeTxnIconRound('bad'), 2)
+check('默认形状是大圆', normalizeTxnIconRound('bad'), 3)
+
+{
+  const settingsApi = readFileSync(join(ROOT, 'api', 'settings.js'), 'utf-8')
+  const settingStore = readFileSync(join(ROOT, 'stores', 'setting.js'), 'utf-8')
+  check('新用户默认深浅跟随系统', /themeMode: 'system'/.test(settingsApi), true)
+  check('新用户默认主题色账本蓝', /themePreset: 'blue'/.test(settingsApi), true)
+  check('新用户默认微软扁平图标', /emojiStyle: 'fluent'/.test(settingsApi), true)
+  check('新用户默认图标大小中', /txnIconSize: 'm'/.test(settingsApi), true)
+  check('新用户默认开启分类背景色', /txnIconShowBg: true/.test(settingsApi), true)
+  check('新用户默认背景形状大圆', /txnIconBgRound: 3/.test(settingsApi), true)
+  check('store 初始值与默认设置一致', /themePreset: 'blue'/.test(settingStore) && /emojiStyle: 'fluent'/.test(settingStore), true)
+}
 check('方形圆角 0', getTxnIconRadius(0), '0rpx')
 check('圆形圆角 50%', getTxnIconRadius(4), '50%')
 
@@ -330,6 +342,11 @@ check('主题页预览读本地缓存', /cachedIconPath\('1F35C'/.test(themeSrc)
 check('启动后后台预热', /warmCategoryIconCache/.test(appSrc), true)
 check('缓存只收集分类 + 主题预览，不扫全图库', /listCategories\(null, true\)/.test(cacheApi) && /THEME_PREVIEW_CODE/.test(cacheApi) && !/EMOJI_LIST/.test(cacheApi), true)
 check('主题预览缓存五个示例图标', /\['1F35C', '1F96D', '1F68D', '1F381', '1F4B0'\]/.test(cacheApi), true)
+check(
+  '详情页固定图标也缓存（标签/借入/借出/报销）',
+  /DETAIL_PAGE_CODES = \['1F3F7', '1F4E4', '1F4E5', '1F9FE'\]/.test(cacheApi),
+  true
+)
 check('分类保存后同步新图标缓存', /syncCategoryIconCache\(editorForm\.icon/.test(catPage), true)
 check('分类删除后清理旧缓存', /refreshCategoryIconCache\(\)/.test(catPage), true)
 check('缓存覆盖全部五种样式', /EMOJI_STYLES\.map\(\(s\) => cacheIcon/.test(cacheUtil), true)
