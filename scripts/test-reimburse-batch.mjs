@@ -534,6 +534,15 @@ console.log('=== 5. 多选报销 = 1 张单，派生流水不计入笔数 ===')
   check('实报金额 = 90000', Number(b.total_done_cents), 90000)
   check('报销笔数 = 3（不含坏账）', Number(b.txn_count), 3)
 
+  /*
+   * ★ 累计已报销不能按明细行重复加 ★
+   *   3 笔原始支出都会写 reimburse_amount_cents = 90000，
+   *   按行 SUM 会得到 270000；正确值是按单头只算一次 90000。
+   */
+  const summary = await reimbMod.getReimburseSummary()
+  check('累计已报销按单只算一次', summary.doneAmount, 90000)
+  check('已报销笔数仍按原始流水', summary.doneCount, 3)
+
   const collected = txnsOfBatch(db, b.id)
   check('挂 batch_id 的流水共 5 笔（3 原始 + 到账 + 坏账）', collected.length, 5)
 
@@ -779,6 +788,14 @@ console.log('=== 6. 老数据兜底：按报销日 + 账户 + 实报金额拼历
   ).get()
   check('兜底没有偷偷回填 batch_id', Number(stillNull.c), 7)
   check('兜底也没有造出报销单行', countOf(db, 'reimburse_batch'), 0)
+
+  /*
+   * 老数据汇总同样按「报销日 + 账户 + 实报金额」分组，
+   * 10-05 的两笔不能各加一次 30000。
+   */
+  const legacySummary = await reimbMod.getReimburseSummary()
+  check('老数据累计已报销也按组只算一次', legacySummary.doneAmount, 110000)
+  check('老数据已报销笔数仍按流水', legacySummary.doneCount, 7)
 }
 
 /* ==================== 7. 备份导出 / 导入带上报销单 */

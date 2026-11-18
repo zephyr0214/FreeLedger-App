@@ -167,21 +167,63 @@ export async function listReimburseTxns(status = 'pending', opt = {}) {
 
 /**
  * 汇总：待报销笔数 / 待报销总额 / 已报销笔数 / 已报销总额。
+ *
+ * ★ 已报销金额必须按「单」算，不能按明细行累加 ★
+ *   报销时 N 笔原始支出会各写一次 `reimburse_amount_cents = 这一批的实报总额`，
+ *   直接 SUM 就等于「实报总额 × 原始笔数」：
+ *   多选 3 笔、实报 900，页面会显示累计已报销 2700。
+ *   所以有单的只加单头 total_done_cents（一张单加一次）；
+ *   没有 batch_id 的老数据按「报销日 + 到账账户 + 实报金额」分组，
+ *   每组同样只加一次。
  */
 export async function getReimburseSummary() {
   const row = await queryOne(
     `SELECT
        SUM(CASE WHEN reimburse_status = 1 THEN 1 ELSE 0 END) AS pending_cnt,
        SUM(CASE WHEN reimburse_status = 1 THEN amount_cents ELSE 0 END) AS pending_amt,
-       SUM(CASE WHEN reimburse_status = 2 THEN 1 ELSE 0 END) AS done_cnt,
-       SUM(CASE WHEN reimburse_status = 2 THEN COALESCE(reimburse_amount_cents, amount_cents) ELSE 0 END) AS done_amt
+       SUM(CASE WHEN reimburse_status = 2 THEN 1 ELSE 0 END) AS done_cnt
      FROM txn WHERE deleted_at IS NULL`
   )
+
+  let doneAmount = 0
+  let batchTableOk = true
+  try {
+    const batchRow = await queryOne(
+      `SELECT COALESCE(SUM(total_done_cents), 0) AS amt
+       FROM reimburse_batch WHERE deleted_at IS NULL`
+    )
+    doneAmount += Number(batchRow ? batchRow.amt : 0) || 0
+  } catch (e) {
+    /*
+     * 迁移异常时表可能不存在。这时退回「按流水分组」，
+     * 把带 batch_id 的行也按同一套分组算 —— 至少不会白屏。
+     */
+    batchTableOk = false
+    console.warn('[reimburse] 报销单汇总不可用，按流水分组兜底:', e && e.message)
+  }
+
+  const legacyRows = await query(
+    `SELECT reimburse_day AS day,
+            reimburse_account_id AS account_id,
+            reimburse_amount_cents AS done,
+            COALESCE(SUM(amount_cents), 0) AS origin
+     FROM txn
+     WHERE deleted_at IS NULL
+       AND reimburse_status = 2
+       ${batchTableOk ? 'AND batch_id IS NULL' : ''}
+     GROUP BY reimburse_day, reimburse_account_id, reimburse_amount_cents`
+  )
+  for (const r of legacyRows) {
+    doneAmount += r.done === null || r.done === undefined
+      ? Number(r.origin) || 0
+      : Number(r.done) || 0
+  }
+
   return {
     pendingCount: Number(row ? row.pending_cnt : 0) || 0,
     pendingAmount: Number(row ? row.pending_amt : 0) || 0,
     doneCount: Number(row ? row.done_cnt : 0) || 0,
-    doneAmount: Number(row ? row.done_amt : 0) || 0
+    doneAmount
   }
 }
 
