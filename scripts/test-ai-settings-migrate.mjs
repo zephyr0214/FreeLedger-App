@@ -84,7 +84,7 @@ clearSettingsCache()
   check('model 保留', s.ai.model, 'deepseek-chat')
   check('timeoutMs 保留', s.ai.timeoutMs, 20000)
   ok('废弃的 quickFallback 不再出现在 ai 里', s.ai.quickFallback === undefined)
-  check('对话默认开深度思考', s.aiChat.deepThinking, true)
+  check('新用户默认关闭深度思考', s.aiChat.deepThinking, false)
   check('对话默认允许图表', s.aiChat.showCharts, true)
   // max_tokens 同时限制「思考」和「正文」——
   // 推理模型光思考就吃掉几千 token，2000 太小，默认改成 8000
@@ -144,7 +144,7 @@ clearSettingsCache()
 {
   const s = await getAllSettings()
   check('默认 baseUrl', s.ai.baseUrl, 'https://api.deepseek.com/v1')
-  check('默认 model', s.ai.model, 'deepseek-chat')
+  check('默认 model', s.ai.model, 'deepseek-flash')
   check('默认 temperature', s.aiChat.temperature, 0.6)
   // 超时默认 30 秒：深度思考响应慢，20 秒太紧
   check('默认 timeoutMs', s.ai.timeoutMs, 30000)
@@ -170,6 +170,28 @@ clearSettingsCache()
    *   不为它发迁移；这里锁住「新装库不再出现这个键」。
    */
   check('aiParse 不再是设置项（新装库）', s.aiParse, undefined)
+}
+
+console.log('\n=== 老用户自己设置的外观不能被新默认值覆盖 ===')
+
+stubSettings([
+  { key: 'themeMode', value: 'dark' },
+  { key: 'themePreset', value: 'green' },
+  { key: 'emojiStyle', value: 'noto' },
+  { key: 'txnIconSize', value: 'xl' },
+  { key: 'txnIconShowBg', value: false },
+  { key: 'txnIconBgRound', value: 0 }
+])
+clearSettingsCache()
+
+{
+  const s = await getAllSettings()
+  check('深浅模式保留用户设置', s.themeMode, 'dark')
+  check('主题色保留用户设置', s.themePreset, 'green')
+  check('图标样式保留用户设置', s.emojiStyle, 'noto')
+  check('图标大小保留用户设置', s.txnIconSize, 'xl')
+  check('背景开关保留用户设置', s.txnIconShowBg, false)
+  check('背景形状保留用户设置', s.txnIconBgRound, 0)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

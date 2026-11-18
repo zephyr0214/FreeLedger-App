@@ -183,7 +183,7 @@ export async function chat(messages, opt = {}) {
     0
 
   const body = {
-    model: ai.model || 'deepseek-chat',
+    model: ai.model || 'deepseek-flash',
     messages,
     temperature: opt.temperature !== undefined ? opt.temperature : (aiChat.temperature || 0.6),
     stream: false

@@ -62,7 +62,7 @@ export const DEFAULT_SETTINGS = {
   ai: {
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
-    model: 'deepseek-chat',
+    model: 'deepseek-flash',
     /*
      * 超时默认 30 秒。
      *
@@ -115,7 +115,7 @@ export const DEFAULT_SETTINGS = {
    */
   aiChat: {
     temperature: 0.6,
-    deepThinking: true,
+    deepThinking: false,
     maxTokens: 8000,
     showCharts: true,
     timeoutMs: 120000

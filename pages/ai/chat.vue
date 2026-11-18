@@ -234,8 +234,8 @@ export default {
 
     /** 对话专属配置 */
     const aiChat = computed(() => settingStore.settings.aiChat || {})
-    /** 深度思考是否开启（默认开） */
-    const deepThinking = computed(() => aiChat.value.deepThinking !== false)
+    /** 深度思考是否开启（新用户默认关） */
+    const deepThinking = computed(() => aiChat.value.deepThinking === true)
 
     const suggestions = [
       '这个月花了多少钱',

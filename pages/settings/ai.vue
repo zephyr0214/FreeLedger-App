@@ -44,7 +44,7 @@
             <input
               v-model="form.model"
               class="form-input"
-              placeholder="deepseek-chat"
+              placeholder="deepseek-flash"
               placeholder-class="form-placeholder"
             />
           </view>
@@ -202,7 +202,7 @@ export default {
     const form = reactive({
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
-      model: 'deepseek-chat',
+      model: 'deepseek-flash',
     })
 
     /**
@@ -213,7 +213,7 @@ export default {
      *   固定用 0.6（比原来的 0.3 略高，适合聊天发挥）。
      */
     const chatForm = reactive({
-      deepThinking: true,
+      deepThinking: false,
       showCharts: true,
       maxTokens: 8000
     })
@@ -288,13 +288,13 @@ export default {
       const ai = settingStore.settings.ai || {}
       form.baseUrl = ai.baseUrl || 'https://api.deepseek.com/v1'
       form.apiKey = ai.apiKey || ''
-      form.model = ai.model || 'deepseek-chat'
+      form.model = ai.model || 'deepseek-flash'
       // ★ 记账解析超时默认 30 秒 ★
       timeoutSec.value = String(Math.round((ai.timeoutMs || 30000) / 1000))
 
       // 对话专属配置
       const chat = settingStore.settings.aiChat || {}
-      chatForm.deepThinking = chat.deepThinking !== false
+      chatForm.deepThinking = chat.deepThinking === true
       chatForm.showCharts = chat.showCharts !== false
       chatForm.maxTokens = chat.maxTokens || 8000
       // ★ 回答超时默认 120 秒 ★

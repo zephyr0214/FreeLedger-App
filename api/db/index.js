@@ -650,7 +650,12 @@ async function migrateAiSettings() {
     }
     const aiChat = {
       temperature: legacyTemp === null ? 0.6 : legacyTemp,
-      deepThinking: true,
+      /*
+       * 新用户默认关闭深度思考。
+       * ★ 仅用于「还没有 aiChat 这条设置」的库 ★
+       *   已经有 aiChat 的用户不会被这里覆盖 —— 老用户自己的开关原样保留。
+       */
+      deepThinking: false,
       showCharts: true,
       // 回答超时：深度思考 + 完整分析可能要一两分钟
       timeoutMs: 120000,
