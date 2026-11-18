@@ -351,7 +351,7 @@
  *   这一页如果自己再拼一份，同一笔账换个页面标签顺序就变了。
  *   所以这里只做两件事：加载标签表建 tagMap、把 buildTxnBadges 的结果渲染成胶囊。
  */
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onUnmounted } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
@@ -656,21 +656,36 @@ export default {
     }
 
     /**
-     * 当前未结清单的指纹
+     * 这一组里最新一笔流水的创建时间
      *
-     * ★ 为什么把「展开状态」存成指纹而不是 true ★
-     *   历史折叠组的展开状态如果只存 true，就不知道它属于哪一版未结清单；
-     *   用户新增一笔借出/借入后，历史会继续保持展开。
-     *   现在存的是展开那一刻的未结清单流水 id 组合：
-     *     · 当前指纹和存下来的不一致 → 说明换了新单 → 自动折叠
-     *     · 指纹一致 → 普通刷新/切 tab，保留用户手动展开
-     *   这样不依赖「上一次 load 是否已经跑过」，也不会被异步刷新顺序影响。
+     * ★ 用 created_at 而不是 occurred_at ★
+     *   用户可能补记一笔日期更早的借款，但「刚刚新增」这个动作
+     *   只有 created_at 能反映出来。历史折叠组是否还有效，
+     *   看的是「展开之后有没有再产生新流水」。
      */
-    function openSignatureOf(g) {
-      return (g && Array.isArray(g.episodes) ? g.episodes : [])
-        .filter((ep) => !ep.settled)
-        .map((ep) => (ep.txns || []).map((t) => t.id).join(','))
-        .join('|')
+    function latestTxnCreatedAt(g) {
+      let max = 0
+      for (const ep of episodesOf(g)) {
+        for (const t of ep.txns || []) {
+          const ts = Number(t.created_at) || 0
+          if (ts > max) max = ts
+        }
+      }
+      return max
+    }
+
+    /**
+     * 历史折叠组此刻是否展开
+     *
+     * ★ 展开状态存的是「展开时刻」而不是 true ★
+     *   已结清的人再产生一笔借出/借入后，created_at 会晚于展开时刻，
+     *   旧状态自动失效 → 回落到折叠。
+     *   普通刷新 / 切 tab 没有新流水 → 时间仍有效 → 保留手动展开。
+     *   这样不依赖 load 顺序、分段 id 或上一次的结清状态。
+     */
+    function historyIsExpanded(g) {
+      const at = Number(episodeOpen[episodeKey(g.person, -1)]) || 0
+      return at > 0 && at >= latestTxnCreatedAt(g)
     }
 
     /**
@@ -718,16 +733,11 @@ export default {
      *   episodeOpen 是 reactive 的，读它会建立依赖，改了就重渲染。
      */
     function episodeViewOf(g) {
-      const sig = openSignatureOf(g)
       return buildLoanEpisodeView(episodesOf(g), {
         status: status.value,
         isExpanded: (index) => {
-          const key = episodeKey(g.person, index)
-          if (index === -1) {
-            // 历史组：只有「展开时的未结清单指纹」和当前一致才算展开
-            return !!episodeOpen[key] && episodeOpen[key] === sig
-          }
-          return !!episodeOpen[key]
+          if (index === -1) return historyIsExpanded(g)
+          return !!episodeOpen[episodeKey(g.person, index)]
         }
       })
     }
@@ -752,14 +762,16 @@ export default {
       const key = episodeKey(person, index)
       if (index === -1) {
         /*
-         * 历史组记录「展开那一刻的未结清单指纹」。
-         * 新增/删除当前单后指纹变了，旧值自然失效 → 自动折叠，
-         * 不需要在 load() 里对比上一次状态。
+         * 历史组存「展开时刻」：
+         *   展开后只要又产生了新流水，当前时间就会大于展开时刻，
+         *   旧状态自然失效，自动折叠。
          */
         const g = groups.value.find((x) => x.person === person)
-        const sig = g ? openSignatureOf(g) : ''
-        if (episodeOpen[key] === sig) delete episodeOpen[key]
-        else episodeOpen[key] = sig
+        if (g && historyIsExpanded(g)) {
+          delete episodeOpen[key]
+        } else {
+          episodeOpen[key] = Date.now()
+        }
         return
       }
       if (episodeOpen[key]) delete episodeOpen[key]
@@ -829,6 +841,31 @@ export default {
 
         const open = all.filter((g) => !g.settled)
         const settled = all.filter((g) => g.settled)
+
+        /*
+         * ★ 每次加载都把未结清人员的历史组恢复为折叠 ★
+         *   用户要求：已结清的人再次产生借出/借入后，旧的已结清单要收起。
+         *   之前的「按指纹 / 按时间判断」都依赖状态传递的先后顺序；
+         *   这里直接在每次 load 后清掉历史组展开状态，
+         *   保证只要页面拿到新数据，历史一定是折叠的。
+         *   用户手动展开只在本次停留期间有效，下一次加载恢复折叠。
+         */
+        for (const g of open) {
+          const key = episodeKey(g.person, -1)
+          const wasExpanded = !!episodeOpen[key]
+          if (wasExpanded) delete episodeOpen[key]
+          const hasSettled = (g.episodes || []).some((ep) => ep.settled)
+          if (hasSettled) {
+            console.log(
+              '[loan] 历史折叠重置',
+              g.person,
+              'groupSettled=', g.settled,
+              'episodes=', (g.episodes || []).map((ep) => [ep.settled, ep.txns.length]),
+              'lastClosingDay=', g.lastClosingDay,
+              'wasExpanded=', wasExpanded
+            )
+          }
+        }
 
         openCount.value = open.length
         settledCount.value = settled.length
@@ -987,6 +1024,21 @@ export default {
     onShow(async () => {
       settingStore.syncSystemTheme()
       if (ready) await load()
+    })
+
+    /*
+     * ★ 其它页面新增/修改流水后，本页立即重算 ★
+     *   用户在首页记了一笔「借出/借入」后回到本页，
+     *   只靠 onShow 在部分跳转路径下可能拿不到最新数据；
+     *   store 的 create/update/remove 会发 txn:changed，
+     *   这里收到就重新加载，保证历史折叠状态按新数据重算。
+     */
+    function onTxnChanged() {
+      if (ready) load()
+    }
+    uni.$on('txn:changed', onTxnChanged)
+    onUnmounted(() => {
+      try { uni.$off('txn:changed', onTxnChanged) } catch (e) {}
     })
 
     // 侧滑返回 / 物理返回键

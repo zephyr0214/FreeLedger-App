@@ -12,6 +12,15 @@ import {
 import { getOverview } from '@/api/stats.js'
 import { toMonthKey } from '@/utils/date.js'
 
+/** 通知其它页面「流水变了」——借入借出页需要据此重算分批与折叠 */
+function notifyTxnChanged() {
+  try {
+    if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
+      uni.$emit('txn:changed')
+    }
+  } catch (e) {}
+}
+
 export const useTransactionStore = defineStore('transaction', {
   state: () => ({
     todayList: [],
@@ -106,23 +115,27 @@ export const useTransactionStore = defineStore('transaction', {
     async create(input) {
       const res = await createTransaction(input)
       await this.loadHome(true)
+      notifyTxnChanged()
       return res
     },
 
     async update(id, patch) {
       const res = await updateTransaction(id, patch)
       await this.loadHome(true)
+      notifyTxnChanged()
       return res
     },
 
     async remove(id) {
       await deleteTransaction(id)
       await this.loadHome(true)
+      notifyTxnChanged()
     },
 
     async restore(id) {
       await restoreTransaction(id)
       await this.loadHome(true)
+      notifyTxnChanged()
     },
 
     async detail(id) {
