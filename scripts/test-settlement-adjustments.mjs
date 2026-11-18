@@ -156,14 +156,26 @@ const twoEpisodes = [
   loanRow('m4', 'm', 300, '2026-03-10'),
   loanRow('b4', 'b', 300, '2026-03-11')
 ]
-check('删第一轮收回 -> 只删第一轮坏账', episodeCleanupIds(twoEpisodes, PAIR, 'b3'), ['p3'])
+check('删第一轮收回 -> 历史单整单取消', episodeCleanupIds(twoEpisodes, PAIR, 'b3'), ['m3', 'p3'])
 check('删第二轮收回 -> 不误删上一轮坏账', episodeCleanupIds(twoEpisodes, PAIR, 'b4'), [])
 
 const open = [
   ...twoEpisodes,
   loanRow('m5', 'm', 200, '2026-03-20')
 ]
-check('删未结清段的收回 -> 没有差额', episodeCleanupIds(open, PAIR, 'b4'), [])
+check('删历史单收回 -> 连本单剩余本金一起取消', episodeCleanupIds(open, PAIR, 'b4'), ['m4'])
+check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAIR, 'm5'), [])
+
+/* 历史单整单取消后，剩下的其它已结清单仍然可以折叠 */
+{
+  const remaining = open.filter((t) => !['m3', 'b3', 'p3'].includes(t.id))
+  const view = buildLoanEpisodeView(splitLoanEpisodes(remaining, PAIR), { status: 'open' })
+  check(
+    '取消历史单后其它已结清单变成折叠条',
+    view.map((v) => [v.rowIndex, v.collapsed]),
+    [[0, false], [-1, true]]
+  )
+}
 
 /*
  * 删本金：本单的收回/归还 + 差额一起删，剩余本金变为未结清。
