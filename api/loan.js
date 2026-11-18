@@ -934,24 +934,22 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
       continue
     }
 
-    const prev = i > 0 ? ordered[i - 1] : null
-    const prevDay = (prev && prev.closingDay) || ''
-
     out.push({
       ...ep,
       rowIndex: i,
       collapsed: false,
       skip: false,
       /*
-       * 已结清 tab：段与段之间标「已结清 · 上一段收口日」
-       * 未结清 tab 的当前段（下标 0）：不标
+       * ★ 已结清 tab：每一段都在自己的流水上方标「已结清 · 日期」★
+       *   以前是「标在上一段之前、日期取上一段收口日」，
+       *   导致最上方最新的一段反而没有标注，用户只能看到人名的合计。
+       *   现在每段用自己的收口日和自己的差额：
+       *     已结清 · 2026-01-15 · 坏账 ¥100.00
+       *   人名下方仍然是这个人全部结清的合计（用户要求头部显示全部）。
+       *   未结清的当前段不标。
        */
-      showDividerBefore: isSettledTab && i > 0,
-      /*
-       * 已结清 tab 的日期是「上一段（更新的一段）的收口日」，
-       * 所以差额也要取上一段 —— 日期和金额必须描述同一次结清。
-       */
-      dividerText: dividerTextOf(prevDay, prev),
+      showDividerBefore: isSettledTab && ep.settled,
+      dividerText: ep.settled ? dividerTextOf(ep.closingDay || '', ep) : '',
       collapseText: '',
       showCollapseBtn: false
     })

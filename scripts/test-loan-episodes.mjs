@@ -429,7 +429,7 @@ const PAGE_NO_COMMENT = PAGE
   .replace(/<!--[\s\S]*?-->/g, '')
   .replace(/\/\*[\s\S]*?\*\//g, '')
 check('标注里没有上下横线元素', /episode-divider-rule|episode-divider-line/.test(PAGE_NO_COMMENT), false)
-check('结清日期文案由 api 提供', /dividerTextOf\(prevDay, prev\)/.test(LOAN), true)
+check('结清日期文案由 api 提供', /dividerTextOf\(ep\.closingDay \|\| '', ep\)/.test(LOAN), true)
 check('分段标注可追加差额金额', /adjustmentTextOfTxns/.test(LOAN), true)
 check('折叠状态按 人员+段序号 记 key', /`\$\{person \|\| ''\}#\$\{index\}`/.test(PAGE), true)
 check('刷新后清理失效的折叠 key', /pruneEpisodeStates\(groups\.value\)/.test(PAGE), true)
@@ -508,6 +508,16 @@ console.log('=== 5.1 buildLoanEpisodeView：折叠与分割标注 ===')
   ]
   const view = buildLoanEpisodeView(splitLoanEpisodes(twoSettled, LEND), { status: 'settled' })
   const divider = view.find((v) => v.showDividerBefore)
+  check(
+    '已结清 tab 每一段都有标注',
+    view.map((v) => !!v.showDividerBefore),
+    [true, true]
+  )
+  check(
+    '已结清 tab 最新一段也带自己的日期和坏账',
+    /已结清 · 2026-01-15 · 坏账 ¥100\.00/.test(view[0] ? view[0].dividerText : ''),
+    true
+  )
   check(
     '已结清 tab 标注的金额跟随标注日期那一段',
     /已结清 · 2026-01-15 · 坏账 ¥100\.00/.test(divider ? divider.dividerText : ''),
@@ -629,8 +639,7 @@ check(
  *     seg0 = 借 500 + 收回 500（收口于 2026-01-20）
  *     seg1 = 借 300（未收口）
  *   反序后：idx0 = seg1（最新）、idx1 = seg0（历史）。
- *   标注在 idx1 之前，日期取“上一段（idx0）的收口日”——
- *   idx0 本身没收口，所以退化成只有「已结清」三个字。
+ *   每段标自己的「已结清 · 日期」；未结清的 seg1 不标。
  */
 check(
   '已结清 tab 也是最新在上（倒序）',
