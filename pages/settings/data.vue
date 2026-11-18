@@ -536,8 +536,14 @@ export default {
 
         clearSettingsCache()
         await settingStore.load()
-        await accountStore.refresh()
-        await txnStore.loadHome(true)
+        /*
+         * ★ 不在这里刷新 accountStore / txnStore ★
+         *   清空后马上要 reLaunch 到首页，新的首页会自己 load。
+         *   如果先 refresh，还在页面栈里的旧首页会立刻把整份最近流水
+         *   变成空数组，多行 wd-swipe-action 同时卸载；
+         *   某些机型上库内部的浮层队列会访问已销毁代理而报错。
+         *   交给 reLaunch 重建页面，旧列表随页面一起销毁，避开这个时序。
+         */
         await loadCounts()
         uni.hideLoading()
         await alertDialog({
