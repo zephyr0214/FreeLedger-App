@@ -419,10 +419,9 @@
               <text
                 class="amount-display"
                 :class="{ 'amount-display--empty': !sheet.amountText }"
-              >{{ amountDisplay || '0.00' }}</text>
+              >{{ amountDisplay || originalAmountText }}</text>
             </view>
           </view>
-          <text class="sheet-original">原支出合计 ¥{{ yuan(sheet.originCents) }}</text>
           <text v-if="isAmountExpression" class="sheet-preview">= ¥{{ amountPreview }}</text>
 
           <!--
@@ -705,6 +704,9 @@ export default {
     })
 
     const amountPreview = computed(() => (effectiveCents.value / 100).toFixed(2))
+
+    /** 没输入时的灰色占位符：显示原支出合计 */
+    const originalAmountText = computed(() => (sheet.originCents / 100).toFixed(2))
 
     const diffCents = computed(() => effectiveCents.value - sheet.originCents)
 
@@ -1226,7 +1228,7 @@ export default {
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
       swipeStates, selectMode, selectedIds,
       showSheet, showAccountPicker, sheet, accountName, reimburseAccountList, diffText, diffColor,
-      amountDisplay, isAmountExpression, amountPreview,
+      amountDisplay, isAmountExpression, amountPreview, originalAmountText,
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
       badgesOf, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
@@ -1810,18 +1812,10 @@ export default {
   word-break: break-all;
 }
 
+/* 没输入时把原支出合计作为灰色占位符显示 */
 .amount-display--empty {
   color: var(--app-text-3);
   font-weight: 400;
-}
-
-/* 原支出合计：灰色提示，不输入新值时沿用 */
-.sheet-original {
-  display: block;
-  margin-top: 8rpx;
-  text-align: right;
-  font-size: 22rpx;
-  color: var(--app-text-3);
 }
 
 .sheet-preview {

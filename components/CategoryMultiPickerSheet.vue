@@ -14,26 +14,18 @@
 
       <!--
         收入 / 支出 分类切换
-        ★ 只在「全部交易筛选 + 类型=全部」时出现 ★
-          这时分类列表同时包含收支两类，没有切换会混在一起；
-          样式直接照搬记账面板的 .type-switch。
+        ★ 样式直接复用日期筛选的「年月日筛选 / 自定义筛选」tab ★
+          即全局 .mode-toggle / .mode-tag，尺寸、圆角、选中浮起完全一致。
       -->
-      <view v-if="showTypeTabs" class="cat-type-switch">
-        <view
-          v-for="t in typeTabs"
-          :key="t.key"
-          class="cat-type-item"
-          @click="localType = t.key"
-        >
+      <view v-if="showTypeTabs" class="cat-type-toggle">
+        <view class="mode-toggle">
           <text
-            class="cat-type-text"
-            :style="{ color: localType === t.key ? primaryColor : 'var(--app-text-2)' }"
+            v-for="t in typeTabs"
+            :key="t.key"
+            class="mode-tag"
+            :class="{ active: localType === t.key }"
+            @click="localType = t.key"
           >{{ t.name }}</text>
-          <view
-            v-if="localType === t.key"
-            class="cat-type-bar"
-            :style="{ backgroundColor: primaryColor }"
-          />
         </view>
       </view>
 
@@ -374,34 +366,9 @@ export default {
   color: var(--app-text-3);
 }
 
-/* 支出 / 收入 切换：与记账面板的 .type-switch 同一套外观 */
-.cat-type-switch {
-  display: flex;
-  justify-content: center;
-  gap: 48rpx;
+/* 收入 / 支出切换：外圈交给全局 .mode-toggle，这里只留间距 */
+.cat-type-toggle {
   padding: 0 32rpx 16rpx;
-}
-
-.cat-type-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-  padding-bottom: 12rpx;
-}
-
-.cat-type-text {
-  font-size: 30rpx;
-  font-weight: 500;
-  transition: color 0.2s;
-}
-
-.cat-type-bar {
-  position: absolute;
-  bottom: 0;
-  width: 40rpx;
-  height: 4rpx;
-  border-radius: 2rpx;
 }
 
 .multi-scroll {

@@ -24,11 +24,9 @@
         <view class="bs-amount-row">
           <text class="bs-currency">{{ currencySymbol }}</text>
           <text class="bs-amount" :class="{ 'bs-amount--raw': isExpression, 'bs-amount--empty': !draft }">
-            {{ amountDisplay || '0.00' }}
+            {{ amountDisplay || originalBalanceText }}
           </text>
         </view>
-        <!-- 原始余额灰色显示在底部：不输入新值时直接沿用 -->
-        <text class="bs-original">当前余额 {{ originalBalanceText }}</text>
         <text v-if="isExpression" class="bs-preview">= {{ computedPreview }}</text>
 
         <!-- 差额预览：让用户改之前就知道会发生什么 -->
@@ -146,10 +144,10 @@ export default {
       return Number.isFinite(cents) ? cents : 0
     })
 
-    /** 原始余额（灰色提示用） */
+    /** 原始余额（灰色占位符用；货币符号已由左侧单独渲染，这里不再带 ¥） */
     const originalBalanceText = computed(() => {
       const cents = props.currentBalanceCents || 0
-      return `${cents < 0 ? '-' : ''}${formatCents(Math.abs(cents), { symbol: currencySymbol })}`
+      return `${cents < 0 ? '-' : ''}${formatCents(Math.abs(cents))}`
     })
 
     /** 输入区展示：纯数字补两位小数，算式原样显示 */
@@ -393,15 +391,8 @@ export default {
   font-size: 44rpx;
 }
 
-/* 没输入时显示占位 0.00，用灰色区分「这是占位，不是已填金额」 */
+/* 没输入时把原始余额作为灰色占位符显示 */
 .bs-amount--empty {
-  color: var(--app-text-3);
-}
-
-.bs-original {
-  display: block;
-  margin-top: 8rpx;
-  font-size: 24rpx;
   color: var(--app-text-3);
 }
 

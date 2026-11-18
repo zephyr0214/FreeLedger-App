@@ -114,6 +114,7 @@ check('未选标签显示「不指定标签」', /return '不指定标签'/.test
 check('未选周期显示「不指定周期」', /return '不指定周期'/.test(filterCode), true)
 check('类型为全部时分类面板出现收支切换', /show-type-tabs="showCategory && draft\.type === 'all'"/.test(filterCode), true)
 check('分类面板实现收支切换', /const localType = ref\('expense'\)/.test(read('components/CategoryMultiPickerSheet.vue')), true)
+check('分类收支切换复用日期筛选 tab 样式', /class="mode-toggle"[\s\S]{0,200}?class="mode-tag"/.test(read('components/CategoryMultiPickerSheet.vue')), true)
 check('统计页筛选层级高于底栏', /:z-index="500"/.test(statsCode), true)
 
 const statsApi = read('api/stats.js')

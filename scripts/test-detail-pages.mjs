@@ -112,7 +112,9 @@ check('标签页不再单独查笔数', /FROM txn_tag tt/.test(tagPage), false)
 check('listTags 聚合返回最近使用日', /MAX\(t\.occurred_day\) AS last_day/.test(tagApi), true)
 check('listTags 聚合返回笔数', /COUNT\(t\.id\) AS txn_count/.test(tagApi), true)
 check('listTags 按最近使用倒序', /MAX\(t\.occurred_day\) DESC/.test(tagApi), true)
-check('标签色块是瘦高圆角矩形', /\.tag-dot\s*\{[\s\S]{0,120}?width:\s*10rpx[\s\S]{0,80}?height:\s*56rpx[\s\S]{0,80}?border-radius:\s*6rpx/.test(tagPage), true)
+check('标签色块是小的圆角方形', /\.tag-dot\s*\{[\s\S]{0,120}?width:\s*16rpx[\s\S]{0,80}?height:\s*16rpx[\s\S]{0,80}?border-radius:\s*4rpx/.test(tagPage), true)
+check('灰字与色块左边缘对齐（色块在标题行内）', /class="tag-title-row"[\s\S]{0,300}?class="tag-dot"[\s\S]{0,300}?tag-recent/.test(tagPage), true)
+check('标签页结余金额用正文黑色', /variant="balance"[\s\S]{0,80}?color="var\(--app-text\)"/.test(tagPage), true)
 
 /* ------------------------------------------------ 3. 周期详情 */
 

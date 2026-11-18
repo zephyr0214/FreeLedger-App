@@ -42,15 +42,18 @@
           class="tag-swipe"
         >
           <view class="tag-row" @click="goDetail(tag)">
-            <view class="tag-dot" :style="{ backgroundColor: tag.color || primaryColor }" />
-            <view class="tag-info">
-              <text class="tag-name">{{ tag.name }}</text>
+            <view class="tag-main">
+              <view class="tag-title-row">
+                <view class="tag-dot" :style="{ backgroundColor: tag.color || primaryColor }" />
+                <text class="tag-name">{{ tag.name }}</text>
+              </view>
               <text class="tag-recent">{{ tagRecentText(tag) }}</text>
             </view>
             <view class="tag-right">
               <MoneyText
                 :cents="tag.balance_cents || 0"
                 variant="balance"
+                color="var(--app-text)"
                 :size="26"
                 :weight="600"
               />
@@ -365,26 +368,33 @@ export default {
   border-bottom: none;
 }
 
-/* 标签色块：瘦高的圆角矩形，比小圆点更容易在长列表里被看到 */
+/* 标签色块：小的圆角方形，只放在标签名之前 */
 .tag-dot {
-  width: 10rpx;
-  height: 56rpx;
-  border-radius: 6rpx;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 4rpx;
   flex-shrink: 0;
 }
 
 /*
- * 中间列：名称 + 最近使用时间
- *
- * 和周期管理页同一套四角布局：左侧两行文字，右侧两行金额/笔数，
- * 金额与笔数形成一条右对齐的竖列，扫视时先看名字、再看钱和次数。
+ * 中间列：第一行是「色块 + 标签名」，第二行是最近使用时间。
+ * ★ 灰色小字与色块左边缘对齐 ★
+ *   所以色块不能单独占一列，必须缩进到名称行内部；
+ *   第二行直接从 .tag-main 的左边缘开始。
  */
-.tag-info {
+.tag-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8rpx;
+}
+
+.tag-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
 }
 
 .tag-name {
