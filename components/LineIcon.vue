@@ -12,7 +12,12 @@ import { computed } from 'vue'
 import { lineIconDataUri, isFallbackIcon } from '@/utils/lineIcons.js'
 
 /**
- * 线性描边图标
+ * 菜单 / 设置图标
+ *
+ * 当前图标库混合两种格式：
+ *   · 大部分为 1024 视图的填充图形（分类、标签、预算…）
+ *   · 下拉箭头为 24×24 描边图形
+ * 两种都由 utils/lineIcons.js 统一转成带真实主题色的 SVG data URI。
  *
  * 用法：
  *   <LineIcon name="category" :size="32" :color="primaryColor" />

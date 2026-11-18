@@ -1,11 +1,11 @@
 /**
- * 线性描边图标的校验
+ * 菜单图标的校验
  *
  *   node scripts/check-line-icons.mjs
  *
  * 检查项：
  *   1. 必备的图标 key 一个都不能少
- *   2. 每个 key 都有 path，且是描边风格（SVG 根节点 fill="none" + stroke）
+ *   2. 每个 key 都有 path；填充图标注入主题色，下拉箭头保持描边
  *   3. 生成的 data URI 能正确解码回原 SVG
  *   4. 未知 key 有兜底（返回通用圆点，不抛异常、不返回空）
  *   5. 组件里用到的 key 都在 LINE_ICON_KEYS 里
@@ -42,18 +42,20 @@ function check(name, actual, expected) {
 
 const REQUIRED_KEYS = [
   'category', 'tag', 'budget', 'theme', 'ai',
-  'data', 'backup', 'about', 'cycle', 'account',
-  'home', 'stats', 'mine', 'plus', 'edit',
-  'trash', 'check', 'close',
+  'data', 'about', 'cycle',
+  'loan-out', 'loan-in', 'reimburse', 'rate',
+  'stats', 'plus', 'update',
   // 深浅模式（主题外观页）
-  'auto', 'sun', 'moon'
+  'auto', 'sun', 'moon',
+  // 下拉箭头
+  'chevronDown'
 ]
 
 for (const key of REQUIRED_KEYS) {
   check(`必备图标 key「${key}」存在`, LINE_ICON_KEYS.includes(key), true)
 }
 
-/* ------------------------------------------- 2. 每个 key 都是描边风格 */
+/* ------------------- 2. 每个 key 都有 path，且按图标类型着色 */
 
 for (const key of LINE_ICON_KEYS) {
   const paths = lineIconPaths(key)
@@ -61,16 +63,23 @@ for (const key of LINE_ICON_KEYS) {
 
   const svg = lineIconSvg(key, { size: 24, color: '#07C160', strokeWidth: 1.8 })
 
-  // 描边风格：根节点 fill="none"，并且有 stroke
-  check(`图标「${key}」是描边风格（fill=none）`, svg.includes('fill="none"'), true)
-  check(`图标「${key}」有 stroke`, /stroke="[^"]+"/.test(svg), true)
-  check(`图标「${key}」有 stroke-width`, /stroke-width="[\d.]+"/.test(svg), true)
-  check(`图标「${key}」圆角端点`, svg.includes('stroke-linecap="round"'), true)
-  check(`图标「${key}」圆角连接`, svg.includes('stroke-linejoin="round"'), true)
-  check(`图标「${key}」viewBox 是 24x24`, svg.includes('viewBox="0 0 24 24"'), true)
   check(`图标「${key}」带 xmlns`, svg.includes('xmlns="http://www.w3.org/2000/svg"'), true)
 
-  // 只允许 path 元素 —— 圆/椭圆也要写成 path，风格才统一
+  if (key === 'chevronDown') {
+    // 下拉箭头仍是描边风格
+    check(`图标「${key}」是描边风格（fill=none）`, svg.includes('fill="none"'), true)
+    check(`图标「${key}」有 stroke`, /stroke="[^"]+"/.test(svg), true)
+    check(`图标「${key}」有 stroke-width`, /stroke-width="[\d.]+"/.test(svg), true)
+    check(`图标「${key}」圆角端点`, svg.includes('stroke-linecap="round"'), true)
+    check(`图标「${key}」圆角连接`, svg.includes('stroke-linejoin="round"'), true)
+    check(`图标「${key}」viewBox 是 24x24`, svg.includes('viewBox="0 0 24 24"'), true)
+  } else {
+    // 菜单类图标是 1024 视图的填充图形，颜色由主题色注入
+    check(`图标「${key}」是填充风格`, svg.includes('fill="#07C160"'), true)
+    check(`图标「${key}」没有写死描边`, /stroke="/.test(svg), false)
+  }
+
+  // 只允许 path 元素
   const tags = svg.match(/<[a-zA-Z][^>\s]*/g) || []
   const badTags = tags.filter((t) => !['<svg', '<path', '</svg>'].includes(t))
   check(`图标「${key}」只用 path 元素`, badTags, [])
@@ -124,7 +133,7 @@ for (const key of LINE_ICON_KEYS) {
 {
   const uri = lineIconDataUri('category', { color: 'currentColor' })
   check('currentColor 在 data URI 里被替换掉', uri.includes('currentColor'), false)
-  check('currentColor 被换成真实颜色', decodeURIComponent(uri).includes('stroke="#333333"'), true)
+  check('currentColor 被换成真实颜色', decodeURIComponent(uri).includes('fill="#333333"'), true)
 }
 
 /* ------------------------------------- 6/7. 组件本身：key 对得上 + 不用 <svg> */

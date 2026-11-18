@@ -271,7 +271,7 @@ export default {
            *     弹窗的 isTest 徽标全部去掉，
            *     不留「以后顺手接回去」的暗路。
            */
-          { key: 'update', icon: 'auto', name: '检查更新' }
+          { key: 'update', icon: 'update', name: '检查更新' }
         ]
       }
     ])
