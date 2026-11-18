@@ -3,6 +3,33 @@
     <PageNav title="记账按钮" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
+      <!--
+        ★ 当前效果放在顶部 ★
+          一进页面先看到结果，再往下调整短按/长按。
+          卡片不用渐变、不加投影，和下面两张设置卡保持同一种材质。
+      -->
+      <view class="section">
+        <text class="section-title">当前效果</text>
+        <view class="preview-card">
+          <view class="preview-fab-wrap">
+            <view class="preview-fab" :style="{ backgroundColor: primaryColor }">
+              <text class="preview-plus">+</text>
+            </view>
+          </view>
+
+          <view class="preview-info">
+            <view class="preview-line">
+              <text class="preview-key">短按</text>
+              <text class="preview-val">{{ tapLabel }}</text>
+            </view>
+            <view class="preview-line">
+              <text class="preview-key">长按</text>
+              <text class="preview-val">{{ holdLabel }}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
       <!-- 短按 + 号 -->
       <view class="section">
         <text class="section-title">短按 + 号</text>
@@ -81,33 +108,6 @@
               class="opt-tick"
               :style="{ color: primaryColor }"
             >✓</text>
-          </view>
-        </view>
-      </view>
-
-      <!--
-        ★ 当前效果放在设置下方 ★
-          用户已经选完，再往下看到结果，顺序更自然。
-          卡片不用渐变、不加投影，和上面两张设置卡保持同一种材质。
-      -->
-      <view class="section">
-        <text class="section-title">当前效果</text>
-        <view class="preview-card">
-          <view class="preview-fab-wrap">
-            <view class="preview-fab" :style="{ backgroundColor: primaryColor }">
-              <text class="preview-plus">+</text>
-            </view>
-          </view>
-
-          <view class="preview-info">
-            <view class="preview-line">
-              <text class="preview-key">短按</text>
-              <text class="preview-val">{{ tapLabel }}</text>
-            </view>
-            <view class="preview-line">
-              <text class="preview-key">长按</text>
-              <text class="preview-val">{{ holdLabel }}</text>
-            </view>
           </view>
         </view>
       </view>
