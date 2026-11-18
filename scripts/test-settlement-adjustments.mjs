@@ -242,9 +242,9 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   check('边界过滤保留带标记的已删收回', middleBoundary.some((t) => t.id === 'o2b'), true)
   const middleEpisodes = chooseLoanEpisodes(middleLive, middleBoundary, PAIR)
   check(
-    '删第 2 单收回：第 2 单未结清，第 1/3 单仍结清',
-    middleEpisodes.map((ep) => ep.settled),
-    [true, false, true]
+    '删第 2 单收回：第 1/3 单结清，第 2 单未结清',
+    middleEpisodes.filter((ep) => ep.settled).map((ep) => ep.txns.map((t) => t.id)),
+    [['o1m', 'o1b', 'o1p'], ['o3m', 'o3b', 'o3n']]
   )
   check(
     '删第 2 单收回：未结清段只剩第 2 单本金',
@@ -273,14 +273,15 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
    */
   const liveOnlyEpisodes = chooseLoanEpisodes(middleLive, middleLive, PAIR)
   check(
-    '无边界行：末尾已结清的第 3 单仍能拆出',
-    liveOnlyEpisodes.map((ep) => ep.settled),
-    [true, false, true]
-  )
-  check(
-    '无边界行：第 2 单只剩本金，第 3 单完整留在自己的段',
-    liveOnlyEpisodes.map((ep) => ep.txns.map((t) => t.id)),
-    [['o1m', 'o1b', 'o1p'], ['o2m'], ['o3m', 'o3b', 'o3n']]
+    '无边界行：第 1/3 单仍结清，第 2 单变未结清',
+    [
+      liveOnlyEpisodes.filter((ep) => ep.settled).map((ep) => ep.txns.map((t) => t.id)),
+      liveOnlyEpisodes.filter((ep) => !ep.settled).map((ep) => ep.txns.map((t) => t.id))
+    ],
+    [
+      [['o1m', 'o1b', 'o1p'], ['o3m', 'o3b', 'o3n']],
+      [['o2m']]
+    ]
   )
 
   // 删第 3 单收回 + 利息：第 3 单本金变未结清，第 1/2 单折叠
@@ -361,9 +362,15 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   const live = rows.filter((t) => !t.deleted_at)
   const eps = chooseLoanEpisodes(live, filterLoanBoundaryRows(rows), BORROW)
   check(
-    '借入：删中间归还后只中间单未结清',
-    eps.map((ep) => ep.settled),
-    [true, false, true]
+    '借入：删中间归还后第 1/3 单结清、第 2 单未结清',
+    [
+      eps.filter((ep) => ep.settled).map((ep) => ep.txns.map((t) => t.id)),
+      eps.filter((ep) => !ep.settled).map((ep) => ep.txns.map((t) => t.id))
+    ],
+    [
+      [['q1m', 'q1b'], ['q3m', 'q3b']],
+      [['q2m']]
+    ]
   )
   check(
     '借入：未结清流水在上、历史折叠在下',
@@ -390,6 +397,105 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   const filtered = filterLoanBoundaryRows(rows)
   check('旧删除实验噪声被剔除', filtered.some((t) => t.id === 'xnoise'), false)
   check('晚于最后一笔存活流水的旧删除被保留', filtered.some((t) => t.id === 'xrecent'), true)
+}
+
+/*
+ * 旧单还没收回时，新借一笔并马上收回：
+ * 新借 + 新还应该独立成一单，不能和旧单糊在一起。
+ * 这是用户 2026-11-18 第二张截图（旧 200 未还，新 100 借还）的场景。
+ */
+{
+  const at = (id, cat, yuan, time) => ({
+    id,
+    category_id: cat,
+    amount_cents: yuan * 100,
+    occurred_day: '2026-11-18',
+    occurred_at: new Date(`2026-11-18T${time}`).getTime(),
+    created_at: new Date(`2026-11-18T${time}`).getTime()
+  })
+  const rows = [
+    // 第一单：借 200，收回 198，坏账 2
+    at('n1m', 'm', 200, '21:48:00'),
+    at('n1b', 'b', 198, '21:48:10'),
+    at('n1p', 'p', 2, '21:48:20'),
+    // 第二单：借 200（旧单，先挂着）
+    at('n2m', 'm', 200, '21:49:00'),
+    // 第三单：借 100，马上收回 100
+    at('n3m', 'm', 100, '21:53:00'),
+    at('n3b', 'b', 100, '21:53:10'),
+    // 第二单最后收回 198 + 坏账 2
+    at('n2b', 'b', 198, '22:07:00'),
+    at('n2p', 'p', 2, '22:07:10')
+  ]
+
+  const eps = splitLoanEpisodes(rows, PAIR)
+  check(
+    '旧单未还时新借新还独立成一单',
+    eps.map((ep) => ep.txns.map((t) => t.id)),
+    [
+      ['n1m', 'n1b', 'n1p'],
+      ['n3m', 'n3b'],
+      ['n2m', 'n2b', 'n2p']
+    ]
+  )
+
+  // 已结清页按收口时间倒序：旧 200（22:07 收口）在上，新 100 在下
+  check(
+    '旧单与新单各自带自己的已结清日期',
+    buildLoanEpisodeView(eps, { status: 'settled' }).map((v) => v.txns.map((t) => t.id)),
+    [
+      ['n2m', 'n2b', 'n2p'],
+      ['n3m', 'n3b'],
+      ['n1m', 'n1b', 'n1p']
+    ]
+  )
+
+  /*
+   * 删除联动也要按单走：
+   * 删新单的收回只影响新单；删旧单的收回才清理旧单的坏账。
+   */
+  check('删新单收回不误删旧单坏账', episodeCleanupIds(rows, PAIR, 'n3b'), [])
+  check('删新单本金连带删新单收回', episodeCleanupIds(rows, PAIR, 'n3m'), ['n3b'])
+  check('删旧单收回只删旧单坏账', episodeCleanupIds(rows, PAIR, 'n2b'), ['n2p'])
+  check('删旧单本金连带删旧单收回和坏账', episodeCleanupIds(rows, PAIR, 'n2m'), ['n2b', 'n2p'])
+}
+
+/*
+ * 借入方向同理：旧借入还没归还时，新借入一笔并马上归还，
+ * 新借入 + 新归还应独立成一单，不能并进旧单。
+ */
+{
+  const at = (id, cat, yuan, time) => ({
+    id,
+    category_id: cat,
+    amount_cents: yuan * 100,
+    occurred_day: '2026-11-18',
+    occurred_at: new Date(`2026-11-18T${time}`).getTime(),
+    created_at: new Date(`2026-11-18T${time}`).getTime()
+  })
+  const BORROW = { mainId: 'bm', backId: 'bb', positiveId: 'bp', negativeId: 'bn' }
+  const rows = [
+    at('r1m', 'bm', 200, '21:48:00'),
+    at('r1b', 'bb', 198, '21:48:10'),
+    at('r1p', 'bp', 2, '21:48:20'),
+    at('r2m', 'bm', 200, '21:49:00'),
+    at('r3m', 'bm', 100, '21:53:00'),
+    at('r3b', 'bb', 100, '21:53:10'),
+    at('r2b', 'bb', 198, '22:07:00'),
+    at('r2p', 'bp', 2, '22:07:10')
+  ]
+  const eps = splitLoanEpisodes(rows, BORROW)
+  check(
+    '借入：旧单未还时新借新还独立成一单',
+    eps.map((ep) => ep.txns.map((t) => t.id)),
+    [
+      ['r1m', 'r1b', 'r1p'],
+      ['r3m', 'r3b'],
+      ['r2m', 'r2b', 'r2p']
+    ]
+  )
+  check('借入：删新单归还不误删旧单未还差额', episodeCleanupIds(rows, BORROW, 'r3b'), [])
+  check('借入：删旧单归还只删旧单未还差额', episodeCleanupIds(rows, BORROW, 'r2b'), ['r2p'])
 }
 
 /* 补记的新借款即使业务日期更早，也不该插到旧结清的坏账之前 */{

@@ -1,29 +1,31 @@
 /**
- * 删除「借款收回 / 借款归还」时，连带清理同一结清批次的差额流水
+ * 删除「借款收回 / 借款归还」时，连带清理同一单的差额流水
  *
  * ★ 为什么需要它 ★
  *   借出坏账 / 借出利息 / 借入未还 / 借入利息 是「手动结清」时
  *   按差额自动写的一笔。它们和报销单的坏账/盈余一样，
  *   只计收支、不计余额，并且在所有流水列表里隐藏。
  *
- *   用户删掉一笔借款收回/借款归还后，那一轮结清已经不成立了：
+ *   用户删掉一笔借款收回/借款归还后，那一单的结清已经不成立了：
  *   · 余额不会再归零；
  *   · 但坏账/利息流水还留在库里，统计里会凭空多一笔损益。
- *   所以删除还款时必须把同一结清批次里的差额一起软删除。
+ *   所以删除还款时必须把同一单里的差额一起软删除。
  *
- * ★ 为什么按「批次」而不是按人员全删 ★
- *   同一个人可能先借后还、结清，过一阵又借 ——
- *   删最新一次的还款，不能把上一轮历史坏账也删掉。
- *   这里用和 splitLoanEpisodes 相同的「余额回到 0」边界找批次，
- *   只清理被删还款所在那一段里的差额。
+ * ★ 为什么按「单」而不是按人员全删 ★
+ *   同一个人可能先借后还、结清，过一阵又借；
+ *   旧单还没还完时，也可能再借一笔并马上还掉。
+ *   删新单的还款，不能把旧单的坏账也删掉。
+ *   这里用和页面相同的 splitLoanOrders() 找到被删流水所在的那一单，
+ *   只清理这一单里的差额。
  *
  * ★ 为什么单独一个文件 ★
  *   api/transaction.js 不能 import api/loan.js（loan.js 反过来 import 它）。
- *   这里只依赖 db/index 与 schema，两个方向都能安全引用。
+ *   这里依赖 db/index、schema 和纯算术模块 loanOrders，两个方向都能安全引用。
  */
 
 import { query } from './db/index.js'
 import { LOAN_CATEGORY_NAMES, LOAN_SETTLE_CATEGORY_NAMES } from './db/schema.js'
+import { splitLoanOrders } from './loanOrders.js'
 
 /**
  * 软删除借款流水时写入的边界标记
@@ -73,28 +75,18 @@ const PAIRS = {
   [BORROW_PAIR.back]: BORROW_PAIR
 }
 
-function compareAsc(a, b) {
-  const ao = Number(a && a.occurred_at) || 0
-  const bo = Number(b && b.occurred_at) || 0
-  if (ao !== bo) return ao - bo
-  const ac = Number(a && a.created_at) || 0
-  const bc = Number(b && b.created_at) || 0
-  if (ac !== bc) return ac - bc
-  return String((a && a.id) || '').localeCompare(String((b && b.id) || ''))
-}
-
 /**
- * 从某个人的全部借入借出流水里，找出被删流水所在结清批次中要连带删除的行
+ * 从某个人的全部借入借出流水里，找出被删流水所在那一单中要连带删除的行
  *
  * ★ 删反方向（借款收回/归还）★
- *   只删本批次的差额（坏账/利息），本金保留 → 本批次自然变成未结清。
+ *   只删本单的差额（坏账/利息），本金保留 → 本单自然变成未结清。
  *
  * ★ 删主方向（借出/借入）★
- *   除本批次差额外，**本批次的全部收回/归还也要删**，
+ *   除本单差额外，**本单的全部收回/归还也要删**，
  *   剩余的主方向流水归为未结清。
  *
  * ★ 历史单删除不删剩余本金 ★
- *   这里的「批次边界」会被 api/loan.js 用**存活行 + 带边界标记的软删行**
+ *   这里的「单边界」会被 api/loan.js 用**存活行 + 带边界标记的软删行**
  *   重建，所以删掉第二单的收回后，第二单剩余本金仍然留在账上变未结清，
  *   第一、第三单的原始结清边界不会丢，仍能各自折叠。
  *   不要在删除时把整单本金清掉 —— 那会把用户没删的钱也一起抹掉。
@@ -107,7 +99,7 @@ function compareAsc(a, b) {
  * @returns {Array<object>} 需要一起软删除的流水行
  */
 export function episodeCleanupRows(txns, pair, deletedId) {
-  const list = (Array.isArray(txns) ? txns : []).slice().sort(compareAsc)
+  const list = (Array.isArray(txns) ? txns : []).filter(Boolean)
   const p = pair || {}
   if (!p.mainId && !p.backId && !p.positiveId && !p.negativeId) return []
 
@@ -118,38 +110,23 @@ export function episodeCleanupRows(txns, pair, deletedId) {
   const isBack = deleted.category_id === p.backId
   if (!isMain && !isBack) return []
 
-  const deltaOf = (t) => {
-    const amt = Number(t && t.amount_cents) || 0
-    if (amt <= 0) return 0
-    const cid = t && t.category_id
-    if (cid === p.mainId) return amt
-    if (cid === p.backId) return -amt
-    if (cid === p.positiveId) return -amt
-    if (cid === p.negativeId) return amt
-    return 0
-  }
+  /*
+   * ★ 必须用和页面同一套「按单分组」来找批次 ★
+   *   旧实现按「总余额回到 0」切段。旧单还欠 200 时新借 100、
+   *   再收回 100 的场景里，总余额只在新单收回后才回到 200，
+   *   并没有归零，整段会糊在一起；删新单的收回时会误删旧单的坏账。
+   *   按单分组的切法能把新单独立出来，删除联动才不会伤及旧单。
+   */
+  const segments = splitLoanOrders(list, p)
+  const seg = segments.find((s) => (s.txns || []).some((t) => t.id === deletedId))
+  if (!seg) return []
 
-  let balance = 0
-  let start = 0
-  for (let i = 0; i < list.length; i++) {
-    if (balance === 0) start = i
-    balance += deltaOf(list[i])
-    if (balance !== 0) continue
+  const extras = seg.txns.filter((t) => t.id !== deletedId)
+  const isAdjustment = (t) => t.category_id === p.positiveId || t.category_id === p.negativeId
 
-    // 一段余额回到 0 的结清批次 [start, i]
-    const seg = list.slice(start, i + 1)
-    if (!seg.some((t) => t.id === deletedId)) continue
-
-    const extras = seg.filter((t) => t.id !== deletedId)
-    const isAdjustment = (t) => t.category_id === p.positiveId || t.category_id === p.negativeId
-
-    if (isBack) return extras.filter(isAdjustment)
-    // 删本金：本批次的收回/归还 + 差额一起删；其余本金保留
-    return extras.filter((t) => t.category_id === p.backId || isAdjustment(t))
-  }
-
-  // 被删流水所在段没有归零（没结清）→ 没有需要连带清理的差额/收回
-  return []
+  if (isBack) return extras.filter(isAdjustment)
+  // 删本金：本单的收回/归还 + 差额一起删；本单其余本金保留
+  return extras.filter((t) => t.category_id === p.backId || isAdjustment(t))
 }
 
 /** 只取 id 的便捷包装（测试与调用方读日志用） */

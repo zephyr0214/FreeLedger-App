@@ -34,6 +34,7 @@ import { createTransaction } from './transaction.js'
 import { toDayKey } from '../utils/date.js'
 import { isSettlementAdjustmentName } from './txnFilter.js'
 import { LOAN_BOUNDARY_MARK } from './loanCleanup.js'
+import { splitLoanOrders } from './loanOrders.js'
 
 /** 借出 / 借入两个方向 */
 export const LOAN_DIRECTIONS = { lend: 'lend', borrow: 'borrow' }
@@ -885,32 +886,6 @@ export function chooseLoanEpisodes(liveRows, allRows, pair) {
   return liveEpisodes
 }
 
-/**
- * 流水按「录入顺序」比较（结清批次切分专用）。
- *
- * ★ 为什么 created_at 在前，occurred_at 在后 ★
- *   结清是「用户点了结清」这个动作产生的，顺序应按录入时间走。
- *   用户可能把新借出补记到更早的业务日期，但它是刚刚新增的，
- *   不能排到旧结清的坏账调整之前 —— 否则旧单永远回不到 0，
- *   会被错误地并进新的未结清单，历史也就无法折叠。
- *
- *   occurred_at 仍然作为二级键：同一毫秒录入的补记数据，
- *   按业务日期排，再用 id 兜底保证稳定。
- *
- * @param {object} a
- * @param {object} b
- * @returns {number}
- */
-function compareTxnAsc(a, b) {
-  const ac = Number(a && a.created_at) || 0
-  const bc = Number(b && b.created_at) || 0
-  if (ac !== bc) return ac - bc
-  const ao = Number(a && a.occurred_at) || 0
-  const bo = Number(b && b.occurred_at) || 0
-  if (ao !== bo) return ao - bo
-  return String((a && a.id) || '').localeCompare(String((b && b.id) || ''))
-}
-
 /** 段内展示按业务日期正序（页面上再反转成最近在前） */
 function compareTxnByOccurred(a, b) {
   const ao = Number(a && a.occurred_at) || 0
@@ -920,7 +895,7 @@ function compareTxnByOccurred(a, b) {
 }
 
 /**
- * 把某个人的流水按「结清批次」切成若干段。
+ * 把某个人的流水按「单」切成若干段。
  *
  * ★ 为什么需要分段 ★
  *   同一个人可能先借后还、结清，过一阵又借 —— 用户原话：
@@ -929,9 +904,16 @@ function compareTxnByOccurred(a, b) {
  *   也就是说「这个人当前这笔账」只从上一段收口之后开始算，
  *   之前那些已经两清的流水不该跟现在的欠款混在一起铺开。
  *
- * ★ 为什么按「余额回到 0」切，而不是按日期或按用户点结清 ★
+ * ★ 为什么按「单」切，不是简单按总余额回 0 切 ★
+ *   总余额回 0 只能说明这个人两清，说明不了哪几笔是同一单。
+ *   旧单还欠 200 时新借 100、又收回 100，总余额是 200 -> 300 -> 200，
+ *   直到旧单也收回才归零。按总余额切会把新单和旧单糊成一张；
+ *   按单切会在新本金处开子单，子单回到开单水平就独立收口。
+ *   具体算术在 api/loanOrders.js。
+ *
+ * ★ 为什么不存结清状态字段 ★
  *   这个仓库的立场是「不存结清状态字段」（见文件头）——
- *   状态字段会和流水打架。批次也一样：余额回到 0 是流水的**算术事实**，
+ *   状态字段会和流水打架。分批也一样：余额是流水的**算术事实**，
  *   用户补记一笔或删一笔，重新算出来的批次自然就变了，界面不会自相矛盾。
  *   按日期切则会在「跨月还清」时切错，按点结清切则会漏掉自动平账的情况。
  *
@@ -953,109 +935,23 @@ function compareTxnByOccurred(a, b) {
  *   方向配对，见 pairOf()
  * @returns {Array<{settled:boolean, txns:Array<object>, balance:number,
  *   fromDay:string, toDay:string, closingDay:string}>}
- *   settled=true 表示这一段余额已经回 0（两清）；
+ *   settled=true 表示这一单已经两清；
  *   closingDay 是收口那笔的 occurred_day（分割标注要显示它）；
- *   最后若还有剩余流水，会多出一条 settled=false 的未结清段。
+ *   最后若还有剩余流水，会多出一条 settled=false 的未结清单。
  */
 export function splitLoanEpisodes(txns, pair) {
-  const src = Array.isArray(txns) ? txns : []
-  const p = pair || {}
-  if (!p.mainId && !p.backId && !p.positiveId && !p.negativeId) return []
-
   /*
-   * ★ 拷贝再排序 ★
-   *   传进来的是页面正在渲染的数组（listLoanGroups 里是倒序的），
-   *   就地 sort 会把组内明细的顺序改掉 —— 页面按 g.txns 渲染时
-   *   就变成「最近的排最下面」，和首页 / 交易列表的观感反过来。
-   *   slice() 之后随便排，调用方的数组一个字节都不动。
+   * 具体怎么切在 api/loanOrders.js：
+   * 不再是「总余额回 0 就切一段」，而是「旧单未平时新开的本金
+   * 先当子单，子单回到开单水平就独立收口」。
+   * 这样旧单还挂着 200 时，新借 100 再收回 100 会成为新的一单，
+   * 不会和旧单糊成一张。
    */
-  const list = src.slice().sort(compareTxnAsc)
-
-  const episodes = []
-  let cur = null
-
-  /** 单笔流水对本方向余额的增量（四个分类的符号全收在这一处） */
-  function deltaOf(t) {
-    const amt = Number(t && t.amount_cents) || 0
-    if (amt <= 0) return 0
-    const cid = t && t.category_id
-    if (cid === p.mainId) return amt
-    if (cid === p.backId) return -amt
-    if (cid === p.positiveId) return -amt
-    if (cid === p.negativeId) return amt
-    return 0
-  }
-
-  function openEpisode() {
-    return { txns: [], balance: 0, fromDay: '', toDay: '', closingDay: '' }
-  }
-
-  for (const t of list) {
-    const delta = deltaOf(t)
-    /*
-     * ★ 增量 0 的流水不进任何批次 ★
-     *   金额为 0 的脏数据（历史导入可能有）既不改变余额，
-     *   放进批次反而会把「段首」算错（0 元那笔成了段首，分割线画在它上面）。
-     *   代价是它不会出现在借入借出页的分段明细里 —— 但记账面板校验过
-     *   金额必须 > 0（见 utils/money.js 的金额规则），正常路径写不出 0 元流水；
-     *   真要看这类历史脏数据，全部交易页仍然查得到。
-     *   整个人的流水如果全是 0 元，episodes 会是空数组，页面那边有兜底
-     *   （见 pages/loan/manage.vue 的 episodesOf），会退回平铺显示。
-     */
-    if (delta === 0) continue
-
-    if (!cur) cur = openEpisode()
-    cur.txns.push(t)
-    cur.balance += delta
-
-    const day = String((t && t.occurred_day) || '')
-    if (!cur.fromDay) cur.fromDay = day
-    if (day) cur.toDay = day
-
-    /*
-     * ★ 恰好为 0 才算收口 ★
-     *   金额都是「分」的整数，没有浮点误差，所以可以用 === 0；
-     *   余额从正数一下跨到负数（多还了但还没记利息）时并没有经过 0，
-     *   这一笔不能算结清 —— 它会继续挂在未结清段里，等用户点「手动结清」
-     *   写下利息那笔后余额才真正归零。
-     */
-    if (cur.balance === 0) {
-      episodes.push({
-        settled: true,
-        /*
-         * txns 保留完整列表：余额已经归零的算术事实由它决定，
-         * 结清差额也在里面。displayTxns 只减去「不在页面展示」的差额，
-         * 供页面渲染和折叠文案计数用。
-         */
-        txns: cur.txns,
-        displayTxns: cur.txns.filter((t) => !isSettlementAdjustmentName(t.category_name)),
-        balance: 0,
-        fromDay: cur.fromDay,
-        toDay: cur.toDay,
-        closingDay: day
-      })
-      cur = null
-    }
-  }
-
-  // 最后还剩流水 = 当前这段没结清
-  if (cur && cur.txns.length > 0) {
-    episodes.push({
-      settled: false,
-      txns: cur.txns,
-      displayTxns: cur.txns.filter((t) => !isSettlementAdjustmentName(t.category_name)),
-      balance: cur.balance,
-      fromDay: cur.fromDay,
-      toDay: cur.toDay,
-      closingDay: ''
-    })
-  }
-
-  return episodes
+  return splitLoanOrders(txns, pair)
 }
 
 /**
- * 把某个人的「结清批次」算成页面直接可用的「段视图」。
+ * 把某个人的「单」算成页面直接可用的「段视图」。
  *
  * ★ 为什么这段规则在 api 层而不是页面里 ★
  *   「哪一段默认折叠、分割标注画在哪一段前面、哪一段能收起」——
