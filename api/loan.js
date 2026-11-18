@@ -560,7 +560,6 @@ export async function listLoanGroups(direction, status = 'all') {
      *   三张单会粘成一段，用户就没法折叠第 1/3 单了。
      */
     g.episodes = buildLoanOrderEpisodes(g.allTxns, pair)
-    delete g.allTxns
 
     /*
      * 组是否结清以「每一单都结清」为准。
@@ -590,6 +589,32 @@ export async function listLoanGroups(direction, status = 'all') {
         .sort()
       g.lastClosingDay = days.length > 0 ? days[days.length - 1] : ''
     }
+
+    /*
+     * 临时诊断：把分组结果和原始流水顺序打到控制台。
+     * 真机上如果出现「历史单没折叠」，这一行能直接看出
+     * 是 created_at 顺序、软删除行还是金额导致没切出结清段。
+     */
+    console.log('[loan] debug', g.person, JSON.stringify({
+      settled: g.settled,
+      balance: g.balance,
+      lastClosingDay: g.lastClosingDay,
+      episodes: g.episodes.map((ep) => ({
+        settled: ep.settled,
+        closingDay: ep.closingDay,
+        ids: ep.txns.map((t) => t.id)
+      })),
+      rows: g.allTxns.map((t) => ({
+        id: t.id,
+        cat: t.category_name,
+        amt: t.amount_cents,
+        cre: t.created_at,
+        occ: t.occurred_at,
+        day: t.occurred_day,
+        del: !!t.deleted_at
+      }))
+    }))
+    delete g.allTxns
 
     /*
      * 页面展示用：
@@ -668,7 +693,8 @@ export function buildLoanOrderEpisodes(allTxns, pair) {
 
     const balance = live.reduce((n, t) => n + deltaOf(t), 0)
     const settled = balance === 0
-    const displayTxns = live.filter((t) => !isSettlementAdjustmentName(t.category_name))
+    const displayOrder = live.slice().sort(compareTxnByOccurred)
+    const displayTxns = displayOrder.filter((t) => !isSettlementAdjustmentName(t.category_name))
 
     /*
      * 收口日期：
@@ -695,38 +721,46 @@ export function buildLoanOrderEpisodes(allTxns, pair) {
       balance,
       settled,
       closingDay,
-      fromDay: live[0] ? dayOf(live[0]) : ep.fromDay,
-      toDay: live[live.length - 1] ? dayOf(live[live.length - 1]) : ep.toDay
+      fromDay: displayOrder[0] ? dayOf(displayOrder[0]) : ep.fromDay,
+      toDay: displayOrder[displayOrder.length - 1]
+        ? dayOf(displayOrder[displayOrder.length - 1])
+        : ep.toDay
     })
   }
   return out
 }
 
 /**
- * 流水按「时间正序」比较（结清批次切分专用）。
+ * 流水按「录入顺序」比较（结清批次切分专用）。
  *
- * ★ 为什么不在 SQL 里直接 ORDER BY ASC ★
- *   listLoanGroups 的那条 SQL 是倒序的（页面从上往下就是最近的在前），
- *   而切批次要正序走才能判断「余额什么时候回 0」。
- *   同一份数据换个顺序就行，没必要为它再查一次库。
+ * ★ 为什么 created_at 在前，occurred_at 在后 ★
+ *   结清是「用户点了结清」这个动作产生的，顺序应按录入时间走。
+ *   用户可能把新借出补记到更早的业务日期，但它是刚刚新增的，
+ *   不能排到旧结清的坏账调整之前 —— 否则旧单永远回不到 0，
+ *   会被错误地并进新的未结清单，历史也就无法折叠。
  *
- * ★ 二级键必须和列表排序一致 ★
- *   同一天记的多笔，occurred_at 可能完全相同（补记时只给日期，
- *   见 api/transaction.js 的 resolveOccurredTime），这时再比 created_at，
- *   最后用 id 兜底 —— 保证同一份数据每次切出来的批次一模一样，
- *   不会出现「刷新一下分段就变了」。
+ *   occurred_at 仍然作为二级键：同一毫秒录入的补记数据，
+ *   按业务日期排，再用 id 兜底保证稳定。
  *
  * @param {object} a
  * @param {object} b
  * @returns {number}
  */
 function compareTxnAsc(a, b) {
-  const ao = Number(a && a.occurred_at) || 0
-  const bo = Number(b && b.occurred_at) || 0
-  if (ao !== bo) return ao - bo
   const ac = Number(a && a.created_at) || 0
   const bc = Number(b && b.created_at) || 0
   if (ac !== bc) return ac - bc
+  const ao = Number(a && a.occurred_at) || 0
+  const bo = Number(b && b.occurred_at) || 0
+  if (ao !== bo) return ao - bo
+  return String((a && a.id) || '').localeCompare(String((b && b.id) || ''))
+}
+
+/** 段内展示按业务日期正序（页面上再反转成最近在前） */
+function compareTxnByOccurred(a, b) {
+  const ao = Number(a && a.occurred_at) || 0
+  const bo = Number(b && b.occurred_at) || 0
+  if (ao !== bo) return ao - bo
   return String((a && a.id) || '').localeCompare(String((b && b.id) || ''))
 }
 
