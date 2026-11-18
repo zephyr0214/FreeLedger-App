@@ -650,20 +650,27 @@ export default {
      */
     const episodeOpen = reactive({})
 
-    /**
-     * 上一次加载时每个人的「当前未结清单」指纹（person -> signature）
-     *
-     * ★ 用来识别「这个人的当前单发生了变化」★
-     *   用户新增一笔借出/借入、或删除当前单的流水后，
-     *   未结清单的流水 id 组合会变；这时清掉折叠状态，
-     *   让历史已结清单重新折叠。
-     *   普通刷新、切 tab 指纹不变，不会打断用户手动展开。
-     */
-    const lastOpenSignature = {}
-
     /** 人员 + 段序号 → 折叠状态 key */
     function episodeKey(person, index) {
       return `${person || ''}#${index}`
+    }
+
+    /**
+     * 当前未结清单的指纹
+     *
+     * ★ 为什么把「展开状态」存成指纹而不是 true ★
+     *   历史折叠组的展开状态如果只存 true，就不知道它属于哪一版未结清单；
+     *   用户新增一笔借出/借入后，历史会继续保持展开。
+     *   现在存的是展开那一刻的未结清单流水 id 组合：
+     *     · 当前指纹和存下来的不一致 → 说明换了新单 → 自动折叠
+     *     · 指纹一致 → 普通刷新/切 tab，保留用户手动展开
+     *   这样不依赖「上一次 load 是否已经跑过」，也不会被异步刷新顺序影响。
+     */
+    function openSignatureOf(g) {
+      return (g && Array.isArray(g.episodes) ? g.episodes : [])
+        .filter((ep) => !ep.settled)
+        .map((ep) => (ep.txns || []).map((t) => t.id).join(','))
+        .join('|')
     }
 
     /**
@@ -711,9 +718,17 @@ export default {
      *   episodeOpen 是 reactive 的，读它会建立依赖，改了就重渲染。
      */
     function episodeViewOf(g) {
+      const sig = openSignatureOf(g)
       return buildLoanEpisodeView(episodesOf(g), {
         status: status.value,
-        isExpanded: (index) => !!episodeOpen[episodeKey(g.person, index)]
+        isExpanded: (index) => {
+          const key = episodeKey(g.person, index)
+          if (index === -1) {
+            // 历史组：只有「展开时的未结清单指纹」和当前一致才算展开
+            return !!episodeOpen[key] && episodeOpen[key] === sig
+          }
+          return !!episodeOpen[key]
+        }
       })
     }
 
@@ -735,16 +750,20 @@ export default {
     /** 点折叠条 / 收起按钮：翻转这一段的展开状态 */
     function toggleEpisode(person, index) {
       const key = episodeKey(person, index)
+      if (index === -1) {
+        /*
+         * 历史组记录「展开那一刻的未结清单指纹」。
+         * 新增/删除当前单后指纹变了，旧值自然失效 → 自动折叠，
+         * 不需要在 load() 里对比上一次状态。
+         */
+        const g = groups.value.find((x) => x.person === person)
+        const sig = g ? openSignatureOf(g) : ''
+        if (episodeOpen[key] === sig) delete episodeOpen[key]
+        else episodeOpen[key] = sig
+        return
+      }
       if (episodeOpen[key]) delete episodeOpen[key]
       else episodeOpen[key] = true
-    }
-
-    /** 清掉某个人的全部折叠状态（含历史组 -1） */
-    function clearEpisodeStates(person) {
-      const prefix = `${person || ''}#`
-      for (const key of Object.keys(episodeOpen)) {
-        if (key.indexOf(prefix) === 0) delete episodeOpen[key]
-      }
     }
 
     /**
@@ -810,34 +829,6 @@ export default {
 
         const open = all.filter((g) => !g.settled)
         const settled = all.filter((g) => g.settled)
-
-        /*
-         * ★ 当前未结清单变了：把历史已结清单重新折叠 ★
-         *   用户场景：张三原来已经全部结清，后来再借一笔；
-         *   如果他上次在未结清页把历史展开过，新增这一单后
-         *   旧的已结清单应该自动收起。
-         *   用「当前未结清单的流水 id 组合」做指纹：
-         *     · 新增借款 / 删除当前单流水 → 指纹变 → 清折叠状态
-         *     · 普通刷新 / 切 tab → 指纹不变 → 保留用户手动展开
-         */
-        const seenPeople = new Set()
-        for (const g of all) {
-          seenPeople.add(g.person)
-          const sig = (g.episodes || [])
-            .filter((ep) => !ep.settled)
-            .map((ep) => (ep.txns || []).map((t) => t.id).join(','))
-            .join('|')
-          if (
-            Object.prototype.hasOwnProperty.call(lastOpenSignature, g.person) &&
-            lastOpenSignature[g.person] !== sig
-          ) {
-            clearEpisodeStates(g.person)
-          }
-          lastOpenSignature[g.person] = sig
-        }
-        for (const person of Object.keys(lastOpenSignature)) {
-          if (!seenPeople.has(person)) delete lastOpenSignature[person]
-        }
 
         openCount.value = open.length
         settledCount.value = settled.length
