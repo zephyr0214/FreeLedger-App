@@ -44,7 +44,7 @@ const REQUIRED_KEYS = [
   'category', 'tag', 'budget', 'theme', 'ai',
   'data', 'about', 'cycle',
   'loan-out', 'loan-in', 'reimburse', 'rate',
-  'stats', 'plus', 'update',
+  'stats', 'plus', 'plusLine', 'update',
   // 深浅模式（主题外观页）
   'auto', 'sun', 'moon',
   // 下拉箭头
@@ -65,7 +65,7 @@ for (const key of LINE_ICON_KEYS) {
 
   check(`图标「${key}」带 xmlns`, svg.includes('xmlns="http://www.w3.org/2000/svg"'), true)
 
-  if (key === 'chevronDown') {
+  if (key === 'chevronDown' || key === 'plusLine') {
     // 下拉箭头仍是描边风格
     check(`图标「${key}」是描边风格（fill=none）`, svg.includes('fill="none"'), true)
     check(`图标「${key}」有 stroke`, /stroke="[^"]+"/.test(svg), true)

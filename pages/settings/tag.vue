@@ -4,7 +4,7 @@
       <!-- 右上角：新增标签 -->
       <template #right>
         <view class="nav-add" @click="openCreate">
-          <LineIcon name="plus" :size="20" :color="primaryColor" />
+          <LineIcon name="plusLine" :size="20" :color="primaryColor" />
         </view>
       </template>
     </PageNav>

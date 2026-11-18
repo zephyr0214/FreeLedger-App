@@ -4,7 +4,7 @@
       <!-- 右上角：新建一级分类 -->
       <template #right>
         <view class="nav-add" @click="openCreate(null)">
-          <LineIcon name="plus" :size="20" :color="primaryColor" />
+          <LineIcon name="plusLine" :size="20" :color="primaryColor" />
         </view>
       </template>
     </PageNav>

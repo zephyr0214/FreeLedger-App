@@ -3,7 +3,7 @@
     <PageNav title="周期管理" @back="goBack">
       <template #right>
         <view class="nav-add" @click="openCreate">
-          <LineIcon name="plus" :size="20" :color="primaryColor" />
+          <LineIcon name="plusLine" :size="20" :color="primaryColor" />
         </view>
       </template>
     </PageNav>

@@ -221,7 +221,17 @@ const ICON_DEFS = {
     ]
   },
 
-  /** 向下三角：下拉/展开指示（唯一保留的描边图标） */
+  /** 页面右上角「新增」：保留原来的细线加号 */
+  plusLine: {
+    viewBox: '0 0 24 24',
+    filled: false,
+    paths: [
+      'M12 5v14',
+      'M5 12h14'
+    ]
+  },
+
+  /** 向下三角：下拉/展开指示 */
   chevronDown: {
     viewBox: '0 0 24 24',
     filled: false,
