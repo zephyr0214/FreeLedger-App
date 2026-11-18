@@ -23,7 +23,7 @@ import {
 } from '../api/txnFilter.js'
 import { buildFilterWhere } from '../api/transaction.js'
 import { DEFAULT_SETTINGS } from '../api/settings.js'
-import { splitLoanEpisodes, buildLoanEpisodeView, buildLoanOrderEpisodes } from '../api/loan.js'
+import { splitLoanEpisodes, buildLoanEpisodeView, buildLoanOrderEpisodes, chooseLoanEpisodes } from '../api/loan.js'
 import { episodeCleanupIds } from '../api/loanCleanup.js'
 import { reimburseDeletePlan } from '../api/reimburseCleanup.js'
 
@@ -207,6 +207,44 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   )
 }
 
+/* 补记的新借款即使业务日期更早，也不该插到旧结清的坏账之前 */
+{
+  const rows = [
+    { ...loanRow('k1', 'm', 100, '2026-05-01'), created_at: new Date('2026-05-01T10:00:00').getTime() },
+    { ...loanRow('k2', 'b', 98, '2026-05-01'), created_at: new Date('2026-05-02T10:00:00').getTime() },
+    { ...loanRow('k3', 'p', 2, '2026-05-02'), created_at: new Date('2026-05-03T10:00:00').getTime() },
+    // 新借出补记到 5/1，但实际是 5/4 才录入
+    { ...loanRow('k4', 'm', 200, '2026-05-01'), created_at: new Date('2026-05-04T10:00:00').getTime() }
+  ]
+  const eps = buildLoanOrderEpisodes(rows, PAIR)
+  check('补记新借款仍单独成未结清单', eps.map((ep) => ep.settled), [true, false])
+  check('旧单坏账日期保留', eps[0] ? eps[0].closingDay : '', '2026-05-02')
+}
+
+/*
+ * 历史删除实验留下的软删行不能污染当前账单：
+ * 存活行本身能切出两个已结清单 + 一个新未结清单，
+ * 含软删行会被噪声拖成一整段未结清，应选存活行那套。
+ */
+{
+  const live = [
+    { ...loanRow('z1', 'm', 100, '2026-06-01'), created_at: 1000 },
+    { ...loanRow('z2', 'b', 98, '2026-06-01'), created_at: 2000 },
+    { ...loanRow('z3', 'p', 2, '2026-06-01'), created_at: 3000 },
+    { ...loanRow('z4', 'm', 300, '2026-06-02'), created_at: 4000 },
+    { ...loanRow('z5', 'b', 300, '2026-06-02'), created_at: 5000 },
+    { ...loanRow('z6', 'm', 100, '2026-06-03'), created_at: 6000 }
+  ]
+  const noise = {
+    ...loanRow('znoise', 'm', 200, '2026-06-01'),
+    created_at: 2500,
+    deleted_at: Date.now()
+  }
+  const eps = chooseLoanEpisodes(live, [...live, noise], PAIR)
+  check('选存活行分段：两张旧单结清、新单未结清', eps.map((ep) => ep.settled), [true, true, false])
+  check('软删噪声不参与最终分段', eps.some((ep) => ep.txns.some((t) => t.id === 'znoise')), false)
+}
+
 /* 软删行导致原始段未收口、但存活行刚好归零时，日期要能兜底 */
 {
   const rows = [
@@ -278,7 +316,7 @@ check('API 分段标注可追加差额金额', /adjustmentTextOfTxns/.test(loanS
 check('借入借出明细优先 displayTxns', /Array\.isArray\(ep\.displayTxns\)/.test(loanPage), true)
 check('API 生成 adjustmentList', /g\.adjustmentList\s*=/.test(loanSrc), true)
 check('API 生成最近结清日期', /g\.lastClosingDay\s*=/.test(loanSrc), true)
-check('分组用含软删除行重建单据边界', /buildLoanOrderEpisodes\(g\.allTxns/.test(loanSrc), true)
+check('分组用存活行/软删行两套分段择优', /chooseLoanEpisodes\(g\.txns, g\.allTxns, pair\)/.test(loanSrc), true)
 check('软删除行只参与分段不参与汇总', /if \(r\.deleted_at\) continue/.test(loanSrc), true)
 check('借出借入右上角快捷按钮', /HeaderAction/.test(loanPage) && /openBackPanel/.test(loanPage), true)
 check('快捷按钮文案随方向切换', /isIncome \? '借款归还' : '借款收回'/.test(loanPage), true)

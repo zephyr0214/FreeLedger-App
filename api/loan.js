@@ -552,14 +552,12 @@ export async function listLoanGroups(direction, status = 'all') {
     g.balance = g.total - g.back
 
     /*
-     * ★ 结清边界用「含软删除行」的全部流水重建 ★
-     *   这样删掉历史第 2 单的收回后：
-     *     第 1/3 单仍然按当年的收口位置各自结清、可以折叠；
-     *     第 2 单只剩存活本金，余额 > 0，显示为未结清。
-     *   如果只用存活行，第 2 单剩余本金会让第 3 单回不到 0，
-     *   三张单会粘成一段，用户就没法折叠第 1/3 单了。
+     * ★ 两套分段取「结清得更完整」的那套 ★
+     *   只用存活行能避免历史删除实验的软删行干扰；
+     *   含软删除行能保留「删了某单收回、后面单仍各自结清」的边界。
+     *   详见 chooseLoanEpisodes() 的说明。
      */
-    g.episodes = buildLoanOrderEpisodes(g.allTxns, pair)
+    g.episodes = chooseLoanEpisodes(g.txns, g.allTxns, pair)
 
     /*
      * 组是否结清以「每一单都结清」为准。
@@ -728,6 +726,34 @@ export function buildLoanOrderEpisodes(allTxns, pair) {
     })
   }
   return out
+}
+
+/**
+ * 选择「结清得更完整」的一套分段
+ *
+ * 同一批流水有两条切法：
+ *   · 只用存活行：不会被历史删除实验留下的软删行干扰，
+ *     当前账面已经两清的单能正常识别。
+ *   · 含软删除行：能保留「删了某单收回后，后面单仍各自结清」的边界。
+ *
+ * 比较两套结果里已结清流水的条数，取多的那套；
+ * 一样多时优先存活行（更干净，不受无关软删行影响）。
+ *
+ * @param {Array<object>} liveRows 存活流水
+ * @param {Array<object>} allRows 含软删除的全部流水
+ * @param {object} pair 四个分类 id
+ * @returns {Array<object>}
+ */
+export function chooseLoanEpisodes(liveRows, allRows, pair) {
+  const settledRowCount = (eps) => eps.reduce(
+    (n, ep) => n + (ep.settled ? ep.txns.length : 0),
+    0
+  )
+  const liveEpisodes = buildLoanOrderEpisodes(liveRows, pair)
+  const allEpisodes = buildLoanOrderEpisodes(allRows, pair)
+  return settledRowCount(allEpisodes) > settledRowCount(liveEpisodes)
+    ? allEpisodes
+    : liveEpisodes
 }
 
 /**
