@@ -1576,15 +1576,20 @@ export default {
       }
     }
 
+    /** 本次进入页面已经应用过详情页带来的条件（避免 onMounted/onShow 二次清空） */
+    let pendingApplied = false
+
     /**
      * 消费从账户/标签详情带过来的筛选条件
      *
      * 账户详情传 accountId，标签详情传 tagIds；
      * 先清空旧条件再合并，避免在上一组筛选上继续叠加。
+     *
+     * @returns {boolean} 是否真的带进来了条件
      */
     function applyPendingStatsFilter() {
       const pending = consumeStatsFilter()
-      if (!pending) return
+      if (!pending) return false
       Object.assign(appliedFilter, createEmptyTxnFilter(), pending)
       appliedFilter.categoryIds = Array.isArray(pending.categoryIds)
         ? pending.categoryIds.slice()
@@ -1592,6 +1597,15 @@ export default {
       appliedFilter.tagIds = Array.isArray(pending.tagIds)
         ? pending.tagIds.slice()
         : []
+      pendingApplied = true
+      return true
+    }
+
+    /** 清空「更多筛选」（重新进入统计页时默认回到无筛选状态） */
+    function resetAppliedFilter() {
+      Object.assign(appliedFilter, createEmptyTxnFilter())
+      appliedFilter.categoryIds = []
+      appliedFilter.tagIds = []
     }
 
     /**
@@ -1650,7 +1664,15 @@ export default {
          *   读 setting 是纯内存/一次 KV 查询，代价可以忽略。
          */
         await loadPanelSettings()
-        applyPendingStatsFilter()
+        /*
+         * ★ 重新进入统计页默认清空「更多筛选」★
+         *   只有从账户/标签详情带条件跳过来时才保留这次条件。
+         *   pendingApplied 用来兼容 onMounted 已经消费过 pending 的情况，
+         *   否则 onShow 会把刚带进来的条件又清掉。
+         */
+        const hadPending = applyPendingStatsFilter()
+        if (!hadPending && !pendingApplied) resetAppliedFilter()
+        pendingApplied = false
         await loadAllCategories()
         await loadAll()
       }
