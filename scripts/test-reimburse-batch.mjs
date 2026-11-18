@@ -34,6 +34,7 @@ import { fileURLToPath } from 'url'
 import { DatabaseSync } from 'node:sqlite'
 
 import { SCHEMA_V1, SCHEMA_VERSION, REIMBURSE_CATEGORY_NAMES } from '../api/db/schema.js'
+import { buildFilterWhere } from '../api/transaction.js'
 
 let pass = 0
 let fail = 0
@@ -544,6 +545,33 @@ console.log('=== 5. 多选报销 = 1 张单，派生流水不计入笔数 ===')
     check('坏账计入收支（不那么做损失就看不见）', Number(badDebt.exclude_from_stats), 0)
   }
 
+  /*
+   * ★ 六类结算差额在流水列表里隐藏，但「报销到账」是真实现金流，保留 ★
+   *   直接拿 buildFilterWhere 生成的 WHERE 去查真库，
+   *   能验证子查询按分类名的过滤真的生效，而不只是源码里写了字符串。
+   */
+  const hiddenWhere = buildFilterWhere({ accountId: 'acc1', hideAdjustments: true })
+  const visibleRows = db.prepare(
+    `SELECT t.id, c.name AS category_name
+     FROM txn t LEFT JOIN category c ON c.id = t.category_id
+     WHERE ${hiddenWhere.where.join(' AND ')}`
+  ).all(...hiddenWhere.params)
+  check('列表 SQL 隐藏报销坏账', visibleRows.some((t) => t.category_name === '报销坏账'), false)
+  check('列表 SQL 保留报销到账', visibleRows.some((t) => t.category_name === '报销到账'), true)
+  check('列表 SQL 保留原始支出', visibleRows.filter((t) => ['e1', 'e2', 'e3'].includes(t.id)).length, 3)
+
+  /*
+   * 统计查询不传 hideAdjustments：坏账必须仍然被查出来，
+   * 否则「只计收支」就落空了。
+   */
+  const statsWhere = buildFilterWhere({ accountId: 'acc1' })
+  const statsRows = db.prepare(
+    `SELECT t.id, c.name AS category_name
+     FROM txn t LEFT JOIN category c ON c.id = t.category_id
+     WHERE ${statsWhere.where.join(' AND ')}`
+  ).all(...statsWhere.params)
+  check('统计 SQL 包含报销坏账', statsRows.some((t) => t.category_name === '报销坏账'), true)
+
   const list = await reimbMod.listReimburseBatches()
   const card = list[0]
   check('卡片笔数 = 3', card.txnCount, 3)
@@ -857,14 +885,21 @@ console.log('=== 9. 页面接线（已报销 = 报销单卡片）===')
   check('卡片循环 batches', /v-for="b in batches"/.test(page), true)
   check('卡头有实报金额（大号）', /class="batch-done-amount"/.test(page), true)
   check('卡头有报销时间', /class="batch-day"/.test(page), true)
+  check('卡头日期显示完整年月日', /dayTitle\(b\.day\)/.test(page) && /年\$\{Number\(m\)\}月/.test(page), true)
   check('卡头有到账账户', /class="batch-account[^"]*"/.test(page), true)
-  check('卡身有报销笔数', /报销笔数/.test(page), true)
-  check('卡身有报销金额', /报销金额/.test(page), true)
+  check('卡头显示应报', /应报 ￥/.test(page) && /originCents/.test(page), true)
+  check('卡头显示多/少报', /batchDiff\(b\)\.label/.test(page), true)
+  check('应报与多/少报同一行', /class="batch-diff-row"[\s\S]{0,400}?batch-origin-inline[\s\S]{0,400}?batch-diff/.test(page), true)
   check('明细里原金额划删除线', /class="batch-origin-strike"/.test(page), true)
   /* ★ 用户要求：明细里不再重复显示实报金额 ★ */
   check('明细里不再显示实报金额', /reimburse_amount_cents/.test(page), false)
-  check('派生流水标注「不计入笔数」', /不计入笔数/.test(page), true)
-  check('派生流水不划删除线（用 MoneyText）', /txn-item-derived[\s\S]{0,2000}?<MoneyText/.test(page), true)
+  /*
+   * ★ 六类结算差额流水全局隐藏 ★
+   *   报销坏账/盈余不再出现在卡身明细里；差额由卡头「应报 · 少报/多报」表达。
+   */
+  check('页面只渲染非差额派生流水', /v-for="d in visibleDerived\(b\)"/.test(page), true)
+  check('不直接渲染全部派生流水', /v-for="d in b\.derived"/.test(page), false)
+  check('卡身只列被报销的原始支出', /v-for="t in b\.items"/.test(page), true)
   check('待报销 tab 的金额不划删除线', /class="amount-pending"/.test(page), true)
 }
 
@@ -900,13 +935,14 @@ console.log('=== 10. 撤销报销单：删派生流水 + 原始流水退回未�
   check('撤销前活着 4 笔（2 原始 + 到账 + 坏账）', Number(beforeAlive), 4)
 
   /*
-   * ★ 余额预期要把「原始支出」也算进去 ★
-   *   原始支出 v1+v2 = 1000.00 也记在 acc1 上（钱确实花出去了），
-   *   所以：-1000（原支出）+ 900（到账）- 100（坏账） = -200.00
-   *   一开始只想到到账与坏账，忘了原始支出也在同一个账户上。
+   * ★ 余额只算真实现金流 ★
+   *   原始支出 v1+v2 = 1000.00 记在 acc1 上（钱确实花出去了），
+   *   报销到账 900.00 也进 acc1；
+   *   坏账 100.00 是结算差额，只计收支、不再扣一次余额。
+   *   所以余额 = -1000 + 900 = -100.00。
    */
   const balBefore = Number(db.prepare("SELECT balance_cents FROM account WHERE id='acc1'").get().balance_cents)
-  check('撤销前余额 = -200.00（原支出 -1000 + 到账 900 - 坏账 100）', balBefore, -20000)
+  check('撤销前余额 = -100.00（原支出 -1000 + 到账 900，坏账不计余额）', balBefore, -10000)
 
   const out = await reimbMod.voidReimburseBatch(r.batchId)
   check('返回删了 2 笔派生流水', out.deletedDerived, 2)
@@ -1027,15 +1063,16 @@ console.log('=== 10c. 页面：撤销按钮与确认弹窗 ===')
   const page = read('pages/loan/reimburse.vue')
 
   /*
-   * ★ 应报改到「N 笔」之后的同一行，撤销按钮挪到卡尾（用户本轮）★
-   *   用户原话：「应报显示在 X 笔之后「· 应报 ￥ XX.XX」，
-   *   实报上，移撤按钮切换为「撤销本报销单」按钮，显示在下方」。
+   * ★ 用户新要求：卡头左下角显示应报、多/少报 ★
+   *   不再把应报拼在「N 笔」后面；它和差额单独一行，
+   *   由 batchDiff() 根据 originCents / doneCents 算出来。
    */
   check(
-    '应报在「N 笔」之后',
-    /class="batch-count">[^<]*txnCount[^<]*笔\s*<\/text>\s*<text class="batch-origin-inline"/.test(page),
+    '应报与多/少报同一行在左下角',
+    /class="batch-head-left"[\s\S]{0,1200}?class="batch-diff-row"[\s\S]{0,400}?batch-origin-inline[\s\S]{0,400}?batch-diff/.test(page),
     true
   )
+  check('batchDiff 已暴露给模板', /dayTitle, batchDiff/.test(page), true)
   /*
    * ★ 撤销按钮在实报金额下方（用户本轮明确）★
    *   用户原话：「『撤销本报销单』按钮，我指的是显示在实报金额下方」。

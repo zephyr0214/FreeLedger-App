@@ -2,7 +2,7 @@
 import { useSettingStore } from '@/stores/setting.js'
 import { openDb } from '@/api/db/index.js'
 import { seedDefaultCategories, syncDefaultCategories } from '@/api/category.js'
-import { writeAllTodaySnapshots } from '@/api/account.js'
+import { writeAllTodaySnapshots, recalcAllBalances } from '@/api/account.js'
 import { pruneOldRates } from '@/api/rateStore.js'
 import { getAllSettings, setSettings } from '@/api/settings.js'
 import { autoBackup } from '@/api/backup.js'
@@ -118,6 +118,31 @@ export default {
       }
     } catch (e) {
       console.error('[app] 系统分类对齐失败:', e.message)
+    }
+
+    /*
+     * 3c) 一次性修正「结算差额流水曾经重复扣余额」的历史数据
+     *
+     * ★ 为什么放在系统分类对齐之后 ★
+     *   recalcBalance 用分类名排除六类调整流水，得先保证这些分类存在。
+     *
+     * ★ 为什么用设置标记而不是数据库迁移 ★
+     *   这是纯计算修正，不改表结构；迁移里调用 recalcBalance 会撞上
+     *   openDb 的死锁（query/execute 会 await openDb）。
+     *   App 启动时做一次，成功后置标记，之后不再重复跑。
+     *
+     * ★ 失败不置标记 ★
+     *   下次启动会重试；修不完比不修更糟。
+     */
+    try {
+      const settings = await getAllSettings()
+      if (!settings.settlementBalanceFixed) {
+        const n = await recalcAllBalances()
+        await setSettings({ settlementBalanceFixed: true })
+        console.log(`[app] 已修正结算差额余额（重算 ${n} 个账户）`)
+      }
+    } catch (e) {
+      console.warn('[app] 结算差额余额修正失败:', e.message)
     }
 
     // 4) 每日快照（资产趋势的数据源）

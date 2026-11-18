@@ -32,6 +32,7 @@ import { query, queryOne } from './db/index.js'
 import { ensurePresetCategories, listCategories } from './category.js'
 import { createTransaction } from './transaction.js'
 import { toDayKey } from '../utils/date.js'
+import { isSettlementAdjustmentName } from './txnFilter.js'
 
 /** 借出 / 借入两个方向 */
 export const LOAN_DIRECTIONS = { lend: 'lend', borrow: 'borrow' }
@@ -447,9 +448,16 @@ export async function listLoanGroups(direction, status = 'all') {
         back: 0,
         balance: 0,
         count: 0,
+        visibleCount: 0,
         lastDay: '',
         settled: false,
-        txns: []
+        txns: [],
+        /*
+         * 结算差额汇总：{ 分类名: 金额 }。
+         * 这六类流水在页面上不展示明细，但组头要能写「借还已平 · 坏账 ¥x」，
+         * 所以在这里先把金额攒好，页面不用再遍历原始流水。
+         */
+        adjustments: {}
       })
     }
     const g = map.get(person)
@@ -459,6 +467,12 @@ export async function listLoanGroups(direction, status = 'all') {
     else if (r.category_id === pair.positiveId) g.total -= amt
     else if (r.category_id === pair.negativeId) g.total += amt
     g.count++
+    if (isSettlementAdjustmentName(r.category_name)) {
+      const name = String(r.category_name || '')
+      g.adjustments[name] = (Number(g.adjustments[name]) || 0) + amt
+    } else {
+      g.visibleCount++
+    }
     if (!g.lastDay || String(r.occurred_day) > g.lastDay) g.lastDay = String(r.occurred_day)
     /*
      * ★ 明细行里带出 tag_ids（本轮：借入借出页每笔流水都要显示用户标签徽标）★
@@ -494,12 +508,23 @@ export async function listLoanGroups(direction, status = 'all') {
     g.episodes = splitLoanEpisodes(g.txns, pair)
 
     /*
-     * 「之前已经结清过几笔」= 已收口那几段的流水总数。
-     * 未结清 tab 里折叠条要写「已结清 N 笔 · 点击展开」，
-     * 在 API 里数好，页面就不用为了一个数字再遍历一遍。
+     * 页面展示用：
+     *   · displayTxns 是去掉六类结算差额后的流水；
+     *   · adjustmentList 是组头「借还已平 · 坏账 ¥x」用的汇总。
+     * 余额 / 分段仍然用完整 txns 算 —— 差额正是让余额归零的那几笔，
+     * 提前剔掉会把「已结清」判断弄错。
+     */
+    g.displayTxns = g.txns.filter((t) => !isSettlementAdjustmentName(t.category_name))
+    g.adjustmentList = Object.keys(g.adjustments)
+      .map((name) => ({ name, cents: Number(g.adjustments[name]) || 0 }))
+      .filter((x) => x.cents > 0)
+
+    /*
+     * 「之前已经结清过几笔」= 已收口那几段的**可见**流水总数。
+     * 差额流水不展示，就不该算进「已结清 N 笔」。
      */
     g.settledTxnCount = g.episodes.reduce(
-      (acc, ep) => acc + (ep.settled ? ep.txns.length : 0),
+      (acc, ep) => acc + (ep.settled ? (ep.displayTxns || ep.txns).length : 0),
       0
     )
   }
@@ -645,7 +670,13 @@ export function splitLoanEpisodes(txns, pair) {
     if (cur.balance === 0) {
       episodes.push({
         settled: true,
+        /*
+         * txns 保留完整列表：余额已经归零的算术事实由它决定，
+         * 结清差额也在里面。displayTxns 只减去「不在页面展示」的差额，
+         * 供页面渲染和折叠文案计数用。
+         */
         txns: cur.txns,
+        displayTxns: cur.txns.filter((t) => !isSettlementAdjustmentName(t.category_name)),
         balance: 0,
         fromDay: cur.fromDay,
         toDay: cur.toDay,
@@ -660,6 +691,7 @@ export function splitLoanEpisodes(txns, pair) {
     episodes.push({
       settled: false,
       txns: cur.txns,
+      displayTxns: cur.txns.filter((t) => !isSettlementAdjustmentName(t.category_name)),
       balance: cur.balance,
       fromDay: cur.fromDay,
       toDay: cur.toDay,
@@ -707,6 +739,17 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
   const isSettledTab = status === 'settled'
   const isExpanded = typeof opt.isExpanded === 'function' ? opt.isExpanded : () => false
 
+  /**
+   * 这一段实际要渲染的流水。
+   * displayTxns 是 splitLoanEpisodes 去掉六类结算差额后的列表；
+   * 老调用方（单测里的合成数据）没有这个字段，退回 txns。
+   */
+  const visibleTxnsOf = (ep) => {
+    if (!ep) return []
+    if (Array.isArray(ep.displayTxns)) return ep.displayTxns
+    return Array.isArray(ep.txns) ? ep.txns : []
+  }
+
   /*
    * ★ 两个 tab 都要倒序：最新的在上、历史的在下 ★
    *   splitLoanEpisodes 给的是时间正序（旧的段在前、新的段在后），
@@ -736,7 +779,7 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
    *   否则展开后就是一堆流水堆在一起，看不出哪几笔是同一次结清的。
    */
   const historyTxnCount = ordered.reduce(
-    (n, ep) => n + (ep && ep.settled && Array.isArray(ep.txns) ? ep.txns.length : 0),
+    (n, ep) => n + (ep && ep.settled ? visibleTxnsOf(ep).length : 0),
     0
   )
   // 历史组的展开状态用专用下标 -1 存（它不对应任何一段）
@@ -745,7 +788,7 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
   let lastSettledIndex = -1
   for (let i = 0; i < ordered.length; i++) {
     const ep = ordered[i]
-    if (ep && ep.settled && Array.isArray(ep.txns) && ep.txns.length > 0) lastSettledIndex = i
+    if (ep && ep.settled && visibleTxnsOf(ep).length > 0) lastSettledIndex = i
   }
 
   const out = []
@@ -753,7 +796,7 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
 
   for (let i = 0; i < ordered.length; i++) {
     const ep = ordered[i]
-    if (!ep || !Array.isArray(ep.txns) || ep.txns.length === 0) continue
+    if (!ep || visibleTxnsOf(ep).length === 0) continue
 
     /*
      * ★ 未结清 tab 里的已结清段：合成一个折叠组 ★

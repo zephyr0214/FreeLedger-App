@@ -15,6 +15,7 @@ import { prefixedId } from '../utils/id.js'
 import { toDayKey, makeDateKeys } from '../utils/date.js'
 import { ensureReconcileCategory } from './category.js'
 import { getSetting, setSetting } from './settings.js'
+import { notSettlementAdjustmentSql } from './txnFilter.js'
 
 /**
  * 账户类型
@@ -830,14 +831,16 @@ export async function setAccountBalanceDirect(accountId, targetCents) {
 
   // 支出、转出（减）
   const outRow = await queryOne(
-    `SELECT COALESCE(SUM(amount_cents), 0) AS s FROM txn
-     WHERE deleted_at IS NULL AND (account_id = ? AND type IN ('expense','transfer'))`,
+    `SELECT COALESCE(SUM(t.amount_cents), 0) AS s FROM txn t
+     WHERE t.deleted_at IS NULL AND ${notSettlementAdjustmentSql('t')}
+       AND (t.account_id = ? AND t.type IN ('expense','transfer'))`,
     [accountId]
   )
   // 收入、转入（增）
   const inRow = await queryOne(
-    `SELECT COALESCE(SUM(amount_cents), 0) AS s FROM txn
-     WHERE deleted_at IS NULL AND ((account_id = ? AND type = 'income') OR (to_account_id = ? AND type = 'transfer'))`,
+    `SELECT COALESCE(SUM(t.amount_cents), 0) AS s FROM txn t
+     WHERE t.deleted_at IS NULL AND ${notSettlementAdjustmentSql('t')}
+       AND ((t.account_id = ? AND t.type = 'income') OR (t.to_account_id = ? AND t.type = 'transfer'))`,
     [accountId, accountId]
   )
 
@@ -886,14 +889,16 @@ export async function recalcBalance(accountId) {
 
   // 支出、转出（减）
   const outRow = await queryOne(
-    `SELECT COALESCE(SUM(amount_cents), 0) AS s FROM txn
-     WHERE deleted_at IS NULL AND (account_id = ? AND type IN ('expense','transfer'))`,
+    `SELECT COALESCE(SUM(t.amount_cents), 0) AS s FROM txn t
+     WHERE t.deleted_at IS NULL AND ${notSettlementAdjustmentSql('t')}
+       AND (t.account_id = ? AND t.type IN ('expense','transfer'))`,
     [accountId]
   )
   // 收入、转入（增）
   const inRow = await queryOne(
-    `SELECT COALESCE(SUM(amount_cents), 0) AS s FROM txn
-     WHERE deleted_at IS NULL AND ((account_id = ? AND type = 'income') OR (to_account_id = ? AND type = 'transfer'))`,
+    `SELECT COALESCE(SUM(t.amount_cents), 0) AS s FROM txn t
+     WHERE t.deleted_at IS NULL AND ${notSettlementAdjustmentSql('t')}
+       AND ((t.account_id = ? AND t.type = 'income') OR (t.to_account_id = ? AND t.type = 'transfer'))`,
     [accountId, accountId]
   )
 

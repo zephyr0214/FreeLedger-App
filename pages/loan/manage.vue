@@ -90,7 +90,7 @@
               </view>
               <view class="person-meta">
                 <text class="person-name ellipsis">{{ g.person }}</text>
-                <text class="person-sub">{{ g.count }} 笔 · 最近 {{ g.lastDay || '—' }}</text>
+                <text class="person-sub">{{ personSub(g) }}</text>
               </view>
             </view>
 
@@ -488,6 +488,41 @@ export default {
       return g.settled ? 'var(--app-text-3)' : accentColor.value
     }
 
+    /**
+     * 人名下方的结算摘要
+     *
+     * ★ 为什么不再显示「N 笔 · 最近日期」★
+     *   报销坏账/盈余、借出坏账/利息、借入未还/利息这六类差额流水
+     *   在所有流水列表里隐藏了。组头如果还只写笔数，用户就完全看不到
+     *   「这个人结清时是坏了账还是多了利息」。
+     *   所以这里改成：
+     *     · 已结清 → 借还已平（有差额时再补「坏账 ¥x / 利息 ¥x」）
+     *     · 未结清但历史上有过差额 → 直接显示差额
+     *     · 其余 → 保持原来的笔数 + 最近日期
+     */
+    const ADJUSTMENT_LABELS = {
+      借出坏账: '坏账',
+      借出利息: '利息',
+      借入未还: '免还',
+      借入利息: '利息'
+    }
+
+    function adjustmentText(g) {
+      const list = Array.isArray(g && g.adjustmentList) ? g.adjustmentList : []
+      return list
+        .filter((x) => Number(x.cents) > 0)
+        .map((x) => `${ADJUSTMENT_LABELS[x.name] || x.name} ¥${(Number(x.cents) / 100).toFixed(2)}`)
+        .join(' · ')
+    }
+
+    function personSub(g) {
+      const adj = adjustmentText(g)
+      if (g.settled) return adj ? `借还已平 · ${adj}` : '借还已平'
+      if (adj) return adj
+      const n = Number(g.visibleCount) || 0
+      return `${n} 笔 · 最近 ${g.lastDay || '—'}`
+    }
+
     /** 组内流水的副标题：时间 · 账户 */
     /**
      * 组内流水的副标题：账户 · 日期 · 时间
@@ -623,6 +658,9 @@ export default {
       return [{
         settled: false,
         txns: (g && Array.isArray(g.txns)) ? g.txns : [],
+        displayTxns: (g && Array.isArray(g.displayTxns))
+          ? g.displayTxns
+          : ((g && Array.isArray(g.txns)) ? g.txns : []),
         balance: Number(g && g.balance) || 0,
         fromDay: '',
         toDay: '',
@@ -661,7 +699,9 @@ export default {
      *   （和首页、交易列表一致）。这里只反转返回副本，不动 api 给的数组。
      */
     function episodeTxns(ep) {
-      const list = ep && Array.isArray(ep.txns) ? ep.txns : []
+      const list = ep && Array.isArray(ep.displayTxns)
+        ? ep.displayTxns
+        : (ep && Array.isArray(ep.txns) ? ep.txns : [])
       return list.slice().reverse()
     }
 
@@ -870,7 +910,7 @@ export default {
       settingStore, loanType, status, loading, groups, openCount, settledCount, openTotal,
       pageStyle, primaryColor, isIncome, pageTitle, headEmoji, headIcon, currentLabel, directionText,
       accentColor, statusTabs, emptyTitle, emptyDesc,
-      avatarText, balanceText, balanceLabel, balanceColor,
+      avatarText, balanceText, balanceLabel, balanceColor, personSub,
       txnSub, timeLabel, goTxnDetail,
       /*
        * 徽标：badgesOf 负责注入主题色与标签表，顺序规则在 utils/txnBadges.js；

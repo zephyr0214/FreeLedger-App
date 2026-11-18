@@ -271,6 +271,31 @@ export const LOAN_SETTLE_CATEGORY_NAMES = {
 }
 
 /**
+ * 结算差额分类 —— 只计收支、不计账户余额，并且在所有流水列表里隐藏。
+ *
+ * ★ 为什么需要单独一份名单 ★
+ *   这六类流水是报销 / 借入借出「结清」时自动算出来的差额：
+ *     报销坏账 / 报销盈余
+ *     借出坏账 / 借出利息
+ *     借入未还 / 借入利息
+ *   它们代表真实损益，必须进统计；但**不对应任何真实现金流动** ——
+ *   本金、到账、收回、归还那几笔已经把现金记过了。
+ *   如果再把差额当普通收支扣一次余额，账户余额会重复计算。
+ *
+ * ★ 为什么不能直接用 INTERNAL_ONLY_CATEGORY_NAMES ★
+ *   那个名单里还有「报销到账」，它是实打实的现金流入，
+ *   必须继续显示、继续影响余额，不能一起排除。
+ */
+export const SETTLEMENT_ADJUSTMENT_CATEGORY_NAMES = [
+  LOAN_SETTLE_CATEGORY_NAMES.badDebt.name,
+  LOAN_SETTLE_CATEGORY_NAMES.interest.name,
+  LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name,
+  LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name,
+  REIMBURSE_CATEGORY_NAMES.badDebt.name,
+  REIMBURSE_CATEGORY_NAMES.surplus.name
+]
+
+/**
  * 默认分类表（v5 起）
  *
  * ★ 为什么定义在 schema.js 而不是 api/category.js ★

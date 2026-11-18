@@ -212,21 +212,22 @@
                 <text class="batch-day">{{ dayTitle(b.day) }}</text>
                 <text v-if="b.isLegacy" class="batch-legacy-tag">历史</text>
               </view>
-              <!--
-                第二行：到账账户 · N 笔 · 应报 ¥x
 
-                ★ 用户本轮调整 ★
-                  用户原话：「应报显示在 X 笔之后「· 应报 ￥ XX.XX」」。
-                  之前应报在右列实报上方做小字；
-                  现在挪到账户那一行的末尾，
-                  「账户 + 笔数 + 应报」都是这单的抬头信息，串在一起最省高度。
-                  右列只留实报一个大数字，反而更突出。
-              -->
               <text class="batch-account ellipsis">
-                {{ b.accountName || '无账户' }}
-                <text class="batch-count">· {{ b.txnCount }} 笔 </text>
-                <text class="batch-origin-inline">· 应报 ￥{{ yuan(b.originCents) }}</text>
+                {{ b.accountName || '无账户' }} · {{ b.txnCount }} 笔
               </text>
+
+              <!--
+                ★ 左下角：应报 + 多/少报（用户要求）★
+                  差额由单头的 originCents / doneCents 直接相减，
+                  和右侧实报是同一组数，保证卡头自洽。
+              -->
+              <view class="batch-diff-row">
+                <text class="batch-origin-inline">应报 ￥{{ yuan(b.originCents) }}</text>
+                <text class="batch-diff" :class="'batch-diff--' + batchDiff(b).cls">
+                  · {{ batchDiff(b).label }}<text v-if="batchDiff(b).cents > 0"> ￥{{ yuan(batchDiff(b).cents) }}</text>
+                </text>
+              </view>
             </view>
             <view class="batch-head-right">
               <view class="batch-done-row">
@@ -265,16 +266,18 @@
             </view>
           </view>
 
-          <!-- 明细：派生流水在前（这张单的真实影响），被报销的原流水在后 -->
+          <!--
+            明细：报销到账 + 被报销的原始支出
+
+            ★ 六类结算差额流水已全局隐藏 ★
+              报销坏账 / 报销盈余属于结算差额，不在卡身出现；
+              差额已经由卡头「应报 · 少报/多报」表达。
+              「报销到账」是真实资金流水，不属于六类，继续显示。
+          -->
           <view class="batch-items">
-            <!--
-              ★ 派生流水放在最前（用户本轮第 6 条）★
-                报销到账 / 盈余 / 坏账是**这次报销产生的结果**，
-                原支出那几笔是「输入」。先看结果再回头核对输入，
-                比先翻 5 笔原流水再滑到底看结果要顺手。
-            -->
+            <!-- 报销到账（真实现金流入，保留） -->
             <view
-              v-for="d in b.derived"
+              v-for="d in visibleDerived(b)"
               :key="d.id"
               class="txn-item txn-item-derived"
               @click="goTxnDetail(d.id)"
@@ -286,42 +289,24 @@
               />
 
               <view class="txn-info">
-                <!--
-                  ★ 不再标「不计入笔数」（本轮用户第 1 条）★
-                    用户原话「不要显示不计入笔数」。
-                    笔数只在卡头出现一次，明细行不必逐条解释自己算不算 ——
-                    这几行本来就是「这次报销产生的结果」，语义已经清楚了。
-                -->
                 <text class="txn-name ellipsis">{{ d.category_name }}</text>
-                <!--
-                  派生流水也挂徽标（本轮：所有流水都要有）
-                  ★ 为什么派生流水也可能有徽标 ★
-                    「报销到账 / 报销坏账 / 报销盈余」由 api/reimburse.js 用
-                    原始 SQL 写入，`exclude_from_stats` 的口径各不相同：
-                    到账那笔不计收支、坏账 / 盈余是真损益要计入。
-                    挂上「不计收支」徽标，用户才能一眼解释「为什么报销到账
-                    没进本月收入」。用户标签 / 周期则取决于这笔派生流水本身带没带。
-                    判定规则全在 utils/txnBadges.js，本页不参与判断。
-                -->
                 <view v-if="badgesOf(d).length" class="txn-tag-list">
                   <text
-                    v-for="b in badgesOf(d)"
-                    :key="b.key"
+                    v-for="badge in badgesOf(d)"
+                    :key="badge.key"
                     class="txn-tag"
-                    :style="{ backgroundColor: b.bg, color: b.color, borderColor: b.border }"
-                  >{{ b.name }}</text>
+                    :style="{ backgroundColor: badge.bg, color: badge.color, borderColor: badge.border }"
+                  >{{ badge.name }}</text>
                 </view>
                 <text class="txn-sub ellipsis">{{ txnSub(d) }}</text>
               </view>
 
               <view class="txn-right">
-                <!-- 派生流水正常显示金额（不加删除线）：它们是这张单的真实影响 -->
                 <MoneyText :cents="d.amount_cents" :type="d.type" :size="28" :weight="500" />
                 <text class="txn-time">{{ timeLabel(d.occurred_at) }}</text>
               </view>
             </view>
 
-            <!-- 被报销的原始支出（原金额划删除线） -->
             <view
               v-for="t in b.items"
               :key="t.id"
@@ -368,7 +353,7 @@
             </view>
 
             <!-- 单里一笔明细都没有（备份被裁过 / 明细被删光）：至少别显示成空白卡 -->
-            <view v-if="b.items.length === 0 && b.derived.length === 0" class="batch-empty">
+            <view v-if="b.items.length === 0 && visibleDerived(b).length === 0" class="batch-empty">
               <text class="batch-empty-text">这张单的流水已被删除</text>
             </view>
           </view>
@@ -552,6 +537,7 @@ import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listReimburseTxns, listReimburseBatches, getReimburseSummary, reimburseTxns, voidReimburseBatch } from '@/api/reimburse.js'
+import { isSettlementAdjustmentName } from '@/api/txnFilter.js'
 import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
@@ -744,9 +730,46 @@ export default {
       return formatWanYuan(cents)
     }
 
-    /** 报销单卡头的日期：和流水列表的日期条同一套文案（今天/昨天 + 月日 周几） */
+    /**
+     * 报销单卡头日期
+     *
+     * ★ 用户要求显示完整年月日 ★
+     *   以前复用 formatDayHeader()，会显示「今天 · 11月18日 周三」——
+     *   报销单是历史凭证，年份不能省；「今天/昨天」也会随时间变化，
+     *   不适合当单据抬头。这里直接按 day 字符串拼「YYYY年M月D日」。
+     */
     function dayTitle(day) {
-      return day ? formatDayHeader(day) : '未记录日期'
+      if (!day) return '未记录日期'
+      const [y, m, d] = String(day).split('-')
+      if (!y || !m || !d) return String(day)
+      return `${y}年${Number(m)}月${Number(d)}日`
+    }
+
+    /**
+     * 卡头差额（应报 vs 实报）
+     *
+     * ★ 为什么在页面算，而不是让 API 返回 ★
+     *   单头已经有 originCents / doneCents 两个权威数字，
+     *   差额只是它们的减法；API 里再存一份反而多一个可能不同步的字段。
+     */
+    function batchDiff(b) {
+      const diff = (Number(b && b.doneCents) || 0) - (Number(b && b.originCents) || 0)
+      if (diff === 0) return { label: '无差额', cents: 0, cls: 'even' }
+      return diff < 0
+        ? { label: '少报', cents: -diff, cls: 'bad' }
+        : { label: '多报', cents: diff, cls: 'good' }
+    }
+
+    /**
+     * 卡身仍保留的派生流水
+     *
+     * 六类结算差额（坏账/盈余）已经全局隐藏；
+     * 「报销到账」是真实的现金流入，不属于那六类，继续显示，
+     * 用户才能核对该单到账的金额。
+     */
+    function visibleDerived(b) {
+      return (b && Array.isArray(b.derived) ? b.derived : [])
+        .filter((d) => !isSettlementAdjustmentName(d.category_name))
     }
 
     /** 副标题：时间 · 账户 */
@@ -1230,7 +1253,7 @@ export default {
       showSheet, showAccountPicker, sheet, accountName, reimburseAccountList, diffText, diffColor,
       amountDisplay, isAmountExpression, amountPreview, originalAmountText,
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
-      badgesOf, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
+      badgesOf, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle, batchDiff, visibleDerived,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
       // 行手势（长按进多选）—— 见 utils/rowPress.js
       onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,
@@ -1575,32 +1598,52 @@ export default {
   color: var(--app-text-3);
 }
 
-.batch-count {
-  /* 和账户名同色但略微压暗一点，读起来是「账户 · 3 笔」一个整体 */
-  opacity: 0.85;
+/*
+ * 卡头左下角：应报 + 多/少报
+ *
+ * ★ 为什么单独一行 ★
+ *   用户要求「左下角显示应报、多/少报金额」。
+ *   应报和差额是同一组数（该报多少、差多少），必须放在一起；
+ *   账户和笔数属于抬头，放在上面一行。
+ */
+.batch-diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  flex-wrap: wrap;
 }
 
-/*
- * 卡头右列：应报（小字）在上、实报（大号）在下
- *
- * ★ 为什么两个数都要有、而且一上一下 ★
- *   用户原话「实报两个字显示在金额前，上方小小的写上应报金额」。
- *   应报和实报是同一件事的两个口径（该报多少 / 实际到账多少），
- *   上下紧挨着，差值一眼就能看出来，不用去翻明细加总。
- */
+.batch-origin-inline {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-diff {
+  font-size: 22rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 少报是损失，用危险色；多报是好事，用主题色；刚好持平用次要色 */
+.batch-diff--bad {
+  color: var(--app-danger);
+}
+
+.batch-diff--good {
+  color: var(--app-primary);
+}
+
+.batch-diff--even {
+  color: var(--app-text-3);
+}
+
+/* 卡头右列：实报（大号）与撤销按钮 */
 .batch-head-right {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 2rpx;
   flex-shrink: 0;
-}
-
-/* 应报金额：小字，弱化（它是「原来的数」，结论是下面那行） */
-/* 「应报」嵌在账户那一行的末尾，和「· N 笔」同一种弱化小字 */
-.batch-origin-inline {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
 }
 
 /*

@@ -15,6 +15,7 @@ import {
   recalcBalance, writeTodaySnapshot, isComboType, listComboMembers, getAccount
 } from './account.js'
 import { resolveComboAccount } from '../utils/combo.js'
+import { notSettlementAdjustmentSql } from './txnFilter.js'
 /*
  * ★ 只为「系统固定分类不能待报销」这一条校验而引 ★
  *   category.js 只依赖 db/index.js 与 db/schema.js，不反向依赖 transaction.js，
@@ -112,11 +113,23 @@ export function buildCategoryCondition(categoryId, includeSubcategories) {
 export function buildFilterWhere(opt = {}) {
   const {
     monthKey, startDay, endDay, type, accountId, categoryId, categoryIds,
-    includeSubcategories, tagId, tagIds, keyword, minCents, maxCents, cycleId
+    includeSubcategories, tagId, tagIds, keyword, minCents, maxCents, cycleId,
+    hideAdjustments
   } = opt
 
   const where = ['t.deleted_at IS NULL']
   const params = []
+
+  /*
+   * ★ 结算差额默认不参与列表查询 ★
+   *   报销坏账/盈余、借出坏账/利息、借入未还/利息这六类只计收支，
+   *   不代表真实现金流，界面上一律隐藏。
+   *   统计页也复用这个函数，但它不传 hideAdjustments，所以金额仍然计入收支。
+   *   ★ 默认 false 而不是 true ★
+   *     stats.js 也复用这个函数；若默认隐藏，统计会跟着漏掉这六类。
+   *     只有交易列表 / 合计 / 计数三处显式传 true。
+   */
+  if (hideAdjustments) where.push(notSettlementAdjustmentSql('t'))
 
   if (monthKey) { where.push('t.month_key = ?'); params.push(monthKey) }
   if (startDay) { where.push('t.occurred_day >= ?'); params.push(startDay) }
@@ -339,7 +352,7 @@ function isRealDay(dayKey) {
 export async function listTransactions(opt = {}) {
   const { limit = 50, offset = 0, withTags = true } = opt
 
-  const { where, params } = buildFilterWhere(opt)
+  const { where, params } = buildFilterWhere({ ...opt, hideAdjustments: true })
 
   const size = Math.min(Number(limit) || 50, MAX_PAGE_SIZE)
   params.push(size, Number(offset) || 0)
@@ -375,7 +388,7 @@ export async function listTransactions(opt = {}) {
  * 所以「含子分类」这类条件两边口径完全一致。
  */
 export async function sumTransactions(opt = {}) {
-  const { where, params } = buildFilterWhere(opt)
+  const { where, params } = buildFilterWhere({ ...opt, hideAdjustments: true })
 
   /*
    * ★ 笔数含全部流水，金额排除「不计入收支」★
@@ -428,7 +441,7 @@ export async function sumTransactions(opt = {}) {
  * @returns {Promise<number>}
  */
 export async function countTransactions(opt = {}) {
-  const { where, params } = buildFilterWhere(opt)
+  const { where, params } = buildFilterWhere({ ...opt, hideAdjustments: true })
 
   const row = await queryOne(
     `SELECT COUNT(*) AS cnt FROM txn t WHERE ${where.join(' AND ')}`,
@@ -452,7 +465,8 @@ export async function getTransaction(id) {
      LEFT JOIN category c  ON c.id = t.category_id
      /* 二级分类要带上一级名称，详情页显示「一级 - 二级」 */
      LEFT JOIN category pc ON pc.id = c.parent_id
-     WHERE t.id = ? AND t.deleted_at IS NULL`,
+     WHERE t.id = ? AND t.deleted_at IS NULL
+       AND ${notSettlementAdjustmentSql('t')}`,
     [id]
   )
   return rows.length > 0 ? normalizeTxn(rows[0]) : null

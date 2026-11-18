@@ -161,7 +161,19 @@ export const DEFAULT_SETTINGS = {
 
   // 数据
   autoBackup: true,
-  lastBackupAt: 0
+  lastBackupAt: 0,
+
+  /**
+   * 结算差额流水不计余额的一次性修复标记
+   *
+   * ★ 为什么需要它 ★
+   *   报销坏账/盈余、借出坏账/利息、借入未还/利息这六类过去被当成
+   *   普通收支扣过账户余额，历史余额里多算了一遍差额。
+   *   现在余额公式排除了这六类，但 account.balance_cents 是缓存，
+   *   必须重算一次才会修正。App 启动时看到 false 就 recalcAllBalances()
+   *   并置 true，之后不再重复跑。
+   */
+  settlementBalanceFixed: false
 }
 
 /**
