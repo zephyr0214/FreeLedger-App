@@ -23,7 +23,7 @@ import {
 } from '../api/txnFilter.js'
 import { buildFilterWhere } from '../api/transaction.js'
 import { DEFAULT_SETTINGS } from '../api/settings.js'
-import { splitLoanEpisodes, buildLoanEpisodeView } from '../api/loan.js'
+import { splitLoanEpisodes, buildLoanEpisodeView, buildLoanOrderEpisodes } from '../api/loan.js'
 import { episodeCleanupIds } from '../api/loanCleanup.js'
 import { reimburseDeletePlan } from '../api/reimburseCleanup.js'
 
@@ -156,24 +156,54 @@ const twoEpisodes = [
   loanRow('m4', 'm', 300, '2026-03-10'),
   loanRow('b4', 'b', 300, '2026-03-11')
 ]
-check('删第一轮收回 -> 历史单整单取消', episodeCleanupIds(twoEpisodes, PAIR, 'b3'), ['m3', 'p3'])
+check('删第一轮收回 -> 只删第一轮坏账', episodeCleanupIds(twoEpisodes, PAIR, 'b3'), ['p3'])
 check('删第二轮收回 -> 不误删上一轮坏账', episodeCleanupIds(twoEpisodes, PAIR, 'b4'), [])
 
 const open = [
   ...twoEpisodes,
   loanRow('m5', 'm', 200, '2026-03-20')
 ]
-check('删历史单收回 -> 连本单剩余本金一起取消', episodeCleanupIds(open, PAIR, 'b4'), ['m4'])
+check('删历史单收回 -> 只删本单差额', episodeCleanupIds(open, PAIR, 'b4'), [])
 check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAIR, 'm5'), [])
 
-/* 历史单整单取消后，剩下的其它已结清单仍然可以折叠 */
+/*
+ * 历史单的边界要能保留：用包含软删除行的全部流水分段，
+ * 第二单的收回被删后，第二单剩余本金应显示为未结清，
+ * 第一、第三单仍各自结清并折叠。
+ */
 {
-  const remaining = open.filter((t) => !['m3', 'b3', 'p3'].includes(t.id))
-  const view = buildLoanEpisodeView(splitLoanEpisodes(remaining, PAIR), { status: 'open' })
+  const threeSettled = [
+    loanRow('m3', 'm', 500, '2026-03-01'),
+    loanRow('b3', 'b', 400, '2026-03-02', 11),
+    loanRow('p3', 'p', 100, '2026-03-02', 12),
+    loanRow('m4', 'm', 300, '2026-03-10'),
+    loanRow('b4', 'b', 300, '2026-03-11'),
+    loanRow('m5', 'm', 200, '2026-03-20'),
+    loanRow('b5', 'b', 200, '2026-03-21')
+  ]
+  const withDeleted = threeSettled.map((t) => ({ ...t }))
+  // 模拟删除第二单收回（软删）
+  withDeleted.find((t) => t.id === 'b4').deleted_at = Date.now()
+  const segments = buildLoanOrderEpisodes(withDeleted, PAIR)
+
+  check('软删收回后仍切出三段', segments.length, 3)
   check(
-    '取消历史单后其它已结清单变成折叠条',
+    '第二单剩余本金为未结清，第一/三单仍结清',
+    segments.map((ep) => ep.settled),
+    [true, false, true]
+  )
+  check('只统计存活行', segments.map((ep) => ep.txns.length), [3, 1, 2])
+
+  /*
+   * 未结清页：第 2 单显示，第 1/3 单合成一个折叠条。
+   * 段序倒序后是 [第3单, 第2单, 第1单]，
+   * 折叠条占第 3 单位置，第 2 单紧随其后，第 1 单被 skip。
+   */
+  const view = buildLoanEpisodeView(segments, { status: 'open' }).filter((v) => !v.skip)
+  check(
+    '第 1/3 单折叠、第 2 单显示',
     view.map((v) => [v.rowIndex, v.collapsed]),
-    [[0, false], [-1, true]]
+    [[-1, true], [1, false]]
   )
 }
 
@@ -237,6 +267,8 @@ check('API 分段标注可追加差额金额', /adjustmentTextOfTxns/.test(loanS
 check('借入借出明细优先 displayTxns', /Array\.isArray\(ep\.displayTxns\)/.test(loanPage), true)
 check('API 生成 adjustmentList', /g\.adjustmentList\s*=/.test(loanSrc), true)
 check('API 生成最近结清日期', /g\.lastClosingDay\s*=/.test(loanSrc), true)
+check('分组用含软删除行重建单据边界', /buildLoanOrderEpisodes\(g\.allTxns/.test(loanSrc), true)
+check('软删除行只参与分段不参与汇总', /if \(r\.deleted_at\) continue/.test(loanSrc), true)
 check('借出借入右上角快捷按钮', /HeaderAction/.test(loanPage) && /openBackPanel/.test(loanPage), true)
 check('快捷按钮文案随方向切换', /isIncome \? '借款归还' : '借款收回'/.test(loanPage), true)
 check('借出借入页挂记账面板', /<TxnPanel/.test(loanPage), true)

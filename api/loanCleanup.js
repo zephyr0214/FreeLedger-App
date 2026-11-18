@@ -76,14 +76,11 @@ function compareAsc(a, b) {
  *   除本批次差额外，**本批次的全部收回/归还也要删**，
  *   剩余的主方向流水归为未结清。
  *
- * ★ 删除的是历史批次（后面还有别的单）★
- *   整单取消：本批次剩余的本金/收回/差额全部删掉。
- *   为什么不能像最新批次那样把剩余本金留成未结清：
- *   后面的结清批次都是按「上一单已经归零」算的，
- *   把历史单的余额留在账上，后面的收回就再也回不到 0，
- *   所有历史单会粘成一大段未结清，无法折叠。
- *   所以历史单删除 = 只取消这一单，其它单保持原样。
- *   最新一单（后面没有别的单）才保留「剩余本金变未结清」的行为。
+ * ★ 历史单删除不删剩余本金 ★
+ *   这里的「批次边界」会被 api/loan.js 用**包含软删除行**的全部流水重建，
+ *   所以删掉第二单的收回后，第二单剩余本金仍然留在账上变未结清，
+ *   第一、第三单的原始结清边界不会丢，仍能各自折叠。
+ *   不要在删除时把整单本金清掉 —— 那会把用户没删的钱也一起抹掉。
  *
  * 纯函数，不碰数据库。
  *
@@ -129,15 +126,8 @@ export function episodeCleanupRows(txns, pair, deletedId) {
     const extras = seg.filter((t) => t.id !== deletedId)
     const isAdjustment = (t) => t.category_id === p.positiveId || t.category_id === p.negativeId
 
-    /*
-     * 后面还有别的流水：被删的是历史单。
-     * 整单取消（本段剩余的每一笔都删），否则剩余本金会把
-     * 后面所有已结清单拖成未结清，用户就没法折叠历史了。
-     */
-    if (i < list.length - 1) return extras
-
     if (isBack) return extras.filter(isAdjustment)
-    // 删最新一单的本金：本批次的收回/归还 + 差额一起删；其余本金保留
+    // 删本金：本批次的收回/归还 + 差额一起删；其余本金保留
     return extras.filter((t) => t.category_id === p.backId || isAdjustment(t))
   }
 

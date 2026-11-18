@@ -470,8 +470,7 @@ export async function listLoanGroups(direction, status = 'all') {
      FROM txn t
      LEFT JOIN category c ON c.id = t.category_id
      LEFT JOIN account  a ON a.id = t.account_id
-     WHERE t.deleted_at IS NULL
-       AND t.note IS NOT NULL AND TRIM(t.note) != ''
+     WHERE t.note IS NOT NULL AND TRIM(t.note) != ''
        AND t.category_id IN (${catIds.map(() => '?').join(',')})
      ORDER BY t.occurred_at DESC, t.created_at DESC`,
     catIds
@@ -499,6 +498,11 @@ export async function listLoanGroups(direction, status = 'all') {
         lastDay: '',
         settled: false,
         txns: [],
+        /**
+         * 含软删除行的全部流水，只用于重建结清边界。
+         * 不返回给页面（算完 episodes 就删掉）。
+         */
+        allTxns: [],
         /*
          * 结算差额汇总：{ 分类名: 金额 }。
          * 这六类流水在页面上不展示明细，但组头要能写「借还已平 · 坏账 ¥x」，
@@ -508,6 +512,15 @@ export async function listLoanGroups(direction, status = 'all') {
       })
     }
     const g = map.get(person)
+    const item = { ...r, tag_ids: splitTagIds(r.tag_ids) }
+    g.allTxns.push(item)
+
+    /*
+     * 软删除行只参与分段，不参与余额/统计/展示。
+     * 它仍然保留在原位置，充当「这一单当初在哪里收口」的边界证据。
+     */
+    if (r.deleted_at) continue
+
     const amt = Number(r.amount_cents) || 0
     if (r.category_id === pair.mainId) g.total += amt
     else if (r.category_id === pair.backId) g.back += amt
@@ -530,29 +543,33 @@ export async function listLoanGroups(direction, status = 'all') {
      *   页面每帧都在渲染几十行，能省一次 split 就省一次；
      *   而且 episodes / txns 共用同一批对象，转换只发生一次。
      */
-    g.txns.push({ ...r, tag_ids: splitTagIds(r.tag_ids) })
+    g.txns.push(item)
   }
 
-  const list = Array.from(map.values())
+  const list = Array.from(map.values()).filter((g) => g.txns.length > 0)
   for (const g of list) {
     // 上面已经在累加时把四个分类折进 total/back，这里统一算一次，避免两处公式
     g.balance = g.total - g.back
-    g.settled = g.balance === 0
 
     /*
-     * ★ 分组里再挂一份「结清批次」★
-     *   页面要按批次折叠 / 画分割标注（见 splitLoanEpisodes 的注释）。
-     *   这里挂在组上而不是让页面自己切：
-     *     · 页面上不需要知道四个分类 id，方向差异全在 api/loan.js 里；
-     *     · 明细和批次用的是同一条 SQL 的同一批行，不会出现
-     *       「段里的流水加起来跟组头余额对不上」。
-     *
-     * ★ 不改原有字段语义 ★
-     *   balance / settled / count / lastDay / total / back / txns 全部照旧，
-     *   新增字段纯粹是附加信息 —— 别的调用方（比如以后复用本函数的页面）
-     *   不加判断也不会坏。
+     * ★ 结清边界用「含软删除行」的全部流水重建 ★
+     *   这样删掉历史第 2 单的收回后：
+     *     第 1/3 单仍然按当年的收口位置各自结清、可以折叠；
+     *     第 2 单只剩存活本金，余额 > 0，显示为未结清。
+     *   如果只用存活行，第 2 单剩余本金会让第 3 单回不到 0，
+     *   三张单会粘成一段，用户就没法折叠第 1/3 单了。
      */
-    g.episodes = splitLoanEpisodes(g.txns, pair)
+    g.episodes = buildLoanOrderEpisodes(g.allTxns, pair)
+    delete g.allTxns
+
+    /*
+     * 组是否结清以「每一单都结清」为准。
+     * 只看总余额会在「一单多还、一单少还」时出现总额为 0
+     * 但还有单没结清的情况 —— 那时组头会错误地写已结清。
+     */
+    g.settled = g.episodes.length > 0
+      ? g.episodes.every((ep) => ep.settled)
+      : g.balance === 0
 
     /*
      * 最近一次结清的日期：已结清组头「已结清」大字下方要显示它。
@@ -591,6 +608,65 @@ export async function listLoanGroups(direction, status = 'all') {
   if (status === 'settled') return list.filter((x) => x.settled)
   if (status === 'open') return list.filter((x) => !x.settled)
   return list
+}
+
+/**
+ * 把「含软删除行」的全部流水按结清边界分段，再按当前存活行算每段状态
+ *
+ * ★ 为什么用软删除行参与分段 ★
+ *   用户可能删掉历史第 2 单的借款收回，让第 2 单重新变成未结清。
+ *   如果只用存活行按余额归零分段，第 2 单剩余本金会让第 3 单的收回
+ *   再也回不到 0，第 1/3 单会被粘成一大段未结清，无法折叠。
+ *
+ *   软删除行仍然保留着原来的分类、金额、时间 —— 它们正好是当初
+ *   「这一单在哪里收口」的证据。用全部行切出原始的单据边界，
+ *   再对每一段只统计存活行：
+ *     · 第 1 单：存活行余额 0 → 已结清
+ *     · 第 2 单：收回被删，存活本金 > 0 → 未结清
+ *     · 第 3 单：存活行余额 0 → 已结清
+ *   这样既不改表结构，也不会把用户没删的本金一起抹掉。
+ *
+ * @param {Array<object>} allTxns 含 deleted_at 的全部流水
+ * @param {{mainId:string, backId:string, positiveId:string, negativeId:string}} pair
+ * @returns {Array<object>} 每段：txns/displayTxns 只含存活行，settled 按存活行算
+ */
+export function buildLoanOrderEpisodes(allTxns, pair) {
+  const segments = splitLoanEpisodes(allTxns, pair)
+  const p = pair || {}
+
+  const deltaOf = (t) => {
+    const amt = Number(t && t.amount_cents) || 0
+    if (amt <= 0) return 0
+    const cid = t && t.category_id
+    if (cid === p.mainId) return amt
+    if (cid === p.backId) return -amt
+    if (cid === p.positiveId) return -amt
+    if (cid === p.negativeId) return amt
+    return 0
+  }
+
+  const out = []
+  for (const ep of segments) {
+    const live = (ep.txns || []).filter((t) => !t.deleted_at)
+    if (live.length === 0) continue
+
+    const balance = live.reduce((n, t) => n + deltaOf(t), 0)
+    const settled = balance === 0
+    const displayTxns = live.filter((t) => !isSettlementAdjustmentName(t.category_name))
+
+    out.push({
+      ...ep,
+      txns: live,
+      displayTxns,
+      balance,
+      settled,
+      // 未结清段不显示「结清日期」；已结清仍用当初的收口日
+      closingDay: settled ? (ep.closingDay || '') : '',
+      fromDay: live[0] ? String(live[0].occurred_day || '') : ep.fromDay,
+      toDay: live[live.length - 1] ? String(live[live.length - 1].occurred_day || '') : ep.toDay
+    })
+  }
+  return out
 }
 
 /**

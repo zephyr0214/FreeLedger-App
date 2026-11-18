@@ -382,7 +382,7 @@ const LOAN = read('api/loan.js')
 check('api/loan.js 导出 splitLoanEpisodes', /export function splitLoanEpisodes\s*\(/.test(LOAN), true)
 check(
   'listLoanGroups 给每组挂 episodes',
-  /g\.episodes = splitLoanEpisodes\(g\.txns, pair\)/.test(LOAN),
+  /g\.episodes = buildLoanOrderEpisodes\(g\.allTxns, pair\)/.test(LOAN),
   true
 )
 check('listLoanGroups 给每组挂 settledTxnCount', /g\.settledTxnCount\s*=/.test(LOAN), true)
