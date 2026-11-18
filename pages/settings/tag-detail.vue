@@ -12,46 +12,31 @@
             </view>
           </view>
 
-          <text class="summary-label">总支出</text>
+          <text class="summary-label">总结余</text>
           <MoneyText
-            :cents="totalStats.expense"
-            type="expense"
+            :cents="totalStats.income - totalStats.expense"
+            variant="balance"
             :size="72"
             :weight="600"
           />
 
-          <!-- 下方小条目：总收入 / 本月笔数 / 总笔数 -->
+          <!-- 下方小条目：总支出 / 总收入 / 总笔数 / 时间范围 -->
           <view class="summary-rows">
+            <view class="summary-row">
+              <text class="summary-row-label">总支出</text>
+              <MoneyText :cents="totalStats.expense" type="expense" :size="26" />
+            </view>
             <view class="summary-row">
               <text class="summary-row-label">总收入</text>
               <MoneyText :cents="totalStats.income" type="income" :size="26" />
             </view>
-            <!--
-              ★ 总结余 = 总收入 - 总支出（本轮新增）★
-                用户原话：「标签管理页面大的价签总收入下方添加一个总结余」。
-
-                口径就是最直白的那个：这个标签（项目）至今收入减支出。
-                所以它可能为负（纯花钱的项目），
-                走 MoneyText 的 variant="balance"：
-                  正数绿色 + 号、负数红色 - 号、0 无色。
-                不要用 type="expense/income" 那种单一方向的着色 ——
-                结余是「有符号的净额」，不是某一笔收支。
-            -->
-            <view class="summary-row">
-              <text class="summary-row-label">总结余</text>
-              <MoneyText
-                :cents="totalStats.income - totalStats.expense"
-                variant="balance"
-                :size="26"
-              />
-            </view>
-            <view class="summary-row">
-              <text class="summary-row-label">本月笔数</text>
-              <text class="summary-row-value">{{ monthStats.count }} 笔</text>
-            </view>
             <view class="summary-row">
               <text class="summary-row-label">总笔数</text>
               <text class="summary-row-value">{{ totalStats.count }} 笔</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-row-label">时间范围</text>
+              <text class="summary-row-value">{{ rangeText }}</text>
             </view>
           </view>
         </view>
@@ -116,9 +101,9 @@ import RecentTxnList from '@/components/RecentTxnList.vue'
 import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { getTag } from '@/api/tag.js'
+import { getTag, getTagTxnRange } from '@/api/tag.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
-import { toMonthKey } from '@/utils/date.js'
+import { toMonthKey, chineseDayLabel } from '@/utils/date.js'
 
 export default {
   components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, DetailSummaryIcon },
@@ -134,6 +119,8 @@ export default {
      * 汇总卡的大数字用它的 expense，下方小条目用它的 income / count。
      */
     const totalStats = ref({ expense: 0, income: 0, count: 0 })
+    /** 这个标签所有关联流水的最早 / 最晚日期 */
+    const tagRange = ref({ firstDay: '', lastDay: '' })
     const loading = ref(false)
     /** 已经加载完但没找到这个标签（被删了 / id 不对） */
     const notFound = ref(false)
@@ -141,6 +128,13 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     const tagColor = computed(() => (tag.value && tag.value.color) || '#1989FA')
+
+    /** 时间范围：最早一条到最晚一条记录 */
+    const rangeText = computed(() => {
+      const r = tagRange.value
+      if (!r.firstDay || !r.lastDay) return '暂无记录'
+      return `${chineseDayLabel(r.firstDay)} - ${chineseDayLabel(r.lastDay)}`
+    })
 
     async function load() {
       const t = await getTag(tagId.value)
@@ -154,12 +148,14 @@ export default {
 
       loading.value = true
       try {
-        const [list, sum, all] = await Promise.all([
+        const [list, sum, all, range] = await Promise.all([
           listTransactions({ tagId: tagId.value, limit: 10 }),
           sumTransactions({ tagId: tagId.value, monthKey: toMonthKey() }),
-          sumTransactions({ tagId: tagId.value })
+          sumTransactions({ tagId: tagId.value }),
+          getTagTxnRange(tagId.value)
         ])
         txnList.value = list
+        tagRange.value = range
         monthStats.value = {
           expense: sum.expense,
           income: sum.income,
@@ -168,7 +164,8 @@ export default {
         totalStats.value = {
           expense: all.expense,
           income: all.income,
-          count: all.count
+          // 总笔数含全部关联流水；金额仍按「计入收支」口径
+          count: range.count
         }
       } finally {
         loading.value = false
@@ -201,8 +198,8 @@ export default {
     })
 
     return {
-      settingStore, tag, txnList, monthStats, totalStats, loading, notFound,
-      pageStyle, tagColor,
+      settingStore, tag, txnList, monthStats, totalStats, tagRange, loading, notFound,
+      pageStyle, tagColor, rangeText,
       goAllTxn, goBack
     }
   }

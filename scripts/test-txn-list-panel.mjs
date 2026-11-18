@@ -108,6 +108,12 @@ check('全部交易页用共享筛选组件', /<TxnFilterSheet/.test(listTemplat
 check('全部交易页用共享查询生成', /buildTxnFilterQuery\(appliedFilter/.test(listCode), true)
 check('统计页复用同一个筛选面板', /<TxnFilterSheet/.test(statsCode), true)
 check('统计页隐藏全局类型行', /:show-type="false"/.test(statsCode), true)
+check('统计页只保留账户与标签筛选', /:show-category="false"[\s\S]{0,120}?:show-cycle="false"[\s\S]{0,120}?:show-keyword="false"[\s\S]{0,120}?:show-amount="false"/.test(statsCode), true)
+check('统计页筛选改为下弹层', /position="bottom"/.test(statsCode), true)
+check('未选标签显示「不指定标签」', /return '不指定标签'/.test(filterCode), true)
+check('未选周期显示「不指定周期」', /return '不指定周期'/.test(filterCode), true)
+check('类型为全部时分类面板出现收支切换', /show-type-tabs="showCategory && draft\.type === 'all'"/.test(filterCode), true)
+check('分类面板实现收支切换', /const localType = ref\('expense'\)/.test(read('components/CategoryMultiPickerSheet.vue')), true)
 check('统计页筛选层级高于底栏', /:z-index="500"/.test(statsCode), true)
 
 const statsApi = read('api/stats.js')

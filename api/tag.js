@@ -69,6 +69,31 @@ export async function getTag(id) {
   return row ? normalizeTag(row) : null
 }
 
+/**
+ * 某标签关联流水的汇总信息（笔数 + 最早 / 最晚记录日期）
+ *
+ * 标签详情页要显示「2026年1月5日 - 2026年11月17日」。
+ * 直接在 SQL 里取 COUNT/MIN/MAX，比拉全量流水再首尾取日期省内存；
+ * 口径是「所有未删除关联流水」，与标签管理页的最近使用时间一致。
+ * 金额（收入/支出）仍由 sumTransactions 提供，那边会排除不计收支。
+ */
+export async function getTagTxnRange(tagId) {
+  const row = await queryOne(
+    `SELECT COUNT(*) AS count,
+            MIN(t.occurred_day) AS first_day,
+            MAX(t.occurred_day) AS last_day
+       FROM txn_tag tt
+       JOIN txn t ON t.id = tt.txn_id AND t.deleted_at IS NULL
+      WHERE tt.tag_id = ?`,
+    [tagId]
+  )
+  return {
+    count: row ? Number(row.count) || 0 : 0,
+    firstDay: row && row.first_day ? String(row.first_day) : '',
+    lastDay: row && row.last_day ? String(row.last_day) : ''
+  }
+}
+
 
 
 export async function createTag(input) {

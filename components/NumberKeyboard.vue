@@ -78,7 +78,14 @@ export default {
      *   · 求值 <= 0 视为无效
      * 改余额时信用卡欠款是负数，需要放开这两条。
      */
-    allowNegative: { type: Boolean, default: false }
+    allowNegative: { type: Boolean, default: false },
+    /**
+     * 允许空输入直接提交
+     *
+     * 余额 / 报销这类「不填就沿用原值」的场景需要它；
+     * 记账金额仍要求必须输入。
+     */
+    allowEmpty: { type: Boolean, default: false }
   },
   /**
    * ★ 事件名不能叫 finish ★
@@ -256,7 +263,11 @@ export default {
       //   之前 disabled 时直接 return，用户点了「完成」毫无反应，
       //   也不知道为什么。改成给出提示。
       if (!props.modelValue) {
-        uni.showToast({ title: '请先输入金额', icon: 'none' })
+        if (!props.allowEmpty) {
+          uni.showToast({ title: '请先输入金额', icon: 'none' })
+          return
+        }
+        emit('submit-amount', 0)
         return
       }
       if (props.disabled) {

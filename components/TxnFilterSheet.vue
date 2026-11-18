@@ -17,13 +17,17 @@
   <view>
     <wd-popup
       v-model="visible"
-      position="right"
+      :position="position"
       :z-index="zIndex"
-      custom-style="width: 78vw; height: 100vh; background-color: var(--app-bg);"
+      :custom-style="popupStyle"
     >
-      <view class="filter-panel">
-        <!-- 状态栏占位：全面屏的摄像头/刘海会挡住标题 -->
-        <view class="filter-status-bar" :style="{ height: statusBarHeight + 'px' }" />
+      <view class="filter-panel" :class="{ 'filter-panel--bottom': position === 'bottom' }">
+        <!-- 状态栏占位：右侧全高面板才需要；下弹层不需要 -->
+        <view
+          v-if="position !== 'bottom'"
+          class="filter-status-bar"
+          :style="{ height: statusBarHeight + 'px' }"
+        />
 
         <view class="filter-head">
           <text class="filter-title">筛选</text>
@@ -64,8 +68,8 @@
             </view>
           </view>
 
-          <!-- 分类（多选） -->
-          <view class="filter-section">
+          <!-- 分类（多选；统计页不显示） -->
+          <view v-if="showCategory" class="filter-section">
             <view class="filter-row" @click="openMultiCatPicker">
               <text class="filter-row-label">分类</text>
               <view class="filter-row-right">
@@ -90,8 +94,8 @@
             </view>
           </view>
 
-          <!-- 周期 -->
-          <view class="filter-section">
+          <!-- 周期（统计页不显示） -->
+          <view v-if="showCycle" class="filter-section">
             <view class="filter-row" @click="openCyclePicker">
               <text class="filter-row-label">周期</text>
               <view class="filter-row-right">
@@ -103,8 +107,8 @@
             </view>
           </view>
 
-          <!-- 关键词 -->
-          <view class="filter-section">
+          <!-- 关键词（统计页不显示） -->
+          <view v-if="showKeyword" class="filter-section">
             <text class="filter-label">关键词</text>
             <input
               v-model="draft.keyword"
@@ -114,8 +118,8 @@
             />
           </view>
 
-          <!-- 金额区间 -->
-          <view class="filter-section">
+          <!-- 金额区间（统计页不显示） -->
+          <view v-if="showAmount" class="filter-section">
             <text class="filter-label">金额区间（元）</text>
             <view class="range-row">
               <input
@@ -184,6 +188,7 @@
       :categories="multiCatSource"
       :selected-ids="draft.categoryIds"
       title="选择分类"
+      :show-type-tabs="showCategory && draft.type === 'all'"
       :z-index="childZIndex"
       @picked="onMultiCatConfirm"
     />
@@ -212,6 +217,13 @@ export default {
     filter: { type: Object, default: () => createEmptyTxnFilter() },
     /** 是否显示类型分段（统计页隐藏） */
     showType: { type: Boolean, default: true },
+    /** 下列开关用于统计页精简成「账户 + 标签」 */
+    showCategory: { type: Boolean, default: true },
+    showCycle: { type: Boolean, default: true },
+    showKeyword: { type: Boolean, default: true },
+    showAmount: { type: Boolean, default: true },
+    /** right = 右侧全高；bottom = 下弹层（统计页用） */
+    position: { type: String, default: 'right' },
     /** 外层弹层层级（统计页有 z-index 300 的底栏，需要传更高值） */
     zIndex: { type: Number, default: 100 }
   },
@@ -223,6 +235,17 @@ export default {
     const statusBarHeight = uni.getSystemInfoSync().statusBarHeight || 20
     const primaryColor = computed(() => settingStore.primaryColor)
     const childZIndex = computed(() => Number(props.zIndex) + 20)
+
+    /**
+     * 弹层形态
+     *   right  —— 全部交易页：78vw 全高侧滑面板
+     *   bottom —— 统计页：底部弹出，圆角 + 自适应高度，更轻盈
+     */
+    const popupStyle = computed(() => (
+      props.position === 'bottom'
+        ? 'width: 100%; background-color: var(--app-bg); border-radius: 28rpx 28rpx 0 0;'
+        : 'width: 78vw; height: 100vh; background-color: var(--app-bg);'
+    ))
 
     const visible = computed({
       get: () => props.modelValue,
@@ -293,6 +316,7 @@ export default {
         id: c.id,
         parent_id: c.parent_id || '',
         name: c.name,
+        type: c.type,
         isParent: !!c.isParent
       }))
     )
@@ -315,10 +339,10 @@ export default {
 
     const tagLabel = computed(() => {
       const ids = draft.tagIds || []
-      if (ids.length === 0) return '全部'
+      if (ids.length === 0) return '不指定标签'
       if (ids.length === 1) {
         const t = tags.value.find((x) => x.id === ids[0])
-        return t ? t.name : '全部'
+        return t ? t.name : '不指定标签'
       }
       const CN = ['零', '一', '两', '三', '四', '五', '六', '七', '八', '九', '十']
       return `已选中${ids.length <= 10 ? CN[ids.length] : ids.length}个标签`
@@ -336,14 +360,14 @@ export default {
     }
 
     const cycleFilterLabel = computed(() => {
-      if (!draft.cycleId) return '全部周期'
+      if (!draft.cycleId) return '不指定周期'
       const c = cycles.value.find((x) => x.id === draft.cycleId)
       if (!c) return '周期'
       return `${cycleLabel(c)} · ${recurrenceLabel(c)}`
     })
 
     const pickerActions = computed(() => {
-      const list = [{ name: '全部周期', value: '' }]
+      const list = [{ name: '不指定周期', value: '' }]
       for (const c of cycles.value) list.push({ name: cycleLabel(c), value: c.id })
       return list
     })
@@ -431,7 +455,7 @@ export default {
     }
 
     return {
-      visible, draft, statusBarHeight, primaryColor, childZIndex,
+      visible, draft, statusBarHeight, primaryColor, childZIndex, popupStyle,
       typeOptions, accountList, multiCatSource, tags, cycles,
       accountLabel, multiCatLabel, tagLabel, cycleFilterLabel, pickerActions,
       showAccountPicker, showTagFilter, showMultiCat, showPicker,
@@ -448,6 +472,24 @@ export default {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+/* 下弹层：不要全屏高度，内容自适应，最多占屏幕 78% */
+.filter-panel--bottom {
+  height: auto;
+  max-height: 78vh;
+}
+
+.filter-panel--bottom .filter-head {
+  padding-top: 28rpx;
+}
+
+.filter-panel--bottom .filter-body {
+  max-height: 52vh;
+}
+
+.filter-panel--bottom .filter-section {
+  margin-bottom: 24rpx;
 }
 
 .filter-status-bar {

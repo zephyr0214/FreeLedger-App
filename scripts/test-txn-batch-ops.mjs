@@ -146,11 +146,13 @@ console.log('=== 4/5. 右滑快捷操作 + 多选批量 ===')
   check('右滑操作组件存在', /name: 'TxnSwipeActions'/.test(swipe), true)
   check('标签弹层组件存在', /name: 'TxnTagSheet'/.test(sheet), true)
   check(
-    '右滑组件有「标签 / 编辑 / 删除」三个按钮',
-    /swipe-btn-face--tag[\s\S]{0,300}?swipe-btn-face--edit[\s\S]{0,300}?swipe-btn-face--del/.test(swipe),
+    '右滑组件有「编辑 / 标签 / 删除」三个按钮',
+    /swipe-btn-face--edit[\s\S]{0,300}?swipe-btn-face--tag[\s\S]{0,300}?swipe-btn-face--del/.test(swipe),
     true
   )
   check('右滑组件声明 edit 事件', /emits: \['delete', 'edit', 'tag'\]/.test(swipe), true)
+  check('编辑是灰色底', /\.swipe-btn-face--edit\s*\{[^}]*background-color:\s*var\(--app-text-3\)/.test(swipe), true)
+  check('标签是蓝色底', /\.swipe-btn-face--tag\s*\{[^}]*background-color:\s*#1989FA/.test(swipe), true)
   /*
    * ★ 右滑按钮要有透明缓冲（bug 修复）★
    *   wd-swipe-action 靠 translate3d(100%) + overflow:hidden 裁切，

@@ -198,7 +198,11 @@ check(
   /class="sheet-row sheet-row-amount"/.test(REIMB),
   true
 )
-check('金额输入右对齐', /\.amount-input\s*\{[\s\S]{0,300}?text-align:\s*right/.test(REIMB), true)
+check('金额展示右对齐', /\.amount-display\s*\{[\s\S]{0,300}?text-align:\s*right/.test(REIMB), true)
+check('报销弹层复用数字键盘', /<NumberKeyboard/.test(REIMB), true)
+check('键盘允许空输入（沿用原支出）', /allow-empty/.test(REIMB), true)
+check('取消按钮在右上角', /sheet-head-spacer[\s\S]{0,200}?sheet-cancel[^>]*>取消/.test(REIMB), true)
+check('原支出合计灰色提示', /class="sheet-original"/.test(REIMB), true)
 check(
   '差额提示是「左说明 / 右彩色差值」',
   /class="sheet-diff"/.test(REIMB) &&

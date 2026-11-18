@@ -126,6 +126,9 @@ console.log('=== 弹层抽成了共享组件 ===')
   check('使用记账面板数字键盘', /<NumberKeyboard/.test(sheet), true)
   check('键盘完成键文案是「保存」', /finish-text="保存"/.test(sheet), true)
   check('键盘允许负数', /allow-negative/.test(sheet), true)
+  check('键盘允许空输入（沿用原余额）', /allow-empty/.test(sheet), true)
+  check('原始余额灰色显示在底部', /class="bs-original"/.test(sheet), true)
+  check('原始余额文案', /当前余额 \{\{ originalBalanceText \}\}/.test(sheet), true)
   check('算式求值使用带符号版本', /evaluateSignedAmount/.test(sheet), true)
 
   // 弹层要登记进弹层栈（侧滑返回先收弹层）

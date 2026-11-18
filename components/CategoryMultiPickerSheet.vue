@@ -12,6 +12,31 @@
         <text class="multi-clear" @click="clearAll">清空</text>
       </view>
 
+      <!--
+        收入 / 支出 分类切换
+        ★ 只在「全部交易筛选 + 类型=全部」时出现 ★
+          这时分类列表同时包含收支两类，没有切换会混在一起；
+          样式直接照搬记账面板的 .type-switch。
+      -->
+      <view v-if="showTypeTabs" class="cat-type-switch">
+        <view
+          v-for="t in typeTabs"
+          :key="t.key"
+          class="cat-type-item"
+          @click="localType = t.key"
+        >
+          <text
+            class="cat-type-text"
+            :style="{ color: localType === t.key ? primaryColor : 'var(--app-text-2)' }"
+          >{{ t.name }}</text>
+          <view
+            v-if="localType === t.key"
+            class="cat-type-bar"
+            :style="{ backgroundColor: primaryColor }"
+          />
+        </view>
+      </view>
+
       <scroll-view class="multi-scroll" scroll-y>
         <view v-for="g in groups" :key="g.key" class="multi-group">
           <!--
@@ -130,14 +155,17 @@ export default {
      */
     flat: { type: Boolean, default: false },
     /**
+     * 是否显示「支出 / 收入」分类切换
+     *
+     * 全部交易的筛选类型为「全部」时，分类列表同时含收支两类，
+     * 需要在面板上方加一个切换；其他调用方（预算、恩格尔）不显示。
+     */
+    showTypeTabs: { type: Boolean, default: false },
+    /**
      * 弹层层级
      *
-     * ★ 为什么必须显式给 ★
-     *   wd-popup 的默认 z-index 是 10。这个弹层常常是「在另一个弹层上面」
-     *   打开的（全部交易的筛选面板 100、预算编辑器 100），
-     *   如果它还是 10，就会渲染在下面那一层的**背后**，
-     *   用户点开只能看到遮罩变暗、内容却看不见。
-     *   所以默认给 110，调用方按自己的层级再覆盖。
+     * wd-popup 默认 z-index 只有 10；这个面板常常开在另一个弹层上面，
+     * 调高到 110，调用方再按自己的层级覆盖。
      */
     zIndex: { type: Number, default: 110 }
   },
@@ -160,11 +188,25 @@ export default {
     /** 弹层内的临时选择：点「确定」才回传，点「取消」不影响外面 */
     const draft = ref([])
 
+    const typeTabs = [
+      { key: 'expense', name: '支出' },
+      { key: 'income', name: '收入' }
+    ]
+    const localType = ref('expense')
+
+    /** 打开时根据已选分类判断该先显示支出还是收入 */
+    function initialType() {
+      const picked = new Set(props.selectedIds || [])
+      const hit = (props.categories || []).find((c) => picked.has(c.id) && c.type)
+      return hit && hit.type === 'income' ? 'income' : 'expense'
+    }
+
     watch(
       () => props.modelValue,
       (open) => {
         if (open) {
           draft.value = (props.selectedIds || []).slice()
+          localType.value = initialType()
           if (!unregisterLayer) {
             unregisterLayer = pushLayer(() => { visible.value = false }, 'categoryMultiSheet')
           }
@@ -189,7 +231,10 @@ export default {
      *   「一键全选这一组」那套逻辑也就自然不生效（本来也不该生效）。
      */
     const groups = computed(() => {
-      const list = props.categories || []
+      const all = props.categories || []
+      const list = props.showTypeTabs
+        ? all.filter((c) => c.type === localType.value)
+        : all
       const disabled = new Set(props.disabledIds || [])
 
       if (props.flat) {
@@ -295,7 +340,7 @@ export default {
     })
 
     return {
-      visible, primaryColor, draft, groups,
+      visible, primaryColor, draft, groups, localType, typeTabs,
       groupAllChecked, toggleGroup, toggle, clearAll, cancel, confirm
     }
   }
@@ -327,6 +372,36 @@ export default {
 .multi-clear {
   font-size: 26rpx;
   color: var(--app-text-3);
+}
+
+/* 支出 / 收入 切换：与记账面板的 .type-switch 同一套外观 */
+.cat-type-switch {
+  display: flex;
+  justify-content: center;
+  gap: 48rpx;
+  padding: 0 32rpx 16rpx;
+}
+
+.cat-type-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding-bottom: 12rpx;
+}
+
+.cat-type-text {
+  font-size: 30rpx;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.cat-type-bar {
+  position: absolute;
+  bottom: 0;
+  width: 40rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
 }
 
 .multi-scroll {

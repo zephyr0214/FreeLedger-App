@@ -327,7 +327,7 @@
         ③c 恩格尔系数
 
         ★ 「哪些分类算食品」由用户自己选（本轮第 3 条）★
-          入口在统计页右上角「组件管理」→ 恩格尔系数面板的展开设置，
+          入口在「我的 → 记账设置 → 统计组件管理」→ 恩格尔系数面板的展开设置，
           用多选分类弹层手选。原来的「AI 识别食品分类」逻辑已全部删除。
           没选任何分类时这里显示一句引导，而不是 0% ——
           0% 会被误读成「我没在吃饭上花钱」。
@@ -349,7 +349,7 @@
           <text class="empty-text">这段时间没有支出</text>
         </view>
         <view v-else-if="engel.foodIds.length === 0" class="card-empty">
-          <text class="empty-text">还没选食品分类，去右上角「组件管理」里选一下</text>
+          <text class="empty-text">还没选食品分类，去「我的 → 记账设置 → 统计组件管理」里选一下</text>
         </view>
         <view v-else-if="engel.food === 0" class="card-empty">
           <text class="empty-text">这段时间在选中的食品分类上没有支出</text>
@@ -681,7 +681,7 @@
           看着像页面坏了 —— 给一句话指路回组件管理。
       -->
       <view v-if="visiblePanels.length === 0" class="card empty-panels" :style="{ order: 99 }">
-        <text class="empty-text">所有面板都被隐藏了，去右上角「组件管理」里打开几个</text>
+        <text class="empty-text">所有面板都被隐藏了，去「我的 → 记账设置 → 统计组件管理」里打开几个</text>
       </view>
 
       <view class="tabbar-space" :style="{ order: 9999 }" />
@@ -701,6 +701,11 @@
       v-model="showFilter"
       :filter="appliedFilter"
       :show-type="false"
+      :show-category="false"
+      :show-cycle="false"
+      :show-keyword="false"
+      :show-amount="false"
+      position="bottom"
       :z-index="500"
       @apply="onFilterApply"
     />

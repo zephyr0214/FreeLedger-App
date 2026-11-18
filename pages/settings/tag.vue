@@ -365,10 +365,11 @@ export default {
   border-bottom: none;
 }
 
+/* 标签色块：瘦高的圆角矩形，比小圆点更容易在长列表里被看到 */
 .tag-dot {
-  width: 16rpx;
-  height: 16rpx;
-  border-radius: 50%;
+  width: 10rpx;
+  height: 56rpx;
+  border-radius: 6rpx;
   flex-shrink: 0;
 }
 

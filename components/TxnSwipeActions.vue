@@ -23,14 +23,14 @@
         修法不是去调位移（那要改库），而是让**最靠左的那 2rpx 是透明的**：
         外层只负责布局，内层铺底色。误差再大也只是露出透明，看不见。
     -->
-    <view class="swipe-btn" @click.stop="onTag">
-      <view class="swipe-btn-face swipe-btn-face--tag">
-        <text class="swipe-btn-text">标签</text>
-      </view>
-    </view>
     <view class="swipe-btn" @click.stop="onEdit">
       <view class="swipe-btn-face swipe-btn-face--edit">
         <text class="swipe-btn-text">编辑</text>
+      </view>
+    </view>
+    <view class="swipe-btn" @click.stop="onTag">
+      <view class="swipe-btn-face swipe-btn-face--tag">
+        <text class="swipe-btn-text">标签</text>
       </view>
     </view>
     <view class="swipe-btn" @click.stop="onDelete">
@@ -47,9 +47,10 @@ export default {
   emits: ['delete', 'edit', 'tag'],
   setup(props, { emit }) {
     /*
-     * ★ 删除用危险色、标签用中性色 ★
-     *   删除是不可逆操作（软删除，但用户界面里就是删了），必须用红；
-     *   标签是普通编辑动作，用中性灰即可 —— 两个都用彩色反而分不出轻重。
+     * ★ 三种动作的颜色分工（用户指定）★
+     *   编辑 = 中性灰（普通编辑动作）
+     *   标签 = 蓝色（用户明确要求标签用蓝底）
+     *   删除 = 危险红（不可逆操作里最重的一个）
      */
     function onDelete() {
       emit('delete')
@@ -87,13 +88,14 @@ export default {
   justify-content: center;
 }
 
-.swipe-btn-face--tag {
+/* 编辑：中性灰，普通编辑动作 */
+.swipe-btn-face--edit {
   background-color: var(--app-text-3);
 }
 
-/* 编辑是普通编辑动作，用主题色和「标签」的灰色、「删除」的红色区分 */
-.swipe-btn-face--edit {
-  background-color: var(--app-primary);
+/* 标签：固定蓝色，和「编辑 / 删除」拉开语义 */
+.swipe-btn-face--tag {
+  background-color: #1989FA;
 }
 
 .swipe-btn-face--del {

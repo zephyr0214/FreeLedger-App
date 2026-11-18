@@ -396,9 +396,9 @@
     >
       <view class="sheet">
         <view class="sheet-head">
-          <text class="sheet-cancel" @click="showSheet = false">取消</text>
+          <view class="sheet-head-spacer" />
           <text class="sheet-title">报销</text>
-          <text class="sheet-save" :style="{ color: primaryColor }" @click="onConfirmReimburse">确认</text>
+          <text class="sheet-cancel" @click="showSheet = false">取消</text>
         </view>
 
         <view class="sheet-body">
@@ -407,33 +407,26 @@
             <text class="sheet-value">{{ sheet.ids.length }} 笔</text>
           </view>
 
-          <view class="sheet-row">
-            <text class="sheet-label">原支出合计</text>
-            <text class="sheet-value">¥{{ yuan(sheet.originCents) }}</text>
-          </view>
-
           <!--
-            ★ 实际报销金额：和上面两行同一种排版（左标签 / 右数值）★
-              用户要求「价签显示在右侧」，字号比普通行大一号，
-              输入框右对齐，读起来和「原支出合计」在同一列上。
+            实际报销金额：用记账面板同款数字键盘输入
+            ★ 不预填 ★
+              原始支出合计在下方灰色提示；不输入时直接沿用原值。
           -->
           <view class="sheet-row sheet-row-amount">
             <text class="sheet-label">实际报销金额</text>
             <view class="amount-input-wrap">
               <text class="amount-symbol">¥</text>
-              <input
-                v-model="sheet.amountText"
-                class="amount-input"
-                type="digit"
-                placeholder="0.00"
-                placeholder-class="amount-placeholder"
-              />
+              <text
+                class="amount-display"
+                :class="{ 'amount-display--empty': !sheet.amountText }"
+              >{{ amountDisplay || '0.00' }}</text>
             </view>
           </view>
+          <text class="sheet-original">原支出合计 ¥{{ yuan(sheet.originCents) }}</text>
+          <text v-if="isAmountExpression" class="sheet-preview">= ¥{{ amountPreview }}</text>
 
           <!--
             ★ 差额提示（用户要求：类似「修改账户余额」弹层的风格）★
-              左边说明「相对什么」，右边是带正负号的彩色差额。
               多了 = 会记「报销盈余」（收入），少了 = 会记「报销坏账」（支出），
               相等 = 不会有差额流水。
           -->
@@ -453,6 +446,15 @@
               <text class="sheet-arrow">›</text>
             </view>
           </view>
+        </view>
+
+        <view class="sheet-keyboard">
+          <NumberKeyboard
+            v-model="sheet.amountText"
+            finish-text="确认"
+            allow-empty
+            @submit-amount="onKeyboardFinish"
+          />
         </view>
       </view>
     </wd-popup>
@@ -544,6 +546,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
+import NumberKeyboard from '@/components/NumberKeyboard.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
 import TxnIcon from '@/components/TxnIcon.vue'
@@ -555,14 +558,14 @@ import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress, pushLayer } from '@/utils/layerStack.js'
 import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatDayHeader, formatTime, toDayKey, shortDateWithYear } from '@/utils/date.js'
-import { formatWanYuan } from '@/utils/money.js'
+import { formatWanYuan, evaluateAmount } from '@/utils/money.js'
 import { createRowPressController } from '@/utils/rowPress.js'
 
 /** 汇总卡图标底色（真实 hex，用来拼 `+ '22'` 半透明） */
 const ACCENT_COLOR = '#FF8F1F'
 
 export default {
-  components: { AccountPickerSheet, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, DetailSummaryIcon, TxnIcon },
+  components: { AccountPickerSheet, NumberKeyboard, PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, DetailSummaryIcon, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -675,11 +678,35 @@ export default {
      *   文案（多了/少了/相等）和颜色（绿/红/灰）都要用它，
      *   分两处各算一遍迟早会算出两个数。
      */
-    const diffCents = computed(() => {
-      const cents = parseAmountCents(sheet.amountText)
-      if (!cents) return null // 还没填金额：不下结论
-      return cents - sheet.originCents
+    /**
+     * 实际采用金额（分）
+     * 没输入时沿用原支出合计；输入了算式则按四则运算求值。
+     */
+    const effectiveCents = computed(() => {
+      if (!String(sheet.amountText || '').trim()) return sheet.originCents
+      return evaluateAmount(sheet.amountText)
     })
+
+    /** 金额展示：纯数字补两位小数，算式原样显示 */
+    const amountDisplay = computed(() => {
+      const raw = String(sheet.amountText || '').trim()
+      if (!raw) return ''
+      if (!isAmountExpression.value) {
+        const n = Number(raw)
+        if (Number.isFinite(n)) return n.toFixed(2)
+      }
+      return raw
+    })
+
+    /** 是否是算式（开头的负号不算，报销金额本身为正） */
+    const isAmountExpression = computed(() => {
+      const raw = String(sheet.amountText || '').trim()
+      return /[+×÷()]/.test(raw) || /-/.test(raw.slice(1))
+    })
+
+    const amountPreview = computed(() => (effectiveCents.value / 100).toFixed(2))
+
+    const diffCents = computed(() => effectiveCents.value - sheet.originCents)
 
     /**
      * 差额提示（与「修改账户余额」弹层同一套写法）
@@ -690,7 +717,6 @@ export default {
      */
     const diffText = computed(() => {
       const d = diffCents.value
-      if (d === null) return '填了金额才知道差额'
       if (d === 0) return '刚好相等'
       const value = (Math.abs(d) / 100).toFixed(2)
       return d > 0 ? `多了 ¥${value}` : `少了 ¥${value}`
@@ -704,12 +730,6 @@ export default {
     })
 
     /* ------------------------------------------------------ 工具 */
-
-    function parseAmountCents(text) {
-      const n = Number(String(text || '').replace(/[^\d.]/g, ''))
-      if (!isFinite(n) || n <= 0) return 0
-      return Math.round(n * 100)
-    }
 
     /**
      * 分 → 「123.45」字符串
@@ -988,8 +1008,8 @@ export default {
       const originCents = list.reduce((a, t) => a + (Number(t.amount_cents) || 0), 0)
       sheet.ids = list.map((t) => t.id)
       sheet.originCents = originCents
-      // 默认金额 = 原支出合计，用户不改就能直接确认
-      sheet.amountText = (originCents / 100).toFixed(2)
+      // 不预填：下方灰色显示原支出合计，不输入新值时直接沿用
+      sheet.amountText = ''
       // 默认账户沿用上一次选的；没有就用第一个真实账户
       if (!sheet.accountId) {
         const firstReal = accountStore.list.find((a) => !a.isCombo)
@@ -1025,8 +1045,26 @@ export default {
       showAccountPicker.value = false
     }
 
+    /** 键盘「确认」：空输入沿用原支出，算式非法则拦下 */
+    function onKeyboardFinish(value) {
+      if (value === -1) {
+        uni.showToast({ title: '算式括号不匹配', icon: 'none' })
+        return
+      }
+      if (String(sheet.amountText || '').trim() && !evaluateAmount(sheet.amountText)) {
+        uni.showToast({ title: '请输入有效金额', icon: 'none' })
+        return
+      }
+      onConfirmReimburse()
+    }
+
     async function onConfirmReimburse() {
-      const cents = parseAmountCents(sheet.amountText)
+      const typed = String(sheet.amountText || '').trim()
+      const cents = effectiveCents.value
+      if (typed && !cents) {
+        uni.showToast({ title: '请输入有效金额', icon: 'none' })
+        return
+      }
       if (!cents) {
         uni.showToast({ title: '请输入报销金额', icon: 'none' })
         return
@@ -1188,6 +1226,7 @@ export default {
       pageStyle, primaryColor, accentColor, statusTabs, emptyTitle, emptyDesc,
       swipeStates, selectMode, selectedIds,
       showSheet, showAccountPicker, sheet, accountName, reimburseAccountList, diffText, diffColor,
+      amountDisplay, isAmountExpression, amountPreview,
       // badgesOf：徽标由 utils/txnBadges.js 统一构建（顺序固定），本页只注入主题色与标签表
       badgesOf, txnSub, timeLabel, goTxnDetail, formatTime, yuan, dayTitle,
       switchStatus, toggleSelectMode, isSelected, onRowClick, onRowLongPress,
@@ -1195,7 +1234,7 @@ export default {
       onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,
       onVoidBatch,
       onBatchReimburse, onSwipeReimburse, openAccountPicker, onAccountPicked,
-      onConfirmReimburse, goBack
+      onConfirmReimburse, onKeyboardFinish, goBack
     }
   }
 }
@@ -1660,6 +1699,9 @@ export default {
 
 .sheet {
   padding-bottom: 12rpx;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .sheet-head {
@@ -1669,6 +1711,12 @@ export default {
   padding: 24rpx 32rpx 12rpx;
 }
 
+/* 左侧占位，让标题居中；取消在右上角 */
+.sheet-head-spacer {
+  width: 80rpx;
+  flex-shrink: 0;
+}
+
 .sheet-title {
   font-size: 32rpx;
   font-weight: 600;
@@ -1676,16 +1724,17 @@ export default {
 }
 
 .sheet-cancel {
+  width: 80rpx;
+  text-align: right;
   font-size: 28rpx;
   color: var(--app-text-3);
-}
-
-.sheet-save {
-  font-size: 28rpx;
-  font-weight: 500;
+  flex-shrink: 0;
 }
 
 .sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 0 32rpx;
 }
 
@@ -1746,29 +1795,47 @@ export default {
 }
 
 /*
- * 金额输入
- *
- * ★ 字号比普通行大一号（34rpx vs 28rpx）★
- *   这是整个弹层唯一要用户填的地方，值得更醒目；
- *   但又不能像余额弹层那样 56rpx —— 那会把「实际报销金额」
- *   这一行的标签挤得换行。
- * ★ 右对齐 ★
- *   和上面「原支出合计」的数字落在同一列上，视线不用来回找。
+ * 金额展示（数字键盘输入）
+ * ★ 右对齐 + 34rpx ★
+ *   和上方「报销笔数」的数字落在同一列，视线不用来回找。
  */
-.amount-input {
+.amount-display {
   flex: 1;
   min-width: 0;
-  width: 0;
   font-size: 34rpx;
   font-weight: 600;
   color: var(--app-text);
   text-align: right;
   font-variant-numeric: tabular-nums;
+  word-break: break-all;
 }
 
-.amount-placeholder {
+.amount-display--empty {
   color: var(--app-text-3);
   font-weight: 400;
+}
+
+/* 原支出合计：灰色提示，不输入新值时沿用 */
+.sheet-original {
+  display: block;
+  margin-top: 8rpx;
+  text-align: right;
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.sheet-preview {
+  display: block;
+  margin-top: 4rpx;
+  text-align: right;
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+/* 数字键盘：底部安全区 + 与卡片同宽 */
+.sheet-keyboard {
+  flex-shrink: 0;
+  background-color: var(--app-card-2);
 }
 
 /* 差额提示：与「修改账户余额」弹层同一套排版（左说明 / 右彩色差值） */

@@ -81,11 +81,15 @@ check('不限月份查本分类（总支出）', /sumTransactions\(\{\s*category
 console.log('=== 标签详情 ===')
 const tag = read('pages/settings/tag-detail.vue')
 
-check('大数字是总支出', /summary-label">总支出/.test(tag), true)
-check('大数字用 totalStats.expense', /summary-label">总支出[\s\S]*?:cents="totalStats\.expense"/.test(tag), true)
+check('大数字是总结余', /summary-label">总结余/.test(tag), true)
+check('大数字用收入减支出', /summary-label">总结余[\s\S]*?:cents="totalStats\.income - totalStats\.expense"/.test(tag), true)
+check('结余用 balance 变体', /variant="balance"/.test(tag), true)
+check('小条目有总支出', /summary-row-label">总支出/.test(tag), true)
 check('小条目有总收入', /summary-row-label">总收入/.test(tag), true)
-check('小条目有本月笔数', /summary-row-label">本月笔数/.test(tag), true)
 check('小条目有总笔数', /summary-row-label">总笔数/.test(tag), true)
+check('小条目有时间范围', /summary-row-label">时间范围/.test(tag), true)
+check('时间范围用 tagRange', /chineseDayLabel\(r\.firstDay\)/.test(tag), true)
+check('导入 getTagTxnRange', /getTagTxnRange/.test(tag), true)
 // ★ 本页按要求保留本月收支组件
 check('保留本月收支组件', /class="month-card"/.test(tag), true)
 check('保留 month-card 样式', /\.month-card\s*\{/.test(tag), true)
@@ -108,25 +112,30 @@ check('标签页不再单独查笔数', /FROM txn_tag tt/.test(tagPage), false)
 check('listTags 聚合返回最近使用日', /MAX\(t\.occurred_day\) AS last_day/.test(tagApi), true)
 check('listTags 聚合返回笔数', /COUNT\(t\.id\) AS txn_count/.test(tagApi), true)
 check('listTags 按最近使用倒序', /MAX\(t\.occurred_day\) DESC/.test(tagApi), true)
+check('标签色块是瘦高圆角矩形', /\.tag-dot\s*\{[\s\S]{0,120}?width:\s*10rpx[\s\S]{0,80}?height:\s*56rpx[\s\S]{0,80}?border-radius:\s*6rpx/.test(tagPage), true)
 
 /* ------------------------------------------------ 3. 周期详情 */
 
 console.log('=== 周期详情 ===')
 const cyc = read('pages/settings/cycle-detail.vue')
 
-check('大数字是总结余', /summary-label">总结余/.test(cyc), true)
-check('大数字用实际流水结余', /summary-label">总结余[\s\S]*?:cents="summary\.balance"/.test(cyc), true)
-check('结余用 balance 变体', /:cents="summary\.balance"[\s\S]{0,160}?variant="balance"/.test(cyc), true)
-check('小条目有总支出', /summary-row-label">总支出/.test(cyc), true)
-check('小条目有总收入', /summary-row-label">总收入/.test(cyc), true)
+check('大数字是总支出', /summary-label">总支出/.test(cyc), true)
+check('大数字用 totalCents', /summary-label">总支出[\s\S]*?:cents="totalCents"/.test(cyc), true)
+check('小条目有单次金额', /summary-row-label">单次金额/.test(cyc), true)
 check('小条目有总笔数', /summary-row-label">总笔数/.test(cyc), true)
-check('小条目有时间范围', /summary-row-label">时间范围/.test(cyc), true)
-check('不再用「单次金额 × 笔数」', /totalCents/.test(cyc), false)
-check('不再有扣款账户条目', /summary-row-label">扣款账户/.test(cyc), false)
-check('不再有最近已扣/将扣条目', /最近一次已扣款|最近一次将扣款/.test(cyc), false)
-check('改用 getCycleTxnSummary', /getCycleTxnSummary/.test(cyc), true)
-check('导入中文日期工具', /chineseDayLabel/.test(cyc), true)
-check('周期详情传了实际总笔数', /:total-count="summary\.count"/.test(cyc), true)
+check('小条目有扣款账户', /summary-row-label">扣款账户/.test(cyc), true)
+check('小条目有最近一次已扣款', /summary-row-label">最近一次已扣款/.test(cyc), true)
+check('小条目有最近一次将扣款', /summary-row-label">最近一次将扣款/.test(cyc), true)
+// 记一笔按钮已删
+check('已删除记一笔按钮', /record-btn/.test(cyc), false)
+check('已删除 onRecord', /function onRecord/.test(cyc), false)
+check('不再导入 recordCycle', /recordCycle[,\s]/.test(cyc), false)
+check('不再导入 alertDialog', /alertDialog/.test(cyc), false)
+// 两个时间字段
+check('有 lastChargedText', /const lastChargedText = computed/.test(cyc), true)
+check('有 nextChargeText', /const nextChargeText = computed/.test(cyc), true)
+check('导入 nextOccurrence', /nextOccurrence/.test(cyc), true)
+check('有 formatYmd 中文日期', /function formatYmd/.test(cyc), true)
 
 /* ------------------------------------------------ 4. 预算详情改版 */
 
@@ -242,14 +251,14 @@ console.log('=== 总结余与底部查看全部 ===')
  *   口径 = 总收入 - 总支出，可能为负，所以走 variant="balance"
  *   （正绿负红、0 无色），不能用单向的 type。
  */
-check('标签详情有总结余条目', /summary-row-label">总结余/.test(tag), true)
+check('标签详情大价签是总结余', /summary-label">总结余/.test(tag), true)
 check(
   '总结余 = 总收入 - 总支出',
   /总结余[\s\S]{0,260}?totalStats\.income - totalStats\.expense/.test(tag),
   true
 )
 check('总结余用 balance 变体（正绿负红）', /variant="balance"/.test(tag), true)
-check('总结余排在总收入之后', tag.indexOf('总结余') > tag.indexOf('总收入'), true)
+check('总结余在下方小条目之前', tag.indexOf('summary-label">总结余') < tag.indexOf('summary-row-label">总支出'), true)
 
 /*
  * ★ 五个详情页的流水底部要有居中「查看全部 ›」★
@@ -302,7 +311,7 @@ check('账户详情用列表口径取总笔数', /countTransactions\(\{ accountI
 check('分类详情传了总笔数', /:total-count="totalStats\.count"/.test(cat), true)
 check('标签详情传了总笔数', /:total-count="totalStats\.count"/.test(tag), true)
 check('预算详情传了总笔数', /:total-count="monthStats\.count"/.test(budget), true)
-check('周期详情传了总笔数', /:total-count="summary\.count"/.test(cyc), true)
+check('周期详情传了总笔数', /:total-count="totalCount"/.test(cyc), true)
 check(
   '组件引入 HeaderAction',
   /import HeaderAction from '@\/components\/HeaderAction\.vue'/.test(recent),

@@ -23,10 +23,12 @@
       <view class="bs-body">
         <view class="bs-amount-row">
           <text class="bs-currency">{{ currencySymbol }}</text>
-          <text class="bs-amount" :class="{ 'bs-amount--raw': isExpression }">
+          <text class="bs-amount" :class="{ 'bs-amount--raw': isExpression, 'bs-amount--empty': !draft }">
             {{ amountDisplay || '0.00' }}
           </text>
         </view>
+        <!-- 原始余额灰色显示在底部：不输入新值时直接沿用 -->
+        <text class="bs-original">当前余额 {{ originalBalanceText }}</text>
         <text v-if="isExpression" class="bs-preview">= {{ computedPreview }}</text>
 
         <!-- 差额预览：让用户改之前就知道会发生什么 -->
@@ -68,8 +70,8 @@
         <NumberKeyboard
           v-model="draft"
           finish-text="保存"
-          :disabled="!draft"
           allow-negative
+          allow-empty
           @submit-amount="onKeyboardFinish"
         />
       </view>
@@ -137,10 +139,17 @@ export default {
       { key: 'direct', label: '修改当前余额' }
     ]
 
-    /** 输入的金额（分，可为负） */
+    /** 输入的金额（分，可为负）；没输入时沿用原始余额 */
     const targetCents = computed(() => {
+      if (!String(draft.value || '').trim()) return props.currentBalanceCents || 0
       const cents = evaluateSignedAmount(draft.value)
       return Number.isFinite(cents) ? cents : 0
+    })
+
+    /** 原始余额（灰色提示用） */
+    const originalBalanceText = computed(() => {
+      const cents = props.currentBalanceCents || 0
+      return `${cents < 0 ? '-' : ''}${formatCents(Math.abs(cents), { symbol: currencySymbol })}`
     })
 
     /** 输入区展示：纯数字补两位小数，算式原样显示 */
@@ -194,7 +203,8 @@ export default {
       () => props.visible,
       (open) => {
         if (!open) return
-        draft.value = ((props.currentBalanceCents || 0) / 100).toFixed(2)
+        // 不预填原始余额：输入区保持空白，原始值在下方灰色提示
+        draft.value = ''
         mode.value = 'reconcile'
       }
     )
@@ -205,6 +215,11 @@ export default {
 
     /** 键盘「保存」：把元换算成分后走原来的落库逻辑 */
     function onKeyboardFinish(value) {
+      // 没输入新值时沿用原始余额（键盘对空输入会回传 0，不能直接用）
+      if (!String(draft.value || '').trim()) {
+        confirm(props.currentBalanceCents || 0)
+        return
+      }
       if (value === -1) {
         uni.showToast({ title: '算式括号不匹配', icon: 'none' })
         return
@@ -285,7 +300,7 @@ export default {
 
     return {
       draft, mode, modes, currencySymbol,
-      amountDisplay, isExpression, computedPreview,
+      amountDisplay, isExpression, computedPreview, originalBalanceText,
       targetCents, diffCents, diffText, diffColor,
       close, onKeyboardFinish, handleBackPress
     }
@@ -376,6 +391,18 @@ export default {
 /* 算式原样显示时字号小一档，避免长算式撑破一行 */
 .bs-amount--raw {
   font-size: 44rpx;
+}
+
+/* 没输入时显示占位 0.00，用灰色区分「这是占位，不是已填金额」 */
+.bs-amount--empty {
+  color: var(--app-text-3);
+}
+
+.bs-original {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: var(--app-text-3);
 }
 
 .bs-preview {
