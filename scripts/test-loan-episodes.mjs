@@ -429,7 +429,8 @@ const PAGE_NO_COMMENT = PAGE
   .replace(/<!--[\s\S]*?-->/g, '')
   .replace(/\/\*[\s\S]*?\*\//g, '')
 check('标注里没有上下横线元素', /episode-divider-rule|episode-divider-line/.test(PAGE_NO_COMMENT), false)
-check('结清日期文案由 api 提供', /已结清 · \$\{prevDay\}/.test(LOAN), true)
+check('结清日期文案由 api 提供', /dividerTextOf\(prevDay, prev\)/.test(LOAN), true)
+check('分段标注可追加差额金额', /adjustmentTextOfTxns/.test(LOAN), true)
 check('折叠状态按 人员+段序号 记 key', /`\$\{person \|\| ''\}#\$\{index\}`/.test(PAGE), true)
 check('刷新后清理失效的折叠 key', /pruneEpisodeStates\(groups\.value\)/.test(PAGE), true)
 check('段内流水倒序渲染（最近的在前）', /v-for="t in episodeTxns\(ep\)"/.test(PAGE), true)
@@ -468,6 +469,52 @@ check(
 /* ------------------------- buildLoanEpisodeView 的展示规则（纯函数，直接跑） ------------------------- */
 
 console.log('=== 5.1 buildLoanEpisodeView：折叠与分割标注 ===')
+
+/*
+ * ★ 结清标注要带上这一段的坏账/利息金额★
+ *   用户本轮要求：「历史的 已结清 · 日期 后增加 ·利息/坏账金额（如有）」。
+ *   坏账/利息流水本身在明细里隐藏，标注是用户唯一能看到差额的地方。
+ */
+{
+  const withAdj = [
+    { ...txn('a1', LEND.mainId, 500, '2026-01-05'), category_name: '借出' },
+    { ...txn('a2', LEND.backId, 400, '2026-01-08', 11), category_name: '借款收回' },
+    { ...txn('a3', LEND.positiveId, 100, '2026-01-08', 12), category_name: '借出坏账' },
+    { ...txn('b1', LEND.mainId, 300, '2026-01-10'), category_name: '借出' }
+  ]
+  const view = buildLoanEpisodeView(splitLoanEpisodes(withAdj, LEND), {
+    status: 'open',
+    isExpanded: (index) => index === -1
+  })
+  const divider = view.find((v) => v.showDividerBefore && /已结清/.test(v.dividerText || ''))
+  check(
+    '历史已结清标注追加坏账金额',
+    /已结清 · 2026-01-08 · 坏账 ¥100\.00/.test(divider ? divider.dividerText : ''),
+    true
+  )
+}
+
+/*
+ * 已结清 tab 的标注日期取「上一段（更新的一段）的收口日」，
+ * 差额金额也必须跟着上一段，不能拿当前段的金额去配别人的日期。
+ */
+{
+  const twoSettled = [
+    { ...txn('s1', LEND.mainId, 500, '2026-01-05'), category_name: '借出' },
+    { ...txn('s2', LEND.backId, 500, '2026-01-06'), category_name: '借款收回' },
+    { ...txn('t1', LEND.mainId, 300, '2026-01-10'), category_name: '借出' },
+    { ...txn('t2', LEND.backId, 200, '2026-01-15', 11), category_name: '借款收回' },
+    { ...txn('t3', LEND.positiveId, 100, '2026-01-15', 12), category_name: '借出坏账' }
+  ]
+  const view = buildLoanEpisodeView(splitLoanEpisodes(twoSettled, LEND), { status: 'settled' })
+  const divider = view.find((v) => v.showDividerBefore)
+  check(
+    '已结清 tab 标注的金额跟随标注日期那一段',
+    /已结清 · 2026-01-15 · 坏账 ¥100\.00/.test(divider ? divider.dividerText : ''),
+    true
+  )
+}
+
 
 /*
  * ★ 历史组测试用：一个人结清过三次、又有一笔未结清 ★
@@ -618,35 +665,22 @@ const LIST = read('pages/txn/list.vue')
 const groupsBody = (LIST.match(/const groups = computed\(\(\) => \{([\s\S]*?)\n    \}\)/) || [])[1] || ''
 
 check('找到了 groups 计算属性', groupsBody.length > 0, true)
-check(
-  '分组汇总跳过 exclude_from_stats',
-  /if \(txn\.exclude_from_stats\) continue/.test(groupsBody),
-  true
-)
 /*
- * ★ 顺序也钉住 ★
- *   continue 必须在累加之前。写在累加之后等于没写，
- *   而正则只看「有没有」是看不出来的，所以比较两个下标。
+ * ★ 每日小计改由 sumByDay 聚合，不再本地累加 list ★
+ *   列表隐藏了六类结算差额，本地累加会漏掉它们的金额；
+ *   用户要求每日小计和顶部合计都按统计口径包含这些差额。
  */
-check(
-  '排除判断在累加之前',
-  groupsBody.indexOf('exclude_from_stats') >= 0 &&
-    groupsBody.indexOf('exclude_from_stats') < groupsBody.indexOf('g.expense +='),
-  true
-)
-/* 列表本身仍要 push（否则借款流水在页面上消失，用户会以为数据丢了） */
-check(
-  '被排除的流水仍然进列表',
-  groupsBody.indexOf('g.list.push(txn)') < groupsBody.indexOf('exclude_from_stats'),
-  true
-)
-check(
-  '转账不进汇总（只认 expense / income）',
-  /if \(txn\.type === 'expense'\)/.test(groupsBody) &&
-    /if \(txn\.type === 'income'\)/.test(groupsBody) &&
-    !/txn\.type === 'transfer'\) g\./.test(groupsBody),
-  true
-)
+check('每日小计来自 sumByDay', /dayTotals\.value/.test(groupsBody) && /sumByDay/.test(LIST), true)
+check('分组仍把流水挂进列表', /map\.get\(day\)\.list\.push\(txn\)/.test(groupsBody), true)
+check('不再本地累加支出收入', /g\.expense \+=/.test(groupsBody), false)
+check('不再本地累加收入', /g\.income \+=/.test(groupsBody), false)
+
+const TXN_SRC = read('api/transaction.js')
+const sumByDayBody = (TXN_SRC.match(/export async function sumByDay[\s\S]*?\n\}/) || [''])[0]
+check('sumByDay 按天聚合', /GROUP BY t\.occurred_day/.test(sumByDayBody), true)
+check('sumByDay 排除不计收支', /COALESCE\(t\.exclude_from_stats, 0\) = 0/.test(sumByDayBody), true)
+check('sumByDay 只认 expense / income', /t\.type='expense'/.test(sumByDayBody) && /t\.type='income'/.test(sumByDayBody), true)
+check('sumByDay 不隐藏结算差额', /hideAdjustments/.test(sumByDayBody), false)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

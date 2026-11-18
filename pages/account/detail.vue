@@ -219,7 +219,7 @@ export default {
         // 另查一次总笔数，供列表底部判断「是否还有没显示完的流水」
         const [list, sum, total] = await Promise.all([
           listTransactions({ accountId: accountId.value, limit: 10 }),
-          sumTransactions({ accountId: accountId.value, monthKey: toMonthKey() }),
+          sumTransactions({ accountId: accountId.value, monthKey: toMonthKey(), hideAdjustments: true }),
           countTransactions({ accountId: accountId.value })
         ])
         txnList.value = list

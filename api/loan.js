@@ -38,6 +38,53 @@ import { isSettlementAdjustmentName } from './txnFilter.js'
 export const LOAN_DIRECTIONS = { lend: 'lend', borrow: 'borrow' }
 
 /**
+ * 结算差额的短标签
+ *
+ * 页面人名下方和分段「已结清 · 日期」后面都用这一份，
+ * 避免两个地方对同一个分类写出不同文案。
+ */
+const LOAN_ADJUSTMENT_LABELS = {
+  借出坏账: '坏账',
+  借出利息: '利息',
+  借入未还: '免还',
+  借入利息: '利息'
+}
+
+/**
+ * 把 [{ name, cents }] 拼成「坏账 ¥100.00 · 利息 ¥20.00」
+ *
+ * @param {Array<{name:string,cents:number}>} list
+ * @returns {string}
+ */
+export function loanAdjustmentText(list) {
+  const src = Array.isArray(list) ? list : []
+  const map = {}
+  for (const x of src) {
+    const name = String(x && x.name ? x.name : '')
+    const cents = Number(x && x.cents) || 0
+    if (!name || cents <= 0) continue
+    map[name] = (map[name] || 0) + cents
+  }
+  return Object.keys(map)
+    .map((name) => `${LOAN_ADJUSTMENT_LABELS[name] || name} ¥${(map[name] / 100).toFixed(2)}`)
+    .join(' · ')
+}
+
+/** 从某一段的完整流水里算结算差额文案（分段标注用） */
+function adjustmentTextOfTxns(txns) {
+  const list = Array.isArray(txns) ? txns : []
+  const map = {}
+  for (const t of list) {
+    if (!isSettlementAdjustmentName(t.category_name)) continue
+    const name = String(t.category_name || '')
+    map[name] = (map[name] || 0) + (Number(t.amount_cents) || 0)
+  }
+  return loanAdjustmentText(
+    Object.keys(map).map((name) => ({ name, cents: map[name] }))
+  )
+}
+
+/**
  * 八个分类的名字（四类流水 + 四个结清派生分类）
  *
  * 后四个是「手动结清」自动写的（hidden，用户 / AI 都选不到，只有本模块写入）。
@@ -508,6 +555,13 @@ export async function listLoanGroups(direction, status = 'all') {
     g.episodes = splitLoanEpisodes(g.txns, pair)
 
     /*
+     * 最近一次结清的日期：已结清组头「已结清」大字下方要显示它。
+     * episodes 是时间正序，最后一个带 closingDay 的已结清段就是最近一次。
+     */
+    const closed = g.episodes.filter((ep) => ep.settled && ep.closingDay)
+    g.lastClosingDay = closed.length > 0 ? closed[closed.length - 1].closingDay : ''
+
+    /*
      * 页面展示用：
      *   · displayTxns 是去掉六类结算差额后的流水；
      *   · adjustmentList 是组头「借还已平 · 坏账 ¥x」用的汇总。
@@ -750,6 +804,16 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
     return Array.isArray(ep.txns) ? ep.txns : []
   }
 
+  /**
+   * 「已结清 · 日期」文案；这一段有坏账/利息时追加金额。
+   * 例：已结清 · 2026-01-20 · 坏账 ¥100.00
+   */
+  const dividerTextOf = (day, ep) => {
+    const base = day ? `已结清 · ${day}` : '已结清'
+    const adj = adjustmentTextOfTxns(ep && ep.txns)
+    return adj ? `${base} · ${adj}` : base
+  }
+
   /*
    * ★ 两个 tab 都要倒序：最新的在上、历史的在下 ★
    *   splitLoanEpisodes 给的是时间正序（旧的段在前、新的段在后），
@@ -862,7 +926,7 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
          *   而这里的历史组每段都是一次独立的结清，
          *   标它自己的日期最不容易误读。
          */
-        dividerText: historyDay ? `已结清 · ${historyDay}` : '已结清',
+        dividerText: dividerTextOf(historyDay, ep),
         collapseText: '',
         // 收起入口挂在历史组最后一段后面
         showCollapseBtn: i === lastSettledIndex
@@ -883,7 +947,11 @@ export function buildLoanEpisodeView(episodes, opt = {}) {
        * 未结清 tab 的当前段（下标 0）：不标
        */
       showDividerBefore: isSettledTab && i > 0,
-      dividerText: prevDay ? `已结清 · ${prevDay}` : '已结清',
+      /*
+       * 已结清 tab 的日期是「上一段（更新的一段）的收口日」，
+       * 所以差额也要取上一段 —— 日期和金额必须描述同一次结清。
+       */
+      dividerText: dividerTextOf(prevDay, prev),
       collapseText: '',
       showCollapseBtn: false
     })

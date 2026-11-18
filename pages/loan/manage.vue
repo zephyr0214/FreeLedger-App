@@ -90,7 +90,7 @@
               </view>
               <view class="person-meta">
                 <text class="person-name ellipsis">{{ g.person }}</text>
-                <text class="person-sub">{{ personSub(g) }}</text>
+                <text v-if="personSub(g)" class="person-sub ellipsis">{{ personSub(g) }}</text>
               </view>
             </view>
 
@@ -115,12 +115,18 @@
             -->
             <view class="group-head-right">
               <view class="balance-row">
-                <text class="person-balance-label">{{ balanceLabel(g) }}</text>
+                <text v-if="!g.settled" class="person-balance-label">{{ balanceLabel(g) }}</text>
                 <text
                   class="person-balance"
                   :style="{ color: balanceColor(g) }"
                 >{{ balanceText(g) }}</text>
               </view>
+
+              <!-- 已结清：大字下方显示最近结清日期，不再写「账目已平」 -->
+              <text
+                v-if="g.settled && g.lastClosingDay"
+                class="person-settled-date"
+              >最近结清 {{ g.lastClosingDay }}</text>
 
               <!--
                 ★ 手动结清：两个方向都有，只要还没平账 ★
@@ -343,7 +349,7 @@ import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView,
-  isLoanPrincipalCategory
+  isLoanPrincipalCategory, loanAdjustmentText
 } from '@/api/loan.js'
 import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
@@ -473,7 +479,11 @@ export default {
     }
 
     function balanceLabel(g) {
-      if (g.settled) return '账目已平'
+      /*
+       * 已结清时右侧只留大字「已结清」+ 最近结清日期，
+       * 不再显示「账目已平」这个同义小标签（用户本轮要求）。
+       */
+      if (g.settled) return ''
       /*
        * 余额为负 = 反向多于正向：
        *   借出：对方多还了（我还欠他钱）
@@ -491,33 +501,14 @@ export default {
     /**
      * 人名下方的结算摘要
      *
-     * ★ 为什么不再显示「N 笔 · 最近日期」★
-     *   报销坏账/盈余、借出坏账/利息、借入未还/利息这六类差额流水
-     *   在所有流水列表里隐藏了。组头如果还只写笔数，用户就完全看不到
-     *   「这个人结清时是坏了账还是多了利息」。
-     *   所以这里改成：
-     *     · 已结清 → 借还已平（有差额时再补「坏账 ¥x / 利息 ¥x」）
-     *     · 未结清但历史上有过差额 → 直接显示差额
-     *     · 其余 → 保持原来的笔数 + 最近日期
+     * ★ 已结清不再写「借还已平」★
+     *   右侧大字已经是「已结清」，下面还会显示最近结清日期；
+     *   左侧再写一遍同义文案属于重复。这里只保留真正的差额金额，
+     *   没有差额就留空（模板用 v-if 隐藏）。
      */
-    const ADJUSTMENT_LABELS = {
-      借出坏账: '坏账',
-      借出利息: '利息',
-      借入未还: '免还',
-      借入利息: '利息'
-    }
-
-    function adjustmentText(g) {
-      const list = Array.isArray(g && g.adjustmentList) ? g.adjustmentList : []
-      return list
-        .filter((x) => Number(x.cents) > 0)
-        .map((x) => `${ADJUSTMENT_LABELS[x.name] || x.name} ¥${(Number(x.cents) / 100).toFixed(2)}`)
-        .join(' · ')
-    }
-
     function personSub(g) {
-      const adj = adjustmentText(g)
-      if (g.settled) return adj ? `借还已平 · ${adj}` : '借还已平'
+      const adj = loanAdjustmentText(g && g.adjustmentList)
+      if (g.settled) return adj
       if (adj) return adj
       const n = Number(g.visibleCount) || 0
       return `${n} 笔 · 最近 ${g.lastDay || '—'}`
@@ -1168,6 +1159,13 @@ export default {
   font-size: 21rpx;
   color: var(--app-text-3);
   flex-shrink: 0;
+}
+
+/* 已结清：大字下方的最近结清日期 */
+.person-settled-date {
+  font-size: 20rpx;
+  color: var(--app-text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 /*

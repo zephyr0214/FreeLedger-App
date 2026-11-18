@@ -213,14 +213,11 @@
                 <text v-if="b.isLegacy" class="batch-legacy-tag">历史</text>
               </view>
 
-              <text class="batch-account ellipsis">
-                {{ b.accountName || '无账户' }} · {{ b.txnCount }} 笔
-              </text>
-
               <!--
                 ★ 左下角：应报 + 多/少报（用户要求）★
                   差额由单头的 originCents / doneCents 直接相减，
                   和右侧实报是同一组数，保证卡头自洽。
+                  ★ 卡头不再显示到账账户和笔数（用户本轮要求）★
               -->
               <view class="batch-diff-row">
                 <text class="batch-origin-inline">应报 ￥{{ yuan(b.originCents) }}</text>
@@ -1593,18 +1590,12 @@ export default {
  *   用户原话「报销笔数直接显示在账户后面 · X 笔」。
  *   笔数和账户同属「这单的抬头信息」，各占一行只是浪费高度。
  */
-.batch-account {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-}
-
 /*
  * 卡头左下角：应报 + 多/少报
  *
  * ★ 为什么单独一行 ★
  *   用户要求「左下角显示应报、多/少报金额」。
- *   应报和差额是同一组数（该报多少、差多少），必须放在一起；
- *   账户和笔数属于抬头，放在上面一行。
+ *   应报和差额是同一组数（该报多少、差多少），必须放在一起。
  */
 .batch-diff-row {
   display: flex;

@@ -16,6 +16,7 @@ import {
 } from './account.js'
 import { resolveComboAccount } from '../utils/combo.js'
 import { notSettlementAdjustmentSql } from './txnFilter.js'
+import { findLoanAdjustmentsToRemove } from './loanCleanup.js'
 /*
  * ★ 只为「系统固定分类不能待报销」这一条校验而引 ★
  *   category.js 只依赖 db/index.js 与 db/schema.js，不反向依赖 transaction.js，
@@ -126,8 +127,9 @@ export function buildFilterWhere(opt = {}) {
    *   不代表真实现金流，界面上一律隐藏。
    *   统计页也复用这个函数，但它不传 hideAdjustments，所以金额仍然计入收支。
    *   ★ 默认 false 而不是 true ★
-   *     stats.js 也复用这个函数；若默认隐藏，统计会跟着漏掉这六类。
-   *     只有交易列表 / 合计 / 计数三处显式传 true。
+   *     stats.js / sumTransactions 也复用这个函数；若默认隐藏，
+   *     统计和顶部合计会跟着漏掉这六类。
+   *     只有交易列表与列表笔数计数显式传 true。
    */
   if (hideAdjustments) where.push(notSettlementAdjustmentSql('t'))
 
@@ -388,7 +390,19 @@ export async function listTransactions(opt = {}) {
  * 所以「含子分类」这类条件两边口径完全一致。
  */
 export async function sumTransactions(opt = {}) {
-  const { where, params } = buildFilterWhere({ ...opt, hideAdjustments: true })
+  /*
+   * ★ 默认包含结算差额，账户详情可显式隐藏 ★
+   *   全部交易页顶部的支出/收入合计、分类详情占比分母，
+   *   都要把报销坏账/盈余、借出坏账/利息、借入未还/利息算进去。
+   *   列表本身仍然隐藏这些行（listTransactions 传 hideAdjustments），
+   *   所以会出现「合计大于肉眼可见的行」—— 这是用户要的统计口径：
+   *   明细不展示内部调整，但总额必须反映真实损益。
+   *
+   *   账户详情是「现金流水」视角，余额又不含这六类，
+   *   那里显式传 hideAdjustments: true，避免支出合计与余额变动对不上。
+   */
+  const { hideAdjustments = false, ...rest } = opt
+  const { where, params } = buildFilterWhere({ ...rest, hideAdjustments })
 
   /*
    * ★ 笔数含全部流水，金额排除「不计入收支」★
@@ -422,6 +436,49 @@ export async function sumTransactions(opt = {}) {
     income: Number(row ? row.income : 0),
     transfer: Number(row ? row.transfer : 0)
   }
+}
+
+/**
+ * 当前筛选条件下，按天聚合的收支合计
+ *
+ * ★ 与 sumTransactions 的区别 ★
+ *   sumTransactions 给整段筛选出一个总数（顶部大统计）；
+ *   这里按 occurred_day 分组，给「全部交易」页每一天的分组头用。
+ *
+ * ★ 必须包含六类结算差额 ★
+ *   用户要求顶部和每日小计都按统计口径算：
+ *   报销坏账/盈余、借出坏账/利息、借入未还/利息虽然不出现在列表行里，
+ *   但它们的金额要进小计。所以这里不传 hideAdjustments。
+ *   金额仍然排除 exclude_from_stats（借出/借入/待报销等资金往来）。
+ *
+ * @param {object} opt 与 listTransactions / sumTransactions 同一套筛选参数
+ * @returns {Promise<Object<string, {expense:number, income:number}>>}
+ */
+export async function sumByDay(opt = {}) {
+  const { where, params } = buildFilterWhere(opt)
+
+  const rows = await query(
+    `SELECT t.occurred_day AS day,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                               AND t.type='expense'
+                              THEN t.amount_cents ELSE 0 END),0) AS expense,
+            COALESCE(SUM(CASE WHEN COALESCE(t.exclude_from_stats, 0) = 0
+                               AND t.type='income'
+                              THEN t.amount_cents ELSE 0 END),0) AS income
+     FROM txn t
+     WHERE ${where.join(' AND ')}
+     GROUP BY t.occurred_day`,
+    params
+  )
+
+  const map = {}
+  for (const r of rows) {
+    map[r.day] = {
+      expense: Number(r.expense) || 0,
+      income: Number(r.income) || 0
+    }
+  }
+  return map
 }
 
 /**
@@ -973,8 +1030,40 @@ export async function deleteTransaction(id) {
   const existing = await getTransaction(id)
   if (!existing) return false
 
+  /*
+   * ★ 删「借款收回 / 借款归还」时，连带删同一结清批次的差额 ★
+   *   那笔差额（借出坏账/利息、借入未还/利息）只计收支、不计余额，
+   *   但它代表「这一轮结清」的结果。还款被删后结清不再成立，
+   *   差额再留着就会在统计里凭空多一笔损益。
+   *   查询必须在软删之前做 —— 删掉后余额归零边界就找不到了。
+   *
+   * ★ 清理失败不能阻断删除 ★
+   *   这是附带维护动作；查询异常时先记日志，主流水照样删。
+   *   留一笔差额在库里比「用户点了删除却删不掉」危害小。
+   */
+  let adjustmentIds = []
+  try {
+    adjustmentIds = await findLoanAdjustmentsToRemove(existing)
+  } catch (e) {
+    console.warn('[txn] 连带清理借款差额失败:', e && e.message)
+  }
+
   await transaction(async () => {
-    await execute('UPDATE txn SET deleted_at = ?, updated_at = ? WHERE id = ?', [Date.now(), Date.now(), id])
+    const now = Date.now()
+    await execute('UPDATE txn SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+
+    if (adjustmentIds.length > 0) {
+      await execute(
+        `UPDATE txn SET deleted_at = ?, updated_at = ?
+         WHERE deleted_at IS NULL AND id IN (${adjustmentIds.map(() => '?').join(',')})`,
+        [now, now, ...adjustmentIds]
+      )
+      /*
+       * 差额流水不计余额，不需要 recalc；但统计会立即少掉它们，
+       * 页面刷新后自然一致。这里不改账户余额快照。
+       */
+    }
+
     await recalcBalance(existing.account_id)
     if (existing.to_account_id) await recalcBalance(existing.to_account_id)
     await writeTodaySnapshot(existing.account_id)
