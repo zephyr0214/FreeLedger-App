@@ -16,7 +16,7 @@ import {
 } from './account.js'
 import { resolveComboAccount } from '../utils/combo.js'
 import { notSettlementAdjustmentSql } from './txnFilter.js'
-import { findLoanCascade } from './loanCleanup.js'
+import { findLoanCascade, LOAN_BOUNDARY_MARK } from './loanCleanup.js'
 import { findReimburseDeletePlan } from './reimburseCleanup.js'
 /*
  * ★ 只为「系统固定分类不能待报销」这一条校验而引 ★
@@ -1042,7 +1042,7 @@ export async function deleteTransaction(id) {
    *   这是附带维护动作；查询异常时先记日志，主流水照样删。
    *   留一笔差额在库里比「用户点了删除却删不掉」危害小。
    */
-  let loanCascade = { ids: [], accountIds: [] }
+  let loanCascade = { ids: [], accountIds: [], matched: false }
   try {
     loanCascade = await findLoanCascade(existing)
   } catch (e) {
@@ -1063,13 +1063,28 @@ export async function deleteTransaction(id) {
 
   await transaction(async () => {
     const now = Date.now()
-    await execute('UPDATE txn SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+
+    /*
+     * ★ 借款流水软删时打边界标记 ★
+     *   删掉历史某单的收回/本金后，这一行虽然不再显示，
+     *   但它是「这一单原来在哪里收口」的证据。api/loan.js 重建分段时
+     *   只信任带标记的软删行，避免把历史删除实验的无关行也卷进来。
+     *   详见 api/loanCleanup.js 的 LOAN_BOUNDARY_MARK。
+     */
+    if (loanCascade.matched) {
+      await execute(
+        'UPDATE txn SET deleted_at = ?, updated_at = ?, via_combo_id = ? WHERE id = ?',
+        [now, now, LOAN_BOUNDARY_MARK, id]
+      )
+    } else {
+      await execute('UPDATE txn SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+    }
 
     if (loanCascade.ids.length > 0) {
       await execute(
-        `UPDATE txn SET deleted_at = ?, updated_at = ?
+        `UPDATE txn SET deleted_at = ?, updated_at = ?, via_combo_id = ?
          WHERE deleted_at IS NULL AND id IN (${loanCascade.ids.map(() => '?').join(',')})`,
-        [now, now, ...loanCascade.ids]
+        [now, now, LOAN_BOUNDARY_MARK, ...loanCascade.ids]
       )
       /*
        * 连带删的可能是借款收回/归还（影响余额），也可能是差额（不影响）。
@@ -1163,7 +1178,17 @@ export async function restoreTransaction(id) {
   const row = await queryOne('SELECT * FROM txn WHERE id = ?', [id])
   if (!row) return false
   await transaction(async () => {
-    await execute('UPDATE txn SET deleted_at = NULL, updated_at = ? WHERE id = ?', [Date.now(), id])
+    /*
+     * 恢复借款流水时要清掉删除时打的边界标记，
+     * 否则存活行会被 utils/txnBadges.js 当成「组合账户」行显示徽标。
+     */
+    await execute(
+      `UPDATE txn SET deleted_at = NULL,
+         via_combo_id = CASE WHEN via_combo_id = ? THEN NULL ELSE via_combo_id END,
+         updated_at = ?
+       WHERE id = ?`,
+      [LOAN_BOUNDARY_MARK, Date.now(), id]
+    )
     await recalcBalance(row.account_id)
     if (row.to_account_id) await recalcBalance(row.to_account_id)
   })

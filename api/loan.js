@@ -33,6 +33,7 @@ import { ensurePresetCategories, listCategories } from './category.js'
 import { createTransaction } from './transaction.js'
 import { toDayKey } from '../utils/date.js'
 import { isSettlementAdjustmentName } from './txnFilter.js'
+import { LOAN_BOUNDARY_MARK } from './loanCleanup.js'
 
 /** 借出 / 借入两个方向 */
 export const LOAN_DIRECTIONS = { lend: 'lend', borrow: 'borrow' }
@@ -499,8 +500,9 @@ export async function listLoanGroups(direction, status = 'all') {
         settled: false,
         txns: [],
         /**
-         * 含软删除行的全部流水，只用于重建结清边界。
-         * 不返回给页面（算完 episodes 就删掉）。
+         * 含边界软删除行的全部流水，只用于重建结清边界。
+         * 进分段前会先过 filterLoanBoundaryRows()，
+         * 剔除历史删除实验的噪声；算完 episodes 就删掉。
          */
         allTxns: [],
         /*
@@ -552,12 +554,23 @@ export async function listLoanGroups(direction, status = 'all') {
     g.balance = g.total - g.back
 
     /*
+     * ★ 只保留「有资格参与边界重建」的软删行 ★
+     *   历史删除实验留下的无关行（删除时间早于最后一笔存活流水）
+     *   会把当前账单拖成一整段未结清，必须剔除；
+     *   但刚删掉的那一笔 / 带边界标记的行要留下，
+     *   否则被删那一单的收口位置就丢了。
+     *   详见 filterLoanBoundaryRows()。
+     */
+    g.allTxns = filterLoanBoundaryRows(g.allTxns)
+
+    /*
      * ★ 两套分段取「结清得更完整」的那套 ★
      *   只用存活行能避免历史删除实验的软删行干扰；
-     *   含软删除行能保留「删了某单收回、后面单仍各自结清」的边界。
+     *   含边界软删除行能保留「删了某单收回、后面单仍各自结清」的边界。
      *   详见 chooseLoanEpisodes() 的说明。
      */
     g.episodes = chooseLoanEpisodes(g.txns, g.allTxns, pair)
+    delete g.allTxns
 
     /*
      * 组是否结清以「每一单都结清」为准。
@@ -587,32 +600,6 @@ export async function listLoanGroups(direction, status = 'all') {
         .sort()
       g.lastClosingDay = days.length > 0 ? days[days.length - 1] : ''
     }
-
-    /*
-     * 临时诊断：把分组结果和原始流水顺序打到控制台。
-     * 真机上如果出现「历史单没折叠」，这一行能直接看出
-     * 是 created_at 顺序、软删除行还是金额导致没切出结清段。
-     */
-    console.log('[loan] debug', g.person, JSON.stringify({
-      settled: g.settled,
-      balance: g.balance,
-      lastClosingDay: g.lastClosingDay,
-      episodes: g.episodes.map((ep) => ({
-        settled: ep.settled,
-        closingDay: ep.closingDay,
-        ids: ep.txns.map((t) => t.id)
-      })),
-      rows: g.allTxns.map((t) => ({
-        id: t.id,
-        cat: t.category_name,
-        amt: t.amount_cents,
-        cre: t.created_at,
-        occ: t.occurred_at,
-        day: t.occurred_day,
-        del: !!t.deleted_at
-      }))
-    }))
-    delete g.allTxns
 
     /*
      * 页面展示用：
@@ -647,6 +634,83 @@ export async function listLoanGroups(direction, status = 'all') {
 }
 
 /**
+ * 把未结清段里「末尾已经收口」的子单拆出来
+ *
+ * ★ 场景 ★
+ *   同一个人的三笔单都已结清，删掉中间那笔收回后，存活行是：
+ *     第 1 单（完整） + 第 2 单本金 + 第 3 单（完整）
+ *   按「余额从段首开始累加到 0」切，第 2 单本金会让第 3 单的收回
+ *   永远回不到 0，两单粘成一段未结清，第 3 单无法折叠。
+ *   但从段尾往前的后缀 [第 3 单本金, 收回, 利息] 余额正好是 0 ——
+ *   把已收口的后缀先拆出来，剩下的第 2 单本金自然成为未结清段。
+ *
+ * 只处理未结清段；已经结清的段原样返回。
+ * 后缀必须含至少一笔本金，避免「两笔差额刚好抵消」也拆出一段。
+ *
+ * 纯函数，不碰数据库。
+ *
+ * @param {Array<object>} episodes splitLoanEpisodes() 的结果
+ * @param {object} pair 四个分类 id
+ * @returns {Array<object>}
+ */
+function peelSettledSuffixes(episodes, pair) {
+  const p = pair || {}
+  const deltaOf = (t) => {
+    const amt = Number(t && t.amount_cents) || 0
+    if (amt <= 0) return 0
+    const cid = t && t.category_id
+    if (cid === p.mainId) return amt
+    if (cid === p.backId) return -amt
+    if (cid === p.positiveId) return -amt
+    if (cid === p.negativeId) return amt
+    return 0
+  }
+  const dayOf = (t) => String((t && t.occurred_day) || '') ||
+    (t && t.occurred_at ? toDayKey(new Date(Number(t.occurred_at))) : '')
+
+  const makeEpisode = (rows, settled) => ({
+    settled,
+    txns: rows,
+    displayTxns: rows.filter((t) => !isSettlementAdjustmentName(t.category_name)),
+    balance: rows.reduce((n, t) => n + deltaOf(t), 0),
+    fromDay: rows.length > 0 ? dayOf(rows[0]) : '',
+    toDay: rows.length > 0 ? dayOf(rows[rows.length - 1]) : '',
+    closingDay: settled && rows.length > 0 ? dayOf(rows[rows.length - 1]) : ''
+  })
+
+  const out = []
+  for (const ep of episodes) {
+    if (ep.settled) {
+      out.push(ep)
+      continue
+    }
+
+    let rows = (ep.txns || []).slice()
+    const parts = []
+    while (rows.length > 1) {
+      let balance = 0
+      let splitAt = -1
+      for (let i = rows.length - 1; i >= 0; i--) {
+        balance += deltaOf(rows[i])
+        if (balance !== 0) continue
+        const suffix = rows.slice(i)
+        if (suffix.some((t) => t.category_id === p.mainId)) {
+          splitAt = i
+          break
+        }
+      }
+      // 后缀从段首开始就不叫「后缀」了，而且原段未结清，不可能整段归零
+      if (splitAt <= 0) break
+      parts.unshift(makeEpisode(rows.slice(splitAt), true))
+      rows = rows.slice(0, splitAt)
+    }
+    if (rows.length > 0) parts.unshift(makeEpisode(rows, false))
+    out.push(...parts)
+  }
+  return out
+}
+
+/**
  * 把「含软删除行」的全部流水按结清边界分段，再按当前存活行算每段状态
  *
  * ★ 为什么用软删除行参与分段 ★
@@ -664,10 +728,14 @@ export async function listLoanGroups(direction, status = 'all') {
  *
  * @param {Array<object>} allTxns 含 deleted_at 的全部流水
  * @param {{mainId:string, backId:string, positiveId:string, negativeId:string}} pair
+ * @param {{peelSuffixes?:boolean}} [opt] peelSuffixes=true 时把未结清段末尾已收口的子单拆出来
  * @returns {Array<object>} 每段：txns/displayTxns 只含存活行，settled 按存活行算
  */
-export function buildLoanOrderEpisodes(allTxns, pair) {
-  const segments = splitLoanEpisodes(allTxns, pair)
+export function buildLoanOrderEpisodes(allTxns, pair, opt) {
+  const baseSegments = splitLoanEpisodes(allTxns, pair)
+  const segments = opt && opt.peelSuffixes
+    ? peelSettledSuffixes(baseSegments, pair)
+    : baseSegments
   const p = pair || {}
 
   const deltaOf = (t) => {
@@ -729,18 +797,68 @@ export function buildLoanOrderEpisodes(allTxns, pair) {
 }
 
 /**
+ * 从一个人的全部流水里挑出「参与结清边界重建」的行
+ *
+ * 存活行全部保留；软删行按下面两条规则挑：
+ *   1. 带 LOAN_BOUNDARY_MARK —— 是本轮删除时主动标记的边界证据；
+ *   2. 没有标记，但删除时间不早于最后一笔存活流水 ——
+ *      兼容升级前刚删掉的那一笔（当前截图里的场景）。
+ *
+ * ★ 为什么不能全部保留 ★
+ *   用户做过很多删除实验，库里躺着几十条无关软删行。
+ *   它们会把「第二单本金 + 第三单收回」粘成一段，
+ *   导致第三单明明结清却显示在未结清里。
+ *
+ * ★ 为什么不能全部丢弃 ★
+ *   删掉第二单的收回后，这笔软删行正是第二单的收口位置。
+ *   丢掉它，第二单本金会和第三单的收回合并，第三单又会变回未结清。
+ *
+ * 纯函数，不碰数据库；按人员分组后调用。
+ *
+ * @param {Array<object>} rows 同一人员的全部流水（含 deleted_at）
+ * @returns {Array<object>}
+ */
+export function filterLoanBoundaryRows(rows) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : []
+  const createdOf = (t) => Number(t.created_at) || Number(t.occurred_at) || 0
+
+  let latestLiveAt = 0
+  for (const t of list) {
+    if (t.deleted_at) continue
+    const at = createdOf(t)
+    if (at > latestLiveAt) latestLiveAt = at
+  }
+
+  return list.filter((t) => {
+    if (!t.deleted_at) return true
+    if (t.via_combo_id === LOAN_BOUNDARY_MARK) return true
+    /*
+     * 升级前的旧删除没有标记。删除时间落在最后一笔存活流水之后，
+     * 说明它就是用户刚做的那次删除，保留它；更早的删除视为历史实验噪声。
+     */
+    return latestLiveAt > 0 && Number(t.deleted_at) >= latestLiveAt
+  })
+}
+
+/**
  * 选择「结清得更完整」的一套分段
  *
  * 同一批流水有两条切法：
- *   · 只用存活行：不会被历史删除实验留下的软删行干扰，
+ *   · 只用存活行（未结清段末尾已收口的子单会先拆开）：
+ *     不会被历史删除实验留下的软删行干扰，
  *     当前账面已经两清的单能正常识别。
- *   · 含软删除行：能保留「删了某单收回后，后面单仍各自结清」的边界。
+ *   · 含边界软删除行：能保留「删了某单收回后，后面单仍各自结清」的边界。
  *
- * 比较两套结果里已结清流水的条数，取多的那套；
- * 一样多时优先存活行（更干净，不受无关软删行影响）。
+ * 比较两套结果：
+ *   1. 已结清流水条数多的优先 —— 能识别出更多真正收口的单；
+ *   2. 条数一样时，如果存在边界软删行且含边界行的切法能切出更多段，
+ *      选含边界行的那套 —— 删掉中间某单收回后，后面还有未结清单时，
+ *      只有它才能把「中间单剩的本金」和「后面那单」分成两段，
+ *      而不是糊成一段未结清；
+ *   3. 其余情况优先存活行（更干净，不受无关软删行影响）。
  *
  * @param {Array<object>} liveRows 存活流水
- * @param {Array<object>} allRows 含软删除的全部流水
+ * @param {Array<object>} allRows 存活 + 边界软删流水（见 filterLoanBoundaryRows）
  * @param {object} pair 四个分类 id
  * @returns {Array<object>}
  */
@@ -749,11 +867,22 @@ export function chooseLoanEpisodes(liveRows, allRows, pair) {
     (n, ep) => n + (ep.settled ? ep.txns.length : 0),
     0
   )
-  const liveEpisodes = buildLoanOrderEpisodes(liveRows, pair)
+  const liveEpisodes = buildLoanOrderEpisodes(liveRows, pair, { peelSuffixes: true })
   const allEpisodes = buildLoanOrderEpisodes(allRows, pair)
-  return settledRowCount(allEpisodes) > settledRowCount(liveEpisodes)
-    ? allEpisodes
-    : liveEpisodes
+  const liveSettledRows = settledRowCount(liveEpisodes)
+  const allSettledRows = settledRowCount(allEpisodes)
+
+  if (allSettledRows !== liveSettledRows) {
+    return allSettledRows > liveSettledRows ? allEpisodes : liveEpisodes
+  }
+
+  const hasBoundaryRows = Array.isArray(allRows) && Array.isArray(liveRows)
+    ? allRows.length > liveRows.length
+    : false
+  if (hasBoundaryRows && allEpisodes.length > liveEpisodes.length) {
+    return allEpisodes
+  }
+  return liveEpisodes
 }
 
 /**

@@ -23,8 +23,8 @@ import {
 } from '../api/txnFilter.js'
 import { buildFilterWhere } from '../api/transaction.js'
 import { DEFAULT_SETTINGS } from '../api/settings.js'
-import { splitLoanEpisodes, buildLoanEpisodeView, buildLoanOrderEpisodes, chooseLoanEpisodes } from '../api/loan.js'
-import { episodeCleanupIds } from '../api/loanCleanup.js'
+import { splitLoanEpisodes, buildLoanEpisodeView, buildLoanOrderEpisodes, chooseLoanEpisodes, filterLoanBoundaryRows } from '../api/loan.js'
+import { episodeCleanupIds, LOAN_BOUNDARY_MARK } from '../api/loanCleanup.js'
 import { reimburseDeletePlan } from '../api/reimburseCleanup.js'
 
 let pass = 0
@@ -87,6 +87,8 @@ check('全部交易页每日小计用 sumByDay', /sumByDay/.test(read('pages/txn
 check('countTransactions 隐藏差额', /countTransactions[\s\S]{0,400}?hideAdjustments:\s*true/.test(txnSrc), true)
 check('交易详情也过滤差额', /getTransaction[\s\S]{0,900}?notSettlementAdjustmentSql\('t'\)/.test(txnSrc), true)
 check('删除借款收回/归还时连带清理差额', /findLoanCascade/.test(txnSrc), true)
+check('删除借款流水时写边界标记', /LOAN_BOUNDARY_MARK/.test(txnSrc), true)
+check('恢复借款流水时清掉边界标记', /via_combo_id = CASE WHEN via_combo_id = \? THEN NULL/.test(txnSrc), true)
 check('删除报销流水时整单退回', /findReimburseDeletePlan/.test(txnSrc), true)
 check('统计页不隐藏差额', /buildFilterWhere\(r\)/.test(read('api/stats.js')), true)
 check('余额重算排除差额', /recalcBalance[\s\S]{0,1200}?notSettlementAdjustmentSql\('t'\)/.test(accountSrc), true)
@@ -207,8 +209,147 @@ check('最新未结清段删流水 -> 不做联动', episodeCleanupIds(open, PAI
   )
 }
 
-/* 补记的新借款即使业务日期更早，也不该插到旧结清的坏账之前 */
+/*
+ * 三笔已结清的单，删掉中间那笔收回：
+ * 只应让第 2 单本金显示为未结清，第 1/3 单继续折叠。
+ * 再删第 3 单收回：只应让第 3 单显示，第 1/2 单折叠。
+ *
+ * 这是用户 2026-11-18 的验收场景（截图 1 -> 截图 2）。
+ */
 {
+  const threeOrders = [
+    // 第 1 单：借 200，收回 198，坏账 2
+    loanRow('o1m', 'm', 200, '2026-07-01'),
+    loanRow('o1b', 'b', 198, '2026-07-02'),
+    loanRow('o1p', 'p', 2, '2026-07-02', 13),
+    // 第 2 单：借 300，收回 300
+    loanRow('o2m', 'm', 300, '2026-07-03'),
+    loanRow('o2b', 'b', 300, '2026-07-04'),
+    // 第 3 单：借 200，收回 202，利息 2
+    loanRow('o3m', 'm', 200, '2026-07-05'),
+    loanRow('o3b', 'b', 202, '2026-07-06'),
+    loanRow('o3n', 'n', 2, '2026-07-06', 13)
+  ]
+
+  // 删第 2 单收回：带边界标记，即使删除时间早于后面的存活流水也必须保留
+  const deletedMiddle = threeOrders.map((t) =>
+    t.id === 'o2b'
+      ? { ...t, deleted_at: 1000, via_combo_id: LOAN_BOUNDARY_MARK }
+      : t
+  )
+  const middleLive = deletedMiddle.filter((t) => !t.deleted_at)
+  const middleBoundary = filterLoanBoundaryRows(deletedMiddle)
+
+  check('边界过滤保留带标记的已删收回', middleBoundary.some((t) => t.id === 'o2b'), true)
+  const middleEpisodes = chooseLoanEpisodes(middleLive, middleBoundary, PAIR)
+  check(
+    '删第 2 单收回：第 2 单未结清，第 1/3 单仍结清',
+    middleEpisodes.map((ep) => ep.settled),
+    [true, false, true]
+  )
+  check(
+    '删第 2 单收回：未结清段只剩第 2 单本金',
+    middleEpisodes.filter((ep) => !ep.settled).map((ep) => ep.txns.map((t) => t.id)),
+    [['o2m']]
+  )
+  check(
+    '删第 2 单收回：未结清页第 1/3 单折叠、第 2 单显示',
+    buildLoanEpisodeView(middleEpisodes, { status: 'open' })
+      .filter((v) => !v.skip)
+      .map((v) => [v.rowIndex, v.collapsed]),
+    [[-1, true], [1, false]]
+  )
+
+  /*
+   * 没有任何边界软删行时（旧数据/噪声被过滤光）也要能修：
+   * 存活行里第 3 单是完整收口的，从末尾把已结清后缀拆出来。
+   */
+  const liveOnlyEpisodes = chooseLoanEpisodes(middleLive, middleLive, PAIR)
+  check(
+    '无边界行：末尾已结清的第 3 单仍能拆出',
+    liveOnlyEpisodes.map((ep) => ep.settled),
+    [true, false, true]
+  )
+  check(
+    '无边界行：第 2 单只剩本金，第 3 单完整留在自己的段',
+    liveOnlyEpisodes.map((ep) => ep.txns.map((t) => t.id)),
+    [['o1m', 'o1b', 'o1p'], ['o2m'], ['o3m', 'o3b', 'o3n']]
+  )
+
+  // 删第 3 单收回 + 利息：第 3 单本金变未结清，第 1/2 单折叠
+  const deletedLast = threeOrders.map((t) =>
+    t.id === 'o3b' || t.id === 'o3n'
+      ? { ...t, deleted_at: 1000, via_combo_id: LOAN_BOUNDARY_MARK }
+      : t
+  )
+  const lastLive = deletedLast.filter((t) => !t.deleted_at)
+  const lastBoundary = filterLoanBoundaryRows(deletedLast)
+  const lastEpisodes = chooseLoanEpisodes(lastLive, lastBoundary, PAIR)
+
+  check(
+    '删第 3 单收回：第 3 单未结清，第 1/2 单仍结清',
+    lastEpisodes.map((ep) => ep.settled),
+    [true, true, false]
+  )
+  check(
+    '删第 3 单收回：未结清段只剩第 3 单本金',
+    lastEpisodes.filter((ep) => !ep.settled).map((ep) => ep.txns.map((t) => t.id)),
+    [['o3m']]
+  )
+  check(
+    '删第 3 单收回：未结清页第 1/2 单折叠、第 3 单显示',
+    buildLoanEpisodeView(lastEpisodes, { status: 'open' })
+      .filter((v) => !v.skip)
+      .map((v) => [v.rowIndex, v.collapsed]),
+    [[0, false], [-1, true]]
+  )
+
+  /*
+   * 后面那单本来就没结清时，也要把「中间单剩余本金」和「后面那单」
+   * 分成两段未结清 —— 否则用户看到的是两单糊在一起。
+   */
+  const openThird = threeOrders
+    .filter((t) => t.id !== 'o3b' && t.id !== 'o3n')
+    .map((t) => t.id === 'o2b'
+      ? { ...t, deleted_at: 1000, via_combo_id: LOAN_BOUNDARY_MARK }
+      : t)
+  const openThirdLive = openThird.filter((t) => !t.deleted_at)
+  const openThirdEpisodes = chooseLoanEpisodes(
+    openThirdLive,
+    filterLoanBoundaryRows(openThird),
+    PAIR
+  )
+  check(
+    '删中间收回、第三单仍未结清：切出三段而不是两段',
+    openThirdEpisodes.map((ep) => ep.settled),
+    [true, false, false]
+  )
+  check(
+    '删中间收回、第三单仍未结清：中间单和第三单各占一段',
+    openThirdEpisodes.filter((ep) => !ep.settled).map((ep) => ep.txns.map((t) => t.id)),
+    [['o2m'], ['o3m']]
+  )
+}
+
+/*
+ * 没有边界标记的旧删除：
+ *   · 删除时间早于最后一笔存活流水 → 当作历史实验噪声剔除；
+ *   · 删除时间晚于最后一笔存活流水 → 视为用户刚做的那次删除，保留。
+ */
+{
+  const rows = [
+    { ...loanRow('x1', 'm', 100, '2026-08-01'), created_at: 1000 },
+    { ...loanRow('x2', 'b', 100, '2026-08-02'), created_at: 2000 },
+    { ...loanRow('x3', 'm', 300, '2026-08-03'), created_at: 3000 },
+    { ...loanRow('xnoise', 'm', 50, '2026-08-01'), created_at: 1500, deleted_at: 2500 },
+    { ...loanRow('xrecent', 'b', 300, '2026-08-04'), created_at: 4000, deleted_at: 5000 }
+  ]
+  const filtered = filterLoanBoundaryRows(rows)
+  check('旧删除实验噪声被剔除', filtered.some((t) => t.id === 'xnoise'), false)
+  check('晚于最后一笔存活流水的旧删除被保留', filtered.some((t) => t.id === 'xrecent'), true)
+}
+
+/* 补记的新借款即使业务日期更早，也不该插到旧结清的坏账之前 */{
   const rows = [
     { ...loanRow('k1', 'm', 100, '2026-05-01'), created_at: new Date('2026-05-01T10:00:00').getTime() },
     { ...loanRow('k2', 'b', 98, '2026-05-01'), created_at: new Date('2026-05-02T10:00:00').getTime() },
@@ -317,6 +458,8 @@ check('借入借出明细优先 displayTxns', /Array\.isArray\(ep\.displayTxns\)
 check('API 生成 adjustmentList', /g\.adjustmentList\s*=/.test(loanSrc), true)
 check('API 生成最近结清日期', /g\.lastClosingDay\s*=/.test(loanSrc), true)
 check('分组用存活行/软删行两套分段择优', /chooseLoanEpisodes\(g\.txns, g\.allTxns, pair\)/.test(loanSrc), true)
+check('分组前过滤历史删除噪声', /g\.allTxns = filterLoanBoundaryRows\(g\.allTxns\)/.test(loanSrc), true)
+check('边界过滤保留标记行/近期删除', /LOAN_BOUNDARY_MARK/.test(loanSrc) && /deleted_at\) >= latestLiveAt/.test(loanSrc), true)
 check('软删除行只参与分段不参与汇总', /if \(r\.deleted_at\) continue/.test(loanSrc), true)
 check('借出借入右上角快捷按钮', /HeaderAction/.test(loanPage) && /openBackPanel/.test(loanPage), true)
 check('快捷按钮文案随方向切换', /isIncome \? '借款归还' : '借款收回'/.test(loanPage), true)

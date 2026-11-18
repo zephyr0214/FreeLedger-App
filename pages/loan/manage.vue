@@ -852,19 +852,7 @@ export default {
          */
         for (const g of open) {
           const key = episodeKey(g.person, -1)
-          const wasExpanded = !!episodeOpen[key]
-          if (wasExpanded) delete episodeOpen[key]
-          const hasSettled = (g.episodes || []).some((ep) => ep.settled)
-          if (hasSettled) {
-            console.log(
-              '[loan] 历史折叠重置',
-              g.person,
-              'groupSettled=', g.settled,
-              'episodes=', (g.episodes || []).map((ep) => [ep.settled, ep.txns.length]),
-              'lastClosingDay=', g.lastClosingDay,
-              'wasExpanded=', wasExpanded
-            )
-          }
+          if (episodeOpen[key]) delete episodeOpen[key]
         }
 
         openCount.value = open.length

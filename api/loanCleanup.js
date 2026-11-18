@@ -26,6 +26,23 @@ import { query } from './db/index.js'
 import { LOAN_CATEGORY_NAMES, LOAN_SETTLE_CATEGORY_NAMES } from './db/schema.js'
 
 /**
+ * 软删除借款流水时写入的边界标记
+ *
+ * ★ 为什么需要它 ★
+ *   删掉一笔历史收回后，这一行虽然不再显示，但它仍然是
+ *   「这一单在哪里收口」的证据。如果所有软删行都参与分段，
+ *   历史删除实验留下的无关行会把当前账单拖乱；
+ *   如果全部忽略，又保不住被删这一单的边界。
+ *   所以删除时给「这一单相关的行」打标记，分段只信任这些标记行。
+ *
+ * ★ 为什么存进 via_combo_id ★
+ *   借款流水不是组合账户记账，这个字段本来就空；
+ *   已删除行不会显示「组合账户」徽标，恢复时清掉标记即可。
+ *   这样不用加列、不用做数据库迁移。
+ */
+export const LOAN_BOUNDARY_MARK = '__loan_boundary__'
+
+/**
  * 被删除的流水 -> 对应方向的主/反/正差/负差分类名
  *
  *   借出方向：借出 / 借款收回 / 借出坏账 / 借出利息
@@ -77,8 +94,8 @@ function compareAsc(a, b) {
  *   剩余的主方向流水归为未结清。
  *
  * ★ 历史单删除不删剩余本金 ★
- *   这里的「批次边界」会被 api/loan.js 用**包含软删除行**的全部流水重建，
- *   所以删掉第二单的收回后，第二单剩余本金仍然留在账上变未结清，
+ *   这里的「批次边界」会被 api/loan.js 用**存活行 + 带边界标记的软删行**
+ *   重建，所以删掉第二单的收回后，第二单剩余本金仍然留在账上变未结清，
  *   第一、第三单的原始结清边界不会丢，仍能各自折叠。
  *   不要在删除时把整单本金清掉 —— 那会把用户没删的钱也一起抹掉。
  *
@@ -144,15 +161,17 @@ export function episodeCleanupIds(txns, pair, deletedId) {
  * 查询并返回要连带删除的流水
  *
  * @param {object} txn getTransaction() 返回的行（含 category_name / note / id）
- * @returns {Promise<{ids:string[], accountIds:string[]}>}
+ * @returns {Promise<{ids:string[], accountIds:string[], matched:boolean}>}
+ *   matched 表示这笔流水属于借入借出四类，调用方需要给删除行打边界标记。
+ *   即使没有同名人员/没有连带行，主流水本身也要标记。
  */
 export async function findLoanCascade(txn) {
   const name = String((txn && txn.category_name) || '')
   const def = PAIRS[name]
-  if (!def) return { ids: [], accountIds: [] }
+  if (!def) return { ids: [], accountIds: [], matched: false }
 
   const person = String((txn && txn.note) || '').trim()
-  if (!person) return { ids: [], accountIds: [] }
+  if (!person) return { ids: [], accountIds: [], matched: true }
 
   const names = [def.main, def.back, def.positive, def.negative]
   const cats = await query(
@@ -169,7 +188,7 @@ export async function findLoanCascade(txn) {
     negativeId: byName[def.negative] || ''
   }
   const ids = [pair.mainId, pair.backId, pair.positiveId, pair.negativeId].filter(Boolean)
-  if (!pair.mainId || !pair.backId) return { ids: [], accountIds: [] }
+  if (!pair.mainId || !pair.backId) return { ids: [], accountIds: [], matched: true }
 
   const rows = await query(
     `SELECT id, category_id, amount_cents, occurred_at, created_at, account_id
@@ -182,6 +201,7 @@ export async function findLoanCascade(txn) {
   const cascade = episodeCleanupRows(rows, pair, txn.id)
   return {
     ids: cascade.map((t) => t.id),
-    accountIds: Array.from(new Set(cascade.map((t) => t.account_id).filter(Boolean)))
+    accountIds: Array.from(new Set(cascade.map((t) => t.account_id).filter(Boolean))),
+    matched: true
   }
 }
