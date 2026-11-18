@@ -59,7 +59,7 @@
 <script>
 import { computed } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { evaluateAmount } from '@/utils/money.js'
+import { evaluateAmount, evaluateSignedAmount } from '@/utils/money.js'
 
 export default {
   name: 'NumberKeyboard',
@@ -69,7 +69,16 @@ export default {
     /** 完成按钮文字 */
     finishText: { type: String, default: '完成' },
     /** 禁用完成 */
-    disabled: { type: Boolean, default: false }
+    disabled: { type: Boolean, default: false },
+    /**
+     * 允许负数（账户余额修改用）
+     *
+     * 记账金额恒为正，传 false 时保持原行为：
+     *   · 空输入不能以运算符开头
+     *   · 求值 <= 0 视为无效
+     * 改余额时信用卡欠款是负数，需要放开这两条。
+     */
+    allowNegative: { type: Boolean, default: false }
   },
   /**
    * ★ 事件名不能叫 finish ★
@@ -116,6 +125,10 @@ export default {
      * 那里是手写递归下降解析，不用 eval，优先级：括号 > 乘除 > 加减。
      */
     function evaluate(expr) {
+      if (props.allowNegative) {
+        const cents = evaluateSignedAmount(expr)
+        return Number.isFinite(cents) ? cents / 100 : NaN
+      }
       const cents = evaluateAmount(expr)
       return cents / 100
     }
@@ -183,7 +196,10 @@ export default {
     function onOp(op) {
       const v = props.modelValue || ''
       if (!v) {
-        // 空输入时按运算符开头无效（金额恒为正）
+        // 普通记账金额恒为正；改余额时允许用「-」开头输入负数
+        if (props.allowNegative && op === '-') {
+          emit('update:modelValue', '-')
+        }
         return
       }
       // 末尾已是运算符则替换
@@ -253,6 +269,11 @@ export default {
         return
       }
       const result = evaluate(v)
+      if (!Number.isFinite(result)) {
+        // 除以 0 等非法算式：不要静默返回 0，否则会被当成「余额改成 0」
+        uni.showToast({ title: '算式无效', icon: 'none' })
+        return
+      }
       console.log('[kb] emit submit-amount, value =', result)
       emit('submit-amount', result)
     }

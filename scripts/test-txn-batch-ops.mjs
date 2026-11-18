@@ -138,6 +138,7 @@ console.log('=== 4/5. 右滑快捷操作 + 多选批量 ===')
   const index = read('pages/index/index.vue')
   const list = read('pages/txn/list.vue')
   const swipe = read('components/TxnSwipeActions.vue')
+  const batchBar = read('components/TxnBatchBar.vue')
   const sheet = read('components/TxnTagSheet.vue')
   const api = read('api/transaction.js')
 
@@ -145,10 +146,11 @@ console.log('=== 4/5. 右滑快捷操作 + 多选批量 ===')
   check('右滑操作组件存在', /name: 'TxnSwipeActions'/.test(swipe), true)
   check('标签弹层组件存在', /name: 'TxnTagSheet'/.test(sheet), true)
   check(
-    '右滑组件有「标签」「删除」两个按钮',
-    /swipe-btn-face--tag[\s\S]{0,300}?swipe-btn-face--del/.test(swipe),
+    '右滑组件有「标签 / 编辑 / 删除」三个按钮',
+    /swipe-btn-face--tag[\s\S]{0,300}?swipe-btn-face--edit[\s\S]{0,300}?swipe-btn-face--del/.test(swipe),
     true
   )
+  check('右滑组件声明 edit 事件', /emits: \['delete', 'edit', 'tag'\]/.test(swipe), true)
   /*
    * ★ 右滑按钮要有透明缓冲（bug 修复）★
    *   wd-swipe-action 靠 translate3d(100%) + overflow:hidden 裁切，
@@ -164,6 +166,17 @@ console.log('=== 4/5. 右滑快捷操作 + 多选批量 ===')
   check('首页用共用右滑按钮', /<TxnSwipeActions/.test(index), true)
   check('首页右滑删除有确认框', /onSwipeDelete[\s\S]{0,600}?confirmDialog/.test(index), true)
   check('首页有标签弹层', /<TxnTagSheet/.test(index), true)
+  check('首页右滑有编辑入口', /@edit="onSwipeEdit\(txn\)"/.test(index), true)
+  check('首页编辑面板绑定 editing', /<TxnPanel[\s\S]{0,180}?:editing="panelEditing"/.test(index), true)
+
+  // 首页多选：长按进入，底部共用批量操作条，tabbar 同时收起
+  check('首页有多选模式', /const selectMode = ref\(false\)/.test(index), true)
+  check('首页长按进多选', /function onRowLongPress/.test(index), true)
+  check('首页多选点击切换勾选', /function onRowClick[\s\S]{0,300}?toggleSelect/.test(index), true)
+  check('首页多选禁用右滑', /:disabled="selectMode"/.test(index), true)
+  check('首页多选时收起 tabbar', /showQuickAdd \|\| showPanel \|\| selectMode/.test(index), true)
+  check('首页使用共用批量操作条', /<TxnBatchBar/.test(index), true)
+  check('首页顶部多选态显示取消', /v-if="selectMode" @action-click="exitSelectMode"/.test(index), true)
 
   // 全部交易页
   check('全部交易也包了右滑', /<wd-swipe-action[\s\S]{0,300}?v-for="txn in group\.list"/.test(list), true)
@@ -184,41 +197,23 @@ console.log('=== 4/5. 右滑快捷操作 + 多选批量 ===')
   check('不再有 allSelected 状态', /allSelected/.test(list), false)
   check('保留取消入口', /@click="exitSelectMode"/.test(list), true)
 
-  // 底部悬浮操作条
-  check('有批量操作条', /class="batch-bar"/.test(list), true)
-  /*
-   * ★ 四个批量操作（用户本轮把「不计收支」换成了「待报销」）★
-   *   原话：「多选的悬浮按钮不计收支修改为待报销」。
-   *   列表里选一批流水最常见的意图就是「这批要报销」。
-   */
+  // 底部悬浮操作条：抽成共用组件，两页同一份
+  check('批量操作条组件存在', /name: 'TxnBatchBar'/.test(batchBar), true)
+  check('全部交易使用共用操作条', /<TxnBatchBar/.test(list), true)
   check(
     '四个操作都在',
-    ['删除', '标签', '不计预算', '待报销'].every((t) => new RegExp(`>${t}<`).test(list)),
+    ['删除', '标签', '不计预算', '待报销'].every((t) => new RegExp(`>${t}<`).test(batchBar)),
     true
   )
-  check('不再有「不计收支」按钮', />不计收支</.test(list), false)
+  check('不再有「不计收支」按钮', />不计收支</.test(batchBar), false)
   check('待报销走专用 API', /batchSetPendingReimburse/.test(list), true)
-  /*
-   * ★ 批量操作条不能套分段切换（用户反馈）★
-   *   第一版直接用了 .seg-toggle（分段切换控件）——
-   *   那是「选中一个」的形态，四项拉平看起来像一排
-   *   没选中的选项，不像按钮。用户说「太丑了」。
-   *   现在是自绘卡片条，不应再出现 seg-toggle 类名。
-   */
-  check('操作条不再用 seg-toggle', /class="seg-toggle seg-toggle--block batch-actions"/.test(list), false)
-  check('操作条是自绘卡片', /class="batch-bar"[\s\S]{0,600}?class="batch-item"/.test(list), true)
-  check('删除用危险色', /batch-item-text--danger/.test(list), true)
-  /*
-   * ★ 按钮宽按内容自适应，不再四等分（用户要求）★
-   *   原话：「整体窄一点，按钮宽不用必须一致」。
-   *   「删除」2 字、「不计预算」4 字，强行等分会让短的两侧空一大截。
-   */
-  check('按钮不再 flex:1 等分', /\.batch-item\s*\{[\s\S]{0,200}?flex:\s*1/.test(list), false)
-  check('按钮按内容自适应', /\.batch-item\s*\{[\s\S]{0,200}?flex-shrink:\s*0/.test(list), true)
-  check('整条不铺满屏宽（居中自适应）', /\.batch-inner\s*\{[\s\S]{0,300}?display:\s*inline-flex/.test(list), true)
-  check('磨砂玻璃复用 glassVars()', /glassVars\(/.test(list), true)
-  check('真·毛玻璃有 @supports 降级', /@supports \(\(-webkit-backdrop-filter/.test(list), true)
-  check('操作条 z-index 符合页面内浮层约定', /\.batch-bar\s*\{[\s\S]{0,300}?z-index:\s*9/.test(list), true)
+  check('操作条是自绘卡片', /class="batch-bar"[\s\S]{0,400}?class="batch-item"/.test(batchBar), true)
+  check('删除用危险色', /batch-item-text--danger/.test(batchBar), true)
+  check('按钮按内容自适应', /\.batch-item\s*\{[\s\S]{0,200}?flex-shrink:\s*0/.test(batchBar), true)
+  check('整条不铺满屏宽（居中自适应）', /\.batch-inner\s*\{[\s\S]{0,300}?display:\s*inline-flex/.test(batchBar), true)
+  check('磨砂玻璃复用 glassVars()', /glassVars\(/.test(batchBar), true)
+  check('真·毛玻璃有 @supports 降级', /@supports \(\(-webkit-backdrop-filter/.test(batchBar), true)
+  check('操作条 z-index 符合页面内浮层约定', /\.batch-bar\s*\{[\s\S]{0,300}?z-index:\s*9/.test(batchBar), true)
 
   // 批量 API
   check('导出 batchDeleteTransactions', /export async function batchDeleteTransactions/.test(api), true)

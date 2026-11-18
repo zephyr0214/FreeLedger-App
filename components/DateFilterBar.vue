@@ -58,7 +58,7 @@
       >
         <view class="preset-inner">
           <text class="preset-text">{{ activePresetLabel }}</text>
-          <text class="preset-arrow">▾</text>
+          <DropdownArrow />
         </view>
       </picker>
 
@@ -112,6 +112,7 @@
 <script>
 import { ref, computed } from 'vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
+import DropdownArrow from '@/components/DropdownArrow.vue'
 import { toDayKey, parseDayKey, shiftDay } from '@/utils/date.js'
 
 /**
@@ -200,7 +201,7 @@ function presetRange(key) {
 
 export default {
   name: 'DateFilterBar',
-  components: { DateRangePicker },
+  components: { DateRangePicker, DropdownArrow },
   props: {
     /** 'period'（年月日筛选）| 'custom'（自定义筛选） */
     mode: { type: String, default: 'period' },
@@ -554,11 +555,6 @@ export default {
 .preset-text {
   font-size: 26rpx;
   color: var(--app-text-2);
-}
-
-.preset-arrow {
-  font-size: 20rpx;
-  color: var(--app-text-3);
 }
 
 .custom-value {

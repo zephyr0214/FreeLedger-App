@@ -15,15 +15,21 @@
     </block>
 
     <block v-else>
-      <AppHeader @avatar-click="goProfile">
+      <AppHeader
+        :greeting-text="selectMode ? `已选 ${selectedIds.length} 笔` : ''"
+        :show-date="!selectMode"
+        @avatar-click="goProfile"
+      >
         <template #right>
-          <HeaderAction @action-click="goAiChat">智能助手</HeaderAction>
+          <HeaderAction v-if="selectMode" @action-click="exitSelectMode">取消</HeaderAction>
+          <HeaderAction v-else @action-click="goAiChat">智能助手</HeaderAction>
         </template>
       </AppHeader>
 
       <scroll-view
         class="page-scroll"
         scroll-y
+        @scroll="onPageScroll"
       >
         <!-- ② 本月概览 -->
         <view class="overview-card">
@@ -316,12 +322,21 @@
                 v-for="txn in group.list"
                 :key="txn.id"
                 v-model="swipeStates[txn.id]"
+                :disabled="selectMode"
                 class="txn-swipe"
               >
               <view
                 class="txn-item"
-                @click="goTxnDetail(txn.id)"
+                @click="onRowClick(txn)"
+                @touchstart="onRowTouchStart(txn, $event)"
+                @touchmove="onRowTouchMove($event)"
+                @touchend="onRowTouchEnd"
+                @touchcancel="onRowTouchEnd"
               >
+              <!-- 多选勾选框：只在多选模式出现 -->
+              <view v-if="selectMode" class="row-check" :class="{ on: isSelected(txn.id) }">
+                <text v-if="isSelected(txn.id)" class="row-check-tick">✓</text>
+              </view>
               <TxnIcon
                 :icon="txn.category_icon"
                 :name="txn.category_name"
@@ -372,6 +387,7 @@
               <template #right>
                 <TxnSwipeActions
                   @delete="onSwipeDelete(txn)"
+                  @edit="onSwipeEdit(txn)"
                   @tag="onSwipeTag(txn)"
                 />
               </template>
@@ -405,7 +421,7 @@
              滚动时仍然永驻，不受影响。 -->
       <AppTabBar
         current="home"
-        :hidden="showQuickAdd || showPanel"
+        :hidden="showQuickAdd || showPanel || selectMode"
         :hold-enabled="settingStore.quickAddHoldAction !== 'none'"
         @single-press="onFabTap"
         @hold-start="onHoldStart"
@@ -421,8 +437,22 @@
         @parsing-end="onParsingEnd"
       />
 
-      <!-- 记账面板（长按或展开时打开） -->
-      <TxnPanel v-model="showPanel" :preset="panelPreset" @saved="onSaved" />
+      <!-- 多选批量操作条：与全部交易页共用同一个组件 -->
+      <TxnBatchBar
+        v-if="selectMode"
+        @delete="onBatchDelete"
+        @tag="openBatchTag"
+        @exclude-budget="onBatchExcludeBudget"
+        @pending-reimburse="onBatchPendingReimburse"
+      />
+
+      <!-- 记账面板（手动记账或右滑编辑时打开） -->
+      <TxnPanel
+        v-model="showPanel"
+        :editing="panelEditing"
+        :preset="panelPreset"
+        @saved="onSaved"
+      />
     </block>
 
     <!--
@@ -454,7 +484,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { onShow, onBackPress } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -468,6 +498,7 @@ import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import TxnSwipeActions from '@/components/TxnSwipeActions.vue'
 import TxnTagSheet from '@/components/TxnTagSheet.vue'
+import TxnBatchBar from '@/components/TxnBatchBar.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { useTransactionStore } from '@/stores/transaction.js'
@@ -475,17 +506,22 @@ import { useUiStore } from '@/stores/ui.js'
 import { getBudgetUsage } from '@/api/stats.js'
 import { getSetting, setSetting } from '@/api/settings.js'
 import { listTags } from '@/api/tag.js'
+import {
+  batchDeleteTransactions, batchSetExcludeFlags, batchSetTxnTags
+} from '@/api/transaction.js'
+import { batchSetPendingReimburse } from '@/api/reimburse.js'
 import { toMonthKey, shiftMonth, formatDayHeader, relativeDayLabel, formatTime } from '@/utils/date.js'
 import TxnIcon from '@/components/TxnIcon.vue'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { formatWanYuan } from '@/utils/money.js'
 import { handleBackPress } from '@/utils/layerStack.js'
+import { createRowPressController } from '@/utils/rowPress.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pickRecentDisplayList, isShowingAllToday } from '@/utils/recentDisplay.js'
 
 export default {
-  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet, TxnIcon },
+  components: { AppHeader, MoneyText, EmptyState, AppTabBar, TxnPanel, QuickAddBar, CalendarGrid, HeaderAction, AppDialog, UpdateDialog , TxnSwipeActions, TxnTagSheet, TxnBatchBar, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -499,6 +535,8 @@ export default {
     const parsing = ref(false)
     const parsingText = ref('')
     const panelPreset = ref(null)
+    /** 右滑「编辑」时传入的已有交易；手动记账时为 null */
+    const panelEditing = ref(null)
     const selectedDay = ref('')
 
     /** 预算列表（总预算 + 各分类预算） */
@@ -521,8 +559,15 @@ export default {
 
     /** 标签弹层：是否打开、当前操作的那笔流水、回显的已选标签 */
     const showTagSheet = ref(false)
+    const tagSheetBatch = ref(false)
     const tagSheetTxn = ref(null)
     const tagSheetIds = ref([])
+
+    /* ------------------------------------------------------ 多选批量 */
+
+    const selectMode = ref(false)
+    const selectedIds = ref([])
+    const batchBusy = ref(false)
 
     /**
      * 右滑删除
@@ -553,24 +598,186 @@ export default {
     /** 右滑标签：打开弹层，回显这笔已有的标签 */
     function onSwipeTag(txn) {
       if (swipeStates[txn.id]) swipeStates[txn.id] = 'close'
+      tagSheetBatch.value = false
       tagSheetTxn.value = txn
       tagSheetIds.value = Array.isArray(txn.tag_ids) ? txn.tag_ids.slice() : []
       showTagSheet.value = true
     }
 
+    /** 右滑编辑：收起右滑，打开记账面板并回填 */
+    function onSwipeEdit(txn) {
+      if (swipeStates[txn.id]) swipeStates[txn.id] = 'close'
+      panelPreset.value = null
+      panelEditing.value = txn
+      showPanel.value = true
+    }
+
+    /* ------------------------------------------------------ 多选 */
+
+    function isSelected(id) {
+      return selectedIds.value.includes(id)
+    }
+
+    function toggleSelect(id) {
+      const i = selectedIds.value.indexOf(id)
+      if (i >= 0) selectedIds.value.splice(i, 1)
+      else selectedIds.value.push(id)
+      // 一个都不剩就自动退出多选，避免底部空留一条操作栏
+      if (selectedIds.value.length === 0) selectMode.value = false
+    }
+
+    function exitSelectMode() {
+      selectMode.value = false
+      selectedIds.value = []
+    }
+
+    /** 长按进入多选并选中当前行（手势闸门判定，规则与全部交易页一致） */
+    function onRowLongPress(txn) {
+      if (!selectMode.value) {
+        selectMode.value = true
+        selectedIds.value = []
+      }
+      if (!isSelected(txn.id)) toggleSelect(txn.id)
+      try {
+        uni.vibrateShort({ type: 'light' })
+      } catch (e) {}
+    }
+
+    function onRowClick(txn) {
+      if (rowPress.clickBlocked()) return
+      if (!selectMode.value) {
+        goTxnDetail(txn.id)
+        return
+      }
+      toggleSelect(txn.id)
+    }
+
+    const rowPress = createRowPressController({ onLongPress: onRowLongPress })
+
+    function onPageScroll() {
+      rowPress.onScroll()
+    }
+
+    const onRowTouchStart = (txn, e) => rowPress.onTouchStart(txn, e)
+    const onRowTouchMove = (e) => rowPress.onTouchMove(e)
+    const onRowTouchEnd = () => rowPress.onTouchEnd()
+
+    /** 当前选中的交易（只从首页显示的最近列表里找） */
+    function pickedRecentTxns() {
+      const ids = new Set(selectedIds.value)
+      return (recentDisplayList.value || []).filter((t) => ids.has(t.id))
+    }
+
+    async function onBatchDelete() {
+      if (batchBusy.value) return
+      const ids = selectedIds.value.slice()
+      if (ids.length === 0) return
+      const ok = await confirmDialog({
+        title: `删除这 ${ids.length} 笔流水？`,
+        content: '删除后账户余额会重新计算，这个操作不可撤销。',
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true
+      })
+      if (!ok) return
+      batchBusy.value = true
+      try {
+        const r = await batchDeleteTransactions(ids)
+        uni.showToast({
+          title: r.failed > 0
+            ? `已删除 ${r.deleted} 笔，${r.failed} 笔失败`
+            : `已删除 ${r.deleted} 笔`,
+          icon: 'none'
+        })
+        exitSelectMode()
+        await loadAll(true)
+      } catch (e) {
+        await alertDialog({ title: '批量删除失败', content: e.message })
+      } finally {
+        batchBusy.value = false
+      }
+    }
+
+    /** 批量加标签：打开弹层，语义是「追加」，不覆盖各笔原有标签 */
+    function openBatchTag() {
+      if (selectedIds.value.length === 0) return
+      tagSheetBatch.value = true
+      tagSheetTxn.value = null
+      tagSheetIds.value = []
+      showTagSheet.value = true
+    }
+
+    async function onBatchExcludeBudget() {
+      const picked = pickedRecentTxns()
+      if (picked.length === 0) return
+      const allExcluded = picked.every((t) => Number(t.exclude_from_budget) === 1)
+      const next = !allExcluded
+      if (batchBusy.value) return
+      batchBusy.value = true
+      try {
+        await batchSetExcludeFlags(selectedIds.value.slice(), { budget: next })
+        uni.showToast({
+          title: next ? '已设为不计预算' : '已取消不计预算',
+          icon: 'none'
+        })
+        await loadAll(true)
+      } catch (e) {
+        await alertDialog({ title: '批量设置失败', content: e.message })
+      } finally {
+        batchBusy.value = false
+      }
+    }
+
+    async function onBatchPendingReimburse() {
+      if (batchBusy.value) return
+      const picked = pickedRecentTxns()
+      if (picked.length === 0) return
+      const allPending = picked.every((t) => Number(t.reimburse_status) === 1)
+      const next = !allPending
+      batchBusy.value = true
+      try {
+        const r = await batchSetPendingReimburse(selectedIds.value.slice(), next)
+        if (r.changed === 0) {
+          uni.showToast({ title: '所选的流水都不能报销', icon: 'none' })
+        } else if (r.skipped > 0) {
+          uni.showToast({
+            title: next
+              ? `已标 ${r.changed} 笔，${r.skipped} 笔不支持报销`
+              : `已取消 ${r.changed} 笔，${r.skipped} 笔跳过`,
+            icon: 'none'
+          })
+        } else {
+          uni.showToast({
+            title: next ? `已标为待报销 ${r.changed} 笔` : `已取消待报销 ${r.changed} 笔`,
+            icon: 'none'
+          })
+        }
+        await loadAll(true)
+      } catch (e) {
+        await alertDialog({ title: '批量设置失败', content: e.message })
+      } finally {
+        batchBusy.value = false
+      }
+    }
+
     /**
      * 标签弹层确定
      *
-     * ★ 用 'set' 语义（覆盖）而不是 'add' ★
-     *   这是「给单笔流水选标签」，弹层里回显的就是它当前的标签，
-     *   用户取消勾选某个 = 想移除它。如果用 add，就永远删不掉标签了。
-     *   （批量多选那边才用 add，语义不同，见 list.vue）
+     * ★ 单笔用 'set'，批量用 'add' ★
+     *   单笔回显的是当前标签，取消勾选 = 移除；
+     *   批量是给每笔追加标签，不能覆盖原有标签。
      */
     async function onTagSheetPicked(ids) {
-      const txn = tagSheetTxn.value
       showTagSheet.value = false
-      if (!txn) return
       try {
+        if (tagSheetBatch.value) {
+          await batchSetTxnTags(selectedIds.value.slice(), ids, 'add')
+          uni.showToast({ title: '标签已添加', icon: 'none' })
+          await loadAll(true)
+          return
+        }
+        const txn = tagSheetTxn.value
+        if (!txn) return
         await txnStore.update(txn.id, { tag_ids: ids })
         uni.showToast({ title: '标签已更新', icon: 'none' })
       } catch (e) {
@@ -824,6 +1031,7 @@ export default {
       }
       if (act === 'manual') {
         panelPreset.value = null
+        panelEditing.value = null
         showPanel.value = true
       }
       // none：什么都不做
@@ -1012,13 +1220,29 @@ export default {
      *   TxnPanel / QuickAddBar 打开时会登记进弹层栈（utils/layerStack.js），
      *   这里返回 true 表示「本次返回已消费」，页面不动。
      */
-    onBackPress(() => handleBackPress())
+    onBackPress(() => {
+      if (handleBackPress()) return true
+      if (selectMode.value) {
+        exitSelectMode()
+        return true
+      }
+      return false
+    })
+
+    onUnmounted(() => {
+      rowPress.dispose()
+    })
 
     return {
       formatWanYuan,
       settingStore, accountStore, txnStore,
-      showPanel, panelPreset,
+      showPanel, panelPreset, panelEditing,
       selectedDay, showQuickAdd, parsing, parsingText,
+      selectMode, selectedIds, batchBusy,
+      isSelected, toggleSelect, exitSelectMode,
+      onRowClick, onRowLongPress, onPageScroll,
+      onRowTouchStart, onRowTouchMove, onRowTouchEnd,
+      onBatchDelete, openBatchTag, onBatchExcludeBudget, onBatchPendingReimburse,
       primaryColor, pageStyle, hasAccounts, overview, calendarTitle,
       totalBudget, categoryBudgets, budgetRemaining, subBudgetsCollapsed,
       toggleSubBudgets, recentGroups, showingAllToday,
@@ -1036,7 +1260,8 @@ export default {
        */
       tags,
       // 右滑快捷操作
-      swipeStates, showTagSheet, tagSheetIds, onSwipeDelete, onSwipeTag, onTagSheetPicked,
+      swipeStates, showTagSheet, tagSheetBatch, tagSheetIds,
+      onSwipeDelete, onSwipeEdit, onSwipeTag, onTagSheetPicked,
       goAddAccount, goProfile, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }
@@ -1459,6 +1684,27 @@ export default {
  *   padding 24 → 18rpx：上下共省 12rpx，一屏多出约半条流水；
  *   gap 20 → 16rpx：图标与文字之间稍收，横向也更连贯。
  */
+.row-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 2rpx solid var(--app-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.row-check.on {
+  background-color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+.row-check-tick {
+  font-size: 24rpx;
+  color: #ffffff;
+}
+
 .txn-item {
   display: flex;
   align-items: center;

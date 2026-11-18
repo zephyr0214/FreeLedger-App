@@ -111,21 +111,22 @@ console.log('=== 弹层抽成了共享组件 ===')
   check('组件有差额预览', /diffText/.test(sheet), true)
 
   /*
-   * ★ 取消按钮必须有可见的外框 ★
-   *   用户反馈「修改余额的取消按钮没有外框，和背景融为一体了」。
-   *   原因：底色用的是 --app-card-2，和弹层背景 --app-bg 太接近。
-   *   现在改成 --app-card 底 + 一条实色描边。
+   * ★ 用户本轮要求 ★
+   *   「不要弹出输入法，去掉取消和确定按钮，换成记账面板的输入区，
+   *     支持四则运算」。
+   *   所以余额弹层必须：
+   *     · 不再有原生 <input type="digit"> / 自动聚焦
+   *     · 不再有取消 / 确定按钮
+   *     · 用 NumberKeyboard，并允许负数（信用卡欠款）
    */
-  check(
-    '取消按钮有实色描边',
-    /\.bs-btn-cancel\s*\{[^}]*border:\s*2rpx solid var\(--app-line\)/.test(sheet),
-    true
-  )
-  check(
-    '取消按钮不再用容易和背景融掉的 --app-card-2',
-    /\.bs-btn-cancel\s*\{[^}]*background-color:\s*var\(--app-card-2\)/.test(sheet),
-    false
-  )
+  check('不再用原生数字输入框', /type="digit"/.test(sheet), false)
+  check('不再自动聚焦输入框', /autoFocus/.test(sheet), false)
+  check('没有取消按钮', /bs-btn-cancel/.test(sheet), false)
+  check('没有确定按钮', /bs-btn-ok/.test(sheet), false)
+  check('使用记账面板数字键盘', /<NumberKeyboard/.test(sheet), true)
+  check('键盘完成键文案是「保存」', /finish-text="保存"/.test(sheet), true)
+  check('键盘允许负数', /allow-negative/.test(sheet), true)
+  check('算式求值使用带符号版本', /evaluateSignedAmount/.test(sheet), true)
 
   // 弹层要登记进弹层栈（侧滑返回先收弹层）
   check('组件登记进弹层栈', /pushLayer/.test(sheet), true)

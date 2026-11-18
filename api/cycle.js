@@ -428,6 +428,50 @@ export async function countCycleTxns(cycleId) {
 }
 
 /**
+ * 周期详情页的流水汇总（实际流水口径）
+ *
+ * ★ 为什么不继续用「单次金额 × 笔数」★
+ *   周期金额改过、周期是外币模板、或者某次记账被单独改过金额时，
+ *   「单次 × 笔数」和真实流水合计会对不上。详情页顶部的「总结余」
+ *   必须来自 txn 表的实际金额，否则用户点进「全部」会发现两页数字不一致。
+ *
+ * ★ 笔数和金额的口径不同 ★
+ *   count 统计所有未删除流水（借入/借出也是这个周期记的账）；
+ *   income/expense 只累计 exclude_from_stats = 0 的收支，
+ *   结余 = income - expense。
+ *   firstDay/lastDay 取所有流水的日期，用于显示时间范围。
+ *
+ * @param {string} cycleId
+ * @returns {Promise<{count:number,income:number,expense:number,balance:number,firstDay:string,lastDay:string}>}
+ */
+export async function getCycleTxnSummary(cycleId) {
+  const row = await queryOne(
+    `SELECT COUNT(*) AS count,
+            COALESCE(SUM(CASE WHEN type = 'income'
+                               AND COALESCE(exclude_from_stats, 0) = 0
+                              THEN amount_cents ELSE 0 END), 0) AS income,
+            COALESCE(SUM(CASE WHEN type = 'expense'
+                               AND COALESCE(exclude_from_stats, 0) = 0
+                              THEN amount_cents ELSE 0 END), 0) AS expense,
+            MIN(occurred_day) AS first_day,
+            MAX(occurred_day) AS last_day
+       FROM txn
+      WHERE deleted_at IS NULL AND cycle_id = ?`,
+    [cycleId]
+  )
+  const income = Number(row ? row.income : 0) || 0
+  const expense = Number(row ? row.expense : 0) || 0
+  return {
+    count: row ? Number(row.count) || 0 : 0,
+    income,
+    expense,
+    balance: income - expense,
+    firstDay: row && row.first_day ? String(row.first_day) : '',
+    lastDay: row && row.last_day ? String(row.last_day) : ''
+  }
+}
+
+/**
  * 某个发生日是否落在该周期内（用于「新建/编辑时今天是否该记一笔」判断）。
  * @param {object} cycle 周期对象
  * @param {string} day YYYY-MM-DD

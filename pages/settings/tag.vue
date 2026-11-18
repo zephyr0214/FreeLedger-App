@@ -43,8 +43,19 @@
         >
           <view class="tag-row" @click="goDetail(tag)">
             <view class="tag-dot" :style="{ backgroundColor: tag.color || primaryColor }" />
-            <text class="tag-name">{{ tag.name }}</text>
-            <text class="tag-count">{{ tag.count }} 笔</text>
+            <view class="tag-info">
+              <text class="tag-name">{{ tag.name }}</text>
+              <text class="tag-recent">{{ tagRecentText(tag) }}</text>
+            </view>
+            <view class="tag-right">
+              <MoneyText
+                :cents="tag.balance_cents || 0"
+                variant="balance"
+                :size="26"
+                :weight="600"
+              />
+              <text class="tag-count">{{ tag.txn_count || 0 }} 笔</text>
+            </view>
             <text class="tag-arrow">›</text>
           </view>
 
@@ -132,16 +143,17 @@ import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import MoneyText from '@/components/MoneyText.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
-import { query } from '@/api/db/index.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
+import { chineseDayLabel, relativeDayFromDayKey } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, UpdateDialog },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 
@@ -187,16 +199,19 @@ export default {
     }
 
     async function load() {
-      const list = await listTags()
-      // 附带每个标签的交易笔数
-      const counts = await query(
-        `SELECT tag_id, COUNT(*) AS c FROM txn_tag tt
-         JOIN txn t ON t.id = tt.txn_id AND t.deleted_at IS NULL
-         GROUP BY tag_id`
-      )
-      const countMap = {}
-      counts.forEach((r) => { countMap[r.tag_id] = Number(r.c) })
-      tags.value = list.map((t) => ({ ...t, count: countMap[t.id] || 0 }))
+      // 笔数 / 结余 / 最近使用日都在 listTags 的聚合查询里，
+      // 页面不再单独查一次 txn_tag，也不会出现两处口径不一致。
+      tags.value = await listTags()
+    }
+
+    /**
+     * 「最近于2026年11月17日 · 20天前」
+     *
+     * 没有关联流水时不给假日期，直接说明还没用过。
+     */
+    function tagRecentText(tag) {
+      if (!tag || !tag.last_day) return '暂无交易记录'
+      return `最近于${chineseDayLabel(tag.last_day)} · ${relativeDayFromDayKey(tag.last_day)}`
     }
 
     function openCreate() {
@@ -304,7 +319,8 @@ export default {
     return {
       settingStore, tags, showEditor, editingId, form, colors, swipeStates,
       primaryColor, pageStyle,
-      openCreate, openEdit, goDetail, onSave, onDelete, onDeleteTag, goBack
+      openCreate, openEdit, goDetail, onSave, onDelete, onDeleteTag, goBack,
+      tagRecentText
     }
   }
 }
@@ -340,7 +356,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  padding: 28rpx;
+  padding: 24rpx 28rpx;
   border-bottom: 1rpx solid var(--app-line);
   background-color: var(--app-card);
 }
@@ -356,10 +372,43 @@ export default {
   flex-shrink: 0;
 }
 
-.tag-name {
+/*
+ * 中间列：名称 + 最近使用时间
+ *
+ * 和周期管理页同一套四角布局：左侧两行文字，右侧两行金额/笔数，
+ * 金额与笔数形成一条右对齐的竖列，扫视时先看名字、再看钱和次数。
+ */
+.tag-info {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.tag-name {
   font-size: 28rpx;
   color: var(--app-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tag-recent {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 右侧列：结余金额在上，总笔数在下，都靠右 */
+.tag-right {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8rpx;
 }
 
 .tag-count {
@@ -370,6 +419,7 @@ export default {
 .tag-arrow {
   font-size: 32rpx;
   color: var(--app-text-3);
+  flex-shrink: 0;
 }
 
 /* 右滑操作区：编辑 / 删除 */

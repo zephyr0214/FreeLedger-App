@@ -7,18 +7,59 @@ import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 
 function normalizeTag(row) {
+  const income = Number(row.income_cents) || 0
+  const expense = Number(row.expense_cents) || 0
   return {
     ...row,
     sort: Number(row.sort) || 0,
-    archived: Number(row.archived) === 1
+    archived: Number(row.archived) === 1,
+    /*
+     * 标签列表的派生字段
+     *
+     * ★ 笔数含全部流水，结余只算收支 ★
+     *   用户明确要求：借入/借出这类「不计收支」的流水也要算「用过这个标签」，
+     *   所以 txn_count 统计所有未删除关联流水；金额只累计
+     *   exclude_from_stats = 0 的收入/支出，避免借款把结余带偏。
+     */
+    txn_count: Number(row.txn_count) || 0,
+    income_cents: income,
+    expense_cents: expense,
+    balance_cents: income - expense,
+    last_day: row.last_day ? String(row.last_day) : ''
   }
 }
 
+/**
+ * 标签列表（附带使用统计，并按最近使用时间倒序）
+ *
+ * ★ 为什么在 API 层排序而不是页面各排各的 ★
+ *   标签管理页和所有标签选择面板（记账、筛选、右滑、批量）都调用
+ *   这一个函数。在这里排一次，所有入口顺序天然一致；
+ *   交给页面排会出现「管理页按最近用、选择面板还是创建顺序」的分叉。
+ *
+ * ★ 没有流水的标签排最后 ★
+ *   新标签还没用过，不该插在常用标签中间。
+ */
 export async function listTags(includeArchived = false) {
   const rows = await query(
-    includeArchived
-      ? 'SELECT * FROM tag WHERE deleted_at IS NULL ORDER BY sort ASC, created_at ASC'
-      : 'SELECT * FROM tag WHERE deleted_at IS NULL AND archived = 0 ORDER BY sort ASC, created_at ASC'
+    `SELECT tg.*,
+            COUNT(t.id) AS txn_count,
+            COALESCE(SUM(CASE WHEN t.type = 'income'
+                               AND COALESCE(t.exclude_from_stats, 0) = 0
+                              THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+            COALESCE(SUM(CASE WHEN t.type = 'expense'
+                               AND COALESCE(t.exclude_from_stats, 0) = 0
+                              THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+            MAX(t.occurred_day) AS last_day
+       FROM tag tg
+       LEFT JOIN txn_tag tt ON tt.tag_id = tg.id
+       LEFT JOIN txn t ON t.id = tt.txn_id AND t.deleted_at IS NULL
+      WHERE tg.deleted_at IS NULL${includeArchived ? '' : ' AND tg.archived = 0'}
+      GROUP BY tg.id
+      ORDER BY CASE WHEN MAX(t.occurred_day) IS NULL THEN 1 ELSE 0 END,
+               MAX(t.occurred_day) DESC,
+               tg.sort ASC,
+               tg.created_at ASC`
   )
   return rows.map(normalizeTag)
 }

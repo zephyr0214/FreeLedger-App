@@ -94,28 +94,39 @@ check('本月收支显示本月收入', /month-label">本月收入/.test(tag), t
 check('有 totalStats', /const totalStats = ref/.test(tag), true)
 check('旧的 totalCount 已移除', /const totalCount = ref/.test(tag), false)
 
+/* ------------------------- 2.1 标签管理列表（最近使用 + 结余） */
+
+console.log('=== 标签管理列表 ===')
+const tagPage = read('pages/settings/tag.vue')
+const tagApi = read('api/tag.js')
+
+check('标签行显示最近使用时间', /tagRecentText\(tag\)/.test(tagPage), true)
+check('标签行显示结余金额', /:cents="tag\.balance_cents \|\| 0"/.test(tagPage), true)
+check('标签行显示总笔数', /tag\.txn_count \|\| 0/.test(tagPage), true)
+check('最近使用文案是「最近于… · 相对时间」', /最近于\$\{chineseDayLabel\(tag\.last_day\)\}/.test(tagPage), true)
+check('标签页不再单独查笔数', /FROM txn_tag tt/.test(tagPage), false)
+check('listTags 聚合返回最近使用日', /MAX\(t\.occurred_day\) AS last_day/.test(tagApi), true)
+check('listTags 聚合返回笔数', /COUNT\(t\.id\) AS txn_count/.test(tagApi), true)
+check('listTags 按最近使用倒序', /MAX\(t\.occurred_day\) DESC/.test(tagApi), true)
+
 /* ------------------------------------------------ 3. 周期详情 */
 
 console.log('=== 周期详情 ===')
 const cyc = read('pages/settings/cycle-detail.vue')
 
-check('大数字是总支出', /summary-label">总支出/.test(cyc), true)
-check('大数字用 totalCents', /summary-label">总支出[\s\S]*?:cents="totalCents"/.test(cyc), true)
-check('小条目有单次金额', /summary-row-label">单次金额/.test(cyc), true)
+check('大数字是总结余', /summary-label">总结余/.test(cyc), true)
+check('大数字用实际流水结余', /summary-label">总结余[\s\S]*?:cents="summary\.balance"/.test(cyc), true)
+check('结余用 balance 变体', /:cents="summary\.balance"[\s\S]{0,160}?variant="balance"/.test(cyc), true)
+check('小条目有总支出', /summary-row-label">总支出/.test(cyc), true)
+check('小条目有总收入', /summary-row-label">总收入/.test(cyc), true)
 check('小条目有总笔数', /summary-row-label">总笔数/.test(cyc), true)
-check('小条目有扣款账户', /summary-row-label">扣款账户/.test(cyc), true)
-check('小条目有最近一次已扣款', /summary-row-label">最近一次已扣款/.test(cyc), true)
-check('小条目有最近一次将扣款', /summary-row-label">最近一次将扣款/.test(cyc), true)
-// 记一笔按钮已删
-check('已删除记一笔按钮', /record-btn/.test(cyc), false)
-check('已删除 onRecord', /function onRecord/.test(cyc), false)
-check('不再导入 recordCycle', /recordCycle[,\s]/.test(cyc), false)
-check('不再导入 alertDialog', /alertDialog/.test(cyc), false)
-// 两个时间字段
-check('有 lastChargedText', /const lastChargedText = computed/.test(cyc), true)
-check('有 nextChargeText', /const nextChargeText = computed/.test(cyc), true)
-check('导入 nextOccurrence', /nextOccurrence/.test(cyc), true)
-check('有 formatYmd 中文日期', /function formatYmd/.test(cyc), true)
+check('小条目有时间范围', /summary-row-label">时间范围/.test(cyc), true)
+check('不再用「单次金额 × 笔数」', /totalCents/.test(cyc), false)
+check('不再有扣款账户条目', /summary-row-label">扣款账户/.test(cyc), false)
+check('不再有最近已扣/将扣条目', /最近一次已扣款|最近一次将扣款/.test(cyc), false)
+check('改用 getCycleTxnSummary', /getCycleTxnSummary/.test(cyc), true)
+check('导入中文日期工具', /chineseDayLabel/.test(cyc), true)
+check('周期详情传了实际总笔数', /:total-count="summary\.count"/.test(cyc), true)
 
 /* ------------------------------------------------ 4. 预算详情改版 */
 
@@ -291,7 +302,7 @@ check('账户详情用列表口径取总笔数', /countTransactions\(\{ accountI
 check('分类详情传了总笔数', /:total-count="totalStats\.count"/.test(cat), true)
 check('标签详情传了总笔数', /:total-count="totalStats\.count"/.test(tag), true)
 check('预算详情传了总笔数', /:total-count="monthStats\.count"/.test(budget), true)
-check('周期详情传了总笔数', /:total-count="totalCount"/.test(cyc), true)
+check('周期详情传了总笔数', /:total-count="summary\.count"/.test(cyc), true)
 check(
   '组件引入 HeaderAction',
   /import HeaderAction from '@\/components\/HeaderAction\.vue'/.test(recent),

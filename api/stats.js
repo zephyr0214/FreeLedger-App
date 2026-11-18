@@ -20,6 +20,16 @@
  */
 
 import { query, queryOne } from './db/index.js'
+/*
+ * 交易筛选条件复用交易列表的 buildFilterWhere
+ *
+ * ★ 为什么统计层不自己再写一份 ★
+ *   「账户筛选是否包含转入账户」「标签多选是 OR 还是 AND」
+ *   「一级分类要不要展开」这些语义，全部交易页已经定义过一次。
+ *   统计页的「更多筛选」必须和列表口径完全一致，否则同一个筛选
+ *   在列表里有 20 笔、统计页只算 18 笔。
+ */
+import { buildFilterWhere } from './transaction.js'
 import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey, monthSpan, TREND_DAY_MAX_MONTHS } from '../utils/date.js'
 /*
  * 同比窗口的换算统一收在 utils/compareRange.js
@@ -46,7 +56,25 @@ function normalizeRange(range) {
   return {
     startDay: r.startDay ? String(r.startDay) : '',
     endDay: r.endDay ? String(r.endDay) : '',
-    monthKey: r.monthKey ? String(r.monthKey) : ''
+    monthKey: r.monthKey ? String(r.monthKey) : '',
+    /*
+     * 「更多筛选」字段
+     *
+     * 这些字段不是日期区间的一部分，但统计页把它们并进 range 传进来，
+     * 统一透传给 buildFilterWhere。空值保持空，避免把 undefined 拼进 SQL。
+     */
+    type: r.type && r.type !== 'all' ? String(r.type) : '',
+    accountId: r.accountId ? String(r.accountId) : '',
+    categoryIds: Array.isArray(r.categoryIds)
+      ? r.categoryIds.filter(Boolean)
+      : (r.categoryIds ? String(r.categoryIds) : ''),
+    tagIds: Array.isArray(r.tagIds)
+      ? r.tagIds.filter(Boolean)
+      : (r.tagIds ? String(r.tagIds) : ''),
+    cycleId: r.cycleId ? String(r.cycleId) : '',
+    keyword: r.keyword ? String(r.keyword) : '',
+    minCents: r.minCents !== undefined && r.minCents !== null ? Number(r.minCents) : undefined,
+    maxCents: r.maxCents !== undefined && r.maxCents !== null ? Number(r.maxCents) : undefined
   }
 }
 
@@ -107,23 +135,17 @@ function classifyRange(e) {
  */
 function rangeScope(range) {
   const r = normalizeRange(range)
-  const parts = []
-  const params = []
-  const wholeMonth = !!r.monthKey && (!r.startDay || !r.endDay || isWholeMonth(r.monthKey, r.startDay, r.endDay))
-  if (wholeMonth) {
-    parts.push('t.month_key = ?')
-    params.push(r.monthKey)
-  } else {
-    if (r.startDay) {
-      parts.push('t.occurred_day >= ?')
-      params.push(r.startDay)
-    }
-    if (r.endDay) {
-      parts.push('t.occurred_day <= ?')
-      params.push(r.endDay)
-    }
-  }
-  return { where: parts.join(' AND '), params }
+  /*
+   * 直接复用 buildFilterWhere：
+   *   它已经处理了日期区间、类型、账户（含转入）、分类多选、
+   *   标签多选、周期、关键词、金额区间，并且同时接受字符串/数组。
+   *
+   * 唯一的区别是本文件各查询的 FROM 里已经写了 t.deleted_at IS NULL，
+   * 所以把那条公共条件摘掉，避免重复。
+   */
+  const built = buildFilterWhere(r)
+  const where = built.where.filter((w) => w !== 't.deleted_at IS NULL')
+  return { where: where.join(' AND '), params: built.params }
 }
 
 /** 按月 -> SQL 过滤片段 */
@@ -1233,14 +1255,19 @@ export async function getPeriodComparison(range, opt = {}) {
 
   /* 两段各查一次总账（同一条 SQL，只换 where 参数） */
   const sumOf = async (startDay, endDay) => {
+    /*
+     * ★ 对比窗口也要带上「更多筛选」★
+     *   同比/环比比的是两段流水的同一批账户/分类/标签，
+     *   否则当前区间筛了账户、上期却没筛，百分比会完全失真。
+     */
+    const scope = rangeScope({ ...range, startDay, endDay, monthKey: '' })
     const row = await queryOne(
       `SELECT COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount_cents ELSE 0 END),0) AS exp,
               COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount_cents ELSE 0 END),0) AS inc,
               COUNT(*) AS cnt
        FROM txn t
-       WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}
-         AND t.occurred_day >= ? AND t.occurred_day <= ?`,
-      [startDay, endDay]
+       WHERE t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}`,
+      scope.params
     )
     const exp = Number(row ? row.exp : 0)
     const inc = Number(row ? row.inc : 0)
@@ -1279,6 +1306,7 @@ export async function getPeriodComparison(range, opt = {}) {
     const groupCol = isRoot ? 'COALESCE(c.parent_id, c.id)' : 't.category_id'
     const nameExpr = isRoot ? "COALESCE(p.name, c.name, '未分类')" : "COALESCE(c.name, '未分类')"
     const colorExpr = isRoot ? "COALESCE(p.color, c.color, '#969799')" : "COALESCE(c.color, '#969799')"
+    const scope = rangeScope({ ...range, startDay, endDay, monthKey: '' })
     const rows = await query(
       `SELECT ${groupCol} AS root_id,
               ${nameExpr} AS name,
@@ -1288,10 +1316,9 @@ export async function getPeriodComparison(range, opt = {}) {
        FROM txn t
        LEFT JOIN category c ON c.id = t.category_id
        LEFT JOIN category p ON p.id = c.parent_id
-       WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}
-         AND t.occurred_day >= ? AND t.occurred_day <= ?
+       WHERE t.deleted_at IS NULL AND t.type = ? AND ${NOT_EXCLUDED_STATS}${withScope('', scope)}
        GROUP BY root_id`,
-      [type, startDay, endDay]
+      [type].concat(scope.params)
     )
     const map = {}
     for (const r of rows) {

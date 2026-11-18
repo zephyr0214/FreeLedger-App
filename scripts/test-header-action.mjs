@@ -80,7 +80,7 @@ const PAGES = [
    *   但也一并改成新叫法，免得以后看日志以为页面又改回去了。
    */
   { rel: 'pages/index/index.vue', label: '首页 智能助手' },
-  { rel: 'pages/stats/index.vue', label: '统计页 组件管理' },
+  { rel: 'pages/stats/index.vue', label: '统计页 更多筛选' },
   { rel: 'pages/account/index.vue', label: '账户页 添加账户' },
   { rel: 'pages/mine/index.vue', label: '我的页 关于与说明' }
 ]

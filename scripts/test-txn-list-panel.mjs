@@ -1,31 +1,26 @@
 /**
- * 「全部交易」页筛选面板的形态检查
+ * 「全部交易」筛选面板 + 标签徽标形态检查
  *
  *   node scripts/test-txn-list-panel.mjs
  *
- * 背景（用户反馈）
- *   6. 筛选面板全部变成下拉框的形式，不然显得很拥挤；
- *   7. 标签直接显示标签名字即可，而且目前看起来标签显示的高度略高。
- *
- * 这些是「形态」要求，编译期和运行时都查不出来，
- * 所以做成一个静态检查脚本，防止以后改样式时又退回 chip。
- *
- * 检查项：
- *   1. 筛选面板里不能再有 chip（胶囊按钮）布局
- *   2. 账户 / 分类 / 标签 这几项必须都是「下拉行」
- *      （分类原来是「一级 + 二级」两行，v1.18.0 起合成一行多选，见第 3.1 节）
- *   3. 四个下拉必须共用同一个 wd-action-sheet
- *   4. 列表行的标签必须是纯文字（不能有背景块样式）
- *   5. 标签文字样式里不能有 background-color / border
+ * ★ 本轮结构调整 ★
+ *   筛选面板从 pages/txn/list.vue 抽到了 components/TxnFilterSheet.vue，
+ *   统计页的「更多筛选」复用同一份。断言因此分两处读：
+ *     · 筛选面板形态 → 组件
+ *     · 筛选条件生成 → utils/txnFilter.js（纯函数直接测）
+ *     · 列表行的标签徽标 → 页面
  */
 
 import { readFileSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
+import {
+  createEmptyTxnFilter, countActiveFilters, expandCategoryIds, buildTxnFilterQuery
+} from '../utils/txnFilter.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
-const FILE = join(ROOT, 'pages', 'txn', 'list.vue')
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf-8')
 
 let pass = 0
 let fail = 0
@@ -41,134 +36,98 @@ function check(name, actual, expected) {
   }
 }
 
-const code = readFileSync(FILE, 'utf-8')
+const listCode = read('pages/txn/list.vue')
+const filterCode = read('components/TxnFilterSheet.vue')
+const statsCode = read('pages/stats/index.vue')
 
-const template = (code.match(/<template>([\s\S]*)<\/template>/) || [])[1] || ''
-const style = (code.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+const listTemplate = (listCode.match(/<template>([\s\S]*)<\/template>/) || [])[1] || ''
+const listStyle = (listCode.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
+const filterTemplate = (filterCode.match(/<template>([\s\S]*)<\/template>/) || [])[1] || ''
+const filterStyle = (filterCode.match(/<style[^>]*>([\s\S]*)<\/style>/) || [])[1] || ''
 
 /* ------------------------------------------- 1. 不再有 chip 布局 */
 
-check('模板里没有 chip 类名', /class="[^"]*\bchip\b/.test(template), false)
-check('样式里没有 .chip 规则', /\.chip[\s-]/.test(style), false)
-check('样式里没有 .chip-wrap 规则', /\.chip-wrap/.test(style), false)
-check('样式里没有 .chip-sub 规则', /\.chip-sub/.test(style), false)
+check('筛选面板没有 chip 类名', /class="[^"]*\bchip\b/.test(filterTemplate), false)
+check('筛选面板样式没有 .chip 规则', /\.chip[\s-]/.test(filterStyle), false)
 
 /* ------------------------------------ 2. 每项都是「下拉行」 */
 
-/*
- * ★ 分类从「一级 + 二级」两级联动单选改成单行多选 ★
- *   用户要求「筛选时删除单选的一级和二级分类，同时其他页面跳转过来的效果
- *   保持不变（也就是修改为使用多选分类的逻辑实现）」。
- *   所以这里不再有「二级分类」这一行，分类只剩一行，点开是多选弹层
- *   （见下方第 3 节与 3.1 节）。
- */
-for (const label of ['账户', '分类', '标签']) {
-  check(`「${label}」是下拉行`, template.includes(`>${label}</text>`), true)
+for (const label of ['账户', '分类', '标签', '周期']) {
+  check(`「${label}」是下拉行`, filterTemplate.includes(`>${label}</text>`), true)
 }
-check('不再有「二级分类」筛选行', template.includes('>二级分类</text>'), false)
-check('分类行点开的是多选弹层', /class="filter-row" @click="openMultiCatPicker"/.test(template), true)
+check('不再有「二级分类」筛选行', filterTemplate.includes('>二级分类</text>'), false)
+check('分类行点开的是多选弹层', /@click="openMultiCatPicker"/.test(filterTemplate), true)
 
-check('下拉行有左标签样式', /\.filter-row-label\s*\{/.test(style), true)
-check('下拉行有右侧当前值样式', /\.filter-row-value\s*\{/.test(style), true)
-check('下拉行有箭头样式', /\.filter-row-arrow\s*\{/.test(style), true)
-check('有占位文案样式', /\.filter-row-value\.placeholder\s*\{/.test(style), true)
+check('下拉行有左标签样式', /\.filter-row-label\s*\{/.test(filterStyle), true)
+check('下拉行有右侧当前值样式', /\.filter-row-value\s*\{/.test(filterStyle), true)
+check('下拉行有箭头样式', /\.filter-row-arrow\s*\{/.test(filterStyle), true)
+check('有占位文案样式', /\.filter-row-value\.placeholder\s*\{/.test(filterStyle), true)
 
-/* -------------------------------- 3. 四个下拉共用一个 wd-action-sheet */
+/* -------------------------------- 3. 子弹层复用 */
 
-const actionSheets = (template.match(/<wd-action-sheet/g) || []).length
-check('只有一个 wd-action-sheet', actionSheets, 1)
-check('选项表由 pickerActions 驱动', template.includes(':actions="pickerActions"'), true)
+check('只有一个 wd-action-sheet', (filterTemplate.match(/<wd-action-sheet/g) || []).length, 1)
+check('选项表由 pickerActions 驱动', filterTemplate.includes(':actions="pickerActions"'), true)
+check('标签筛选用 TxnTagSheet', /<TxnTagSheet/.test(filterTemplate), true)
+check('账户筛选用自绘面板', /<AccountPickerSheet/.test(filterTemplate), true)
+check('用了分类多选弹层', /<CategoryMultiPickerSheet/.test(filterTemplate), true)
+check('分类多选接 draft.categoryIds', /:selected-ids="draft\.categoryIds"/.test(filterTemplate), true)
 
-/*
- * ★ 标签筛选复用 TxnTagSheet（用户本轮第 1 条）★
- *   用户原话：「筛选页面标签复用设置标签的面板」。
- *
- *   标签选择面板项目里已经有了（首页右滑 / 全部交易右滑 / 批量操作），
- *   筛选面板要的「多选标签」和它是同一件事，
- *   直接复用同一个组件，不新写一份。
- */
-check('标签筛选用 TxnTagSheet', /<TxnTagSheet[\s\S]{0,300}?title="选择标签"/.test(template), true)
-check('标签筛选接 filter.tagIds', template.includes(':selected-ids="filter.tagIds"'), true)
-/*
- * 分类不再走 action-sheet（改成多选弹层），所以下拉只剩账户 / 标签 / 周期。
- * 数量从 5 变 3 是有意的，不是漏改。
- */
-/*
- * ★ 标签不再走 openPicker（用户本轮第 1 条）★
- *   标签改成多选，直接复用 TxnTagSheet，
- *   入口是 openTagFilterSheet。所以 openPicker 只剩账户 / 周期两个。
- */
-/*
- * ★ 账户改成自绘面板（用户本轮）★
- *   用户原话：「现在只重写一下这个账户选择的面板，单选，
- *   显示图标和金额，用在：1. 筛选面板的账户选择…」。
- *   所以 openPicker 只剩周期一个（账户走 openAccountPicker）。
- */
-check('下拉都有 openPicker 调用', (template.match(/openPicker\('/g) || []).length, 1)
-check('账户筛选用自绘面板', template.includes('<AccountPickerSheet'), true)
-check('账户筛选入口是 openAccountPicker', template.includes('@click="openAccountPicker"'), true)
-check('标签筛选有独立入口', template.includes('openTagFilterSheet'), true)
-check('pickerKind 区分下拉类别', (code.match(/kind === '(account|cycle)'/g) || []).length >= 2, true)
+/* ------------------------- 3.1 分类展开与查询生成 */
 
-/* ------------------------- 3.1 分类：单行多选弹层（v1.18.0 改） */
+const categories = [
+  { id: 'food', parent_id: '', name: '餐饮食品' },
+  { id: 'lunch', parent_id: 'food', name: '午餐' },
+  { id: 'dinner', parent_id: 'food', name: '晚餐' },
+  { id: 'fun', parent_id: '', name: '娱乐' }
+]
 
-/*
- * ★ 为什么分类必须能多选 ★
- *   预算页的一条子预算可以挂多个类别，点「全部交易」跳过来时
- *   带的是 categoryIds（一组），单选装不下 —— 用户再点一次分类
- *   就会把整组条件覆盖掉，看到的流水比预算页算的少。
- */
-check('用了多选弹层组件', /<CategoryMultiPickerSheet/.test(template), true)
-check('多选弹层接 filter.categoryIds', /:selected-ids="filter.categoryIds"/.test(template), true)
-check(
-  '其他页面跳转的分类条件也走多选（URL 换算）',
-  /function normalizeUrlCategory\(includeSub\)/.test(code),
-  true
-)
-check(
-  '一级分类按整支展开成二级',
-  /function expandCategoryIds\(ids\)/.test(code) && /kids\.length === 0\) \{[\s\S]{0,40}?push\(id\)/.test(code),
-  true
-)
-check(
-  '查询统一拼 categoryIds',
-  /q\.categoryIds = pickedCats\.join\(','\)/.test(code),
-  true
-)
-// 旧的两级联动字段必须彻底撤掉
-check('filter 里没有 parentCategoryId', /parentCategoryId:/.test(code), false)
-check('filter 里没有 categoryId 单值字段', /^\s+categoryId: '',/m.test(code), false)
-check('没有 includeSubcategories 状态', /includeSubcategories:/.test(code), false)
+check('一级分类展开为自己 + 所有二级', expandCategoryIds(['food'], categories), ['food', 'lunch', 'dinner'])
+check('没有二级的一级分类保持原样', expandCategoryIds(['fun'], categories), ['fun'])
+check('重复 id 去重', expandCategoryIds(['food', 'lunch'], categories), ['food', 'lunch', 'dinner'])
+
+const filter = createEmptyTxnFilter()
+filter.accountId = 'acc_1'
+filter.categoryIds = ['food']
+filter.tagIds = ['tag_1', 'tag_2']
+filter.cycleId = 'cyc_1'
+filter.keyword = '午饭'
+filter.minYuan = '10'
+filter.maxYuan = '100'
+
+const q = buildTxnFilterQuery(filter, categories)
+check('账户条件', q.accountId, 'acc_1')
+check('分类条件已展开', q.categoryIds, ['food', 'lunch', 'dinner'])
+check('标签条件', q.tagIds, ['tag_1', 'tag_2'])
+check('周期条件', q.cycleId, 'cyc_1')
+check('关键词条件', q.keyword, '午饭')
+check('最小金额换算成分', q.minCents, 1000)
+check('最大金额换算成分', q.maxCents, 10000)
+check('条件计数（金额区间算一项）', countActiveFilters(filter), 6)
+
+check('全部交易页用共享筛选组件', /<TxnFilterSheet/.test(listTemplate), true)
+check('全部交易页用共享查询生成', /buildTxnFilterQuery\(appliedFilter/.test(listCode), true)
+check('统计页复用同一个筛选面板', /<TxnFilterSheet/.test(statsCode), true)
+check('统计页隐藏全局类型行', /:show-type="false"/.test(statsCode), true)
+check('统计页筛选层级高于底栏', /:z-index="500"/.test(statsCode), true)
+
+const statsApi = read('api/stats.js')
+check('统计 API 复用 buildFilterWhere', /buildFilterWhere/.test(statsApi), true)
+check('rangeScope 透传筛选字段', /const built = buildFilterWhere\(r\)/.test(statsApi), true)
+check('同比环比也带筛选', /rangeScope\(\{ \.\.\.range, startDay, endDay, monthKey: '' \}\)/.test(statsApi), true)
+check('预算执行不跟随筛选', /getBudgetExecution\(\{\s*startDay: r\.startDay, endDay: r\.endDay, monthKey: r\.monthKey\s*\}\)/.test(statsCode), true)
+
+/* ------------------------- 3.2 分类 emoji 图标选择页保留旧断言 */
+
+check('多选分类弹层有全选入口', /toggleGroup\(g\)/.test(read('components/CategoryMultiPickerSheet.vue')), true)
 
 /* ------------------------------------------- 4. 标签是小 tag 胶囊 */
 
-/**
- * ★ 形态要求（用户反馈「标签还是要 tag，跟在分类后，
- *   高度小一点，不要显示"1个标签"，要显示具体的标签名」）★
- *   - 必须是小 tag 胶囊（有淡背景 + 小圆角），不能是纯裸文字；
- *   - 高度要小：上下 padding 2rpx、字号 20rpx，整行不超过 28rpx；
- *   - 显示标签名字本身，不显示「N 个标签」这种计数；
- *   - 位置：跟在分类名（txnTitle）那一行后面，不在备注行。
- */
-check('模板里没有 tag-mini 块', /class="tag-mini"/.test(template), false)
-check('样式里没有 .tag-mini 规则', /\.tag-mini/.test(style), false)
-check('标签用 .txn-tag 小胶囊', /\.txn-tag\s*\{/.test(style), true)
-check('标签列表容器用 .txn-tag-list', /\.txn-tag-list\s*\{/.test(style), true)
+check('列表模板里没有 tag-mini 块', /class="tag-mini"/.test(listTemplate), false)
+check('列表样式里没有 .tag-mini 规则', /\.tag-mini/.test(listStyle), false)
+check('标签用 .txn-tag 小胶囊', /\.txn-tag\s*\{/.test(listStyle), true)
+check('标签列表容器用 .txn-tag-list', /\.txn-tag-list\s*\{/.test(listStyle), true)
 
-// 标签字号与内边距：保证高度小
-/*
- * ★ 具体数值变了，但「高度要小」这条要求没变 ★
- *   以前是 font-size 20rpx + padding 2rpx + line-height 20rpx（整行 24rpx）。
- *   后来把「周期 / 组合账户 / 标签」统一成同一种描边胶囊（.txn-tag），
- *   为了三种徽标看起来一样高，改成 font-size 18rpx + padding 4rpx +
- *   line-height 1（整行约 26rpx）—— 依然远小于 28rpx 的上限。
- *
- *   所以这里不再写死 20rpx，而是断言「字号不超过 20rpx、
- *   上下 padding 不超过 4rpx、没有撑高的写法」，
- *   这样只要还在「小胶囊」这个量级就不会误报，
- *   真有人把它调大（比如 font-size: 24rpx）依然能拦住。
- */
-const tagStyle = (style.match(/\.txn-tag\s*\{([^}]*)\}/) || [])[1] || ''
+const tagStyle = (listStyle.match(/\.txn-tag\s*\{([^}]*)\}/) || [])[1] || ''
 const tagFontSize = Number((tagStyle.match(/font-size:\s*(\d+)rpx/) || [])[1]) || 0
 const tagPadTop = Number((tagStyle.match(/padding:\s*(\d+)rpx/) || [])[1]) || 0
 check('标签字号不超过 20rpx（保持小胶囊）', tagFontSize > 0 && tagFontSize <= 20, true)
@@ -176,84 +135,28 @@ check('标签上下 padding 不超过 4rpx', tagPadTop > 0 && tagPadTop <= 4, tr
 check('标签有淡背景', /background-color/.test(tagStyle), true)
 check('标签文字用 --app-text-2', /var\(--app-text-2\)/.test(tagStyle), true)
 
-// 高度：line-height: 1（相对字号）+ 上下 padding 各 4rpx ≈ 26rpx，不超过 28rpx
 const lineHeight = (tagStyle.match(/line-height:\s*(\d+)/) || [])[1]
 check('标签行高不撑高（line-height 1）', lineHeight, '1')
 
-/* ------------------------------------------- 5. 标签在分类名那一行 */
+/* ------------------------------------------- 5. 标签在分类名下面 */
 
-/*
- * ★ 位置：「跟在分类名后面」而不是「同一行」★
- *   用户原话是「标签还是要 tag，跟在分类后」。
- *   实测把胶囊塞进 .txn-name-row（和分类名同一行）时，
- *   分类名一长两样东西就会互相挤（分类名被 ellipsis 切掉、
- *   或者胶囊被顶到行尾换行），读起来很乱。
- *
- *   现在的做法是：分类名单独一行（.txn-name-row），
- *   徽标紧跟在它**下面**一行（.txn-tag-list），
- *   视觉上依然是「跟在分类名后面」，但不会被挤变形。
- *
- *   所以断言改成：徽标列表紧跟在 .txn-name-row 之后、
- *   且在备注行（.txn-sub）之前 —— 位置语义不变。
- */
-check('徽标列表紧跟分类名之后', /<\/view>\s*<!--[^>]*-->\s*<view v-if="txnBadges\(txn\)\.length" class="txn-tag-list"/.test(template) || /txn-name-row[\s\S]{0,400}?txn-tag-list/.test(template), true)
-check('徽标在备注行之前（不在备注行里）', /txn-tag-list[\s\S]{0,500}?class="txn-sub/.test(template), true)
-check('标签不在备注行', /txn-sub-row/.test(template), false)
-check('不再有 .txn-tags 纯文字样式', /\.txn-tags\s*\{/.test(style), false)
+check('徽标列表紧跟分类名之后', /txn-name-row[\s\S]{0,400}?txn-tag-list/.test(listTemplate), true)
+check('徽标在备注行之前（不在备注行里）', /txn-tag-list[\s\S]{0,500}?class="txn-sub/.test(listTemplate), true)
+check('标签不在备注行', /txn-sub-row/.test(listTemplate), false)
+check('不再有 .txn-tags 纯文字样式', /\.txn-tags\s*\{/.test(listStyle), false)
 
-/* ------------------------------------------- 6. 标签筛选的文案（用户本轮第 1 条） */
+/* ------------------------------------------- 6. 筛选文案 */
 
-/*
- * ★ 之前这里是反向断言：不许出现「N 个标签」★
- *   那时说的是**流水行的标签徽标**——
- *   那里是一个个小胶囊，数量就是胶囊个数，再写一句计数是冗余。
- *
- *   但用户现在明确要求**筛选面板**的标签行这么显示：
- *     「只有一个标签时，显示选中的标签名；
- *     有两个以上标签时，显示「已选中 x 个标签」」。
- *   所以断言改成正向：这句话必须存在。
- */
-const codeNoComment = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-check('筛选面板有「已选中 N 个标签」文案', /个标签/.test(codeNoComment), true)
-check('只选一个时显示标签名', /ids\.length === 1[\s\S]{0,160}?return t \? t\.name/.test(codeNoComment), true)
+check('筛选面板有「已选中 N 个标签」文案', /个标签/.test(filterCode), true)
+check('只选一个时显示标签名', /ids\.length === 1[\s\S]{0,160}?return t \? t\.name/.test(filterCode), true)
 
 /* ------------------------- 7. 标签用「自己的颜色」做背景 */
 
-/**
- * ★ 用户反馈「标签的颜色作为 tag 背景颜色」★
- *   标签表有 color 字段（api/tag.js / tag 表）。
- *   每个标签的背景要用它自己的颜色，文字用标签本色。
- *   背景只用约 12% 透明度（颜色 + '22'），
- *   纯色背景配中文名太刺眼、可读性也差。
- *
- * ★ v13 起三种徽标统一走 txnBadges ★
- *   周期徽标和组合账户徽标没有用户指定的颜色，
- *   所以它们的 bg 用主题色 / 固定紫 + '22'，
- *   用户标签仍然用标签自己的颜色。
- */
-check('标签背景用标签自己的颜色（内联样式）', /backgroundColor:\s*t\.bg/.test(template), true)
-check('标签文字用标签本色（内联样式）', /color:\s*t\.color/.test(template), true)
-/*
- * ★ 徽标构建已抽到 utils/txnBadges.js（用户第 1 条）★
- *   以前这些断言直接看 list.vue 的 txnBadges() 源码；
- *   现在顺序与颜色规则都在 utils/txnBadges.js 里，五个页面共用一份 ——
- *   断言跟着挪到那个文件，否则每次重构都会被「源码变了」这种假失败挡住。
- */
 const BADGE_FILE = join(ROOT, 'utils', 'txnBadges.js')
 const badgeCode = readFileSync(BADGE_FILE, 'utf-8')
-
 check('徽标工厂返回带 color 的对象', /color:\s*tg\.color/.test(badgeCode), true)
 check('背景色带 12% 透明度后缀', /\$\{color\}22/.test(badgeCode), true)
-/*
- * 兜底：标签没设颜色时，bg 回落到 CSS 里的 --app-card-2。
- * 空串会让内联 backgroundColor 变成无效值，
- * 内联样式优先级高于 CSS，反而把 .txn-tag 的淡背景弄没了。
- */
-check(
-  '无颜色时 bg 有兜底（--app-card-2）',
-  /bg:\s*'var\(--app-card-2\)'/.test(badgeCode),
-  true
-)
+check('无颜色时 bg 有兜底（--app-card-2）', /bg:\s*'var\(--app-card-2\)'/.test(badgeCode), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

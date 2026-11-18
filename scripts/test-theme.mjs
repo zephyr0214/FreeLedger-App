@@ -227,7 +227,7 @@ check('深色下 tabBar 文字色', TABBAR_FONT_COLOR_DARK, '#A1A1A6')
    */
   check('底栏有 hidden 开关', /hidden:\s*\{\s*type:\s*Boolean/.test(tabbarCode), true)
   const homeSrc = readFileSync(join(process.cwd(), 'pages/index/index.vue'), 'utf-8')
-  check('首页把 hidden 接到两个弹层', /:hidden="showQuickAdd \|\| showPanel"/.test(homeSrc), true)
+  check('首页把 hidden 接到弹层与多选', /:hidden="showQuickAdd \|\| showPanel \|\| selectMode"/.test(homeSrc), true)
 
   /* ★ 旧的原生 tabBar 代码必须删干净 ★
    *   残留的 showTabBar() 会把隐藏的原生栏重新显示，

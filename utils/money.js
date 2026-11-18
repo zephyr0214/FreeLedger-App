@@ -183,6 +183,31 @@ export function parseAmountInput(str) {
  *   evaluateAmount("")         -> 0
  */
 export function evaluateAmount(expr) {
+  const cents = evaluateCents(expr)
+  return Number.isFinite(cents) && cents > 0 ? cents : 0
+}
+
+/**
+ * 带正负号的算式求值（返回「分」）
+ *
+ * ★ 为什么单独开一个出口 ★
+ *   `evaluateAmount` 是记账面板用的：金额恒为正，<=0 一律当无效。
+ *   但账户余额可以是负数（信用卡欠款），而且「修改余额」允许输入
+ *   `1000-200`、`-(500+100)` 这类算式，不能复用那条「>0 才有效」的规则。
+ *   把解析器抽成内部函数，两个出口共享同一套优先级和括号处理，
+ *   不会出现「记账能算对、改余额算错」的两份逻辑。
+ *
+ * @returns {number} 分；算式非法/除以 0 时返回 NaN
+ */
+export function evaluateSignedAmount(expr) {
+  return evaluateCents(expr)
+}
+
+/**
+ * 算式 -> 分（内部共用实现）
+ * 空输入返回 0；非法算式返回 NaN，由两个公开出口各自决定怎么兜底。
+ */
+function evaluateCents(expr) {
   if (expr === null || expr === undefined) return 0
   const raw = String(expr).trim()
   if (!raw) return 0
@@ -242,9 +267,9 @@ export function evaluateAmount(expr) {
 
   try {
     const result = parseExpr()
-    if (!Number.isFinite(result) || result <= 0) return 0
+    if (!Number.isFinite(result)) return NaN
     return Math.round(result * 100)
   } catch (e) {
-    return 0
+    return NaN
   }
 }

@@ -2,13 +2,10 @@
   <view class="app-page" :class="settingStore.wotClass" :style="pageStyle">
     <AppHeader @avatar-click="goProfile">
       <template #right>
-        <!--
-          ★ 右上角入口：组件管理（本轮用户第 3 条）★
-            原先是「全部交易」，用户要求改成组件管理的入口：
-            在那一页可以排序、勾选显隐统计页的各个面板，
-            恩格尔系数面板还能展开设置「哪些分类算食品」。
-        -->
-        <HeaderAction @action-click="goPanelManage">组件管理</HeaderAction>
+        <!-- 更多筛选：复用全部交易页的筛选面板，条件作用于所有交易类统计 -->
+        <HeaderAction @action-click="openFilter">
+          更多筛选<text v-if="filterCount > 0" class="filter-dot">{{ filterCount }}</text>
+        </HeaderAction>
       </template>
     </AppHeader>
 
@@ -21,6 +18,7 @@
     -->
     <view class="range-picker-bar">
       <DateFilterBar
+        ref="filterBarRef"
         :mode="dateMode"
         :model-value="dateRange"
         :start-day="customStart"
@@ -698,6 +696,15 @@
       @hold-end="onAddHoldEnd"
     />
 
+    <!-- 更多筛选：与全部交易页共用同一个面板；z-index 要盖住底栏(300) -->
+    <TxnFilterSheet
+      v-model="showFilter"
+      :filter="appliedFilter"
+      :show-type="false"
+      :z-index="500"
+      @apply="onFilterApply"
+    />
+
     <!-- 更新弹窗（全局提示：任何页面都能弹出，读同一份 store 状态） -->
     <!-- 弹窗宿主：外部打开 JSON 时可能在任意一页弹出，
          缺了这一行就退化成原生弹窗，样式与别处不一致 -->
@@ -707,8 +714,8 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, getCurrentInstance } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { ref, reactive, computed, onMounted, getCurrentInstance } from 'vue'
+import { onShow, onBackPress } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import StatsComparePanel from '@/components/StatsComparePanel.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -717,6 +724,7 @@ import DateFilterBar from '@/components/DateFilterBar.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
 import AppTabBar from '@/components/AppTabBar.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import TxnFilterSheet from '@/components/TxnFilterSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useUiStore } from '@/stores/ui.js'
@@ -747,7 +755,11 @@ import {
  */
 import { visibleStatsPanels, normalizeStatsPanels } from '@/utils/statsPanels.js'
 import { formatWanYuan } from '@/utils/money.js'
+import {
+  createEmptyTxnFilter, countActiveFilters, buildTxnFilterQuery
+} from '@/utils/txnFilter.js'
 import { getSetting } from '@/api/settings.js'
+import { handleBackPress } from '@/utils/layerStack.js'
 /*
  * ★ 同比 / 环比的引擎全在 components/StatsComparePanel.vue 里 ★
  *   这个页面只负责拿 comparison 数据并把组件摆上去，
@@ -756,7 +768,7 @@ import { getSetting } from '@/api/settings.js'
  */
 
 export default {
-  components: { AppHeader, MoneyText, TxnIcon, DateFilterBar, HeaderAction, AppTabBar, AppDialog, UpdateDialog, StatsComparePanel },
+  components: { AppHeader, MoneyText, TxnIcon, DateFilterBar, HeaderAction, AppTabBar, AppDialog, TxnFilterSheet, UpdateDialog, StatsComparePanel },
   setup() {
     const settingStore = useSettingStore()
     const uiStore = useUiStore()
@@ -776,6 +788,16 @@ export default {
     const customEnd = ref(defaultCustomRange().endDay)
     /** 原生 picker 的上限：未来的账还没发生，不让选 */
     const todayKey = toDayKey()
+
+    /* ------------------------------------------------------ 更多筛选 */
+    const filterBarRef = ref(null)
+    const showFilter = ref(false)
+    const appliedFilter = reactive(createEmptyTxnFilter())
+    /** 分类全表：筛选面板按类型分组 + 查询时把一级展开成二级 */
+    const allCategories = ref([])
+    const filterCount = computed(() => countActiveFilters(appliedFilter))
+    /** 只含筛选条件的查询字段（日期由上面的 range 单独管） */
+    const filterQuery = computed(() => buildTxnFilterQuery(appliedFilter, allCategories.value))
     /**
      * 每张卡片的「支出/收入」各自独立控制。
      *
@@ -850,11 +872,20 @@ export default {
      *   给了 monthKey，api/stats.js 就会按 `t.month_key = ?` 走等值过滤，
      *   跨月区间会被掐成一个月。customToRange 只在「正好整月」时才回填 monthKey。
      */
-    const range = computed(() =>
-      dateMode.value === 'custom'
+    const range = computed(() => {
+      const base = dateMode.value === 'custom'
         ? customToRange(customStart.value, customEnd.value)
         : selectionToRange(dateRange.value)
-    )
+      /*
+       * 筛选条件跟着 range 一起进 API
+       *
+       * ★ 为什么不另加参数 ★
+       *   api/stats.js 的每个查询都从 rangeScope(range) 出发，
+       *   把筛选字段并进 range，所有统计面板自动带上同一套条件，
+       *   不需要逐个函数改签名。
+       */
+      return { ...base, ...filterQuery.value }
+    })
 
     /** 当前选择的展示文案 */
     const rangeLabel = computed(() =>
@@ -1372,7 +1403,10 @@ export default {
        * 空区间 = 不限时间，与 engelAll 同一口径。
        */
       try {
-        savingsAll.value = await getSavingsRate({ startDay: '', endDay: '', monthKey: '' })
+        savingsAll.value = await getSavingsRate({
+          startDay: '', endDay: '', monthKey: '',
+          ...filterQuery.value
+        })
       } catch (e) {
         console.warn('[stats] 全部储蓄率计算失败:', e && e.message)
         savingsAll.value = { income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 }
@@ -1380,9 +1414,16 @@ export default {
 
       /*
        * 1d) 预算执行情况
+       *
+       * ★ 不跟随「更多筛选」★
+       *   预算额度是全局设定的，按账户/标签筛完流水后
+       *   「已用」只算了一部分，再拿它和全局额度比会把剩余额度算高。
+       *   所以这里只传日期区间，筛选字段剥掉。
        */
       try {
-        budgetExecution.value = await getBudgetExecution(r)
+        budgetExecution.value = await getBudgetExecution({
+          startDay: r.startDay, endDay: r.endDay, monthKey: r.monthKey
+        })
       } catch (e) {
         console.warn('[stats] 预算执行计算失败:', e && e.message)
         budgetExecution.value = { hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] }
@@ -1411,7 +1452,10 @@ export default {
          *   右列是辅助对照，算不出来就显示「暂无数据」。
          */
         try {
-          engelAll.value = await getEngelCoefficient({ startDay: '', endDay: '', monthKey: '' }, engelFoodIds.value)
+          engelAll.value = await getEngelCoefficient({
+            startDay: '', endDay: '', monthKey: '',
+            ...filterQuery.value
+          }, engelFoodIds.value)
         } catch (e2) {
           console.warn('[stats] 全部数据恩格尔系数计算失败:', e2 && e2.message)
           engelAll.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
@@ -1498,15 +1542,32 @@ export default {
       uni.navigateTo({ url: `/pages/txn/detail?id=${id}` })
     }
 
-    /** 全部交易（右上角入口） */
     /**
-     * 右上角「组件管理」入口
+     * 打开「更多筛选」
      *
-     * ★ 原先是「全部交易」，本轮第 3 条改成组件管理 ★
-     *   用户要求「统计页面右上方改成组件管理的入口」。
+     * 先把日期筛选的下拉收起来，避免它和右侧筛选面板叠在一起。
      */
-    function goPanelManage() {
-      uni.navigateTo({ url: '/pages/settings/stats-panels' })
+    function openFilter() {
+      if (filterBarRef.value && typeof filterBarRef.value.collapse === 'function') {
+        filterBarRef.value.collapse()
+      }
+      showFilter.value = true
+    }
+
+    /** 应用筛选：与全部交易页同一套语义，条件并进 range 后重算所有面板 */
+    async function onFilterApply(next) {
+      Object.assign(appliedFilter, next)
+      showFilter.value = false
+      await loadAll()
+    }
+
+    /** 分类全表（筛选面板分组 + 一级展开成二级都要用） */
+    async function loadAllCategories() {
+      try {
+        allCategories.value = await listCategories()
+      } catch (e) {
+        console.warn('[stats] 分类加载失败:', e && e.message)
+      }
     }
 
     /**
@@ -1548,6 +1609,7 @@ export default {
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await loadPanelSettings()
+      await loadAllCategories()
       await loadAll()
       // 日趋势拖动选中要知道柱子区的屏幕位置，
       // 等数据渲染完了才量得准（此时 .daily-touch 已存在）
@@ -1563,6 +1625,7 @@ export default {
          *   读 setting 是纯内存/一次 KV 查询，代价可以忽略。
          */
         await loadPanelSettings()
+        await loadAllCategories()
         await loadAll()
       }
       settingStore.syncSystemTheme()
@@ -1570,6 +1633,9 @@ export default {
       // 主题设置页改完主题后要靠这里把颜色刷回来
       settingStore.refreshTabBar()
     })
+
+    /* 返回键 / 侧滑：筛选面板打开时先收起，不退出统计 tab */
+    onBackPress(() => handleBackPress())
 
     /*
      * 周期补记完成后立刻刷新
@@ -1838,7 +1904,9 @@ export default {
     return {
       formatWanYuan,
       settingStore,
-      dateRange,
+      dateRange, filterBarRef,
+      // 更多筛选（复用全部交易页的面板）
+      showFilter, appliedFilter, filterCount, openFilter, onFilterApply,
       // 时间筛选方式（日/月/年 或 自定义起止日）
       dateMode, customStart, customEnd, todayKey,
       onModeChange, onCustomChange,
@@ -1866,7 +1934,7 @@ export default {
       switchCategoryLevel, switchAverageLevel, switchAccountViewMode,
       switchComparisonType, switchComparisonLevel, switchMomType, switchMomLevel,
       onAddTap, onAddHoldEnd,
-      goTxnDetail, goPanelManage, goProfile
+      goTxnDetail, goProfile
     }
   }
 }
@@ -2712,6 +2780,16 @@ export default {
 .top-day {
   font-size: 20rpx;
   color: var(--app-text-3);
+}
+
+/* 「更多筛选」角标：与全部交易页导航栏的筛选数量同一套样式 */
+.filter-dot {
+  font-size: 18rpx;
+  color: #ffffff;
+  background-color: var(--app-primary);
+  border-radius: 50%;
+  padding: 0 8rpx;
+  margin-left: 4rpx;
 }
 
 </style>

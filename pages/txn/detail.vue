@@ -119,7 +119,7 @@
       <!-- 操作 -->
       <view class="action-area">
         <wd-button size="large" plain custom-class="act-btn" @click="onEdit">
-          编辑这笔
+          编辑
         </wd-button>
         <wd-button size="large" plain custom-class="act-btn act-danger" @click="onDelete">
           删除

@@ -1,6 +1,6 @@
 <template>
   <!--
-    流水行的右滑快捷操作（删除 / 标签）
+    流水行的右滑快捷操作（标签 / 编辑 / 删除）
 
     ★ 为什么抽成组件而不是两个页面各写一份 ★
       首页和「全部交易」页都要求「右滑某条流水可以快捷删除和添加标签」。
@@ -28,6 +28,11 @@
         <text class="swipe-btn-text">标签</text>
       </view>
     </view>
+    <view class="swipe-btn" @click.stop="onEdit">
+      <view class="swipe-btn-face swipe-btn-face--edit">
+        <text class="swipe-btn-text">编辑</text>
+      </view>
+    </view>
     <view class="swipe-btn" @click.stop="onDelete">
       <view class="swipe-btn-face swipe-btn-face--del">
         <text class="swipe-btn-text">删除</text>
@@ -39,7 +44,7 @@
 <script>
 export default {
   name: 'TxnSwipeActions',
-  emits: ['delete', 'tag'],
+  emits: ['delete', 'edit', 'tag'],
   setup(props, { emit }) {
     /*
      * ★ 删除用危险色、标签用中性色 ★
@@ -49,10 +54,13 @@ export default {
     function onDelete() {
       emit('delete')
     }
+    function onEdit() {
+      emit('edit')
+    }
     function onTag() {
       emit('tag')
     }
-    return { onDelete, onTag }
+    return { onDelete, onEdit, onTag }
   }
 }
 </script>
@@ -81,6 +89,11 @@ export default {
 
 .swipe-btn-face--tag {
   background-color: var(--app-text-3);
+}
+
+/* 编辑是普通编辑动作，用主题色和「标签」的灰色、「删除」的红色区分 */
+.swipe-btn-face--edit {
+  background-color: var(--app-primary);
 }
 
 .swipe-btn-face--del {

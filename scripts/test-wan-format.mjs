@@ -493,11 +493,11 @@ console.log('=== 5k. 账户选择弹层 ===')
   check('接入弹层栈', sheet.includes('pushLayer'), true)
   check('层级默认 120（要盖住筛选面板 100）', sheet.includes('zIndex: { type: Number, default: 120 }'), true)
 
-  // 三处接线
-  const listPage = read('pages/txn/list.vue')
-  check('筛选面板用它', listPage.includes('<AccountPickerSheet'), true)
-  check('筛选面板传 filterAccountList', listPage.includes(':accounts="filterAccountList"'), true)
-  check('筛选账户排除组合账户', listPage.includes('accountStore.list.filter((a) => !a.isCombo)'), true)
+  // 筛选面板已抽成 components/TxnFilterSheet.vue
+  const filterSheet = read('components/TxnFilterSheet.vue')
+  check('筛选面板用它', filterSheet.includes('<AccountPickerSheet'), true)
+  check('筛选面板传 accountList', filterSheet.includes(':accounts="accountList"'), true)
+  check('筛选账户排除组合账户', filterSheet.includes('accountStore.list.filter((a) => !a.isCombo)'), true)
 
   const panel = read('components/TxnPanel.vue')
   check('记账面板源账户用它', panel.includes(':accounts="sourceAccountList"'), true)
@@ -516,7 +516,7 @@ console.log('=== 5k. 账户选择弹层 ===')
   check('周期面板不再用 wd-action-sheet 选账户', cycle.includes(':actions="accountActions"'), false)
 
   // ★ 「全部账户」只在筛选面板启用 ★
-  check('筛选面板启用全部', listPage.includes('allow-all'), true)
+  check('筛选面板启用全部', filterSheet.includes('allow-all'), true)
   check('记账面板不启用全部', panel.includes('allow-all'), false)
   check('报销弹层不启用全部', reimburse.includes('allow-all'), false)
   check('周期面板不启用全部', cycle.includes('allow-all'), false)

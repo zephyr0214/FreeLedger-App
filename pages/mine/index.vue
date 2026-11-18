@@ -229,8 +229,14 @@ export default {
             value: quickAddLabel.value,
             route: '/pages/settings/quick-add'
           },
-          { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' },
-        ]
+        { key: 'ai', icon: 'ai', name: 'AI 智能配置', value: aiLabel.value, route: '/pages/settings/ai' },
+        {
+          key: 'statsPanels',
+          icon: 'stats',
+          name: '统计组件管理',
+          route: '/pages/settings/stats-panels'
+        },
+      ]
       },
       {
         title: '系统设置',

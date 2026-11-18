@@ -12,7 +12,8 @@
 
 import {
   selectionToRange, defaultSelection, selectionFromDayKey, selectionLabel,
-  cascadeSelection, customToRange, customRangeLabel, defaultCustomRange, toDayKey, shiftDay
+  cascadeSelection, customToRange, customRangeLabel, defaultCustomRange, toDayKey, shiftDay,
+  chineseDayLabel, relativeDayFromDayKey
 } from '../utils/date.js'
 
 let pass = 0
@@ -220,6 +221,25 @@ check('文案 单日', customRangeLabel('2026-03-15', '2026-03-15'), '2026-03-15
 check('文案 区间', customRangeLabel('2026-03-15', '2026-05-20'), '2026-03-15 ~ 2026-05-20')
 check('文案 空 -> 全部时间', customRangeLabel('', ''), '全部时间')
 check('文案 颠倒也正常', customRangeLabel('2026-05-20', '2026-03-15'), '2026-03-15 ~ 2026-05-20')
+
+console.log('=== 中文日期与相对时间（标签管理 / 周期详情）===')
+
+check('中文日期补零', chineseDayLabel('2026-01-05'), '2026年1月5日')
+check('中文日期空值', chineseDayLabel(''), '')
+
+/*
+ * 相对时间口径（用户指定）：
+ *   一个月内 -> N天前；超过一月 -> N月前；超过一年 -> N年前。
+ *   边界按 30 天 / 365 天估算，避免自然月长短造成的「0 月前」。
+ */
+check('今天', relativeDayFromDayKey('2026-11-18', '2026-11-18'), '今天')
+check('昨天', relativeDayFromDayKey('2026-11-17', '2026-11-18'), '昨天')
+check('20 天前', relativeDayFromDayKey('2026-10-29', '2026-11-18'), '20天前')
+check('29 天前', relativeDayFromDayKey('2026-10-20', '2026-11-18'), '29天前')
+check('30 天 -> 1 月前', relativeDayFromDayKey('2026-10-19', '2026-11-18'), '1月前')
+check('364 天 -> 12 月前', relativeDayFromDayKey('2025-11-19', '2026-11-18'), '12月前')
+check('365 天 -> 1 年前', relativeDayFromDayKey('2025-11-18', '2026-11-18'), '1年前')
+check('未来日期按今天处理', relativeDayFromDayKey('2026-11-20', '2026-11-18'), '今天')
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

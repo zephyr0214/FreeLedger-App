@@ -475,17 +475,19 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
    *   旧链接里的 categoryId 由 normalizeUrlCategory 换算成一组 id。
    */
   const listPage = read('pages/txn/list.vue')
-  check('筛选面板复用多选弹层', /<CategoryMultiPickerSheet/.test(listPage), true)
+  const filterSheet = read('components/TxnFilterSheet.vue')
+  const filterUtil = read('utils/txnFilter.js')
+  check('筛选面板复用多选弹层', /<CategoryMultiPickerSheet/.test(filterSheet), true)
   check(
     '筛选面板只有一行「分类」（不再有二级分类行）',
-    /<text class="filter-row-label">分类<\/text>/.test(listPage) &&
-      !/filter-row-label">二级分类</.test(listPage),
+    /<text class="filter-row-label">分类<\/text>/.test(filterSheet) &&
+      !/filter-row-label">二级分类</.test(filterSheet),
     true
   )
   check(
     '查询时把勾选的分类展开后拼 categoryIds',
-    /const pickedCats = expandCategoryIds\(appliedFilter\.categoryIds \|\| \[\]\)/.test(listPage) &&
-      /q\.categoryIds = pickedCats\.join\(','\)/.test(listPage),
+    /expandCategoryIds\(f\.categoryIds, categories\)/.test(filterUtil) &&
+      /q\.categoryIds = pickedCats/.test(filterUtil),
     true
   )
   check(
@@ -501,8 +503,8 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
   )
   check(
     '一级分类按整支展开（勾一级 = 看它所有二级）',
-    /function expandCategoryIds\(ids\)/.test(listPage) &&
-      /kids\.length === 0\) \{[\s\S]{0,40}?push\(id\)/.test(listPage),
+    /export function expandCategoryIds\(ids, categories\)/.test(filterUtil) &&
+      /kids\.length === 0\) \{[\s\S]{0,40}?push\(id\)/.test(filterUtil),
     true
   )
 }

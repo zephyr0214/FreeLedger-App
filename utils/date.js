@@ -472,3 +472,40 @@ export function shortDateWithYear(ts) {
   if (!Number.isFinite(d.getTime())) return ''
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
+
+/**
+ * YYYY-MM-DD -> 「2026年11月17日」
+ *
+ * 标签管理和周期详情都要显示完整中文日期，
+ * 以前两个页面各写一份局部 formatYmd，改一次要改两处；
+ * 收到这里以后日期格式只有一种写法。
+ */
+export function chineseDayLabel(dayKey) {
+  if (!dayKey) return ''
+  const [y, m, d] = String(dayKey).split('-').map(Number)
+  if (!y || !m || !d) return String(dayKey)
+  return `${y}年${m}月${d}日`
+}
+
+/**
+ * 把「某一天」换算成「今天 / 昨天 / 20天前 / 3月前 / 1年前」
+ *
+ * 标签管理页要显示「最近于… · 20天前」。
+ * 规则按用户口径：一个月按 30 天、一年按 365 天估算，
+ * 不做自然月边界（否则 1 月 31 日到 2 月 28 日会被算成 0 个月，很反直觉）。
+ *
+ * @param {string} dayKey 目标日期 YYYY-MM-DD
+ * @param {string} todayKey 今天 YYYY-MM-DD（测试时可注入）
+ */
+export function relativeDayFromDayKey(dayKey, todayKey = toDayKey()) {
+  if (!dayKey || !todayKey) return ''
+  const target = parseDayKey(dayKey)
+  const today = parseDayKey(todayKey)
+  if (!Number.isFinite(target.getTime()) || !Number.isFinite(today.getTime())) return ''
+  const diff = Math.round((today.getTime() - target.getTime()) / 86400000)
+  if (diff <= 0) return '今天'
+  if (diff === 1) return '昨天'
+  if (diff < 30) return `${diff}天前`
+  if (diff < 365) return `${Math.max(1, Math.floor(diff / 30))}月前`
+  return `${Math.floor(diff / 365)}年前`
+}

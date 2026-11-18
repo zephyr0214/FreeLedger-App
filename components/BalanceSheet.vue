@@ -23,15 +23,11 @@
       <view class="bs-body">
         <view class="bs-amount-row">
           <text class="bs-currency">{{ currencySymbol }}</text>
-          <input
-            v-model="draft"
-            class="bs-input"
-            type="digit"
-            placeholder="0.00"
-            placeholder-class="bs-placeholder"
-            :focus="autoFocus"
-          />
+          <text class="bs-amount" :class="{ 'bs-amount--raw': isExpression }">
+            {{ amountDisplay || '0.00' }}
+          </text>
         </view>
+        <text v-if="isExpression" class="bs-preview">= {{ computedPreview }}</text>
 
         <!-- 差额预览：让用户改之前就知道会发生什么 -->
         <view class="bs-diff">
@@ -60,9 +56,22 @@
         </view>
       </view>
 
-      <view class="bs-foot">
-        <view class="bs-btn-cancel" @click="close">取消</view>
-        <view class="bs-btn-ok" :style="{ backgroundColor: primaryColor }" @click="confirm">确定</view>
+      <!--
+        记账面板同款数字键盘
+        ★ 没有取消/确定按钮 ★
+          用户要求「去掉取消和确定，换成记账面板的输入区」，
+          键盘右下角的「保存」就是提交入口，右上角 ✕ 仍可退出。
+        ★ 允许负数 ★
+          信用卡欠款余额是负的，且支持 1000-200 这类四则运算。
+      -->
+      <view class="bs-keyboard">
+        <NumberKeyboard
+          v-model="draft"
+          finish-text="保存"
+          :disabled="!draft"
+          allow-negative
+          @submit-amount="onKeyboardFinish"
+        />
       </view>
     </view>
   </view>
@@ -86,16 +95,17 @@
  *   页面只管一个 @saved 回调去刷新自己的显示。
  */
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { adjustAccountBalance, setAccountBalanceDirect } from '@/api/account.js'
-import { yuanToCents, formatCents } from '@/utils/money.js'
+import { evaluateSignedAmount, formatCents } from '@/utils/money.js'
+import NumberKeyboard from '@/components/NumberKeyboard.vue'
 import { BASE_SYMBOL } from '@/utils/currency.js'
 import { alertDialog } from '@/utils/dialog.js'
 import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   name: 'BalanceSheet',
+  components: { NumberKeyboard },
   props: {
     /** 弹层是否显示（v-model:visible） */
     visible: { type: Boolean, default: false },
@@ -106,17 +116,13 @@ export default {
   },
   emits: ['update:visible', 'saved'],
   setup(props, { emit }) {
-    const settingStore = useSettingStore()
     const accountStore = useAccountStore()
 
-    /** 弹层里正在输入的金额（元，字符串） */
+    /** 弹层里正在输入的金额算式（元，字符串，可含 + - × ÷ 和括号） */
     const draft = ref('')
     /** 口径：'reconcile' | 'direct' */
     const mode = ref('reconcile')
-    /** 打开时自动聚焦金额输入框 */
-    const autoFocus = ref(false)
 
-    const primaryColor = computed(() => settingStore.primaryColor)
     /*
      * ★ 输入框左边的币种符号定死为 ¥ ★
      *   原来读 settingStore.currencySymbol（个人信息页可改），
@@ -131,8 +137,39 @@ export default {
       { key: 'direct', label: '修改当前余额' }
     ]
 
-    /** 输入的金额（分） */
-    const targetCents = computed(() => yuanToCents(draft.value || 0))
+    /** 输入的金额（分，可为负） */
+    const targetCents = computed(() => {
+      const cents = evaluateSignedAmount(draft.value)
+      return Number.isFinite(cents) ? cents : 0
+    })
+
+    /** 输入区展示：纯数字补两位小数，算式原样显示 */
+    const amountDisplay = computed(() => {
+      const raw = String(draft.value || '').trim()
+      if (!raw) return ''
+      if (!isExpression.value) {
+        const n = Number(raw)
+        if (Number.isFinite(n)) return n.toFixed(2)
+      }
+      return raw
+    })
+
+    /**
+     * 是否是算式
+     *
+     * 开头的负号不算算式（-500 是普通数字），
+     * 这样负余额打开时直接显示 -500.00，而不是「-500 = -500.00」两行。
+     */
+    const isExpression = computed(() => {
+      const raw = String(draft.value || '').trim()
+      return /[+×÷()]/.test(raw) || /-/.test(raw.slice(1))
+    })
+
+    /** 算式结果预览 */
+    const computedPreview = computed(() => {
+      const cents = targetCents.value
+      return `${cents < 0 ? '-' : ''}${formatCents(Math.abs(cents), { symbol: currencySymbol })}`
+    })
     /** 差额（分） */
     const diffCents = computed(() => targetCents.value - (props.currentBalanceCents || 0))
     const diffText = computed(() => {
@@ -156,15 +193,9 @@ export default {
     watch(
       () => props.visible,
       (open) => {
-        if (!open) {
-          autoFocus.value = false
-          return
-        }
+        if (!open) return
         draft.value = ((props.currentBalanceCents || 0) / 100).toFixed(2)
         mode.value = 'reconcile'
-        autoFocus.value = false
-        // 下一帧再聚焦：弹层刚渲染时 input 还不存在，直接 true 不生效
-        setTimeout(() => { autoFocus.value = true }, 60)
       }
     )
 
@@ -172,10 +203,22 @@ export default {
       emit('update:visible', false)
     }
 
-    async function confirm() {
+    /** 键盘「保存」：把元换算成分后走原来的落库逻辑 */
+    function onKeyboardFinish(value) {
+      if (value === -1) {
+        uni.showToast({ title: '算式括号不匹配', icon: 'none' })
+        return
+      }
+      if (!Number.isFinite(value)) {
+        uni.showToast({ title: '算式无效', icon: 'none' })
+        return
+      }
+      confirm(Math.round(value * 100))
+    }
+
+    async function confirm(target) {
       if (!props.accountId) return
 
-      const target = targetCents.value
       const current = props.currentBalanceCents || 0
       if (target === current) {
         close()
@@ -241,9 +284,10 @@ export default {
     })
 
     return {
-      draft, mode, autoFocus, modes, primaryColor, currencySymbol,
+      draft, mode, modes, currencySymbol,
+      amountDisplay, isExpression, computedPreview,
       targetCents, diffCents, diffText, diffColor,
-      close, confirm, handleBackPress
+      close, onKeyboardFinish, handleBackPress
     }
   }
 }
@@ -274,7 +318,7 @@ export default {
   border-radius: 28rpx 28rpx 0 0;
   display: flex;
   flex-direction: column;
-  max-height: 86vh;
+  max-height: 92vh;
 }
 
 .bs-head {
@@ -297,16 +341,20 @@ export default {
 }
 
 .bs-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 8rpx 32rpx 24rpx;
 }
 
-/* 金额输入：大字号 + 货币符号 */
+/* 金额展示：和记账面板同款大字号 + 货币符号 */
 .bs-amount-row {
   display: flex;
   align-items: baseline;
   gap: 12rpx;
-  padding: 20rpx 0 16rpx;
+  padding: 20rpx 0 8rpx;
   border-bottom: 1rpx solid var(--app-line);
+  min-height: 92rpx;
 }
 
 .bs-currency {
@@ -315,21 +363,26 @@ export default {
   flex-shrink: 0;
 }
 
-.bs-input {
+.bs-amount {
   flex: 1;
   min-width: 0;
-  width: 0;
   font-size: 56rpx;
   font-weight: 600;
   color: var(--app-text);
-  text-align: left;
   line-height: 1.2;
+  word-break: break-all;
 }
 
-.bs-placeholder {
+/* 算式原样显示时字号小一档，避免长算式撑破一行 */
+.bs-amount--raw {
+  font-size: 44rpx;
+}
+
+.bs-preview {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
   color: var(--app-text-3);
-  font-size: 56rpx;
-  font-weight: 600;
 }
 
 /* 差额预览 */
@@ -404,40 +457,10 @@ export default {
   color: var(--app-text);
 }
 
-/* 底部按钮 */
-.bs-foot {
-  display: flex;
-  gap: 20rpx;
-  padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
-}
-
-.bs-btn-cancel,
-.bs-btn-ok {
-  flex: 1;
-  height: 88rpx;
-  border-radius: 22rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-/*
- * 取消按钮
- *
- * ★ 必须有可见的外框 ★
- *   原来是 --app-card-2 底色，和弹层背景 --app-bg 太接近，
- *   看着像「没有边框、和背景融成一片」。
- *   现在给一条实色描边，任何主题下边界都清楚。
- */
-.bs-btn-cancel {
-  background-color: var(--app-card);
-  color: var(--app-text-2);
-  border: 2rpx solid var(--app-line);
-}
-
-.bs-btn-ok {
-  color: #ffffff;
+/* 数字键盘：底部留安全区，避免被手势条压住 */
+.bs-keyboard {
+  flex-shrink: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  background-color: var(--app-card-2);
 }
 </style>

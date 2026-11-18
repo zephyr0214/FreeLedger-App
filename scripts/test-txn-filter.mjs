@@ -15,6 +15,10 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   buildCategoryCondition, parseTxnQueryOptions, buildFilterWhere
 } from '../api/transaction.js'
+import {
+  createEmptyTxnFilter, countActiveFilters, expandCategoryIds, buildTxnFilterQuery
+} from '../utils/txnFilter.js'
+import { evaluateAmount, evaluateSignedAmount } from '../utils/money.js'
 
 let pass = 0
 let fail = 0
@@ -195,6 +199,52 @@ check('只带标签算筛选跳转', parseTxnQueryOptions({ tagId: 't' }).hasFil
 
 // 空白要清掉
 check('账户去空格', parseTxnQueryOptions({ accountId: '  acc_1  ' }).accountId, 'acc_1')
+
+console.log('=== 共享筛选条件生成（全部交易 / 统计页）===')
+
+const cats = [
+  { id: 'food', parent_id: '', name: '餐饮' },
+  { id: 'lunch', parent_id: 'food', name: '午餐' },
+  { id: 'fun', parent_id: '', name: '娱乐' }
+]
+check('一级分类展开整支', expandCategoryIds(['food'], cats), ['food', 'lunch'])
+check('无二级分类保持原样', expandCategoryIds(['fun'], cats), ['fun'])
+
+{
+  const f = createEmptyTxnFilter()
+  check('空筛选计数为 0', countActiveFilters(f), 0)
+  check('空筛选不产生查询字段', buildTxnFilterQuery(f, cats), {})
+
+  f.type = 'expense'
+  f.accountId = 'a1'
+  f.categoryIds = ['food']
+  f.tagIds = ['t1']
+  f.cycleId = 'c1'
+  f.keyword = '午饭'
+  f.minYuan = '10'
+  f.maxYuan = '100'
+  const q = buildTxnFilterQuery(f, cats)
+  check('类型', q.type, 'expense')
+  check('账户', q.accountId, 'a1')
+  check('分类展开', q.categoryIds, ['food', 'lunch'])
+  check('标签', q.tagIds, ['t1'])
+  check('周期', q.cycleId, 'c1')
+  check('关键词', q.keyword, '午饭')
+  check('金额下限', q.minCents, 1000)
+  check('金额上限', q.maxCents, 10000)
+  check('条件计数（金额区间算一项）', countActiveFilters(f), 7)
+}
+
+console.log('=== 带符号算式（余额修改）===')
+
+check('正数算式仍按原口径', evaluateAmount('12+8'), 2000)
+check('零/负数在记账口径下无效', evaluateAmount('0'), 0)
+check('负数在记账口径下无效', evaluateAmount('-5'), 0)
+check('带符号求值支持负数', evaluateSignedAmount('-5'), -500)
+check('带符号求值支持减法', evaluateSignedAmount('1000-200'), 80000)
+check('带符号求值支持括号', evaluateSignedAmount('-(500+100)'), -60000)
+check('带符号求值支持小数', evaluateSignedAmount('12.34+0.66'), 1300)
+check('除以 0 返回 NaN', Number.isNaN(evaluateSignedAmount('1÷0')), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

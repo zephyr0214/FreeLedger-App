@@ -10,7 +10,7 @@
         @click="toggle(col.key)"
       >
         <text class="drp-cell-label">{{ col.label }}</text>
-        <text class="drp-cell-arrow">▾</text>
+        <DropdownArrow :active="activeKey === col.key" />
       </view>
     </view>
 
@@ -37,6 +37,7 @@
 
 <script>
 import { ref, reactive, computed, watch } from 'vue'
+import DropdownArrow from '@/components/DropdownArrow.vue'
 import { cascadeSelection } from '@/utils/date.js'
 
 /**
@@ -56,6 +57,7 @@ import { cascadeSelection } from '@/utils/date.js'
  */
 export default {
   name: 'DateRangePicker',
+  components: { DropdownArrow },
   props: {
     /** { year, month, day }，0 表示「全部」 */
     modelValue: { type: Object, default: null }
@@ -277,18 +279,9 @@ export default {
   color: var(--app-text-2);
 }
 
-.drp-cell-arrow {
-  font-size: 20rpx;
-  color: var(--app-text-3);
-}
-
 .drp-cell.is-open .drp-cell-label {
   color: var(--app-primary);
   font-weight: 600;
-}
-
-.drp-cell.is-open .drp-cell-arrow {
-  color: var(--app-primary);
 }
 
 /* 遮罩：盖住下方内容，点它收起 */
