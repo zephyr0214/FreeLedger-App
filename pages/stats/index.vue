@@ -454,7 +454,7 @@
             <view class="savings-costs">
               <view class="savings-cost-row">
                 <text class="savings-cost-label">结余</text>
-                <text class="savings-cost-value">¥{{ formatWanYuan(savings.balance) }}</text>
+                <text class="savings-cost-value">{{ signedWanYuan(savings.balance) }}</text>
               </view>
               <view class="savings-cost-row">
                 <text class="savings-cost-label">收入</text>
@@ -472,7 +472,7 @@
             <view class="savings-costs">
               <view class="savings-cost-row">
                 <text class="savings-cost-label">结余</text>
-                <text class="savings-cost-value">¥{{ formatWanYuan(savingsAll.balance) }}</text>
+                <text class="savings-cost-value">{{ signedWanYuan(savingsAll.balance) }}</text>
               </view>
               <view class="savings-cost-row">
                 <text class="savings-cost-label">收入</text>
@@ -967,6 +967,18 @@ export default {
 
     /** 储蓄率（null/0 收入时 rate 为 null，页面显示「—」） */
     const savings = ref({ income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 })
+
+    /**
+     * 结余金额（保留负号）
+     *
+     * formatWanYuan() 只负责绝对值（全 App 多数地方展示的是支出/负债的绝对数），
+     * 但储蓄率的「结余」是有符号的净额：花超了必须显示 -¥xxx，
+     * 否则「收入 100、结余 -50」会变成「收入 100、结余 ¥50」。
+     */
+    function signedWanYuan(cents) {
+      const n = Number(cents) || 0
+      return `${n < 0 ? '-' : ''}¥${formatWanYuan(n)}`
+    }
     /** 预算执行情况（hasBudget=false 显示空态） */
     const budgetExecution = ref({ hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] })
 
@@ -1974,6 +1986,7 @@ export default {
       // 同比 / 环比（两块共用 components/StatsComparePanel.vue）
       comparison, comparisonType, comparisonLevel, momComparison, momLevel, momType,
       savings, savingsColor, savingsHint, savingsAll, savingsAllColor, savingsAllHint, budgetExecution,
+      signedWanYuan,
       // 恩格尔系数
       engel, engelLevel, engelColor, engelFoodNames,
       engelAll, engelAllText, engelAllLevel, engelAllColor,

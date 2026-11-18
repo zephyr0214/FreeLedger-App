@@ -506,6 +506,19 @@ check(
 )
 check('Top 10 数据返回 tags 数组', /tags: tagMap\[r\.id\] \|\| \[\]/.test(statsApiSrc), true)
 
+/* ============================== 储蓄率：结余必须带负号 */
+
+check(
+  '储蓄率本区间结余带负号',
+  /signedWanYuan\(savings\.balance\)/.test(statsPageSrc),
+  true
+)
+check(
+  '储蓄率全部结余带负号',
+  /signedWanYuan\(savingsAll\.balance\)/.test(statsPageSrc),
+  true
+)
+
 /* ==================================== 输出 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
