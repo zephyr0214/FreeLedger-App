@@ -273,6 +273,8 @@ check('借出借入右上角快捷按钮', /HeaderAction/.test(loanPage) && /ope
 check('快捷按钮文案随方向切换', /isIncome \? '借款归还' : '借款收回'/.test(loanPage), true)
 check('借出借入页挂记账面板', /<TxnPanel/.test(loanPage), true)
 check('快捷记账预置收回/归还分类', /borrowBackId/.test(loanPage) && /lendBackId/.test(loanPage), true)
+check('已结清后再借会重新折叠旧单', /lastSettled\[g\.person\] === true && !g\.settled/.test(loanPage), true)
+check('清理折叠状态包含历史组 key', /clearEpisodeStates/.test(loanPage), true)
 check('API 生成 displayTxns', /g\.displayTxns\s*=/.test(loanSrc), true)
 check('报销单头显示完整年月日', /年\$\{Number\(m\)\}月\$\{Number\(d\)\}日/.test(reimbursePage), true)
 check('报销单头显示多/少报', /batchDiff\(b\)\.label/.test(reimbursePage), true)

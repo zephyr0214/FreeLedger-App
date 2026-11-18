@@ -650,6 +650,17 @@ export default {
      */
     const episodeOpen = reactive({})
 
+    /**
+     * 上一次加载时每个人的结清状态（person -> settled）
+     *
+     * ★ 用来识别「已结清的人又新增了借入借出」★
+     *   一旦从已结清变成未结清，说明产生了新的一单；
+     *   这时必须清掉这个人的折叠状态，让之前的已结清单重新折叠。
+     *   否则用户上次在未结清页手动展开过历史，新增一单后历史仍然张着，
+     *   看起来不像「新单出现、旧单自动收起」。
+     */
+    const lastSettled = {}
+
     /** 人员 + 段序号 → 折叠状态 key */
     function episodeKey(person, index) {
       return `${person || ''}#${index}`
@@ -724,6 +735,14 @@ export default {
       else episodeOpen[key] = true
     }
 
+    /** 清掉某个人的全部折叠状态（含历史组 -1） */
+    function clearEpisodeStates(person) {
+      const prefix = `${person || ''}#`
+      for (const key of Object.keys(episodeOpen)) {
+        if (key.indexOf(prefix) === 0) delete episodeOpen[key]
+      }
+    }
+
     /**
      * 清理已经不存在的折叠 key。
      *
@@ -787,6 +806,25 @@ export default {
 
         const open = all.filter((g) => !g.settled)
         const settled = all.filter((g) => g.settled)
+
+        /*
+         * ★ 已结清 → 又有新借入借出：把旧单重新折叠 ★
+         *   用户场景：张三原来已经全部结清，后来再借一笔；
+         *   如果他上次在未结清页把历史展开过，新增这一单后
+         *   旧的已结清单应该自动收起，而不是继续张着。
+         *   只在这个状态真的翻转时清，避免每次刷新都打断用户手动展开。
+         */
+        const seenPeople = new Set()
+        for (const g of all) {
+          seenPeople.add(g.person)
+          if (lastSettled[g.person] === true && !g.settled) {
+            clearEpisodeStates(g.person)
+          }
+          lastSettled[g.person] = !!g.settled
+        }
+        for (const person of Object.keys(lastSettled)) {
+          if (!seenPeople.has(person)) delete lastSettled[person]
+        }
 
         openCount.value = open.length
         settledCount.value = settled.length
