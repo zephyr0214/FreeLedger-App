@@ -3,28 +3,43 @@
     <PageNav title="记账按钮" @back="goBack" />
 
     <scroll-view class="page-scroll" scroll-y>
-      <!--
-        ★ 顶部预览 ★
-          和原来的「底部一句话说明」相比，这里直接画出记账按钮本体：
-          左边是悬浮的 +，右边分别写清短按 / 长按当前会做什么。
-          用户一进页面就能看到结果，不用先读两段设置再自己脑补。
-      -->
-      <view class="preview-card">
-        <view class="preview-fab-wrap">
-          <view class="preview-fab" :style="{ backgroundColor: primaryColor }">
-            <text class="preview-plus">+</text>
-          </view>
-        </view>
+      <!-- 短按 + 号 -->
+      <view class="section">
+        <text class="section-title">短按 + 号</text>
+        <view class="card">
+          <view
+            v-for="opt in actionOptions"
+            :key="opt.key"
+            class="opt-row"
+            :class="{ active: tapAction === opt.key }"
+            @click="pick('tap', opt.key)"
+          >
+            <view class="opt-icon">
+              <LineIcon
+                v-if="opt.key === 'ai'"
+                name="ai"
+                :size="20"
+                :color="primaryColor"
+              />
+              <LineIcon
+                v-else-if="opt.key === 'manual'"
+                name="plusLine"
+                :size="20"
+                :color="primaryColor"
+              />
+              <text v-else class="opt-dash">—</text>
+            </view>
 
-        <view class="preview-info">
-          <text class="preview-kicker">当前效果</text>
-          <view class="preview-line">
-            <text class="preview-key">短按</text>
-            <text class="preview-val">{{ tapLabel }}</text>
-          </view>
-          <view class="preview-line">
-            <text class="preview-key">长按</text>
-            <text class="preview-val">{{ holdLabel }}</text>
+            <view class="opt-info">
+              <text class="opt-name">{{ opt.name }}</text>
+              <text class="opt-desc">{{ opt.desc }}</text>
+            </view>
+
+            <text
+              v-if="tapAction === opt.key"
+              class="opt-tick"
+              :style="{ color: primaryColor }"
+            >✓</text>
           </view>
         </view>
       </view>
@@ -70,48 +85,32 @@
         </view>
       </view>
 
-      <!-- 短按 + 号 -->
+      <!--
+        ★ 当前效果放在设置下方 ★
+          用户已经选完，再往下看到结果，顺序更自然。
+          卡片不用渐变、不加投影，和上面两张设置卡保持同一种材质。
+      -->
       <view class="section">
-        <text class="section-title">短按 + 号</text>
-        <view class="card">
-          <view
-            v-for="opt in actionOptions"
-            :key="opt.key"
-            class="opt-row"
-            :class="{ active: tapAction === opt.key }"
-            @click="pick('tap', opt.key)"
-          >
-            <view class="opt-icon">
-              <LineIcon
-                v-if="opt.key === 'ai'"
-                name="ai"
-                :size="20"
-                :color="primaryColor"
-              />
-              <LineIcon
-                v-else-if="opt.key === 'manual'"
-                name="plusLine"
-                :size="20"
-                :color="primaryColor"
-              />
-              <text v-else class="opt-dash">—</text>
+        <text class="section-title">当前效果</text>
+        <view class="preview-card">
+          <view class="preview-fab-wrap">
+            <view class="preview-fab" :style="{ backgroundColor: primaryColor }">
+              <text class="preview-plus">+</text>
             </view>
+          </view>
 
-            <view class="opt-info">
-              <text class="opt-name">{{ opt.name }}</text>
-              <text class="opt-desc">{{ opt.desc }}</text>
+          <view class="preview-info">
+            <view class="preview-line">
+              <text class="preview-key">短按</text>
+              <text class="preview-val">{{ tapLabel }}</text>
             </view>
-
-            <text
-              v-if="tapAction === opt.key"
-              class="opt-tick"
-              :style="{ color: primaryColor }"
-            >✓</text>
+            <view class="preview-line">
+              <text class="preview-key">长按</text>
+              <text class="preview-val">{{ holdLabel }}</text>
+            </view>
           </view>
         </view>
       </view>
-
-      <text class="page-tip">短按和长按互不影响；选择「不响应」后，该手势不会触发任何操作。修改会立即生效，无需保存。</text>
 
       <view class="bottom-space" />
     </scroll-view>
@@ -209,19 +208,17 @@ export default {
 }
 
 /*
- * ★ 顶部预览卡 ★
- *   渐变方向/阴影与账户页的概览卡同源（--app-hero-from + --app-shadow），
- *   这样它看起来像「应用里的一张卡」，而不是又一块普通设置。
+ * ★ 当前效果卡 ★
+ *   和上面两张设置卡同一种材质：--app-card + 20rpx 圆角，
+ *   不再使用渐变/投影，避免它在页面底部显得比设置项更重。
  */
 .preview-card {
   display: flex;
   align-items: center;
   gap: 28rpx;
-  margin-top: 8rpx;
-  padding: 28rpx;
-  border-radius: 24rpx;
-  background: linear-gradient(135deg, var(--app-hero-from), var(--app-card));
-  box-shadow: var(--app-shadow);
+  padding: 24rpx 28rpx;
+  border-radius: 20rpx;
+  background-color: var(--app-card);
 }
 
 .preview-fab-wrap {
@@ -238,7 +235,7 @@ export default {
  * ★ 用主题浅色光晕而不是描边 ★
  *   实际底栏上的 + 是独立悬浮圆，没有外框；
  *   这里加一圈 --app-primary-light 的光晕，既保留「悬浮」感，
- *   又能让 92rpx 的小圆在渐变卡上站得住。
+ *   又能让 92rpx 的小圆在卡片上站得住。
  */
 .preview-fab {
   width: 92rpx;
@@ -247,9 +244,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow:
-    0 0 0 12rpx var(--app-primary-light),
-    0 8rpx 24rpx rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 12rpx var(--app-primary-light);
 }
 
 .preview-plus {
@@ -266,13 +261,7 @@ export default {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10rpx;
-}
-
-.preview-kicker {
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  letter-spacing: 1rpx;
+  gap: 14rpx;
 }
 
 .preview-line {
@@ -387,13 +376,5 @@ export default {
   font-size: 30rpx;
   font-weight: 600;
   flex-shrink: 0;
-}
-
-.page-tip {
-  display: block;
-  margin: 28rpx 12rpx 0;
-  font-size: 22rpx;
-  color: var(--app-text-3);
-  line-height: 1.7;
 }
 </style>
