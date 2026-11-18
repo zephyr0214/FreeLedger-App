@@ -10,6 +10,8 @@
               <text class="summary-name">{{ tag.name }}</text>
               <text class="summary-type">标签（项目）· 共 {{ totalStats.count }} 笔交易</text>
             </view>
+            <!-- 数据统计：样式与首页「智能助手」同一个 HeaderAction -->
+            <HeaderAction @action-click="goStats">数据统计</HeaderAction>
           </view>
 
           <text class="summary-label">总结余</text>
@@ -99,14 +101,16 @@ import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
 import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { getTag, getTagTxnRange } from '@/api/tag.js'
 import { listTransactions, sumTransactions } from '@/api/transaction.js'
 import { toMonthKey, chineseDayLabel } from '@/utils/date.js'
+import { openStatsWithFilter } from '@/utils/statsFilterNav.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, UpdateDialog, DetailSummaryIcon },
+  components: { MoneyText, DetailShell, RecentTxnList, HeaderAction, UpdateDialog, DetailSummaryIcon },
   setup() {
     const settingStore = useSettingStore()
 
@@ -182,6 +186,11 @@ export default {
       uni.navigateTo({ url: `/pages/txn/list?tagId=${tagId.value}` })
     }
 
+    /** 跳统计页并只看这个标签 */
+    function goStats() {
+      openStatsWithFilter({ tagIds: [tagId.value] })
+    }
+
     function goBack() {
       uni.navigateBack()
     }
@@ -200,7 +209,7 @@ export default {
     return {
       settingStore, tag, txnList, monthStats, totalStats, tagRange, loading, notFound,
       pageStyle, tagColor, rangeText,
-      goAllTxn, goBack
+      goAllTxn, goStats, goBack
     }
   }
 }

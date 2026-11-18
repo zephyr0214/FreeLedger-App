@@ -763,6 +763,7 @@ import { formatWanYuan } from '@/utils/money.js'
 import {
   createEmptyTxnFilter, countActiveFilters, buildTxnFilterQuery
 } from '@/utils/txnFilter.js'
+import { consumeStatsFilter } from '@/utils/statsFilterNav.js'
 import { getSetting } from '@/api/settings.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 /*
@@ -1576,6 +1577,24 @@ export default {
     }
 
     /**
+     * 消费从账户/标签详情带过来的筛选条件
+     *
+     * 账户详情传 accountId，标签详情传 tagIds；
+     * 先清空旧条件再合并，避免在上一组筛选上继续叠加。
+     */
+    function applyPendingStatsFilter() {
+      const pending = consumeStatsFilter()
+      if (!pending) return
+      Object.assign(appliedFilter, createEmptyTxnFilter(), pending)
+      appliedFilter.categoryIds = Array.isArray(pending.categoryIds)
+        ? pending.categoryIds.slice()
+        : []
+      appliedFilter.tagIds = Array.isArray(pending.tagIds)
+        ? pending.tagIds.slice()
+        : []
+    }
+
+    /**
      * 读组件管理里的面板配置与食品分类
      *
      * ★ 两件事一起读 ★
@@ -1614,6 +1633,7 @@ export default {
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await loadPanelSettings()
+      applyPendingStatsFilter()
       await loadAllCategories()
       await loadAll()
       // 日趋势拖动选中要知道柱子区的屏幕位置，
@@ -1630,6 +1650,7 @@ export default {
          *   读 setting 是纯内存/一次 KV 查询，代价可以忽略。
          */
         await loadPanelSettings()
+        applyPendingStatsFilter()
         await loadAllCategories()
         await loadAll()
       }

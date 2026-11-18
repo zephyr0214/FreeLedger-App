@@ -31,6 +31,11 @@
               </view>
               <text class="bal-type">{{ account.typeName }}</text>
             </view>
+            <!-- 数据统计：样式与首页「智能助手」同一个 HeaderAction -->
+            <HeaderAction
+              v-if="!account.isCombo"
+              @action-click="goStats"
+            >数据统计</HeaderAction>
           </view>
 
           <text class="bal-label">当前余额</text>
@@ -153,6 +158,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import RecentTxnList from '@/components/RecentTxnList.vue'
 import AccountIcon from '@/components/AccountIcon.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import BalanceSheet from '@/components/BalanceSheet.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
@@ -160,11 +166,12 @@ import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
 import { listTransactions, sumTransactions, countTransactions } from '@/api/transaction.js'
 import { toMonthKey } from '@/utils/date.js'
+import { openStatsWithFilter } from '@/utils/statsFilterNav.js'
 import { backAfterAccountDelete } from '@/utils/navBack.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
-  components: { MoneyText, DetailShell, RecentTxnList, AccountIcon, BalanceSheet, AppDialog, UpdateDialog },
+  components: { MoneyText, DetailShell, RecentTxnList, AccountIcon, HeaderAction, BalanceSheet, AppDialog, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -227,6 +234,11 @@ export default {
       uni.navigateTo({ url: `/pages/account/edit?id=${accountId.value}` })
     }
 
+    /** 跳统计页并只看这个账户 */
+    function goStats() {
+      openStatsWithFilter({ accountId: accountId.value })
+    }
+
     /* ------------------------------------------------------ 余额弹层 */
 
     /** 余额修改弹层是否显示 */
@@ -285,7 +297,7 @@ export default {
       settingStore, accountId, account, txnList, totalCount, monthStats, loading,
       primaryColor, pageStyle,
       showBalanceSheet, openBalanceSheet, onBalanceSaved,
-      goEdit, goAllTxn, goBack
+      goEdit, goStats, goAllTxn, goBack
     }
   }
 }

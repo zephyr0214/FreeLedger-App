@@ -123,6 +123,15 @@ export function createPressGate(options = {}) {
   function begin(x, y) {
     pressed = true
     fired = false
+    /*
+     * ★ 新的一次按压开始时，清掉上一次长按留下的 click 屏蔽窗口 ★
+     *   平台补发的 click 一定在上一次 touchend 后立刻派发；
+     *   等下一次 touchstart 到来，说明那次补发 click 已经过去了。
+     *   如果还保留 500ms 窗口，用户长按进多选后马上点另一行，
+     *   这一下会被误判成「长按补发的 click」而丢掉 ——
+     *   表现就是「进入多选后第一次点击没反应」。
+     */
+    suppressUntil = 0
     startX = x
     startY = y
     startAt = now()

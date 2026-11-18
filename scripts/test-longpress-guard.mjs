@@ -216,8 +216,40 @@ console.log('\n=== 5b. 长按成立后又按住很久才松手：click 依然要
   check('之后的正常点击恢复', press.clickBlocked(), false)
 }
 
-console.log('\n=== 6. 抬手 / 移动 / 多指 都要撤销 ===')
+console.log('\n=== 5c. 长按后马上点另一行：新按压不受旧屏蔽窗口影响 ===')
 
+{
+  /*
+   * ★ 用户反馈 ★
+   *   「长按进入多选后，第一次点击动作无生效」。
+   *
+   * 根因：长按抬手时开的 500ms 屏蔽窗口，
+   *   把「下一下正常点击」也当成补发 click 吃掉了。
+   *   新的 touchstart 到来就说明补发 click 已经过去，
+   *   必须立刻清掉窗口。
+   */
+  const clock = fakeClock()
+  let timerFn = null
+  const press = createRowPressController({
+    now: clock.now,
+    setTimer: (fn) => { timerFn = fn; return 1 },
+    clearTimer: () => { timerFn = null },
+    onLongPress: () => {}
+  })
+
+  press.onTouchStart({ id: 'a' }, touchEvent(10, 10))
+  clock.advance(LONG_PRESS_HOLD_MS)
+  timerFn()
+  press.onTouchEnd() // 长按抬手：平台补发 click
+  check('补发 click 仍被挡', press.clickBlocked(), true)
+
+  // 用户紧接着点另一行（仍在 500ms 窗口内）
+  press.onTouchStart({ id: 'b' }, touchEvent(20, 20))
+  check('新按压不再被旧窗口屏蔽', press.clickBlocked(), false)
+  press.onTouchEnd()
+}
+
+console.log('\n=== 6. 抬手 / 移动 / 多指 都要撤销 ===')
 {
   const clock = fakeClock()
   let timerFn = null
