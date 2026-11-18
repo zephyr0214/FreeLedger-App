@@ -16,7 +16,8 @@ import {
 } from './account.js'
 import { resolveComboAccount } from '../utils/combo.js'
 import { notSettlementAdjustmentSql } from './txnFilter.js'
-import { findLoanAdjustmentsToRemove } from './loanCleanup.js'
+import { findLoanCascade } from './loanCleanup.js'
+import { findReimburseDeletePlan } from './reimburseCleanup.js'
 /*
  * ★ 只为「系统固定分类不能待报销」这一条校验而引 ★
  *   category.js 只依赖 db/index.js 与 db/schema.js，不反向依赖 transaction.js，
@@ -1041,27 +1042,91 @@ export async function deleteTransaction(id) {
    *   这是附带维护动作；查询异常时先记日志，主流水照样删。
    *   留一笔差额在库里比「用户点了删除却删不掉」危害小。
    */
-  let adjustmentIds = []
+  let loanCascade = { ids: [], accountIds: [] }
   try {
-    adjustmentIds = await findLoanAdjustmentsToRemove(existing)
+    loanCascade = await findLoanCascade(existing)
   } catch (e) {
-    console.warn('[txn] 连带清理借款差额失败:', e && e.message)
+    console.warn('[txn] 连带清理借款流水失败:', e && e.message)
+  }
+
+  /*
+   * ★ 报销单同理：删到账或任意一笔原始支出 = 整张单退回未报销 ★
+   *   到账 / 坏账 / 盈余一起删，其余原始支出退回待报销，单头软删除。
+   *   查询同样要在软删之前完成。
+   */
+  let reimbursePlan = null
+  try {
+    reimbursePlan = await findReimburseDeletePlan(existing)
+  } catch (e) {
+    console.warn('[txn] 报销单退回计算失败:', e && e.message)
   }
 
   await transaction(async () => {
     const now = Date.now()
     await execute('UPDATE txn SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
 
-    if (adjustmentIds.length > 0) {
+    if (loanCascade.ids.length > 0) {
       await execute(
         `UPDATE txn SET deleted_at = ?, updated_at = ?
-         WHERE deleted_at IS NULL AND id IN (${adjustmentIds.map(() => '?').join(',')})`,
-        [now, now, ...adjustmentIds]
+         WHERE deleted_at IS NULL AND id IN (${loanCascade.ids.map(() => '?').join(',')})`,
+        [now, now, ...loanCascade.ids]
       )
       /*
-       * 差额流水不计余额，不需要 recalc；但统计会立即少掉它们，
-       * 页面刷新后自然一致。这里不改账户余额快照。
+       * 连带删的可能是借款收回/归还（影响余额），也可能是差额（不影响）。
+       * 逐个重算它们的账户；主流水账户下面还会再算一次，重复无害。
        */
+    }
+
+    if (reimbursePlan) {
+      if (reimbursePlan.deleteIds.length > 0) {
+        await execute(
+          `UPDATE txn SET deleted_at = ?, updated_at = ?
+           WHERE deleted_at IS NULL AND id IN (${reimbursePlan.deleteIds.map(() => '?').join(',')})`,
+          [now, now, ...reimbursePlan.deleteIds]
+        )
+      }
+
+      if (reimbursePlan.revertIds.length > 0) {
+        /*
+         * 原始支出退回「待报销」：
+         *   · 状态从已报销(2) 回到待报销(1)
+         *   · 两个 exclude 标记置 1（待报销的标准状态）
+         *   · 清掉报销日/实报金额/到账账户/单据归属
+         */
+        await execute(
+          `UPDATE txn SET reimburse_status = 1,
+             exclude_from_budget = 1, exclude_from_stats = 1,
+             reimburse_day = NULL, reimburse_amount_cents = NULL,
+             reimburse_account_id = NULL, batch_id = NULL, updated_at = ?
+           WHERE deleted_at IS NULL AND id IN (${reimbursePlan.revertIds.map(() => '?').join(',')})`,
+          [now, ...reimbursePlan.revertIds]
+        )
+      }
+
+      // 单头软删除：已报销列表不再显示这张单
+      await execute(
+        'UPDATE reimburse_batch SET deleted_at = ?, updated_at = ? WHERE id = ?',
+        [now, now, existing.batch_id]
+      )
+
+      /*
+       * 到账流水被连带删除时，它的账户余额必须重算。
+       * 如果到账账户就是主流水账户，下面的 recalc 已经覆盖。
+       */
+      if (reimbursePlan.arrivalAccountId && reimbursePlan.arrivalAccountId !== existing.account_id) {
+        await recalcBalance(reimbursePlan.arrivalAccountId)
+        await writeTodaySnapshot(reimbursePlan.arrivalAccountId)
+      }
+    }
+
+    /*
+     * 连带删除的借款收回/归还可能在别的账户上，必须逐个重算；
+     * 主流水账户在下面统一重算，跳过避免重复。
+     */
+    for (const acc of loanCascade.accountIds) {
+      if (!acc || acc === existing.account_id || acc === existing.to_account_id) continue
+      await recalcBalance(acc)
+      await writeTodaySnapshot(acc)
     }
 
     await recalcBalance(existing.account_id)

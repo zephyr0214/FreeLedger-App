@@ -26,24 +26,34 @@ import { query } from './db/index.js'
 import { LOAN_CATEGORY_NAMES, LOAN_SETTLE_CATEGORY_NAMES } from './db/schema.js'
 
 /**
- * 被删除的「反向流水」-> 对应方向的主/反/正差/负差分类名
+ * 被删除的流水 -> 对应方向的主/反/正差/负差分类名
  *
- *   借款收回（借出方向）→ 借出 / 借款收回 / 借出坏账 / 借出利息
- *   借款归还（借入方向）→ 借入 / 借款归还 / 借入未还 / 借入利息
+ *   借出方向：借出 / 借款收回 / 借出坏账 / 借出利息
+ *   借入方向：借入 / 借款归还 / 借入未还 / 借入利息
+ *
+ * ★ 主方向和反方向都要映射 ★
+ *   用户要求：
+ *     · 删「借款收回/借款归还」→ 删本单差额，本金保持（本单变未结清）
+ *     · 删「借出/借入」→ 连本单的收回/归还与差额一起删，剩余本金变未结清
+ *   所以两边的分类名都要能进同一套批次计算。
  */
+const LEND_PAIR = {
+  main: LOAN_CATEGORY_NAMES.lendOut.name,
+  back: LOAN_CATEGORY_NAMES.lendBack.name,
+  positive: LOAN_SETTLE_CATEGORY_NAMES.badDebt.name,
+  negative: LOAN_SETTLE_CATEGORY_NAMES.interest.name
+}
+const BORROW_PAIR = {
+  main: LOAN_CATEGORY_NAMES.borrowIn.name,
+  back: LOAN_CATEGORY_NAMES.borrowBack.name,
+  positive: LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name,
+  negative: LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name
+}
 const PAIRS = {
-  [LOAN_CATEGORY_NAMES.lendBack.name]: {
-    main: LOAN_CATEGORY_NAMES.lendOut.name,
-    back: LOAN_CATEGORY_NAMES.lendBack.name,
-    positive: LOAN_SETTLE_CATEGORY_NAMES.badDebt.name,
-    negative: LOAN_SETTLE_CATEGORY_NAMES.interest.name
-  },
-  [LOAN_CATEGORY_NAMES.borrowBack.name]: {
-    main: LOAN_CATEGORY_NAMES.borrowIn.name,
-    back: LOAN_CATEGORY_NAMES.borrowBack.name,
-    positive: LOAN_SETTLE_CATEGORY_NAMES.borrowWaived.name,
-    negative: LOAN_SETTLE_CATEGORY_NAMES.borrowInterest.name
-  }
+  [LEND_PAIR.main]: LEND_PAIR,
+  [LEND_PAIR.back]: LEND_PAIR,
+  [BORROW_PAIR.main]: BORROW_PAIR,
+  [BORROW_PAIR.back]: BORROW_PAIR
 }
 
 function compareAsc(a, b) {
@@ -57,19 +67,35 @@ function compareAsc(a, b) {
 }
 
 /**
- * 从某个人的全部借入借出流水里，找出被删还款所在结清批次中的差额 id
+ * 从某个人的全部借入借出流水里，找出被删流水所在结清批次中要连带删除的行
  *
- * 纯函数，方便单测：不碰数据库，只做余额归零分段。
+ * ★ 删反方向（借款收回/归还）★
+ *   只删本批次的差额（坏账/利息），本金保留 → 本批次自然变成未结清。
+ *
+ * ★ 删主方向（借出/借入）★
+ *   除本批次差额外，**本批次的全部收回/归还也要删**，
+ *   剩余的主方向流水归为未结清。
+ *   如果这是本批次唯一一笔本金，删完后整单消失，
+ *   组头的「最近结清日期」自然回退到上一次结清。
+ *
+ * 纯函数，不碰数据库。
  *
  * @param {Array<object>} txns 该人员、该方向四类分类下的全部流水（可乱序）
  * @param {{mainId:string, backId:string, positiveId:string, negativeId:string}} pair
- * @param {string} deletedId 被删除的借款收回/借款归还 id
- * @returns {string[]} 需要一起软删除的差额流水 id
+ * @param {string} deletedId 被删除的流水 id
+ * @returns {Array<object>} 需要一起软删除的流水行
  */
-export function episodeAdjustmentIds(txns, pair, deletedId) {
+export function episodeCleanupRows(txns, pair, deletedId) {
   const list = (Array.isArray(txns) ? txns : []).slice().sort(compareAsc)
   const p = pair || {}
   if (!p.mainId && !p.backId && !p.positiveId && !p.negativeId) return []
+
+  const deleted = list.find((t) => t.id === deletedId)
+  if (!deleted) return []
+
+  const isMain = deleted.category_id === p.mainId
+  const isBack = deleted.category_id === p.backId
+  if (!isMain && !isBack) return []
 
   const deltaOf = (t) => {
     const amt = Number(t && t.amount_cents) || 0
@@ -92,29 +118,36 @@ export function episodeAdjustmentIds(txns, pair, deletedId) {
     // 一段余额回到 0 的结清批次 [start, i]
     const seg = list.slice(start, i + 1)
     if (!seg.some((t) => t.id === deletedId)) continue
-    return seg
-      .filter((t) => t.id !== deletedId)
-      .filter((t) => t.category_id === p.positiveId || t.category_id === p.negativeId)
-      .map((t) => t.id)
+
+    const extras = seg.filter((t) => t.id !== deletedId)
+    const isAdjustment = (t) => t.category_id === p.positiveId || t.category_id === p.negativeId
+    if (isBack) return extras.filter(isAdjustment)
+    // 删本金：本批次的收回/归还 + 差额一起删；其余本金保留
+    return extras.filter((t) => t.category_id === p.backId || isAdjustment(t))
   }
 
-  // 被删还款所在段没有归零（没结清）→ 没有对应差额
+  // 被删流水所在段没有归零（没结清）→ 没有需要连带清理的差额/收回
   return []
 }
 
+/** 只取 id 的便捷包装（测试与调用方读日志用） */
+export function episodeCleanupIds(txns, pair, deletedId) {
+  return episodeCleanupRows(txns, pair, deletedId).map((t) => t.id)
+}
+
 /**
- * 查询并返回要连带删除的差额流水
+ * 查询并返回要连带删除的流水
  *
  * @param {object} txn getTransaction() 返回的行（含 category_name / note / id）
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ids:string[], accountIds:string[]}>}
  */
-export async function findLoanAdjustmentsToRemove(txn) {
+export async function findLoanCascade(txn) {
   const name = String((txn && txn.category_name) || '')
   const def = PAIRS[name]
-  if (!def) return []
+  if (!def) return { ids: [], accountIds: [] }
 
   const person = String((txn && txn.note) || '').trim()
-  if (!person) return []
+  if (!person) return { ids: [], accountIds: [] }
 
   const names = [def.main, def.back, def.positive, def.negative]
   const cats = await query(
@@ -131,15 +164,19 @@ export async function findLoanAdjustmentsToRemove(txn) {
     negativeId: byName[def.negative] || ''
   }
   const ids = [pair.mainId, pair.backId, pair.positiveId, pair.negativeId].filter(Boolean)
-  if (!pair.backId || (!pair.positiveId && !pair.negativeId)) return []
+  if (!pair.mainId || !pair.backId) return { ids: [], accountIds: [] }
 
   const rows = await query(
-    `SELECT id, category_id, amount_cents, occurred_at, created_at
+    `SELECT id, category_id, amount_cents, occurred_at, created_at, account_id
      FROM txn
      WHERE deleted_at IS NULL AND TRIM(note) = ?
        AND category_id IN (${ids.map(() => '?').join(',')})`,
     [person, ...ids]
   )
 
-  return episodeAdjustmentIds(rows, pair, txn.id)
+  const cascade = episodeCleanupRows(rows, pair, txn.id)
+  return {
+    ids: cascade.map((t) => t.id),
+    accountIds: Array.from(new Set(cascade.map((t) => t.account_id).filter(Boolean)))
+  }
 }

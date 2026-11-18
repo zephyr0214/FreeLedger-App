@@ -201,8 +201,8 @@ check(
  *   这几条最容易在「顺手加回来」时被破坏，所以用断言挡住。
  */
 check('不再有「全部流水 / 借入 / 借款归还」三 tab', /全部流水/.test(PAGE), false)
-check('右上角不再有「记一笔」', /nav-add/.test(PAGE), false)
-check('不再直接用 TxnPanel（这页不记账）', /<TxnPanel/.test(PAGE), false)
+check('右上角不再用旧 nav-add 按钮', /nav-add/.test(PAGE), false)
+check('右上角快捷记账用 TxnPanel', /<TxnPanel/.test(PAGE), true)
 
 /*
  * ★ 结清按钮只在借出方向 ★

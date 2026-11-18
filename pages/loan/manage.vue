@@ -3,11 +3,18 @@
     <!--
       标题随类型变化：借出管理 / 借入管理
 
-      ★ 右上角没有「记一笔」★
-        用户要求去掉。这一页回答的是「谁欠我多少」，
-        不是「记流水」；要记一笔走首页的记账面板。
+      ★ 右上角快捷记账（用户本轮要求）★
+        借出页 → 「借款收回」，借入页 → 「借款归还」，
+        点开直接落在对应分类的记账面板，用户只需填人员和金额。
+        样式复用首页「智能助手」的 HeaderAction 胶囊。
     -->
-    <PageNav :title="pageTitle" @back="goBack" />
+    <PageNav :title="pageTitle" @back="goBack">
+      <template #right>
+        <HeaderAction @action-click="openBackPanel">
+          {{ isIncome ? '借款归还' : '借款收回' }}
+        </HeaderAction>
+      </template>
+    </PageNav>
 
     <scroll-view class="page-scroll" scroll-y>
       <!--
@@ -122,11 +129,11 @@
                 >{{ balanceText(g) }}</text>
               </view>
 
-              <!-- 已结清：大字下方显示最近结清日期，不再写「账目已平」 -->
+              <!-- 已结清：大字下方只显示最近结清日期 -->
               <text
                 v-if="g.settled && g.lastClosingDay"
                 class="person-settled-date"
-              >最近结清 {{ g.lastClosingDay }}</text>
+              >{{ g.lastClosingDay }}</text>
 
               <!--
                 ★ 手动结清：两个方向都有，只要还没平账 ★
@@ -289,6 +296,13 @@
       </view>
     </scroll-view>
 
+    <!-- 快捷记一笔：借款收回 / 借款归还 -->
+    <TxnPanel
+      v-model="showPanel"
+      :preset="panelPreset"
+      @saved="onPanelSaved"
+    />
+
     <!-- 全局弹窗宿主 -->
     <AppDialog />
 
@@ -340,17 +354,20 @@
 import { ref, reactive, computed } from 'vue'
 import { onLoad, onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import DetailSummaryIcon from '@/components/DetailSummaryIcon.vue'
+import TxnPanel from '@/components/TxnPanel.vue'
 import TxnIcon from '@/components/TxnIcon.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
   LOAN_DIRECTIONS, listLoanGroups, settleLoanPerson, buildLoanEpisodeView,
   isLoanPrincipalCategory, loanAdjustmentText
 } from '@/api/loan.js'
+import { ensurePresetCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { handleBackPress } from '@/utils/layerStack.js'
@@ -358,12 +375,16 @@ import { alertDialog, confirmDialog } from '@/utils/dialog.js'
 import { formatTime, shortDateWithYear } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, MoneyText, EmptyState, AppDialog, UpdateDialog, DetailSummaryIcon, TxnIcon },
+  components: { PageNav, HeaderAction, MoneyText, EmptyState, AppDialog, UpdateDialog, DetailSummaryIcon, TxnPanel, TxnIcon },
   setup() {
     const settingStore = useSettingStore()
 
     /** 'expense' = 借出管理，'income' = 借入管理 */
     const loanType = ref('expense')
+
+    /** 右上角快捷记账面板 */
+    const showPanel = ref(false)
+    const panelPreset = ref(null)
 
     /** 'open' 未结清 / 'settled' 已结清 */
     const status = ref('open')
@@ -876,6 +897,38 @@ export default {
         : `对方多还了 ¥${yuan}，将记为「借出利息」收入，计入收支。`
     }
 
+    /**
+     * 右上角快捷记账
+     *
+     * ★ 借出页记「借款收回」，借入页记「借款归还」★
+     *   两者都是反向流水，人员仍需用户在面板里填/选；
+     *   这里只负责把类型和分类预置好，省掉从分类树里翻半天。
+     */
+    async function openBackPanel() {
+      if (showPanel.value) return
+      try {
+        const cats = await ensurePresetCategories()
+        const categoryId = isIncome.value ? cats.borrowBackId : cats.lendBackId
+        if (!categoryId) throw new Error('借款分类未就绪，请重启应用后重试')
+        panelPreset.value = {
+          type: isIncome.value ? 'expense' : 'income',
+          category_id: categoryId,
+          note: ''
+        }
+        showPanel.value = true
+      } catch (e) {
+        alertDialog({
+          title: '无法打开记账面板',
+          content: (e && e.message) || '请稍后重试'
+        })
+      }
+    }
+
+    /** 面板保存后刷新本页分组 */
+    function onPanelSaved() {
+      load()
+    }
+
     function goBack() {
       uni.navigateBack()
     }
@@ -911,6 +964,7 @@ export default {
       badgesOf, isLoanPrincipalCategory,
       // 结清批次分段：episodeViewOf 给出「分段 + 折叠 / 分割标注」的展示规则
       episodeViewOf, episodeTxns, toggleEpisode,
+      showPanel, panelPreset, openBackPanel, onPanelSaved,
       switchStatus, onSettle, goBack
     }
   }

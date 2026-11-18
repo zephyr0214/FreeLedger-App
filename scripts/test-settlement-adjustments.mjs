@@ -24,7 +24,8 @@ import {
 import { buildFilterWhere } from '../api/transaction.js'
 import { DEFAULT_SETTINGS } from '../api/settings.js'
 import { splitLoanEpisodes, buildLoanEpisodeView } from '../api/loan.js'
-import { episodeAdjustmentIds } from '../api/loanCleanup.js'
+import { episodeCleanupIds } from '../api/loanCleanup.js'
+import { reimburseDeletePlan } from '../api/reimburseCleanup.js'
 
 let pass = 0
 let fail = 0
@@ -85,7 +86,8 @@ check('sumByDay 每日小计包含差额', /sumByDay[\s\S]{0,900}?buildFilterWhe
 check('全部交易页每日小计用 sumByDay', /sumByDay/.test(read('pages/txn/list.vue')), true)
 check('countTransactions 隐藏差额', /countTransactions[\s\S]{0,400}?hideAdjustments:\s*true/.test(txnSrc), true)
 check('交易详情也过滤差额', /getTransaction[\s\S]{0,900}?notSettlementAdjustmentSql\('t'\)/.test(txnSrc), true)
-check('删除借款收回/归还时连带清理差额', /findLoanAdjustmentsToRemove/.test(txnSrc), true)
+check('删除借款收回/归还时连带清理差额', /findLoanCascade/.test(txnSrc), true)
+check('删除报销流水时整单退回', /findReimburseDeletePlan/.test(txnSrc), true)
 check('统计页不隐藏差额', /buildFilterWhere\(r\)/.test(read('api/stats.js')), true)
 check('余额重算排除差额', /recalcBalance[\s\S]{0,1200}?notSettlementAdjustmentSql\('t'\)/.test(accountSrc), true)
 check('直接改余额也排除差额', /setAccountBalanceDirect[\s\S]{0,1200}?notSettlementAdjustmentSql\('t'\)/.test(accountSrc), true)
@@ -137,13 +139,13 @@ const ep1 = [
   loanRow('b1', 'b', 400, '2026-01-08', 11),
   loanRow('p1', 'p', 100, '2026-01-08', 12)
 ]
-check('删少还的收回 -> 连带删坏账', episodeAdjustmentIds(ep1, PAIR, 'b1'), ['p1'])
+check('删少还的收回 -> 连带删坏账', episodeCleanupIds(ep1, PAIR, 'b1'), ['p1'])
 
 const exact = [
   loanRow('m2', 'm', 500, '2026-02-01'),
   loanRow('b2', 'b', 500, '2026-02-02')
 ]
-check('刚好还清 -> 没有差额可删', episodeAdjustmentIds(exact, PAIR, 'b2'), [])
+check('刚好还清 -> 没有差额可删', episodeCleanupIds(exact, PAIR, 'b2'), [])
 
 const twoEpisodes = [
   // 第一轮：少还 100，结清
@@ -154,14 +156,54 @@ const twoEpisodes = [
   loanRow('m4', 'm', 300, '2026-03-10'),
   loanRow('b4', 'b', 300, '2026-03-11')
 ]
-check('删第一轮收回 -> 只删第一轮坏账', episodeAdjustmentIds(twoEpisodes, PAIR, 'b3'), ['p3'])
-check('删第二轮收回 -> 不误删上一轮坏账', episodeAdjustmentIds(twoEpisodes, PAIR, 'b4'), [])
+check('删第一轮收回 -> 只删第一轮坏账', episodeCleanupIds(twoEpisodes, PAIR, 'b3'), ['p3'])
+check('删第二轮收回 -> 不误删上一轮坏账', episodeCleanupIds(twoEpisodes, PAIR, 'b4'), [])
 
 const open = [
   ...twoEpisodes,
   loanRow('m5', 'm', 200, '2026-03-20')
 ]
-check('删未结清段的收回 -> 没有差额', episodeAdjustmentIds(open, PAIR, 'b4'), [])
+check('删未结清段的收回 -> 没有差额', episodeCleanupIds(open, PAIR, 'b4'), [])
+
+/*
+ * 删本金：本单的收回/归还 + 差额一起删，剩余本金变为未结清。
+ */
+check('删唯一本金 -> 本单收回和坏账一起删', episodeCleanupIds(ep1, PAIR, 'm1'), ['b1', 'p1'])
+
+const multiMain = [
+  loanRow('mm1', 'm', 300, '2026-04-01'),
+  loanRow('mm2', 'm', 200, '2026-04-01', 13),
+  loanRow('mb1', 'b', 500, '2026-04-02')
+]
+check('删部分本金 -> 收回一起删，其余本金保留', episodeCleanupIds(multiMain, PAIR, 'mm1'), ['mb1'])
+check('删另一笔部分本金 -> 同样清本单收回', episodeCleanupIds(multiMain, PAIR, 'mm2'), ['mb1'])
+
+console.log('=== 删除报销单流水时整单退回 ===')
+
+const BATCH_ROWS = [
+  { id: 'r1', batch_id: 'bt1', account_id: 'acc1', reimburse_status: 2, category_name: '餐饮' },
+  { id: 'r2', batch_id: 'bt1', account_id: 'acc1', reimburse_status: 2, category_name: '打车' },
+  { id: 'r3', batch_id: 'bt1', account_id: 'acc1', reimburse_status: 0, category_name: '报销到账' },
+  { id: 'r4', batch_id: 'bt1', account_id: 'acc1', reimburse_status: 0, category_name: '报销坏账' }
+]
+const original1 = BATCH_ROWS[0]
+const arrival = BATCH_ROWS[2]
+
+const plan1 = reimburseDeletePlan(original1, BATCH_ROWS)
+check('删原始支出：删到账+坏账', plan1.deleteIds.sort(), ['r3', 'r4'])
+check('删原始支出：其余原始支出退回待报销', plan1.revertIds, ['r2'])
+check('删原始支出：到账账户带回', plan1.arrivalAccountId, 'acc1')
+
+const plan2 = reimburseDeletePlan(arrival, BATCH_ROWS)
+check('删到账：删坏账', plan2.deleteIds, ['r4'])
+check('删到账：全部原始支出退回待报销', plan2.revertIds.sort(), ['r1', 'r2'])
+
+check('普通无单流水不做整单退回', reimburseDeletePlan({
+  id: 'x', batch_id: null, reimburse_status: 2, category_name: '餐饮'
+}, []), null)
+check('单内非到账/非原始流水不做整单退回', reimburseDeletePlan({
+  id: 'r4', batch_id: 'bt1', reimburse_status: 0, category_name: '报销坏账'
+}, BATCH_ROWS), null)
 
 console.log('=== 页面接线 ===')
 
@@ -177,11 +219,16 @@ check('借入借出组头用 personSub', /personSub\(g\)/.test(loanPage), true)
 check('已结清不再写「借还已平」', /借还已平/.test(loanPageNoComments), false)
 check('已结清不再写「账目已平」', /账目已平/.test(loanPageNoComments), false)
 check('已结清大字下方显示最近结清日期', /lastClosingDay/.test(loanPage) && /person-settled-date/.test(loanPage), true)
+check('日期前不写「最近结清」', /最近结清/.test(loanPageNoComments), false)
 check('人名下方显示坏账/利息金额', /loanAdjustmentText/.test(loanPage) && /adjustmentList/.test(loanPage), true)
 check('API 分段标注可追加差额金额', /adjustmentTextOfTxns/.test(loanSrc), true)
 check('借入借出明细优先 displayTxns', /Array\.isArray\(ep\.displayTxns\)/.test(loanPage), true)
 check('API 生成 adjustmentList', /g\.adjustmentList\s*=/.test(loanSrc), true)
 check('API 生成最近结清日期', /g\.lastClosingDay\s*=/.test(loanSrc), true)
+check('借出借入右上角快捷按钮', /HeaderAction/.test(loanPage) && /openBackPanel/.test(loanPage), true)
+check('快捷按钮文案随方向切换', /isIncome \? '借款归还' : '借款收回'/.test(loanPage), true)
+check('借出借入页挂记账面板', /<TxnPanel/.test(loanPage), true)
+check('快捷记账预置收回/归还分类', /borrowBackId/.test(loanPage) && /lendBackId/.test(loanPage), true)
 check('API 生成 displayTxns', /g\.displayTxns\s*=/.test(loanSrc), true)
 check('报销单头显示完整年月日', /年\$\{Number\(m\)\}月\$\{Number\(d\)\}日/.test(reimbursePage), true)
 check('报销单头显示多/少报', /batchDiff\(b\)\.label/.test(reimbursePage), true)
