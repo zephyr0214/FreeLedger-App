@@ -164,7 +164,7 @@ function extractPropNames(script) {
     .slice(start + 1, j)
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
-    .map((l) => l.replace(/^\s*\/\/.*$/, ''))
+    .map((l) => l.replace(/^\s*\/\/[\s\S]*$/, ''))
     .join('\n')
 
   let d = 0
@@ -338,7 +338,7 @@ function extractReturnedNames(body, out) {
         .slice(start, k)
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .split('\n')
-        .map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1'))
+        .map((l) => l.replace(/(^|[^:])\/\/[\s\S]*$/, '$1'))
         .join('\n')
 
       // 拆顶层逗号
