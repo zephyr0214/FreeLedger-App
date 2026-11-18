@@ -238,6 +238,39 @@ const FALLBACK_DEF = {
   paths: [circlePath(12, 12, 4)]
 }
 
+/**
+ * 填充图标的视觉尺寸归一
+ *
+ * ★ 为什么要单独一张表 ★
+ *   这 18 个图标来自不同来源，虽然都装在 1024 视图里，
+ *   但图形四周留白差别很大：主题调色盘只占 683，标签却占满 1049。
+ *   直接同尺寸渲染会出现「有的顶满格子、有的缩在中间」。
+ *
+ *   这里按每个图形实际 path 包围盒（Chrome getBBox 量出来）重新裁一个
+ *   正方形 viewBox：最长边固定占 90%，图形居中，其余留白自动补足。
+ *   这样同一 `size` 下，所有填充图标的视觉大小一致。
+ */
+const FILLED_VIEWBOX = {
+  category: '11.15 -53.36 1067.23 1067.23',
+  rate: '14.01 14.11 995.89 995.89',
+  budget: '46.24 15.04 995.11 995.11',
+  tag: '-58.23 -70.67 1165.24 1165.24',
+  'loan-in': '-14.62 -12.74 1053.58 1053.58',
+  'loan-out': '14.23 14.16 995.59 995.59',
+  cycle: '37.92 37.92 948.14 948.14',
+  reimburse: '31.67 17.67 986.67 986.67',
+  plus: '-56.9 -56.89 1137.79 1137.79',
+  ai: '-56.89 -110.22 1137.78 1137.78',
+  stats: '14.22 14.22 995.56 995.56',
+  theme: '132.74 132.74 758.52 758.52',
+  data: '14.22 14.22 995.56 995.56',
+  about: '20.34 16.09 991.82 991.82',
+  update: '6.14 6.14 1014.91 1014.91',
+  auto: '42.41 37.91 948.22 948.22',
+  sun: '56.32 56.32 911.36 911.36',
+  moon: '34.36 56.89 910.22 910.22'
+}
+
 /** 所有可用的图标 key */
 export const LINE_ICON_KEYS = Object.keys(ICON_DEFS)
 
@@ -291,9 +324,10 @@ export function lineIconSvg(key, opts = {}) {
   const paint = def.filled
     ? `fill="${color}"`
     : `fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"`
+  const viewBox = def.filled ? (FILLED_VIEWBOX[key] || def.viewBox) : def.viewBox
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${def.viewBox}" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" ` +
     `width="${size}" height="${size}" ${paint}>` +
     body +
     `</svg>`
