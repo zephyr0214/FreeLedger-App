@@ -9,7 +9,10 @@
     <view class="more-sheet">
       <view class="more-sheet-head">
         <text class="more-sheet-title">选择分类</text>
-        <text class="more-sheet-close" @click="close">关闭</text>
+        <view class="more-sheet-actions">
+          <text class="more-sheet-add" @click="openAddRoot">+ 添加分类</text>
+          <text class="more-sheet-close" @click="close">关闭</text>
+        </view>
       </view>
 
       <scroll-view class="more-sheet-scroll" scroll-y>
@@ -63,12 +66,12 @@
     </view>
   </wd-popup>
 
-  <!-- 添加子类：复用分类管理页同一个编辑弹层，叠在分类面板之上 -->
+  <!-- 新建分类 / 添加子类：复用分类管理页同一个编辑弹层，叠在分类面板之上 -->
   <CategoryEditorSheet
-    v-model="showChildEditor"
-    :parent="childParent"
-    :type="childParent ? childParent.type : 'expense'"
-    @saved="onChildSaved"
+    v-model="showEditor"
+    :parent="editorParent"
+    :type="editorParent ? editorParent.type : type"
+    @saved="onCategorySaved"
   />
 </template>
 
@@ -112,7 +115,9 @@ export default {
     /** 当前类型下的全部分类（用来找一级分类） */
     allCategories: { type: Array, default: () => [] },
     /** 当前选中的分类 id */
-    selectedId: { type: String, default: '' }
+    selectedId: { type: String, default: '' },
+    /** 新建一级分类时的收支类型 */
+    type: { type: String, default: 'expense' }
   },
   emits: ['update:modelValue', 'pick-category', 'category-created'],
   setup(props, { emit }) {
@@ -124,9 +129,9 @@ export default {
       set: (v) => emit('update:modelValue', v)
     })
 
-    /** 添加子类弹层：父级 + 开关 */
-    const showChildEditor = ref(false)
-    const childParent = ref(null)
+    /** 分类编辑弹层：parent 为空 = 新建一级分类，有值 = 添加子类 */
+    const showEditor = ref(false)
+    const editorParent = ref(null)
 
     /**
      * 分组结果。
@@ -156,12 +161,18 @@ export default {
 
     function openAddChild(parent) {
       if (!canAddChild(parent)) return
-      childParent.value = parent
-      showChildEditor.value = true
+      editorParent.value = parent
+      showEditor.value = true
     }
 
-    function onChildSaved(category) {
-      showChildEditor.value = false
+    /** 新建一级分类 */
+    function openAddRoot() {
+      editorParent.value = null
+      showEditor.value = true
+    }
+
+    function onCategorySaved(category) {
+      showEditor.value = false
       emit('category-created', category)
     }
 
@@ -211,9 +222,9 @@ export default {
           }
           return
         }
-        // 选择面板关闭时，叠在上面的添加子类弹层也一起收起
-        showChildEditor.value = false
-        childParent.value = null
+        // 选择面板关闭时，叠在上面的新建 / 添加子类弹层也一起收起
+        showEditor.value = false
+        editorParent.value = null
         if (unregisterLayer) {
           unregisterLayer()
           unregisterLayer = null
@@ -230,7 +241,7 @@ export default {
 
     return {
       visible, sections, primaryColor,
-      showChildEditor, childParent, canAddChild, openAddChild, onChildSaved,
+      showEditor, editorParent, canAddChild, openAddChild, openAddRoot, onCategorySaved,
       iconStyle, groupIconStyle, onPick, close
     }
   }
@@ -258,6 +269,20 @@ export default {
   font-size: 30rpx;
   font-weight: 600;
   color: var(--app-text);
+}
+
+.more-sheet-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  flex-shrink: 0;
+}
+
+.more-sheet-add {
+  font-size: 26rpx;
+  color: var(--app-primary);
+  font-weight: 500;
 }
 
 .more-sheet-close {

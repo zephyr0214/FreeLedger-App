@@ -379,6 +379,7 @@ console.log('\n=== 选择分类面板：组头与添加子类 ===')
   const read = (p) => readFileSync(join(ROOT, p), 'utf-8')
 
   const picker = read('components/CategoryPickerSheet.vue')
+  const multiPicker = read('components/CategoryMultiPickerSheet.vue')
   const editor = read('components/CategoryEditorSheet.vue')
   const txnPanel = read('components/TxnPanel.vue')
   const cyclePanel = read('components/CyclePanel.vue')
@@ -392,8 +393,22 @@ console.log('\n=== 选择分类面板：组头与添加子类 ===')
     /function canAddChild/.test(picker) && /parent\.parent_id/.test(picker) && /isFixedCategory/.test(picker),
     true
   )
+  check('顶部右侧有「添加分类」', /class="more-sheet-add"/.test(picker) && /添加分类/.test(picker), true)
+  check(
+    '添加一级分类打开无父级的编辑弹层',
+    /function openAddRoot/.test(picker) && /editorParent\.value\s*=\s*null/.test(picker),
+    true
+  )
+  check('记账面板把当前收支类型传给分类面板', /:type="form\.type"/.test(txnPanel), true)
+  check('周期面板把当前收支类型传给分类面板', /:type="form\.type"/.test(cyclePanel), true)
   check('添加子类复用 CategoryEditorSheet', /<CategoryEditorSheet/.test(picker), true)
   check('添加成功通知外层刷新分类', /emit\('category-created'/.test(picker), true)
+
+  check(
+    '全部交易筛选：无子类一级分类也显示组标题',
+    /title:\s*root\.name/.test(multiPicker),
+    true
+  )
 
   check('编辑器支持新建与编辑', /createCategory\(/.test(editor) && /updateCategory\(/.test(editor), true)
   check(

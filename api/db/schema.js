@@ -214,6 +214,8 @@ export const LOAN_CATEGORY_NAMES = {
  *
  * 借入借出/报销的结清与差额分类：它们的金额、账户、备注都是
  * 结算逻辑算出来的，用户手动记或让 AI 记都会把那套自动计算搞乱。
+ * 另外「对账支出 / 对账收入」也只能由修改账户余额时自动生成，
+ * 手动记账/AI 速记选到会让对账口径和流水对不上。
  * 所以记账面板与 AI 侧统一用这个清单过滤掉它们（用户要求第 9 条）。
  *
  * ★ 为什么定义在 schema.js ★
@@ -222,7 +224,9 @@ export const LOAN_CATEGORY_NAMES = {
  */
 export const INTERNAL_ONLY_CATEGORY_NAMES = [
   '借入利息', '借出坏账', '借出利息', '借入未还',
-  '报销坏账', '报销盈余', '报销到账'
+  '报销坏账', '报销盈余', '报销到账',
+  ...RECONCILE_CATEGORIES.map((c) => c.name),
+  RECONCILE_LEGACY_NAME
 ]
 
 /**

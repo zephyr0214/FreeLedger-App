@@ -33,8 +33,9 @@
         <view v-for="g in groups" :key="g.key" class="multi-group">
           <!--
             分组标题：一级分类名
-            自己没有二级分类的一级分类（「娱乐」这类）不显示标题 ——
-            标题和下面那一项同名，重复一遍反而啰嗦。
+            ★ 没有二级分类的一级分类也显示标题（用户要求）★
+              它和有子类的组一样，左上角要能看到一级分类名；
+              下面那一项仍然可勾选，标题只负责分组和「全选」。
           -->
           <!--
             ★ 分组标题可以点：一键全选 / 全不选这一组 ★
@@ -254,7 +255,7 @@ export default {
         if (kids.length === 0) {
           out.push({
             key: root.id,
-            title: '',
+            title: root.name,
             members: [{
               id: root.id,
               label: root.name,

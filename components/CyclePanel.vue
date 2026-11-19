@@ -332,6 +332,7 @@
       :categories="allCategoryItems"
       :all-categories="categories"
       :selected-id="form.category_id"
+      :type="form.type"
       @pick-category="pickCategoryFromMore"
       @category-created="onCategoryCreated"
     />

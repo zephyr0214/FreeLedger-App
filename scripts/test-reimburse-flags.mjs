@@ -251,8 +251,38 @@ check(
 )
 
 const SCHEMA = read('api/db/schema.js')
-for (const n of ['借入利息', '借出坏账', '借出利息', '借入未还', '报销坏账', '报销盈余']) {
+for (const n of ['借入利息', '借出坏账', '借出利息', '借入未还', '报销坏账', '报销盈余', '对账支出', '对账收入']) {
   check(`清单含「${n}」`, new RegExp(`'${n}'`).test(SCHEMA), true)
+}
+
+/*
+ * 对账分类只能由「修改账户余额」自动生成：
+ * 手动面板与 AI 速记都必须选不到。
+ */
+{
+  const { isInternalOnlyCategory, isSelectableCategory } = await import('../utils/categorySort.js')
+  const { buildCategoryOptions, matchCategory } = await import('../api/aiParse.js')
+  check('对账支出被判定为内部口径', isInternalOnlyCategory({ name: '对账支出' }), true)
+  check('对账收入被判定为内部口径', isInternalOnlyCategory({ name: '对账收入' }), true)
+  check(
+    '手动分类不可选对账支出',
+    isSelectableCategory(
+      { id: 'r1', name: '对账支出', type: 'expense', parent_id: 'sys' },
+      [{ id: 'sys', name: '系统分类', type: 'expense', parent_id: null, isParent: true }]
+    ),
+    false
+  )
+  const cats = [
+    { id: 'sys', name: '系统分类', type: 'expense', parent_id: null },
+    { id: 'r1', name: '对账支出', type: 'expense', parent_id: 'sys' },
+    { id: 'r2', name: '对账收入', type: 'income', parent_id: null },
+    { id: 'food', name: '餐饮食品', type: 'expense', parent_id: null },
+    { id: 'lunch', name: '午餐', type: 'expense', parent_id: 'food' }
+  ]
+  const opts = buildCategoryOptions(cats)
+  check('AI 候选不含对账支出', opts.some((o) => o.label === '对账支出'), false)
+  check('AI 候选不含对账收入', opts.some((o) => o.label === '对账收入'), false)
+  check('AI 命中对账支出时不采信', matchCategory('对账支出', cats), null)
 }
 
 check('AI 候选分类过滤内部口径（一级）', /if \(!isInternalOnlyCategory\(p\.name\)\)/.test(AIPARSE), true)
