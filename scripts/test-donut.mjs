@@ -234,6 +234,21 @@ const items = [
   check('极小扇区不标注', svg.includes('微尘'), false)
 }
 
+/*
+ * ★ 分类名里的 XML 特殊字符必须转义 ★
+ *   分类名是用户输入；直接拼进 <text> 会让整个 SVG 解析失败，
+ *   环形图变成一块空白。
+ */
+{
+  const svg = buildDonutSvg([
+    { name: 'A&B', amount: 6000, color: '#111' },
+    { name: '<C>', amount: 4000, color: '#222' }
+  ], { total: 10000 })
+  check('& 被转义', svg.includes('A&amp;B'), true)
+  check('< > 被转义', svg.includes('&lt;C&gt;'), true)
+  check('没有裸的 <C> 标签', svg.includes('<C>'), false)
+}
+
 // 与 svgToDataUri 一致
 {
   check('donutToDataUri 与 svgToDataUri 一致',

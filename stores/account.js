@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import {
   listAccounts, listAccountsGrouped, getTotalAssets, getTotalDebt, getAssetOverview,
-  createAccount, updateAccount, deleteAccount, getAccount, recalcAllBalances
+  createAccount, updateAccount, deleteAccount, getAccount
 } from '@/api/account.js'
 
 /**
@@ -168,13 +168,6 @@ export const useAccountStore = defineStore('account', {
       const cached = this.list.find((a) => a.id === id)
       if (cached) return cached
       return getAccount(id)
-    },
-
-    async repair() {
-      const n = await recalcAllBalances()
-      await this.refresh()
-      notifyAccountChanged()
-      return n
     }
   }
 })

@@ -286,6 +286,54 @@ console.log('=== 统计页刷新成本 ===')
   check('列表徽标缓存', /const badgeMap = computed/.test(list), true)
 }
 
+/* ------------------------------------------ 10. 导入/迁移/预算/备份 */
+
+console.log('=== 导入与迁移的原子性 ===')
+
+{
+  const backup = read('api/backup.js')
+  check('覆盖导入清空在事务内', /truncateAll\(\{\s*inTransaction:\s*true/.test(backup), true)
+  check('seed 在事务内', /seedDefaultCategories\(\{\s*inTransaction:\s*true/.test(backup), true)
+  check('设置写入不再嵌套事务', /setSettingsInTransaction/.test(backup), true)
+  check('导入前备份失败会中止', /导入前自动备份失败，已取消导入/.test(backup), true)
+
+  const settings = read('api/settings.js')
+  check('提供不启事务的批量写', /export async function setSettingsInTransaction/.test(settings), true)
+
+  const db = read('api/db/index.js')
+  check('truncateAll 支持 inTransaction', /truncateAll\(opt\)/.test(db), true)
+  check('truncateAll 不再写 user_version', /truncateAll[\s\S]{0,2500}?writeUserVersion/.test(db), false)
+  check('迁移失败 break', /catch\s*\(e\)\s*\{[\s\S]{0,900}?break/.test(db), true)
+}
+
+console.log('=== 备份版本与保留份数 ===')
+
+{
+  const backup = read('api/backup.js')
+  check('备份版本跟随 SCHEMA_VERSION', /BACKUP_SCHEMA_VERSION = SCHEMA_VERSION/.test(backup), true)
+  check('自动备份保留 10 份', /MAX_AUTO_BACKUPS = 10/.test(backup), true)
+}
+
+console.log('=== 预算区间按已过天数折算 ===')
+
+{
+  const stats = read('api/stats.js')
+  check('存在月份折算函数', /const monthFraction = \(mk\)/.test(stats), true)
+  check('额度按 units 折算', /const limit = Math\.round\(monthly \* units\)/.test(stats), true)
+  check('baseLimit 仍是完整月额度', /baseLimit: monthly \* effective\.length/.test(stats), true)
+  check('单日区间总天数为 1', /return \{ total: 1, passed/.test(stats), true)
+}
+
+console.log('=== 隐私模式与手动重算已删除 ===')
+
+{
+  check('设置里没有隐私模式', /privacyMode/.test(read('api/settings.js')), false)
+  check('store 里没有隐私模式', /privacyMode/.test(read('stores/setting.js')), false)
+  check('MoneyText 没有脱敏分支', /forceMask|masked/.test(read('components/MoneyText.vue')), false)
+  check('数据页没有重算入口', /重算所有账户余额/.test(read('pages/settings/data.vue')), false)
+  check('account store 没有 repair', /async repair\(/.test(read('stores/account.js')), false)
+}
+
 /* ------------------------------------------------------------ 汇总 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

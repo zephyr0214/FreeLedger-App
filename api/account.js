@@ -954,7 +954,15 @@ export async function recalcBalance(accountId) {
   return balance
 }
 
-/** 重算所有账户（设置页的"修复数据"工具） */
+/**
+ * 重算所有账户。
+ *
+ * ★ 只保留给「备份恢复」用 ★
+ *   设置页的「重算所有账户余额」工具、启动时的一次性修正、Pinia 的
+ *   repair action 都已删除。恢复备份后仍要重算一次，因为备份里的
+ *   balance_cents 是导出时的缓存，可能和流水不一致；这是导入链路的
+ *   数据完整性步骤，不是用户可触发的维护工具。
+ */
 export async function recalcAllBalances() {
   const accounts = await listAccounts(true)
   /*

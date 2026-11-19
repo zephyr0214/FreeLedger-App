@@ -225,8 +225,13 @@ check('有立即备份', /onManualBackup/.test(data), true)
 
 console.log('=== 导入仍会先自动备份（由 importPayload 负责）===')
 
-check('importPayload 用 overwrite 分支清库', /mode === 'overwrite'[\s\S]{0,200}truncateAll\(\)/.test(code), true)
+check(
+  'importPayload 用 overwrite 分支清库（同事务）',
+  /mode === 'overwrite'[\s\S]{0,200}truncateAll\(\{\s*inTransaction:\s*true/.test(code),
+  true
+)
 check('importPayload 导入前 autoBackup', /autoBackup\('before-import'\)/.test(code), true)
+check('导入前备份失败会中止', /导入前自动备份失败，已取消导入/.test(code), true)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

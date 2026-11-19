@@ -110,14 +110,6 @@
       <view class="section">
         <text class="section-title">维护</text>
         <view class="card">
-          <view class="card-row" @click="onRepair">
-            <view class="row-info">
-              <text class="row-name">重算所有账户余额</text>
-              <text class="row-desc">如果发现余额与交易对不上，用这个修复</text>
-            </view>
-            <text class="row-arrow">›</text>
-          </view>
-
           <view class="card-row" @click="onClearAll">
             <view class="row-info">
               <text class="row-name danger-name">清空所有数据</text>
@@ -196,7 +188,6 @@ import {
   listImportableFiles
 } from '@/api/backup.js'
 import { setSettings, getAllSettings, clearSettingsCache } from '@/api/settings.js'
-import { recalcAllBalances } from '@/api/account.js'
 import { truncateAll } from '@/api/db/index.js'
 // ★ 清空后要当场把默认分类写回去，不能等下次启动 ★
 //   （详见 onClearAll 里的说明）
@@ -465,22 +456,6 @@ export default {
 
     /* ------------------------------------------------------ 维护 */
 
-    async function onRepair() {
-      uni.showLoading({ title: '重算中…' })
-      try {
-        const n = await recalcAllBalances()
-        await accountStore.refresh()
-        uni.hideLoading()
-        await alertDialog({
-          title: '重算完成',
-          content: `已重算 ${n} 个账户的余额`
-        })
-      } catch (e) {
-        uni.hideLoading()
-        await alertDialog({ title: '重算失败', content: e.message })
-      }
-    }
-
     async function onClearAll() {
       const confirmed = await confirmDialog({
         title: '清空所有数据？',
@@ -632,7 +607,7 @@ export default {
       onExport,
       onOpenDataManager, onRestoreData, onDeleteData, refreshDataManager, kindLabel,
       onToggleAutoBackup, onManualBackup,
-      onRepair, onClearAll,
+      onClearAll,
       formatDataTime, goBack, settingStore
     }
   }

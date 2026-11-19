@@ -859,16 +859,24 @@ async function insertDefaultCategories(exec, makeId, now) {
  *   老用户库里有旧分类，就永远走不到这里 ——
  *   改成新分类结构要靠数据库迁移（见 api/db/index.js 的迁移 v5）。
  */
-export async function seedDefaultCategories() {
+export async function seedDefaultCategories(opt = {}) {
   const count = await queryOne('SELECT COUNT(*) AS c FROM category WHERE deleted_at IS NULL')
   if (Number(count ? count.c : 0) > 0) return 0
 
   const now = Date.now()
   let n = 0
 
-  await transaction(async () => {
+  const run = async () => {
     n = await insertDefaultCategories(execute, prefixedId, now)
-  })
+  }
+
+  /*
+   * ★ inTransaction ★
+   *   覆盖导入已经在事务里，不能再 BEGIN 一次（db 层不支持嵌套）。
+   *   普通启动/清空数据走默认分支，自己开事务。
+   */
+  if (opt.inTransaction) await run()
+  else await transaction(run)
 
   return n
 }

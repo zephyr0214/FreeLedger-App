@@ -213,8 +213,30 @@ export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
    *   monthKey（不是完整月）。如果按等长区间往前推，会变成上个月
    *   24 号~月底这种「连续 19 天」，和「上月同期」不是一回事。
    */
-  const sameMonth = monthSpan(curStart, curEnd) <= 1
+  const monthCount = monthSpan(curStart, curEnd)
+  const sameMonth = monthCount <= 1
   const startsAtMonthStart = curStart.slice(8, 10) === '01'
+
+  /*
+   * ★ 完整自然月 → 上一个完整自然月 ★
+   *   不能按「日号对日号」夹取：11/01~11/30 会变成 10/01~10/30，
+   *   漏掉 10/31；2/01~2/28 会变成 1/01~1/28，漏掉 1/29~1/31。
+   *   完整月对完整月，两边的金额口径才一致。
+   *
+   * ★ clipped 时不走这里 ★
+   *   本月还没过完（11/01~今天）时，对比窗口也应该是
+   *   「上月 1 号到今天」，而不是完整的上个月。
+   */
+  if (!clipped && sameMonth && startsAtMonthStart && isMonthEnd(curEnd)) {
+    const prevEnd = shiftDays(curStart, -1)
+    return {
+      ...base,
+      prevStart: `${prevEnd.slice(0, 8)}01`,
+      prevEnd,
+      align: 'month'
+    }
+  }
+
   if (sameMonth && (e.monthKey || startsAtMonthStart)) {
     return {
       ...base,
@@ -233,7 +255,6 @@ export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
    *   如果只按等长天数往前推，1~2 月会得到 11/3~12/31 ——
    *   天数一样，但首尾不在月初 / 月末，读起来不像「上期」。
    */
-  const monthCount = monthSpan(curStart, curEnd)
   if (monthCount > 1 && startsAtMonthStart && isMonthEnd(curEnd)) {
     const prevEnd = shiftDays(curStart, -1)
     /*

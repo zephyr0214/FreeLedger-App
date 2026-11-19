@@ -46,6 +46,7 @@ const fakeAccount = { recalcAllBalances: async () => true }
 const fakeSettings = {
   getAllSettings: async () => ({ ai: { apiKey: '' } }),
   setSettings: async () => true,
+  setSettingsInTransaction: async () => true,
   clearSettingsCache() {}
 }
 const fakeId = { prefixedId: (p) => `${p}_stub` }
@@ -78,7 +79,16 @@ src = src.replace(
 )
 src = src.replace(
   /import\s*\{[^}]*\}\s*from\s*'\.\/settings\.js'/,
-  `const { getAllSettings, setSettings, clearSettingsCache } = globalThis.__STUB_SET__;`
+  `const { getAllSettings, setSettings, setSettingsInTransaction, clearSettingsCache } = globalThis.__STUB_SET__;`
+)
+/*
+ * ★ 备份格式版本现在跟随数据库 SCHEMA_VERSION ★
+ *   这个测试只关心 cycle 落库，schema.js 不需要真模块；
+ *   给它一个固定值即可（validatePayload 只做 <= 比较）。
+ */
+src = src.replace(
+  /import\s*\{[^}]*\}\s*from\s*'\.\/db\/schema\.js'/,
+  `const { SCHEMA_VERSION } = { SCHEMA_VERSION: 2 };`
 )
 src = src.replace(
   /import\s*\{[^}]*\}\s*from\s*'\.\.\/utils\/id\.js'/,

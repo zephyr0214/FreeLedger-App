@@ -6,7 +6,6 @@
 import { computed } from 'vue'
 import { formatCents } from '@/utils/money.js'
 import { BASE_SYMBOL } from '@/utils/currency.js'
-import { useSettingStore } from '@/stores/setting.js'
 
 /**
  * 金额文本 —— 全 App 唯一的金额展示出口。
@@ -84,17 +83,9 @@ export default {
      *   'auto'（默认）→ 按 type / variant 走统一规则
      *   其他字符串     → 直接作为颜色覆盖（如 var(--app-danger)）
      */
-    color: { type: String, default: 'auto' },
-    /** 是否强制脱敏（隐私模式） */
-    forceMask: { type: Boolean, default: false }
+    color: { type: String, default: 'auto' }
   },
   setup(props) {
-    const settingStore = useSettingStore()
-
-    const masked = computed(() => {
-      return props.forceMask || settingStore.privacyMode
-    })
-
     /** 原始分值（用于符号与配色判断，不含 type 带来的正负） */
     const rawCents = computed(() => Number(props.cents) || 0)
 
@@ -138,7 +129,6 @@ export default {
     })
 
     const display = computed(() => {
-      if (masked.value) return '****'
       /*
        * ★ 0 元必须显示两位小数 ★
        *   hideZeroDecimals 是为了「整数元不带 .00」，
@@ -199,7 +189,7 @@ export default {
         fontWeight: String(props.weight)
       }
       const c = resolvedColor.value
-      if (c && !masked.value) s.color = c
+      if (c) s.color = c
       return s
     })
 

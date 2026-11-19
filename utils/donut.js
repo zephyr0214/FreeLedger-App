@@ -109,6 +109,21 @@ export const DONUT_LABEL = {
   gap: 4
 }
 
+/**
+ * 转义 XML 特殊字符。
+ *
+ * ★ 分类名是用户输入 ★
+ *   含 & / < / > 时直接拼进 <text> 会让 SVG 解析失败，
+ *   整张环形图变成空白。统计页的标签必须走这里。
+ */
+function escapeXml(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 /** 名称超长时截断并补省略号 */
 function clipName(name) {
   const s = String(name || '')
@@ -210,7 +225,7 @@ function layoutLabels(sectors, g) {
         p1: it.p1,
         // 直线终点：标签行（水平方向与文字留 gap）
         p2: { x: it.toX, y },
-        text: `${clipName(it.sector.name)} ${it.sector.pct}%`,
+        text: `${escapeXml(clipName(it.sector.name))} ${it.sector.pct}%`,
         x: textX,
         y,
         anchor

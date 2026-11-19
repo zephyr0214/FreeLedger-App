@@ -53,7 +53,6 @@ export const useSettingStore = defineStore('setting', {
       txnIconSize: 'm',
       txnIconShowBg: true,
       txnIconBgRound: 3,
-      privacyMode: false,
       quickAddHoldAction: 'manual',
       quickAddTapAction: 'ai',
       ai: { baseUrl: '', apiKey: '', model: 'deepseek-flash', timeoutMs: 30000 },
@@ -123,9 +122,6 @@ export const useSettingStore = defineStore('setting', {
         return themePrimaryLightDark(p.primary, state.isDark)
       }
       return p.light
-    },
-    privacyMode(state) {
-      return !!state.settings.privacyMode
     },
     nickname(state) {
       return state.settings.nickname || '记账人'
@@ -417,11 +413,6 @@ export const useSettingStore = defineStore('setting', {
       const aiChat = { ...this.settings.aiChat, ...patch }
       this.settings.aiChat = aiChat
       await setSettings({ aiChat })
-    },
-
-    async setPrivacyMode(on) {
-      this.settings.privacyMode = !!on
-      await setSettings({ privacyMode: !!on })
     },
 
     /**

@@ -2487,11 +2487,21 @@ async function migrate() {
     try {
       await m.up()
     } catch (e) {
-      // ★ 迁移失败不能挡住数据库打开 ★
-      //   迁移只是「锦上添花」（建表 / 回填时刻），
-      //   万一失败也必须让 App 能正常用，
-      //   否则整个 App 会因为一个迁移卡在打不开库。
+      /*
+       * ★ 迁移失败不能挡住数据库打开，但也不能推进版本 ★
+       *   失败时只记录日志并 break，openDb() 照常返回；
+       *   旧实现无论成功失败都 writeUserVersion(m.version)：
+       *   一次半途失败的迁移会被记成「已完成」——
+       *   表建了一半、列加了一半，代码却按最新结构去查；
+       *   下次启动 current >= SCHEMA_VERSION，直接不再重试。
+       *   现在失败只记录日志并 break：版本停在上一版，
+       *   下次启动仍会重跑这一条（迁移本身要求幂等）。
+       *
+       * ★ 不继续跑后面的迁移 ★
+       *   后续迁移默认依赖前一版的结构；跳过去跑只会在更深的地方炸。
+       */
       console.error(`[db] migration v${m.version} failed:`, e && e.message)
+      break
     }
     await writeUserVersion(m.version)
   }
@@ -2635,11 +2645,13 @@ export async function transaction(fn) {
  *   迁移游标是 SQLite 库头里的 PRAGMA user_version，
  *   不是 app_meta 的某一行（全仓没有代码往里写游标）。
  *   app_meta 只是 KV 草稿表，删掉它不会让 v1~v17 重跑。
- *   但「清空库却把版本号留在某个业务表里」这种设计太容易被人以后踩进去，
- *   所以这里删完之后再显式把版本号写一遍 SCHEMA_VERSION ——
- *   正常情况下是空操作，异常情况下能兜住「迁移把刚补的分类又重建一遍」。
+ *
+ * ★ 不再在这里写 user_version ★
+ *   清空业务表不会回退结构版本；硬写 SCHEMA_VERSION 反而会掩盖
+ *   「迁移其实没跑完」的状态。版本号只由 migrate() 在迁移成功后推进。
  */
-export async function truncateAll() {
+export async function truncateAll(opt) {
+  const options = opt || {}
   const tables = [
     'txn_tag', 'txn', 'account_snapshot', 'budget_category', 'budget',
     'cycle', 'cycle_skip',
@@ -2655,7 +2667,7 @@ export async function truncateAll() {
     'setting', 'app_meta'
   ]
 
-  return transaction(async () => {
+  const run = async () => {
     const missing = []
     for (const t of tables) {
       try {
@@ -2669,12 +2681,17 @@ export async function truncateAll() {
         throw e
       }
     }
-
-    // 见上方注释：版本号本来就在库头，这里只是显式对齐一次，防迁移重跑
-    await writeUserVersion(SCHEMA_VERSION)
-
     return { missing }
-  })
+  }
+
+  /*
+   * ★ inTransaction ★
+   *   覆盖导入要求在「同一个事务」里完成清空 + 写入：
+   *   导入失败时连清空一起回滚，旧账本不会先被删掉。
+   *   调用方已经开了事务就传 { inTransaction: true }，
+   *   不能再套一层 transaction()（db 层不支持嵌套）。
+   */
+  return options.inTransaction ? run() : transaction(run)
 }
 
 /**

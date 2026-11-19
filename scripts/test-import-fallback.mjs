@@ -113,15 +113,26 @@ const importBody = extractFunctionBody(backupSrc, 'importPayload', 'async')
 const importCode = stripComments(importBody)
 
 ok('找得到 importPayload', importBody.length > 0)
-ok('覆盖分支调用了 truncateAll()', /truncateAll\s*\(\s*\)/.test(importCode))
-ok('覆盖分支调用了 seedDefaultCategories()', /seedDefaultCategories\s*\(\s*\)/.test(importCode))
+
+/*
+ * ★ 覆盖导入必须整体原子 ★
+ *   旧实现 truncateAll() 先提交、再开导入事务；一条插入失败，
+ *   旧账本已经被清空。现在清空/seed/设置写入都在同一个事务里，
+ *   并且不再嵌套 BEGIN。
+ */
+ok('truncateAll 传入 inTransaction', /truncateAll\s*\(\s*\{\s*inTransaction:\s*true/.test(importCode))
+ok('seedDefaultCategories 传入 inTransaction', /seedDefaultCategories\s*\(\s*\{\s*inTransaction:\s*true/.test(importCode))
+ok('设置写入用 setSettingsInTransaction', /setSettingsInTransaction\s*\(/.test(importCode))
+ok('没有裸的 truncateAll() 调用', /truncateAll\s*\(\s*\)/.test(importCode) === false)
 ok('导入结束后调用了 syncDefaultCategories()', /syncDefaultCategories\s*\(\s*\)/.test(importCode))
 
-const iTruncate = importCode.search(/truncateAll\s*\(\s*\)/)
-const iSeed = importCode.search(/seedDefaultCategories\s*\(\s*\)/)
+const iTx = importCode.search(/await transaction\(/)
+const iTruncate = importCode.search(/truncateAll\s*\(\s*\{\s*inTransaction:\s*true/)
+const iSeed = importCode.search(/seedDefaultCategories\s*\(\s*\{\s*inTransaction:\s*true/)
 const iInsertCat = importCode.search(/INSERT INTO category/)
 const iSync = importCode.search(/syncDefaultCategories\s*\(\s*\)/)
 
+check('顺序：truncateAll 在导入事务内', iTx >= 0 && iTx < iTruncate, true)
 check('顺序：truncateAll 先于 seed', iTruncate >= 0 && iTruncate < iSeed, true)
 check('顺序：seed 先于分类落库', iSeed >= 0 && iSeed < iInsertCat, true)
 check('顺序：分类落库先于 sync（sync 在导入之后）', iInsertCat >= 0 && iInsertCat < iSync, true)
@@ -132,7 +143,7 @@ check('顺序：分类落库先于 sync（sync 在导入之后）', iInsertCat >
  */
 ok(
   'seed 被 try 住',
-  /try\s*\{[\s\S]{0,200}?seedDefaultCategories\s*\(\s*\)[\s\S]{0,400}?catch/.test(importCode)
+  /try\s*\{[\s\S]{0,200}?seedDefaultCategories\s*\([\s\S]{0,400}?catch/.test(importCode)
 )
 ok(
   'sync 被 try 住',

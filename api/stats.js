@@ -1967,8 +1967,14 @@ async function budgetCandidateMonths(kind, e) {
 function rangeCalendar(kind, e, firstDay) {
   const today = toDayKey()
   if (kind === 'day') {
-    const mk = e.monthKey || (e.startDay ? e.startDay.slice(0, 7) : toMonthKey())
-    return monthProgress(mk)
+    /*
+     * 单日区间：总天数就是 1。
+     * 旧实现返回的是「该月进度」，日均可用会用整月剩余天数做分母，
+     * 一天额度被摊到几十天里，数字完全没有意义。
+     */
+    const day = e.startDay || e.endDay || toDayKey()
+    const passed = today >= day ? 1 : 0
+    return { total: 1, passed, remain: Math.max(1 - passed, 0) }
   }
   if (kind === 'year') {
     const year = Number(e.startDay.slice(0, 4)) || 0
@@ -1977,9 +1983,11 @@ function rangeCalendar(kind, e, firstDay) {
     const todayYear = today.slice(0, 4)
     if (todayYear === String(year)) {
       passed = dayDiffInclusive(`${year}-01-01`, today)
-    } else if (todayYear < String(year)) {
+    } else if (todayYear > String(year)) {
+      // 已经过去的年份：整年都过完了
       passed = total
     }
+    // 未来年份：passed 保持 0
     return { total, passed, remain: Math.max(total - passed, 0) }
   }
   if (kind === 'all') {
@@ -2001,10 +2009,10 @@ function rangeCalendar(kind, e, firstDay) {
 /**
  * 按任意日期区间的预算使用情况
  *
- *   单月 → 与 getBudgetUsage(monthKey) 完全一致
- *   单日 → 按该日所属月计算（月度额度），used 只算区间内的支出
- *   整年 → 预算按月展开：limit = 各生效月的可用额度之和，used = 生效月支出合计
- *   全部 → 最早有交易的月份 ~ 今天，逐月展开
+ *   单月 → 与 getBudgetUsage(monthKey) 完全一致（完整月额度）
+ *   单日 → 额度按 1 / 当月天数折算，used 只算这一天
+ *   整年 → 额度按月展开且按已过天数折算；used = 生效月支出合计
+ *   全部 → 最早有交易的月份 ~ 今天，逐月折算
  *
  * ★ 结转在区间口径下逐月展开 ★
  *   开了结转的月预算，每个月的可用额度都不一样（前面几个月攒下来的），
@@ -2098,6 +2106,35 @@ export async function getBudgetUsageRange(range) {
   }
   const cal = rangeCalendar(kind, e, firstDay)
 
+  /*
+   * ★ 区间额度按「已过天数」折算 ★
+   *   年度视角 11 月看全年，旧算法拿 1~11 月支出对比
+   *   12 个月额度，百分比结构性偏低；单日视角更是拿 1 天支出
+   *   对比整月额度。这里按每个月被区间覆盖、且已经过去的天数
+   *   折算：完整过去的月份算 1，当前月算「已过天数 / 当月天数」，
+   *   单日只算 1 天。
+   *
+   *   used 仍然由 rangeScope 只统计区间内的支出，两边口径一致。
+   */
+  const todayKey = toDayKey()
+  const rangeStart = e.startDay || firstDay || ''
+  const rangeEnd = e.endDay || todayKey
+
+  const monthFraction = (mk) => {
+    if (!mk) return 0
+    const [y, m] = String(mk).split('-').map(Number)
+    if (!y || !m) return 0
+    const daysInMonth = new Date(y, m, 0).getDate()
+    const mStart = `${mk}-01`
+    const mEnd = `${mk}-${String(daysInMonth).padStart(2, '0')}`
+    const start = rangeStart && rangeStart > mStart ? rangeStart : mStart
+    let end = rangeEnd < mEnd ? rangeEnd : mEnd
+    // 未来的天数不算「已过额度」
+    if (end > todayKey) end = todayKey
+    if (start > end) return 0
+    return dayDiffInclusive(start, end) / daysInMonth
+  }
+
   const out = []
   for (const b of budgets) {
     const startMonth = b.start_month || ''
@@ -2113,14 +2150,19 @@ export async function getBudgetUsageRange(range) {
     const cats = catInfo[b.id] || []
 
     /*
-     * 额度：月预算与子预算都是「月额度 × 生效月数」
+     * 额度：月额度 × 生效月份在区间内「已过天数」的折算和。
      *
-     * ★ 为什么不再区分两种算法 ★
-     *   以前月预算要逐月展开结转，所以要单独累加「各月可用额度」；
-     *   现在没有结转，月预算的可用额度就是它自己，
-     *   所以两者同一个公式。
+     *   · 完整过去的月份：1.0
+     *   · 当前月：已过天数 / 当月天数
+     *   · 单日区间：1 / 当月天数
+     *   · 未来月份：0
+     *
+     * baseLimit 仍是未折算的「月额度 × 生效月数」，
+     * 给子预算分配校验用（那个口径必须看完整月额度）。
      */
-    const limit = monthly * effective.length
+    let units = 0
+    for (const m of effective) units += monthFraction(m)
+    const limit = Math.round(monthly * units)
 
     let used = 0
     if (isTotal) {
@@ -2134,10 +2176,12 @@ export async function getBudgetUsageRange(range) {
     const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0
     const remaining = limit - used
 
-    // 剩余天数 = 生效月份里还没过的天数；都已过则用生效月份总数
-    let remainDaysSum = 0
-    for (const m of effective) remainDaysSum += monthProgress(m).remain
-    const denom = remainDaysSum > 0 ? remainDaysSum : effective.length
+    /*
+     * 日均可用 = 剩余额度 / 区间内剩余天数。
+     *   cal.remain 是「今天之后还剩几天」（单日区间已过则为 0）；
+     *   已过完的区间退化成 1，避免除零，也让「今天还剩多少」可读。
+     */
+    const denom = cal.remain > 0 ? cal.remain : 1
     // 与 getBudgetUsage 一致：保留「分」的小数精度，供前端按 0.00 展示
     const dailyAvailable = remaining > 0
       ? Math.max(Math.round((remaining / denom) * 100) / 100, 0)

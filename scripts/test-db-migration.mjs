@@ -17,12 +17,15 @@
  *   （表现就是「分类读没了」「账户不见了」）。
  *
  *   修法：迁移内部一律用底层的 call()，绕开 openDb()；
- *   并且 migrate() 对单条迁移加 try/catch，迁移失败也不挡住开库。
+ *   并且 migrate() 对单条迁移加 try/catch，迁移失败也不挡住开库；
+ *   但失败时**不推进 user_version**，下次启动会继续重试，避免半迁移被记成最新。
  *
  * ★ 这个测试直接驱动真实的 api/db/index.js ★
  *   复刻一份逻辑的话测不出「迁移里用了 query()」这种问题，
  *   只有跑真模块才能验证迁移内部确实绕开了 openDb()。
  */
+
+import { readFileSync } from 'fs'
 
 let pass = 0
 let fail = 0
@@ -115,7 +118,12 @@ console.log('=== 真实模块：openDb -> migrate 不能死锁 ===')
   ])
 
   check('迁移失败时仍能开库', result, 'OPENED')
-  check('版本仍被推进', log.some((l) => l.indexOf('exec:PRAGMA user_version') === 0), true)
+  /*
+   * ★ 为什么不在这里断言「版本没推进」★
+   *   假库里的迁移 v2 会自己 catch 掉 select 失败（历史实现），
+   *   所以 m.up() 仍然是 resolve 的 —— 运行期看不到真实失败。
+   *   「失败不推进版本」由下面的静态断言守住 migrate() 的结构。
+   */
 }
 
 // --- 已经是 v2：不重复迁移 ---
@@ -132,9 +140,9 @@ console.log('=== 真实模块：openDb -> migrate 不能死锁 ===')
   check('不再跑回填', log.some((l) => l.indexOf('select:SELECT id, occurred_at') === 0), false)
 }
 
-// --- 迁移里 exec 失败：不能挡住开库 ---
+// --- 迁移里 exec 失败：不能挡住开库，也不能推进版本 ---
 {
-  const { fake } = makeFakePlus({ execFail: true })
+  const { fake, log } = makeFakePlus({ execFail: true })
   const db = await loadRealDb(fake)
 
   const result = await Promise.race([
@@ -143,6 +151,33 @@ console.log('=== 真实模块：openDb -> migrate 不能死锁 ===')
   ])
 
   check('UPDATE 失败时仍能开库', result, 'OPENED')
+}
+
+/*
+ * ★ 迁移失败不能推进版本 —— 结构断言 ★
+ *   真实迁移里有些步骤会自己 catch（历史原因），运行期很难造出
+ *   「m.up() reject」的场景；这里直接锁 migrate() 的控制流：
+ *     · catch 里必须 break（不继续跑后续迁移）
+ *     · writeUserVersion 必须在 await m.up() 之后
+ */
+console.log(`\n=== migrate() 失败路径 ===`)
+{
+  const dbSrc = readFileSync(new URL('../api/db/index.js', import.meta.url), 'utf-8')
+  check(
+    '迁移失败后 break，不继续跑后续迁移',
+    /catch\s*\(e\)\s*\{[\s\S]{0,900}?break/.test(dbSrc),
+    true
+  )
+  check(
+    '版本号只在 m.up() 成功之后写',
+    /await m\.up\(\)[\s\S]{0,900}?await writeUserVersion\(m\.version\)/.test(dbSrc),
+    true
+  )
+  check(
+    'truncateAll 不再写 user_version',
+    /truncateAll[\s\S]{0,2500}?writeUserVersion/.test(dbSrc),
+    false
+  )
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

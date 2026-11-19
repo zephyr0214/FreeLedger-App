@@ -124,6 +124,39 @@ console.log('=== 4. 环比：上月同期 / 单日前一天 / 整年上一年 ==
 }
 
 {
+  /*
+   * ★ 完整月对完整月：31 号/2 月不能漏 ★
+   *   旧实现按「日号对日号」夹取：
+   *     11/01~11/30 -> 10/01~10/30（漏 10/31）
+   *     02/01~02/28 -> 01/01~01/28（漏 01/29~01/31）
+   *   完整自然月应该拿上一个完整自然月来比。
+   */
+  const nov = buildCompareRange(
+    { startDay: '2026-11-01', endDay: '2026-11-30' },
+    '2026-12-05',
+    'mom'
+  )
+  check('11 月完整月 -> 10 月完整月：起点', nov.prevStart, '2026-10-01')
+  check('11 月完整月 -> 10 月完整月：终点', nov.prevEnd, '2026-10-31')
+
+  const feb = buildCompareRange(
+    { startDay: '2026-02-01', endDay: '2026-02-28' },
+    '2026-03-05',
+    'mom'
+  )
+  check('2 月完整月 -> 1 月完整月：起点', feb.prevStart, '2026-01-01')
+  check('2 月完整月 -> 1 月完整月：终点', feb.prevEnd, '2026-01-31')
+
+  const jan = buildCompareRange(
+    { startDay: '2026-01-01', endDay: '2026-01-31' },
+    '2026-02-05',
+    'mom'
+  )
+  check('1 月完整月跨年 -> 去年 12 月：起点', jan.prevStart, '2025-12-01')
+  check('1 月完整月跨年 -> 去年 12 月：终点', jan.prevEnd, '2025-12-31')
+}
+
+{
   // 本月 1 号到今天 -> 上月 1 号到同日
   const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'mom')
   check('本月到今天环比：当前终点截到今天', cr.curEnd, '2026-11-19')

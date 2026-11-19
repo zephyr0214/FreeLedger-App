@@ -148,9 +148,6 @@ export function formatCentsCompact(cents) {
   return `${prefix}${(yuan).toFixed(n % 100 === 0 ? 0 : 2)}`
 }
 
-/** 金额脱敏：隐私模式 */
-
-
 /** 安全加法，接收分 */
 
 

@@ -39,7 +39,6 @@ export const DEFAULT_SETTINGS = {
   // 外观
   themeMode: 'system',        // system | light | dark
   themePreset: 'blue',
-  privacyMode: false,         // 金额脱敏
 
   /**
    * 分类图标样式
@@ -345,20 +344,41 @@ export async function setSetting(key, value) {
 }
 
 /**
- * 批量写。
+ * 批量写的实际 SQL。
+ *
+ * ★ 不自己开事务 ★
+ *   供「已经在事务里」的调用方使用（目前只有覆盖导入）。
+ *   db 层不支持嵌套事务：导入事务里再调 setSettings() 会再 BEGIN 一次，
+ *   轻则报「cannot start a transaction within a transaction」，
+ *   重则死锁/提前提交。
+ */
+async function writeSettings(patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    await execute('DELETE FROM setting WHERE key = ?', [key])
+    await execute('INSERT INTO setting (key, value) VALUES (?, ?)', [
+      key,
+      JSON.stringify(value === undefined ? null : value)
+    ])
+    CACHE[key] = value
+  }
+  return true
+}
+
+/**
+ * 批量写（自带事务）。
  * 注意：部分 SQLite 内核不支持 ON CONFLICT DO UPDATE，因此退化为先删后插。
  */
 export async function setSettings(patch) {
-  return transaction(async () => {
-    for (const [key, value] of Object.entries(patch)) {
-      await execute('DELETE FROM setting WHERE key = ?', [key])
-      await execute('INSERT INTO setting (key, value) VALUES (?, ?)', [
-        key,
-        JSON.stringify(value === undefined ? null : value)
-      ])
-      CACHE[key] = value
-    }
-  })
+  return transaction(() => writeSettings(patch))
+}
+
+/**
+ * 批量写 —— 调用方已经开了事务时用这个，避免嵌套 BEGIN。
+ *
+ * 回滚时 CACHE 可能已经写入新值；导入失败后调用方必须 clearSettingsCache()。
+ */
+export async function setSettingsInTransaction(patch) {
+  return writeSettings(patch)
 }
 
 /** 清缓存（导入后必须调用，否则读到旧值） */

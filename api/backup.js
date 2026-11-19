@@ -12,17 +12,39 @@
  */
 
 import { query, queryOne, execute, transaction, truncateAll } from './db/index.js'
-import { getAllSettings, setSettings, clearSettingsCache } from './settings.js'
+import {
+  getAllSettings,
+  setSettingsInTransaction,
+  clearSettingsCache
+} from './settings.js'
 import { prefixedId } from '../utils/id.js'
 import { toEmojiIconCode } from '../utils/emojiLegacy.js'
 import { recalcAllBalances } from './account.js'
 // ★ 覆盖导入时补默认分类 ★
 //   （为什么必须补，见 importPayload 的 overwrite 分支注释）
 import { seedDefaultCategories, syncDefaultCategories } from './category.js'
+import { SCHEMA_VERSION } from './db/schema.js'
 
 const BACKUP_APP_ID = 'books'
-const BACKUP_SCHEMA_VERSION = 2
-const MAX_AUTO_BACKUPS = 5
+/*
+ * ★ 备份格式版本 = 数据库结构版本 ★
+ *   以前固定写 2，但 v18（多类别子预算）、v19（两个 exclude 标记）、
+ *   v21~v23（报销台账/单头）、v25（周期年/间隔）都改过备份内容。
+ *   固定 2 的后果：
+ *     · 新 App 导出的备份拿到旧 App 上，旧 App 只看「2 <= 2」就放行，
+ *       然后 INSERT 到不存在的列/表，导入中途失败；
+ *     · 新 App 也无法区分「v18 的备份」和「v25 的备份」。
+ *   现在直接跟随 SCHEMA_VERSION：旧备份（1/2/…）仍然接受，
+ *   新备份带着真实结构版本，旧 App 会明确拒绝。
+ */
+const BACKUP_SCHEMA_VERSION = SCHEMA_VERSION
+/*
+ * ★ 自动备份保留份数 ★
+ *   5 份在「每天首次启动备份」下只能覆盖 5 天；用户周末没开 App
+ *   或连续几天出问题就可能把出问题前的版本滚掉。改为 10 份，
+ *   仍受 rotateBackups() 的滚动清理约束，不会无限增长。
+ */
+const MAX_AUTO_BACKUPS = 10
 const BACKUP_DIR = '_doc/backup/'
 /** 导出文件目录：用户主动导出、可分享的文件都放这里 */
 const EXPORT_DIR = '_doc/export/'
@@ -700,59 +722,76 @@ export async function importPayload(payload, opt = {}) {
     skipped: 0, conflicts: 0, backupPath: null
   }
 
-  // 导入前自动备份当前库
+  /*
+   * ★ 导入前备份：无条件做，失败就中止 ★
+   *   旧实现只在本机有流水时备份，且失败只 warn 一句继续导入 ——
+   *   一旦导入中途失败，旧账本已经被 truncateAll() 清掉，
+   *   用户既没有新数据，也没有可恢复的旧数据。
+   *   现在无论库里有几条数据都先备份；备份失败直接抛错，
+   *   原数据一个字节都不动。
+   */
   if (!skipBeforeBackup) {
-    try {
-      const hasData = await queryOne('SELECT COUNT(*) AS c FROM txn')
-      if (hasData && Number(hasData.c) > 0) {
-        const backup = await autoBackup('before-import')
-        report.backupPath = backup ? backup.path : null
-      }
-    } catch (e) {
-      console.warn('[import] 导入前备份失败:', e.message)
+    const backup = await autoBackup('before-import')
+    if (!backup || !backup.path) {
+      throw new Error('导入前自动备份失败，已取消导入（原数据未改动）')
     }
+    report.backupPath = backup.path
   }
 
-  if (mode === 'overwrite') {
-    await truncateAll()
-    clearSettingsCache()
+  /*
+   * ★ 覆盖导入：清空 + 写入必须在同一个事务里 ★
+   *   旧实现 truncateAll() 先以独立事务提交，之后才开导入事务；
+   *   导入任何一步失败，旧账本已经没了。现在把 truncateAll 和
+   *   seedDefaultCategories 都移进导入事务，失败时整体回滚。
+   *
+   * ★ 不能再套 transaction() ★
+   *   truncateAll 传 inTransaction:true；设置写入用
+   *   setSettingsInTransaction —— 两者都不再自己 BEGIN。
+   */
+  try {
+    await transaction(async () => {
+      if (mode === 'overwrite') {
+        await truncateAll({ inTransaction: true })
+        clearSettingsCache()
 
-    /*
-     * ★ 覆盖导入必须先补一份默认分类 ★
-     *   truncateAll() 把 category 表清空了，而下面只按 payload.categories 逐条 INSERT ——
-     *   备份包可能是三种「没有分类」的样子：
-     *     · 老版本导出的（那时候还没有分类表）
-     *     · 被用户手工编辑/裁剪过的 JSON
-     *     · 只有流水没有分类的半成品备份
-     *   这时库里的分类就是空的，后果不是「分类页空着」这么简单：
-     *   recalcAllBalances 不依赖分类，但所有按分类的统计、记账面板的
-     *   分类选择器都会退化成「未分类」，用户看到的是
-     *   「导入成功，但每一笔都是未分类」—— 比直接报错还难排查。
-     *
-     *   所以先 seed 一份完整的默认分类垫底，再让备份里的分类叠上去。
-     *
-     * ★ 失败只告警，不能挡住导入 ★
-     *   导入才是主操作。seed 挂了（磁盘满、库异常）也得把用户数据导进来。
-     */
-    try {
-      const n = await seedDefaultCategories()
-      logStep('已预置默认分类', { count: n })
-    } catch (e) {
-      console.warn('[import] 预置默认分类失败（不影响导入）:', e && e.message)
-    }
-  }
-
-  await transaction(async () => {
-    // ---------- 设置
-    if (payload.settings) {
-      const merged = { ...payload.settings }
-      // 合并模式下不覆盖本机 API Key（除非备份里有值）
-      if (mode === 'merge' && merged.ai && !merged.ai.apiKey) {
-        const cur = await getAllSettings()
-        merged.ai.apiKey = cur.ai.apiKey
+        /*
+         * ★ 覆盖导入必须先补一份默认分类 ★
+         *   truncateAll() 把 category 表清空了，而下面只按 payload.categories 逐条 INSERT ——
+         *   备份包可能是三种「没有分类」的样子：
+         *     · 老版本导出的（那时候还没有分类表）
+         *     · 被用户手工编辑/裁剪过的 JSON
+         *     · 只有流水没有分类的半成品备份
+         *   这时库里的分类就是空的，后果不是「分类页空着」这么简单：
+         *   所有按分类的统计、记账面板的分类选择器都会退化成「未分类」，
+         *   用户看到的是「导入成功，但每一笔都是未分类」—— 比直接报错还难排查。
+         *
+         *   所以先 seed 一份完整的默认分类垫底，再让备份里的分类叠上去。
+         *
+         * ★ 失败只告警，不能挡住导入 ★
+         *   导入才是主操作。seed 挂了（磁盘满、库异常）也得把用户数据导进来。
+         */
+        try {
+          const n = await seedDefaultCategories({ inTransaction: true })
+          logStep('已预置默认分类', { count: n })
+        } catch (e) {
+          console.warn('[import] 预置默认分类失败（不影响导入）:', e && e.message)
+        }
       }
-      await setSettings(merged)
-    }
+
+      // ---------- 设置
+      if (payload.settings) {
+        const merged = { ...payload.settings }
+        // 合并模式下不覆盖本机 API Key（除非备份里有值）
+        if (mode === 'merge' && merged.ai && !merged.ai.apiKey) {
+          const cur = await getAllSettings()
+          merged.ai.apiKey = cur.ai.apiKey
+        }
+        /*
+         * ★ 用不带事务的版本 ★
+         *   这里已经在导入事务里，setSettings() 会再 BEGIN 一次。
+         */
+        await setSettingsInTransaction(merged)
+      }
 
     // ---------- 账户
     if (Array.isArray(payload.accounts)) {
@@ -1149,7 +1188,16 @@ export async function importPayload(payload, opt = {}) {
         }
       }
     }
-  })
+    })
+  } catch (e) {
+    /*
+     * ★ 回滚后必须清掉设置缓存 ★
+     *   writeSettings 会边写边更新内存 CACHE；事务回滚只回滚数据库，
+     *   不清缓存的话，下次读设置会拿到「这次失败导入里的值」。
+     */
+    clearSettingsCache()
+    throw e
+  }
 
   // 恢复后重算所有余额，修正任何不一致
   await recalcAllBalances()
