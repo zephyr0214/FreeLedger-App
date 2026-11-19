@@ -1,14 +1,14 @@
 /**
  * 应用内检查更新 / 下载 / 安装
  *
- * ★ 数据源：Gitee 发行版 ★
- *   https://gitee.com/api/v5/repos/all0zy/FreeLedger-App/releases/latest
- *   公开仓库免鉴权、国内直连稳定。字段与 GitHub API 近似
-   * （tag_name / assets[].browser_download_url / body），
- *   调用方（stores/update.js）在 Gitee 失败时可回退 GitHub 同名接口。
+ * ★ 数据源：Gitee 优先，失败自动回退 GitHub（经 gh-proxy）★
+ *   Gitee：https://gitee.com/api/v5/repos/all0zy/FreeLedger-App/releases/latest
+ *   GitHub：https://api.github.com/repos/zephyr0214/FreeLedger-App/releases/latest
+ *   GitHub 直连在部分网络会 403/超时，所以 API 和 APK 下载都走
+ *   https://gh-proxy.com/ 前缀；两个源都失败才向用户报错。
  *
  * ★ 三段式职责 ★
- *   checkUpdate()  查 Gitee + 版本比较，产出归一化的更新信息
+ *   checkUpdate()  查 Gitee / GitHub + 版本比较，产出归一化的更新信息
  *   downloadApk()  系统 DownloadManager 下载到 App 专属外部目录（后台 / 锁屏 / 进程被杀都继续）
  *   installApk()   plus.runtime.install 拉起系统安装器
  *   编排（进度状态机、弹窗时机）在 stores/update.js，这里只管单步。
@@ -18,7 +18,12 @@
  *   installApk 的错误会带这个语义出去，store 弹引导去系统设置。
  */
 
-const LATEST_API = 'https://gitee.com/api/v5/repos/all0zy/FreeLedger-App/releases/latest'
+const GITEE_LATEST_API = 'https://gitee.com/api/v5/repos/all0zy/FreeLedger-App/releases/latest'
+const GITHUB_LATEST_API = 'https://api.github.com/repos/zephyr0214/FreeLedger-App/releases/latest'
+/** gh-proxy：GitHub API / Release 下载在国内的加速前缀 */
+const GH_PROXY = 'https://gh-proxy.com/'
+/** 浏览器 UA：Gitee / GitHub 的 WAF 对非浏览器 UA 更严格 */
+const REQUEST_UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 
 import { APP_VERSION, compareVersions } from '../utils/version.js'
 import { INSTALL_EXTRA_KEY } from './notifier.js'
@@ -71,16 +76,21 @@ export function wasDownloadCompletedInBackground() {
   return hiddenDuringDownload || hadBackgroundDownload()
 }
 
-/** 请求 Gitee 最新发行版原始数据 */
-async function fetchLatestReleaseData() {
+/** 通用 JSON GET；非 200 直接抛出，让调用方决定回退 */
+function requestJson(url, headers = {}) {
   return new Promise((resolve, reject) => {
     uni.request({
-      url: LATEST_API,
+      url,
       method: 'GET',
       timeout: 10000,
+      header: {
+        Accept: 'application/json',
+        'User-Agent': REQUEST_UA,
+        ...headers
+      },
       success: (res) => {
         if (res.statusCode !== 200) {
-          reject(new Error('更新服务返回 ' + res.statusCode))
+          reject(new Error(`更新服务返回 ${res.statusCode}`))
           return
         }
         resolve(res.data)
@@ -90,16 +100,78 @@ async function fetchLatestReleaseData() {
   })
 }
 
+/** Gitee 最新发行版 */
+function fetchGiteeLatest() {
+  return requestJson(GITEE_LATEST_API)
+}
+
 /**
- * 请求 Gitee 最新发行版并和本地版本比较
+ * GitHub 最新发行版（经 gh-proxy）
  *
- * @returns {Promise<{hasUpdate:boolean, version?:string, notes?:string,
- *   downloadUrl?:string, sizeBytes?:number}>}
- * @throws {Error} 网络失败 / 接口异常（由调用方决定静默还是提示）
+ * ★ 为什么 API 也走代理 ★
+ *   GitHub 直连在部分运营商/地区会 403 或超时；gh-proxy 对
+ *   api.github.com 同样可代理。APK 下载地址随后也会加上同一前缀。
+ */
+function fetchGithubLatest() {
+  return requestJson(`${GH_PROXY}${GITHUB_LATEST_API}`, {
+    Accept: 'application/vnd.github+json'
+  })
+}
+
+/** GitHub Release 下载地址转到 gh-proxy；非 GitHub 地址原样返回 */
+export function proxyGithubDownloadUrl(url) {
+  const u = String(url || '')
+  if (!u) return u
+  if (u.indexOf('https://github.com/') === 0) return `${GH_PROXY}${u}`
+  return u
+}
+
+/** 把 GitHub 响应里的下载地址全部转成加速地址 */
+function withGithubProxy(data) {
+  if (!data || !Array.isArray(data.assets)) return data
+  return {
+    ...data,
+    assets: data.assets.map((a) => ({
+      ...a,
+      browser_download_url: proxyGithubDownloadUrl(a.browser_download_url)
+    }))
+  }
+}
+
+/** 这份 latest 数据能不能真正用来判断更新（有 tag、有 apk） */
+function hasUsableRelease(data) {
+  if (!data || !data.tag_name) return false
+  return (data.assets || []).some((a) => /\.apk$/i.test(a.name || ''))
+}
+
+/**
+ * 检查更新：Gitee 优先，失败回退 GitHub（gh-proxy）
+ *
+ * ★ 两个都失败才抛错 ★
+ *   手动检查由 store 弹「检查更新失败」；静默检查仍然不打扰用户。
+ *   只有 Gitee 返回的数据不完整（没有 tag / apk）才继续回退，
+ *   Gitee 正常返回「已是最新」时不会多打一次 GitHub。
  */
 export async function checkUpdate() {
-  const data = await fetchLatestReleaseData()
-  return resolveUpdate(data, APP_VERSION)
+  let giteeError = null
+  try {
+    const data = await fetchGiteeLatest()
+    if (hasUsableRelease(data)) return resolveUpdate(data, APP_VERSION)
+    giteeError = new Error('Gitee 发行版缺少安装包')
+  } catch (e) {
+    giteeError = e
+  }
+
+  try {
+    const data = withGithubProxy(await fetchGithubLatest())
+    if (!hasUsableRelease(data)) throw new Error('GitHub 发行版缺少安装包')
+    return resolveUpdate(data, APP_VERSION)
+  } catch (e) {
+    throw new Error(
+      `更新服务暂不可用（Gitee：${(giteeError && giteeError.message) || '失败'}；` +
+      `GitHub：${(e && e.message) || '失败'}）`
+    )
+  }
 }
 
 /**

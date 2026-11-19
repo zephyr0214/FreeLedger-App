@@ -128,7 +128,7 @@ AndroidManifest.xml  自定义清单（仅用于外部打开，见上一节）
 ## 数据与隐私
 
 - 账本、设置、备份全部在本机：`_doc/books.db`
-- 网络请求：AI 功能（发往你自己填的模型服务商）+ 分类图标图片（按需从 Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D 的 CDN 加载，不上传账本数据）
+- 网络请求：AI 功能（发往你自己填的模型服务商）+ 分类图标图片（按需从 Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D 的 CDN 加载）+ 检查更新（读取 Gitee / GitHub 发行版信息，GitHub 经 gh-proxy 加速；均不上传账本数据）
 - 卸载 App 即数据随本机沙箱销毁；换机请先用「数据与备份」导出
 
 ---
@@ -217,5 +217,5 @@ scripts/    check & test scripts
 ## Data & privacy
 
 - Ledger, settings and backups stay on-device: `_doc/books.db`
-- Network traffic: AI features (to the provider you configured) + category icon images (loaded on demand from the Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D CDNs; no ledger data is uploaded)
+- Network traffic: AI features (to the provider you configured) + category icon images (loaded on demand from the Noto / Twemoji / OpenMoji / Microsoft Fluent / Microsoft Fluent 3D CDNs) + update checks (Gitee / GitHub release metadata, with GitHub accelerated through gh-proxy); no ledger data is uploaded
 - Uninstalling destroys data with the sandbox; migrate devices via export/import first

@@ -22,7 +22,7 @@ import { readFileSync, readdirSync, statSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { compareVersions, APP_VERSION } from '../utils/version.js'
-import { resolveUpdate } from '../api/update.js'
+import { resolveUpdate, proxyGithubDownloadUrl, checkUpdate } from '../api/update.js'
 import { apiLevelFromOsVersion } from '../api/notifier.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -105,6 +105,69 @@ console.log('=== 不比本地新时不算更新 ===')
 check('版本相同', resolveUpdate(giteeFixture({ tag_name: 'v1.16.2' }), '1.16.2').hasUpdate, false)
 check('远端更旧（不提示降级）', resolveUpdate(giteeFixture({ tag_name: 'v1.16.0' }), '1.16.2').hasUpdate, false)
 
+console.log('=== Gitee 失败回退 GitHub（gh-proxy）===')
+
+check(
+  'GitHub 下载地址加 gh-proxy 前缀',
+  proxyGithubDownloadUrl('https://github.com/zephyr0214/FreeLedger-App/releases/download/v1.25.4/FreeLedger-v1.25.4.apk'),
+  'https://gh-proxy.com/https://github.com/zephyr0214/FreeLedger-App/releases/download/v1.25.4/FreeLedger-v1.25.4.apk'
+)
+check(
+  '非 GitHub 地址不被改写',
+  proxyGithubDownloadUrl('https://gitee.com/x/releases/download/v1/a.apk'),
+  'https://gitee.com/x/releases/download/v1/a.apk'
+)
+
+{
+  const calls = []
+  globalThis.uni = {
+    request(opts) {
+      calls.push(opts.url)
+      if (opts.url.indexOf('gitee.com') !== -1) {
+        opts.success({ statusCode: 403, data: {} })
+        return
+      }
+      opts.success({
+        statusCode: 200,
+        data: {
+          tag_name: 'v9.9.9',
+          body: 'GitHub fallback',
+          assets: [{
+            name: 'FreeLedger-v9.9.9.apk',
+            size: 123,
+            browser_download_url:
+              'https://github.com/zephyr0214/FreeLedger-App/releases/download/v9.9.9/FreeLedger-v9.9.9.apk'
+          }]
+        }
+      })
+    }
+  }
+  const r = await checkUpdate()
+  check('Gitee 403 后自动请求 GitHub 代理 API', calls.some((u) => u.indexOf('https://gh-proxy.com/https://api.github.com/') === 0), true)
+  check('回退后能发现新版本', r.hasUpdate, true)
+  check('回退后的版本号', r.version, '9.9.9')
+  check(
+    '回退后的下载地址也走加速',
+    r.downloadUrl,
+    'https://gh-proxy.com/https://github.com/zephyr0214/FreeLedger-App/releases/download/v9.9.9/FreeLedger-v9.9.9.apk'
+  )
+
+  // 两个源都失败才抛错
+  globalThis.uni = {
+    request(opts) {
+      opts.success({ statusCode: 403, data: {} })
+    }
+  }
+  let msg = ''
+  try {
+    await checkUpdate()
+  } catch (e) {
+    msg = e.message
+  }
+  check('两个源都失败时抛错', /更新服务暂不可用/.test(msg), true)
+  delete globalThis.uni
+}
+
 console.log('=== 异常响应兜底 ===')
 
 check('空响应', resolveUpdate(null, '1.16.2').hasUpdate, false)
@@ -154,11 +217,17 @@ console.log('=== 临时调试下载入口已删除 ===')
 
 /* --------------------------------------------- 3. 源码级接线 */
 
-console.log('=== 数据源是 Gitee ===')
+console.log('=== 数据源：Gitee + GitHub（gh-proxy）回退 ===')
 
 {
   const api = read('api/update.js')
   check('Gitee API 地址', /gitee\.com\/api\/v5\/repos\/all0zy\/FreeLedger-App\/releases\/latest/.test(api), true)
+  check('GitHub API 地址', /api\.github\.com\/repos\/zephyr0214\/FreeLedger-App\/releases\/latest/.test(api), true)
+  check('GitHub API 走 gh-proxy', /gh-proxy\.com\//.test(api) && /GH_PROXY[\s\S]{0,120}GITHUB_LATEST_API/.test(api), true)
+  check('GitHub 下载地址加代理', /proxyGithubDownloadUrl/.test(api) && /withGithubProxy/.test(api), true)
+  check('请求带浏览器 UA', /User-Agent/.test(api) && /REQUEST_UA/.test(api), true)
+  check('Gitee 失败后继续尝试 GitHub', /fetchGiteeLatest\(\)[\s\S]{0,500}?fetchGithubLatest\(\)/.test(api), true)
+  check('两个都失败才抛错', /更新服务暂不可用/.test(api), true)
   check('导出 resolveUpdate', /export function resolveUpdate/.test(api), true)
   check('导出 downloadApk', /export function downloadApk/.test(api), true)
   check('导出 installApk', /export function installApk/.test(api), true)
