@@ -105,7 +105,7 @@
 
 <script>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { onBackPress } from '@dcloudio/uni-app'
+import { onBackPress, onShow } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -225,6 +225,24 @@ export default {
 
     // 侧滑返回 / 返回键：标签编辑弹层打开时先收起弹层
     onBackPress(() => handleBackPress())
+
+    /**
+     * 回到本页重新读标签
+     *
+     * ★ 标签顺序是「最近使用」★
+     *   在别的页面给流水打了标签后返回，本页的 tags 缓存还是旧的；
+     *   不重查就会看到「顺序没变」。首次 onShow 跳过（onMounted 已查）。
+     */
+    let shownOnce = false
+    onShow(() => {
+      if (!shownOnce) {
+        shownOnce = true
+        return
+      }
+      load().catch((e) => {
+        console.warn('[tag] 刷新标签失败:', e && e.message)
+      })
+    })
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()

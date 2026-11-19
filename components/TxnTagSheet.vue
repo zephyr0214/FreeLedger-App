@@ -33,7 +33,7 @@
 
       <scroll-view class="tag-scroll" scroll-y>
         <view
-          v-for="t in tags"
+          v-for="t in localTags"
           :key="t.id"
           class="tag-item"
           :class="{ checked: draft.includes(t.id) }"
@@ -46,7 +46,7 @@
           <text class="tag-name">{{ t.name }}</text>
         </view>
 
-        <view v-if="tags.length === 0" class="tag-empty">
+        <view v-if="localTags.length === 0" class="tag-empty">
           <text class="tag-empty-text">还没有标签，先新增标签</text>
         </view>
       </scroll-view>
@@ -74,6 +74,7 @@ import { computed, ref, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import HeaderAction from '@/components/HeaderAction.vue'
 import TagEditorSheet from '@/components/TagEditorSheet.vue'
+import { listTags } from '@/api/tag.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
@@ -107,6 +108,28 @@ export default {
     /** 临时选择：点「确定」才回传 */
     const draft = ref([])
 
+    /**
+     * 本次打开用的标签列表
+     *
+     * ★ 为什么不在模板里直接用 props.tags ★
+     *   页面级 tags 是缓存，用户刚给某笔账打了标签、或在另一个入口新增了标签后，
+     *   缓存里的顺序/成员可能还是旧的。这里每次打开都重新查一次 listTags，
+     *   保证「最近使用顺序」和新增标签立刻生效，不依赖页面 onShow 的时机。
+     */
+    const localTags = ref([])
+    let tagsLoadToken = 0
+
+    async function refreshTags() {
+      const token = ++tagsLoadToken
+      try {
+        const rows = await listTags()
+        if (token === tagsLoadToken) localTags.value = rows
+      } catch (e) {
+        // 查询失败就继续用打开时复制的那份，至少不影响选择
+        console.warn('[tagSheet] 刷新标签失败:', e && e.message)
+      }
+    }
+
     /** 新增标签弹层 */
     const showTagEditor = ref(false)
 
@@ -114,9 +137,10 @@ export default {
       showTagEditor.value = true
     }
 
-    function onTagSaved(tag) {
+    async function onTagSaved(tag) {
       showTagEditor.value = false
       emit('tag-created', tag)
+      await refreshTags()
     }
 
     let unregisterLayer = null
@@ -126,6 +150,9 @@ export default {
       (open) => {
         if (open) {
           draft.value = (props.selectedIds || []).slice()
+          // 先用父级缓存立即渲染，再异步换成最新列表
+          localTags.value = Array.isArray(props.tags) ? props.tags.slice() : []
+          refreshTags()
           if (!unregisterLayer) {
             unregisterLayer = pushLayer(() => { visible.value = false }, 'txnTagSheet')
           }
@@ -133,6 +160,8 @@ export default {
         }
         // 标签面板关闭时，叠在上面的新增标签弹层也一起收起
         showTagEditor.value = false
+        // 让还在路上的 listTags 结果作废，避免关掉后写回
+        tagsLoadToken++
         if (unregisterLayer) {
           unregisterLayer()
           unregisterLayer = null
@@ -141,6 +170,7 @@ export default {
     )
 
     onUnmounted(() => {
+      tagsLoadToken++
       if (unregisterLayer) unregisterLayer()
     })
 
@@ -166,7 +196,7 @@ export default {
     }
 
     return {
-      visible, primaryColor, draft, showTagEditor,
+      visible, primaryColor, draft, localTags, showTagEditor,
       toggle, clearAll, cancel, confirm, openAddTag, onTagSaved
     }
   }

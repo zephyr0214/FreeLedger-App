@@ -274,6 +274,23 @@ console.log('=== 标签选择面板：无标签也打开 + 添加标签 ===')
 
   check('标签面板复用 TagEditorSheet', /<TagEditorSheet/.test(sheet), true)
   check('新建标签后通知外层刷新', /emit\('tag-created'/.test(sheet), true)
+  check(
+    '标签面板每次打开重新拉最新标签',
+    /import \{ listTags \}/.test(sheet) &&
+      /localTags\.value = Array\.isArray\(props\.tags\)/.test(sheet) &&
+      /refreshTags\(\)/.test(sheet),
+    true
+  )
+  check(
+    '新增标签后当前面板立即刷新',
+    /async function onTagSaved[\s\S]*?await refreshTags\(\)/.test(sheet),
+    true
+  )
+  check(
+    '标签管理页返回时刷新顺序',
+    /onShow\(\(\) => \{[\s\S]*?load\(\)/.test(tagPage),
+    true
+  )
   check('记账面板刷新标签', /@tag-created="onTagCreated"/.test(txnPanel), true)
   check('首页刷新标签', /@tag-created="onTagCreated"/.test(indexPage), true)
   check('全部交易页刷新标签', /@tag-created="onTagCreated"/.test(listPage), true)
