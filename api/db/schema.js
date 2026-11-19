@@ -77,6 +77,21 @@ export const SYSTEM_PRESET_GROUP_NAME = '系统分类'
  */
 export const SYSTEM_PRESET_LEGACY_NAME = '系统预置分类'
 
+/**
+ * 「系统分类」父级可能用过的全部名字。
+ *
+ * ★ 为什么结算/借款 SQL 必须同时认父级 ★
+ *   六类结算差额和四类借还分类只能按名字匹配，但用户是可以
+ *   自建同名分类的（分类表没有唯一约束）。只看名字的话，
+ *   用户建一个「报销坏账」支出分类，它的流水就会被排除出账户余额；
+ *   建一个「借入」收入分类，负债会凭空变大。
+ *   所以判定条件必须是「名字对 + 父级是系统分类」。
+ */
+export const SYSTEM_PRESET_GROUP_NAMES = [
+  SYSTEM_PRESET_GROUP_NAME,
+  SYSTEM_PRESET_LEGACY_NAME
+]
+
 /** 「系统分类」父级（按 type 各一条） */
 export const SYSTEM_PRESET_GROUPS = {
   expense: { name: SYSTEM_PRESET_GROUP_NAME, type: 'expense', icon: 'more', color: '#969799' },
@@ -169,6 +184,23 @@ export const SYSTEM_PRESET_CHILDREN = [
   { type: 'income', name: '报销到账', icon: 'refund', color: '#26A69A', sort: 906 },
   { type: 'expense', name: '报销坏账', icon: 'more', color: '#FA5151', sort: 907 },
   { type: 'income', name: '报销盈余', icon: 'chart', color: '#26A69A', sort: 908 }
+]
+
+/**
+ * 用户分类不能使用的保留名。
+ *
+ * 这些都是「系统分类」下的固定子类名，业务代码按名字识别借还、
+ * 结算差额和报销口径。允许用户再建一个同名分类，会让同名流水
+ * 被误当成系统口径（余额/负债直接算错），所以创建和改名时统一拦掉。
+ *
+ * ★ 只拦名字，不拦层级 ★
+ *   账户/借款的 SQL 只看分类名（历史原因，id 会随导入变化），
+ *   所以哪怕用户把同名分类挂在别的一级下面，也一样会被误判。
+ */
+export const RESERVED_CATEGORY_NAMES = [
+  SYSTEM_PRESET_GROUP_NAME,
+  SYSTEM_PRESET_LEGACY_NAME,
+  ...SYSTEM_PRESET_CHILDREN.map((c) => c.name)
 ]
 
 /**

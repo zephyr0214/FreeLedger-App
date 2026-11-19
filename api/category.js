@@ -10,6 +10,7 @@ import {
   DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, DEFAULT_ALIAS,
   SYSTEM_PRESET_GROUP_NAME, SYSTEM_PRESET_LEGACY_NAME, SYSTEM_PRESET_GROUPS, SYSTEM_PRESET_CHILDREN,
   LOAN_SETTLE_CATEGORY_NAMES, REIMBURSE_CATEGORY_NAMES,
+  RESERVED_CATEGORY_NAMES,
   childIcon, childColor
 } from './db/schema.js'
 
@@ -99,19 +100,62 @@ export async function getCategory(id) {
 
 /* ------------------------------------------------------------------ 写入 */
 
+/**
+ * 分类名是否可用（创建 / 改名 / 移动层级时统一走这里）。
+ *
+ * ★ 两条硬约束 ★
+ *   1. 不能用系统保留名（系统分类、借出、报销坏账…）。
+ *      结算/借款代码按名字识别这些分类，用户再建一个同名分类，
+ *      它的流水会被误算进余额、负债或报销口径。
+ *   2. 同一父级下不能重名（type + parent_id + name 唯一）。
+ *      UI 按「一级/二级」展示，同级重名会让人分不清点的是哪一个，
+ *      统计/预算按名字回退时也会撞车。
+ *
+ * @param {string} name 已 trim 的名称
+ * @param {string} type 'expense' | 'income'
+ * @param {string|null} parentId
+ * @param {string|null} excludeId 改名时排除自己
+ */
+async function assertCategoryNameAvailable(name, type, parentId, excludeId = null) {
+  if (!name) throw new Error('分类名称不能为空')
+  if (RESERVED_CATEGORY_NAMES.includes(name)) {
+    throw new Error(`「${name}」是系统保留分类名，请换一个名称`)
+  }
+
+  const params = [type, name]
+  let sql = 'SELECT id FROM category WHERE deleted_at IS NULL AND type = ? AND name = ?'
+  if (parentId) {
+    sql += ' AND parent_id = ?'
+    params.push(parentId)
+  } else {
+    sql += ' AND parent_id IS NULL'
+  }
+  if (excludeId) {
+    sql += ' AND id <> ?'
+    params.push(excludeId)
+  }
+  const hit = await queryOne(sql, params)
+  if (hit) throw new Error(`同一层级下已经有「${name}」分类了`)
+}
+
 export async function createCategory(input) {
   const now = Date.now()
   const id = input.id || prefixedId('cat')
-  const sort = input.sort !== undefined ? input.sort : await nextSort(input.type, input.parent_id || null)
+  const name = String(input.name || '').trim()
+  const type = input.type || 'expense'
+  const parentId = input.parent_id || null
+  await assertCategoryNameAvailable(name, type, parentId)
+
+  const sort = input.sort !== undefined ? input.sort : await nextSort(type, parentId)
 
   await execute(
     `INSERT INTO category (id, parent_id, name, type, icon, color, sort, hidden, created_at, updated_at, deleted_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,NULL)`,
     [
       id,
-      input.parent_id || null,
-      input.name,
-      input.type || 'expense',
+      parentId,
+      name,
+      type,
       writeIcon(input.icon),
       input.color || null,
       sort,
@@ -143,11 +187,24 @@ export async function updateCategory(id, patch) {
     }
   }
 
+  /*
+   * ★ 改名 / 移动层级前先校验名称 ★
+   *   系统分类在上面已经被拦住；这里管的是用户分类：
+   *   不能用保留名，也不能在同一父级下重名。
+   */
+  const nextName = patch.name !== undefined ? String(patch.name).trim() : existing.name
+  const nextParent = patch.parent_id !== undefined ? (patch.parent_id || null) : (existing.parent_id || null)
+  const nameChanged = patch.name !== undefined && nextName !== existing.name
+  const parentChanged = patch.parent_id !== undefined && nextParent !== (existing.parent_id || null)
+  if (nameChanged || parentChanged) {
+    await assertCategoryNameAvailable(nextName, existing.type, nextParent, id)
+  }
+
   const fields = []
   const params = []
   const assign = (col, val) => { fields.push(`${col} = ?`); params.push(val) }
 
-  if (patch.name !== undefined) assign('name', patch.name)
+  if (patch.name !== undefined) assign('name', nextName)
   if (patch.icon !== undefined) assign('icon', writeIcon(patch.icon))
   if (patch.color !== undefined) assign('color', patch.color)
   if (patch.sort !== undefined) assign('sort', patch.sort)
@@ -222,6 +279,23 @@ export async function deleteCategory(id) {
         'UPDATE txn SET category_id = NULL, updated_at = ? WHERE category_id = ? AND deleted_at IS NULL',
         [now, cid]
       )
+      /*
+       * ★ 周期模板也要一起处理 ★
+       *   cycle.category_id 可空，但「支出/收入周期必须有分类」
+       *   是 validateCycle 的硬约束。分类删了还留着模板，
+       *   补记时会往已删除分类里写流水（JOIN 不到分类，变成无分类账），
+       *   用户下次打开 App 就凭空多出一笔不知道哪来的支出。
+       *   最稳妥的是把引用它的周期一起软删除 —— 和账户删除同口径。
+       */
+      try {
+        await execute(
+          'UPDATE cycle SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND category_id = ?',
+          [now, now, cid]
+        )
+      } catch (e) {
+        // 老库迁移没跑成时 cycle 表可能不存在；删分类本身不能因此失败
+        if (!/no such table/i.test(e && e.message ? e.message : '')) throw e
+      }
     }
 
     // 3) 删掉这些分类的「子预算」关联 / 预算

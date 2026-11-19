@@ -224,10 +224,20 @@ export default {
         })
         close()
         emit('saved', saved)
+        notifyCategoryChanged()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
       }
+    }
+
+    /** 分类改名/删除会影响统计页的分类名与恩格尔卡片 */
+    function notifyCategoryChanged() {
+      try {
+        if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
+          uni.$emit('category:changed')
+        }
+      } catch (e) {}
     }
 
     async function onDelete() {
@@ -247,6 +257,7 @@ export default {
         await deleteCategory(cat.id)
         close()
         emit('deleted', cat)
+        notifyCategoryChanged()
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '无法删除', content: e.message })

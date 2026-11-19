@@ -313,6 +313,7 @@ export default {
         }
         await load()
         txnStore.loadHome(true)
+        uni.$emit('txn:changed')
       } catch (err) {
         await alertDialog({ title: '设置失败', content: err.message })
         await load()
@@ -340,6 +341,7 @@ export default {
 
       try {
         await deleteTransaction(txnId.value)
+        uni.$emit('txn:changed')
         uni.showToast({ title: '已删除', icon: 'success' })
         await txnStore.loadHome(true)
         setTimeout(() => uni.navigateBack(), 600)

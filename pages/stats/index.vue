@@ -719,8 +719,8 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted, getCurrentInstance } from 'vue'
-import { onShow, onBackPress } from '@dcloudio/uni-app'
+import { ref, reactive, computed, onMounted, onUnmounted, getCurrentInstance } from 'vue'
+import { onShow, onHide, onBackPress } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import StatsComparePanel from '@/components/StatsComparePanel.vue'
 import MoneyText from '@/components/MoneyText.vue'
@@ -1320,38 +1320,69 @@ export default {
      *   四张卡的「支出/收入」互相独立，
      *   所以每张卡的数据要按各自的 type 单独查。
      */
+    /*
+     * ★ 请求序号 ★
+     *   快速切日期/筛选时会有多个 loadAll 并发，晚返回的旧请求
+     *   可能把新请求的结果覆盖掉。每次加载递增，回来时不是最新就丢弃。
+     */
+    let loadSeq = 0
+
     async function loadAll() {
       const r = range.value
+      const seq = ++loadSeq
+      /*
+       * ★ 只查「当前可见」的面板 ★
+       *   旧实现不管面板藏没藏，10 块面板全部查一遍。
+       *   用户隐藏了一半面板，仍然白跑一半 SQL。
+       */
+      const show = {
+        category: panelVisible('category'),
+        account: panelVisible('account'),
+        average: panelVisible('average'),
+        trend: panelVisible('trend'),
+        top: panelVisible('top')
+      }
       try {
         const [ov, cats, accs, accTypes, catAvgs, daily, avg, top] = await Promise.all([
           getOverviewRange(r),
           // 分类统计：按面板的层级（一级/二级）查询
-          categoryLevel.value === 'root'
-            ? getCategoryStatsRange(r, categoryStatType.value)
-            : getSubCategoryStatsRange(r, categoryStatType.value),
-          getAccountStatsRange(r, accountStatType.value),
-          getAccountTypeStatsRange(r, accountStatType.value),
+          show.category
+            ? (categoryLevel.value === 'root'
+                ? getCategoryStatsRange(r, categoryStatType.value)
+                : getSubCategoryStatsRange(r, categoryStatType.value))
+            : Promise.resolve(null),
+          show.account ? getAccountStatsRange(r, accountStatType.value) : Promise.resolve(null),
+          show.account ? getAccountTypeStatsRange(r, accountStatType.value) : Promise.resolve(null),
           // 平均值：按面板的层级（一级/二级）查询
-          averageLevel.value === 'root'
-            ? getCategoryAveragesRange(r, averageStatType.value)
-            : getSubCategoryAveragesRange(r, averageStatType.value),
-          getDailyTrendRange(r),
-          getAveragesRange(r, averageStatType.value),
-          getTopExpensesRange(r, 10)
+          show.average
+            ? (averageLevel.value === 'root'
+                ? getCategoryAveragesRange(r, averageStatType.value)
+                : getSubCategoryAveragesRange(r, averageStatType.value))
+            : Promise.resolve(null),
+          show.trend ? getDailyTrendRange(r) : Promise.resolve(null),
+          show.average ? getAveragesRange(r, averageStatType.value) : Promise.resolve(null),
+          show.top ? getTopExpensesRange(r, 10) : Promise.resolve(null)
         ])
+        if (seq !== loadSeq) return
 
         overview.value = ov
-        categoryStats.value = cats
-        accountStats.value = accs
-        accountTypeStats.value = accTypes
-        categoryAverages.value = catAvgs
-        dailyTrend.value = daily
-        // 换了区间 / 粒度 → 原来的下标已经指不到那根柱了，直接清掉
-        clearBarPick()
-        averages.value = avg
-        topExpenses.value = top
-        // 分类名映射（恩格尔标签用）：区间/层级变化都要更新
-        await refreshEngelFoodNames()
+        if (show.category) categoryStats.value = cats
+        if (show.account) {
+          accountStats.value = accs
+          accountTypeStats.value = accTypes
+        }
+        if (show.average) {
+          categoryAverages.value = catAvgs
+          averages.value = avg
+        }
+        if (show.trend) {
+          dailyTrend.value = daily
+          // 换了区间 / 粒度 → 原来的下标已经指不到那根柱了，直接清掉
+          clearBarPick()
+        }
+        if (show.top) topExpenses.value = top
+        // 分类名映射由 loadExtras 的恩格尔任务统一刷新，避免重复查分类表
+        if (seq !== loadSeq) return
 
         /*
          * ★ 同比 / 恩格尔放在主统计之后 ★
@@ -1360,8 +1391,9 @@ export default {
          *   所以必须等主统计回来再跑，不能和它并发。
          *   两者各用各的 catch，坏了一边不拖垮另一边。
          */
-        loadExtras(r)
+        loadExtras(r, seq)
       } catch (e) {
+        if (seq !== loadSeq) return
         console.error('[stats] load failed', e)
         uni.showToast({ title: e.message, icon: 'none' })
       }
@@ -1375,59 +1407,63 @@ export default {
      *   两者都可能失败；合进主链会因为一个失败把整页统计都清空。
      *   这里各自 catch，坏了就保持上一次的值。
      */
-    async function loadExtras(r) {
+    async function loadExtras(r, seq) {
+      const alive = () => seq === loadSeq
+      const tasks = []
+
       // 1) 同比（跟着面板自己的支出/收入 与 一级/二级 走）
-      try {
-        comparison.value = await getPeriodComparison(r, {
-          level: comparisonLevel.value,
-          type: comparisonType.value
-        })
-      } catch (e) {
-        console.warn('[stats] 同比计算失败:', e && e.message)
-        // 保留上一次结果，切 tab 时不至于整块先消失再回来
+      if (panelVisible('comparison')) {
+        tasks.push((async () => {
+          try {
+            const v = await getPeriodComparison(r, {
+              level: comparisonLevel.value,
+              type: comparisonType.value
+            })
+            if (alive()) comparison.value = v
+          } catch (e) {
+            console.warn('[stats] 同比计算失败:', e && e.message)
+            // 保留上一次结果，切 tab 时不至于整块先消失再回来
+          }
+        })())
+      }
+
+      // 1b) 环比（同样的数据，对比窗口换成「上一周期」）
+      if (panelVisible('mom')) {
+        tasks.push((async () => {
+          try {
+            const v = await getPeriodComparison(r, {
+              level: momLevel.value,
+              type: momType.value,
+              mode: 'mom'
+            })
+            if (alive()) momComparison.value = v
+          } catch (e) {
+            console.warn('[stats] 环比计算失败:', e && e.message)
+          }
+        })())
       }
 
       /*
-       * 1b) 环比（同样的数据，对比窗口换成「上一周期」）
-       *
-       * ★ 单独 try/catch ★
-       *   和同比各坏各的：一个算不出来不该让另一个也空着。
+       * 1c) 储蓄率（左右两列一起查）
+       *   空区间 = 不限时间，与 engelAll 同一口径。
        */
-      try {
-        momComparison.value = await getPeriodComparison(r, {
-          level: momLevel.value,
-          type: momType.value,
-          mode: 'mom'
-        })
-      } catch (e) {
-        console.warn('[stats] 环比计算失败:', e && e.message)
-        // 保留上一次结果
-      }
-
-      /*
-       * 1c) 储蓄率（纯本地聚合，一次查询）
-       *
-       * ★ 放在 loadExtras 而不是主链 ★
-       *   它坏了只是少一块面板，不该让整页统计白屏。
-       */
-      try {
-        savings.value = await getSavingsRate(r)
-      } catch (e) {
-        console.warn('[stats] 储蓄率计算失败:', e && e.message)
-        // 保留上一次结果
-      }
-      /*
-       * 右列：全部数据的储蓄率（本轮第 10 条）
-       * 空区间 = 不限时间，与 engelAll 同一口径。
-       */
-      try {
-        savingsAll.value = await getSavingsRate({
-          startDay: '', endDay: '', monthKey: '',
-          ...filterQuery.value
-        })
-      } catch (e) {
-        console.warn('[stats] 全部储蓄率计算失败:', e && e.message)
-        // 保留上一次结果
+      if (panelVisible('savings')) {
+        tasks.push((async () => {
+          try {
+            const [cur, all] = await Promise.all([
+              getSavingsRate(r),
+              getSavingsRate({
+                startDay: '', endDay: '', monthKey: '',
+                ...filterQuery.value
+              })
+            ])
+            if (!alive()) return
+            savings.value = cur
+            savingsAll.value = all
+          } catch (e) {
+            console.warn('[stats] 储蓄率计算失败:', e && e.message)
+          }
+        })())
       }
 
       /*
@@ -1438,50 +1474,58 @@ export default {
        *   「已用」只算了一部分，再拿它和全局额度比会把剩余额度算高。
        *   所以这里只传日期区间，筛选字段剥掉。
        */
-      try {
-        budgetExecution.value = await getBudgetExecution({
-          startDay: r.startDay, endDay: r.endDay, monthKey: r.monthKey
-        })
-      } catch (e) {
-        console.warn('[stats] 预算执行计算失败:', e && e.message)
-        // 保留上一次结果，避免切 tab 时整块面板闪空
+      if (panelVisible('budget')) {
+        tasks.push((async () => {
+          try {
+            const v = await getBudgetExecution({
+              startDay: r.startDay, endDay: r.endDay, monthKey: r.monthKey
+            })
+            if (alive()) budgetExecution.value = v
+          } catch (e) {
+            console.warn('[stats] 预算执行计算失败:', e && e.message)
+          }
+        })())
       }
 
       /*
        * 2) 恩格尔系数
        *
        * ★ 「哪些分类算食品」完全由用户在组件管理页手选 ★
-       *   本轮第 3 条明确要求删掉 AI 识别逻辑，
-       *   这里只读 setting 里的 id 数组，一次网络请求都不发。
+       *   只读 setting 里的 id 数组，一次网络请求都不发。
        *   没选分类时 getEngelCoefficient 会返回 foodIds: []，
        *   卡片上显示引导文案而不是 0%。
        */
-      try {
-        engelFoodIds.value = await getEngelFoodIds()
-        await refreshEngelFoodNames()
-        await refreshEngel()
-        /*
-         * 右列：全部数据的恩格尔系数（本轮第 10 条）
-         *
-         * ★ 不限时间 = 传一个空区间 ★
-         *   getEngelCoefficient 的 rangeScope 对空字符串不拼任何 where，
-         *   自然就是「全部数据」。不需要另一套 SQL。
-         * ★ 失败不影响左列 ★
-         *   右列是辅助对照，算不出来就显示「暂无数据」。
-         */
-        try {
-          engelAll.value = await getEngelCoefficient({
-            startDay: '', endDay: '', monthKey: '',
-            ...filterQuery.value
-          }, engelFoodIds.value)
-        } catch (e2) {
-          console.warn('[stats] 全部数据恩格尔系数计算失败:', e2 && e2.message)
-          engelAll.value = { total: 0, food: 0, ratio: 0, foodIds: [] }
-        }
-      } catch (e) {
-        console.warn('[stats] 恩格尔系数计算失败:', e && e.message)
-        engel.value = null
+      if (panelVisible('engel')) {
+        tasks.push((async () => {
+          try {
+            const ids = await getEngelFoodIds()
+            if (!alive()) return
+            engelFoodIds.value = ids
+            await refreshEngelFoodNames()
+            const empty = {
+              startDay: '', endDay: '', monthKey: '',
+              ...filterQuery.value
+            }
+            const [cur, all] = await Promise.all([
+              getEngelCoefficient(r, ids),
+              getEngelCoefficient(empty, ids)
+            ])
+            if (!alive()) return
+            engel.value = cur
+            engelAll.value = all
+          } catch (e) {
+            console.warn('[stats] 恩格尔系数计算失败:', e && e.message)
+            if (alive()) engel.value = null
+          }
+        })())
       }
+
+      /*
+       * ★ 并发跑，但互不拖累 ★
+       *   每块自己 catch；Promise.allSettled 保证一块失败不影响其它块。
+       *   旧实现串行 await，10 块面板最慢的一块的耗时叠加了 6 次。
+       */
+      await Promise.allSettled(tasks)
     }
 
     /**
@@ -1492,10 +1536,6 @@ export default {
      *   卡片上的文案不一样（见模板里的两个空态分支）。
      *   所以不在这里提前返回假数据，交给 getEngelCoefficient 给真实的 total。
      */
-    async function refreshEngel() {
-      const r = await getEngelCoefficient(range.value, engelFoodIds.value)
-      engel.value = r
-    }
 
     /**
      * 把「吃」的分类 id 换成名字（页面下方那排标签用）
@@ -1690,45 +1730,85 @@ export default {
       gotoHomeAndAdd(settingStore.quickAddHoldAction === 'manual' ? 'manual' : 'ai', uiStore)
     }
 
+    /*
+     * 页面级刷新闸门：
+     *   · firstShow —— onMounted 已经加载过一次，首次 onShow 不再重复查
+     *   · dirty     —— 别的页面改过流水/账户/预算/分类才需要重查
+     *   · pageVisible —— 事件到达时页面是否在前台
+     */
+    let firstShow = true
+    let pageVisible = false
+    let dirty = false
+
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await loadPanelSettings()
       applyPendingStatsFilter()
       await loadAllCategories()
       await loadAll()
+      dirty = false
       // 日趋势拖动选中要知道柱子区的屏幕位置，
       // 等数据渲染完了才量得准（此时 .daily-touch 已存在）
       setTimeout(measureTrend, 60)
     })
 
     onShow(async () => {
+      pageVisible = true
       if (settingStore.loaded) {
         /*
-         * ★ 每次回到本页都要重读面板配置与食品分类 ★
+         * ★ 每次回到本页都要重读面板配置 ★
          *   用户可能刚在「组件管理」里改了顺序、隐藏了面板、
          *   或重选了食品分类 —— 不重读就得杀进程才生效。
          *   读 setting 是纯内存/一次 KV 查询，代价可以忽略。
          */
+        const panelsBefore = JSON.stringify(statsPanels.value)
         await loadPanelSettings()
+        const panelsChanged = panelsBefore !== JSON.stringify(statsPanels.value)
+
         /*
          * ★ 重新进入统计页默认清空「更多筛选」并回到本月 ★
          *   只有从账户/标签详情带条件跳过来时才保留这次条件。
          *   pendingApplied 用来兼容 onMounted 已经消费过 pending 的情况，
          *   否则 onShow 会把刚带进来的条件又清掉。
          */
+        const stateBefore = JSON.stringify({
+          mode: dateMode.value,
+          range: dateRange.value,
+          filter: filterQuery.value
+        })
         const hadPending = applyPendingStatsFilter()
         if (!hadPending && !pendingApplied) {
           resetAppliedFilter()
           resetDateToCurrentMonth()
         }
         pendingApplied = false
-        await loadAllCategories()
-        await loadAll()
+        const stateChanged = stateBefore !== JSON.stringify({
+          mode: dateMode.value,
+          range: dateRange.value,
+          filter: filterQuery.value
+        })
+
+        /*
+         * ★ 首次 onShow 不重复加载 ★
+         *   onMounted 已经查过一遍，uni-app 紧接着还会触发一次 onShow。
+         *   旧实现两次全量查询挨着跑，首屏白白多等一倍。
+         */
+        if (firstShow) {
+          firstShow = false
+        } else if (dirty || panelsChanged || stateChanged) {
+          await loadAllCategories()
+          await loadAll()
+          dirty = false
+        }
       }
       settingStore.syncSystemTheme()
       // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
       // 主题设置页改完主题后要靠这里把颜色刷回来
       settingStore.refreshTabBar()
+    })
+
+    onHide(() => {
+      pageVisible = false
     })
 
     /* 返回键 / 侧滑：筛选面板打开时先收起，不退出统计 tab */
@@ -1741,19 +1821,43 @@ export default {
      * 不等它 —— 先按旧数据渲染，补记才落库，本月收支就少算了那几笔。
      * App.vue 补记成功且有新增时 emit 这个事件，这里重查一次。
      */
-    uni.$on('cycle:caughtup', () => {
-      if (settingStore.loaded) loadAll()
-    })
+    /** 只标脏，等下次 onShow 再查（别的 tab 改数据时不必在后台白跑） */
+    function markDirty() {
+      dirty = true
+    }
+
+    uni.$on('txn:changed', markDirty)
+    uni.$on('account:changed', markDirty)
+    uni.$on('budget:changed', markDirty)
+    uni.$on('category:changed', markDirty)
+
+    /* 需要立刻可见的事件（周期补记 / 整库导入） */
+    uni.$on('cycle:caughtup', onCycleCaughtUp)
+    function onCycleCaughtUp() {
+      dirty = true
+      if (pageVisible && settingStore.loaded) loadAll()
+    }
+
+    uni.$on('data:imported', onDataImported)
+    function onDataImported() {
+      dirty = true
+      if (pageVisible && settingStore.loaded) loadAll()
+    }
 
     /*
-     * 外部文件导入完成 → 整库换了，本页所有数字都要重查
-     *
-     * 一般情况下 App.vue 导入后会 reLaunch 回首页，本页会重建；
-     * 但这条监听留着，覆盖「已经在首页、没有 reLaunch」以及
-     * 以后可能改成不跳转的情况。多一次查询的代价可以忽略。
+     * ★ 必须解绑 ★
+     *   tab 页被重建时 setup 会再注册一遍；旧监听不摘掉的话，
+     *   一次事件会触发 N 次 loadAll，越用越慢。
      */
-    uni.$on('data:imported', () => {
-      if (settingStore.loaded) loadAll()
+    onUnmounted(() => {
+      try {
+        uni.$off('txn:changed', markDirty)
+        uni.$off('account:changed', markDirty)
+        uni.$off('budget:changed', markDirty)
+        uni.$off('category:changed', markDirty)
+        uni.$off('cycle:caughtup', onCycleCaughtUp)
+        uni.$off('data:imported', onDataImported)
+      } catch (e) {}
     })
 
     /* ------------------------------------------------ 各卡片独立切换 */

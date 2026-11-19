@@ -937,6 +937,7 @@ export default {
 
       try {
         await settleLoanPerson(g.person, direction.value)
+        uni.$emit('txn:changed')
         uni.showToast({ title: '已结清', icon: 'success' })
         await load()
       } catch (e) {

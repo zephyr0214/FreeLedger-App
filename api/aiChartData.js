@@ -25,7 +25,7 @@ import {
   getSubCategoryStatsRange,
   getDailyTrendRange
 } from './stats.js'
-import { monthRange, toMonthKey } from '../utils/date.js'
+import { toMonthKey } from '../utils/date.js'
 import { AI_CHART_PALETTE } from '../utils/aiChart.js'
 
 /** 支持的图表类型 */
@@ -88,9 +88,14 @@ export function normalizeChartSpec(spec) {
 export async function fetchChartData(spec, range) {
   if (!spec) return { items: [], total: 0 }
 
+  /*
+   * ★ 只接受统计层认识的区间形状 ★
+   *   stats.js 的 normalizeRange 只读 startDay/endDay/monthKey。
+   *   传 {start: Date, end: Date} 会被当成「不限时间」，图表就变成全量历史。
+   */
   const scope = range && range.startDay
     ? range
-    : monthRange(range && range.monthKey ? range.monthKey : toMonthKey())
+    : { monthKey: (range && range.monthKey) || toMonthKey() }
 
   /* -------------------------------------------------- 折线：每日趋势 */
   if (spec.type === 'trend') {
@@ -110,10 +115,19 @@ export async function fetchChartData(spec, range) {
     ? await getSubCategoryStatsRange(scope, 'expense')
     : await getCategoryStatsRange(scope, 'expense')
 
-  const list = (rows || [])
-    .filter((r) => Number(r.amount) > 0)
+  /*
+   * ★ 合计必须在截断之前算 ★
+   *   环形图中心写「合计」、标签写百分比。如果先 slice(limit)
+   *   再求和，分母只是 Top N 的金额，不是当期总支出 ——
+   *   用户看到的「合计」会明显小于统计页的月支出，
+   *   百分比也会被整体放大。
+   */
+  const all = (rows || []).filter((r) => Number(r.amount) > 0)
+  const total = all.reduce((a, r) => a + Math.round((Number(r.amount) || 0) / 100), 0)
+
+  const list = all
     .slice(0, spec.limit)
-    .map((r) => ({
+    .map((r, i) => ({
       name: spec.dimension === 'subcategory'
         ? (r.parentName ? `${r.parentName}/${r.name}` : r.name)
         : r.name,
@@ -124,11 +138,11 @@ export async function fetchChartData(spec, range) {
        *   否则同色系的深浅分不开。
        *   兜底也在这里给全 —— 这样画图和图例拿到的**一定是同一个颜色**，
        *   不会出现「色块是绿的、图例是灰的」这种对不上的情况。
+       *   （这里必须有 map 的 i；之前漏了参数，只有 color 为空时才会炸。）
        */
       color: r.color || AI_CHART_PALETTE[i % AI_CHART_PALETTE.length],
       icon: r.icon || 'more'
     }))
 
-  const total = list.reduce((a, b) => a + b.amount, 0)
   return { items: list, total, unit: '元' }
 }

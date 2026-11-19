@@ -8,6 +8,28 @@ import {
   createAccount, updateAccount, deleteAccount, getAccount, recalcAllBalances
 } from '@/api/account.js'
 
+/**
+ * 通知其它页面「账户/余额变了」。
+ *
+ * 首页、统计、我的都靠这个事件标脏，下一次 onShow 才重查；
+ * 不再每次切 tab 都全量拉一遍账户和资产。
+ */
+function notifyAccountChanged() {
+  try {
+    if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
+      uni.$emit('account:changed')
+    }
+  } catch (e) {}
+}
+
+function notifyTxnChanged() {
+  try {
+    if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
+      uni.$emit('txn:changed')
+    }
+  } catch (e) {}
+}
+
 export const useAccountStore = defineStore('account', {
   state: () => ({
     list: [],
@@ -123,18 +145,23 @@ export const useAccountStore = defineStore('account', {
     async create(input) {
       const acc = await createAccount(input)
       await this.refresh()
+      notifyAccountChanged()
       return acc
     },
 
     async update(id, patch) {
       const acc = await updateAccount(id, patch)
       await this.refresh()
+      notifyAccountChanged()
       return acc
     },
 
     async remove(id) {
       await deleteAccount(id)
       await this.refresh()
+      notifyAccountChanged()
+      // 删账户会把相关流水的 account_id 清空，流水页也要重查
+      notifyTxnChanged()
     },
 
     async getById(id) {
@@ -146,6 +173,7 @@ export const useAccountStore = defineStore('account', {
     async repair() {
       const n = await recalcAllBalances()
       await this.refresh()
+      notifyAccountChanged()
       return n
     }
   }

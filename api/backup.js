@@ -64,7 +64,7 @@ async function buildExportPayload(opt = {}) {
 
   const whereNotDeleted = includeDeleted ? '' : 'WHERE deleted_at IS NULL'
 
-  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, budgetCategories, cycles, comboMembers, reimburseBatches] = await Promise.all([
+  const [accounts, snapshots, categories, tags, transactions, txnTags, budgets, budgetCategories, cycles, comboMembers, reimburseBatches, cycleSkips, exchangeRates] = await Promise.all([
     query(`SELECT * FROM account ${whereNotDeleted} ORDER BY sort ASC`),
     query('SELECT * FROM account_snapshot ORDER BY day ASC'),
     query(`SELECT * FROM category ${whereNotDeleted} ORDER BY sort ASC`),
@@ -94,6 +94,21 @@ async function buildExportPayload(opt = {}) {
      *   少一个可选段，用户其它数据照样能备份出去。
      */
     query(`SELECT * FROM reimburse_batch ${whereNotDeleted} ORDER BY day ASC, created_at ASC`)
+      .catch(() => []),
+    /*
+     * ★ 周期跳过日（v9）★
+     *   用户手动删掉的周期流水日期。不导出的话，恢复后
+     *   last_caught_up_day 早于今天会重新补记，把用户删掉的账又记回来。
+     *   老设备迁移没跑成时表可能不存在，所以 catch 成空数组。
+     */
+    query('SELECT * FROM cycle_skip ORDER BY cycle_id ASC, day ASC')
+      .catch(() => []),
+    /*
+     * ★ 汇率历史（v17）★
+     *   外币流水的原币快照已经落在 txn 上，但周期补记/重新折算
+     *   还要查历史汇率。不导出的话，换机后外币周期只能按 CNY 记。
+     */
+    query('SELECT * FROM exchange_rate ORDER BY day ASC, currency ASC')
       .catch(() => [])
   ])
 
@@ -111,7 +126,9 @@ async function buildExportPayload(opt = {}) {
       budgetCategories: budgetCategories.length,
       cycles: cycles.length,
       comboMembers: comboMembers.length,
-      reimburseBatches: reimburseBatches.length
+      reimburseBatches: reimburseBatches.length,
+      cycleSkips: cycleSkips.length,
+      exchangeRates: exchangeRates.length
     },
     settings: exportedSettings,
     accounts,
@@ -124,7 +141,9 @@ async function buildExportPayload(opt = {}) {
     budgetCategories,
     cycles,
     comboMembers,
-    reimburseBatches
+    reimburseBatches,
+    cycleSkips,
+    exchangeRates
   }
 }
 
@@ -1035,9 +1054,10 @@ export async function importPayload(payload, opt = {}) {
         await execute(
           `INSERT INTO cycle (id, type, amount_cents, account_id, to_account_id, category_id, note,
             recurrence, weekday, day_of_month, month_of_year, interval_days,
+            original_currency, original_amount_cents,
             last_caught_up_day, created_at, updated_at, deleted_at,
             exclude_from_budget, reimburse_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             cy.id, cy.type, cy.amount_cents, cy.account_id, cy.to_account_id || null,
             cy.category_id || null, cy.note || null,
@@ -1045,6 +1065,16 @@ export async function importPayload(payload, opt = {}) {
             cy.day_of_month === undefined ? null : cy.day_of_month,
             cy.month_of_year === undefined ? null : cy.month_of_year,
             cy.interval_days === undefined ? null : cy.interval_days,
+            /*
+             * ★ 外币模板字段（v17）★
+             *   老备份没有这两列 → null，和老版本行为一致（人民币）。
+             *   新备份带上了就必须原样恢复，否则恢复后外币周期
+             *   会按人民币补记（和 createCycle 的 bug 同源）。
+             */
+            cy.original_currency || null,
+            cy.original_amount_cents === null || cy.original_amount_cents === undefined
+              ? null
+              : Math.round(Number(cy.original_amount_cents)),
             cy.last_caught_up_day || null,
             cy.created_at || Date.now(), cy.updated_at || Date.now(), cy.deleted_at || null,
             /*
@@ -1058,6 +1088,44 @@ export async function importPayload(payload, opt = {}) {
           ]
         )
         report.cycles++
+      }
+    }
+
+    // ---------- 周期跳过日（v9；老备份没有这一段）
+    if (Array.isArray(payload.cycleSkips)) {
+      for (const s of payload.cycleSkips) {
+        if (!s || !s.cycle_id || !s.day) continue
+        try {
+          await execute(
+            'INSERT OR IGNORE INTO cycle_skip (cycle_id, day, created_at) VALUES (?,?,?)',
+            [s.cycle_id, s.day, s.created_at || Date.now()]
+          )
+        } catch (e) {
+          // 老设备迁移没跑成时表可能不存在；这是附加数据，不能挡住导入
+          if (!/no such table/i.test(e && e.message ? e.message : '')) throw e
+        }
+      }
+    }
+
+    // ---------- 汇率历史（v17；老备份没有这一段）
+    if (Array.isArray(payload.exchangeRates)) {
+      for (const r of payload.exchangeRates) {
+        if (!r || !r.day || !r.currency || !(Number(r.rate) > 0)) continue
+        try {
+          await execute(
+            `INSERT OR REPLACE INTO exchange_rate (day, currency, rate, source, fetched_at)
+             VALUES (?,?,?,?,?)`,
+            [
+              r.day,
+              r.currency,
+              Number(r.rate),
+              r.source || 'backup',
+              Number(r.fetched_at) || Date.now()
+            ]
+          )
+        } catch (e) {
+          if (!/no such table/i.test(e && e.message ? e.message : '')) throw e
+        }
       }
     }
 
@@ -1112,7 +1180,14 @@ export async function importPayload(payload, opt = {}) {
 /** 自动备份（写入 _doc/backup/，滚动保留 5 份） */
 export async function autoBackup(reason = 'auto') {
   try {
-    const json = await exportToJson({ includeApiKey: true })
+    /*
+     * ★ 自动备份不写 API Key ★
+     *   自动备份留在 _doc/backup/，虽然也是应用私有目录，但一旦
+     *   用户把整个目录拷走/分享，明文 Key 就跟着走了。
+     *   手动导出一直是剥离 Key 的；自动备份没有理由更宽松。
+     *   恢复自动备份后 Key 需要重新填一次，这是可接受的代价。
+     */
+    const json = await exportToJson({ includeApiKey: false })
     const filename = `backup_${makeStamp()}_${reason}.json`
     const path = await writeTextFile(BACKUP_DIR, filename, json)
 

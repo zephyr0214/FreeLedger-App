@@ -1103,6 +1103,7 @@ export default {
         })
         showSheet.value = false
         exitSelectMode()
+        uni.$emit('txn:changed')
 
         /*
          * 差额要说清楚

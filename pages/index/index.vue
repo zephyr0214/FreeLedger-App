@@ -349,9 +349,9 @@
                   <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
                 </view>
                 <!-- 徽标：周期 / 组合账户 / 标签，统一描边胶囊，全部跟在分类名下面 -->
-                <view v-if="txnBadges(txn).length" class="txn-tag-list">
+                <view v-if="(recentBadgeMap[txn.id] || []).length" class="txn-tag-list">
                   <text
-                    v-for="t in txnBadges(txn)"
+                    v-for="t in (recentBadgeMap[txn.id] || [])"
                     :key="t.key"
                     class="txn-tag"
                     :style="{ backgroundColor: t.bg, color: t.color, borderColor: t.border }"
@@ -486,7 +486,7 @@
 
 <script>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { onShow, onBackPress } from '@dcloudio/uni-app'
+import { onShow, onHide, onBackPress } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -932,6 +932,19 @@ export default {
       return groups
     })
 
+    /*
+     * ★ 徽标缓存 ★
+     *   模板里 v-if 和 v-for 各调一次 txnBadges(txn)，一行要算两遍，
+     *   每次还会新建数组。这里按 txn.id 预先算一份，模板只查表。
+     */
+    const recentBadgeMap = computed(() => {
+      const map = {}
+      for (const txn of recentDisplayList.value) {
+        map[txn.id] = txnBadges(txn)
+      }
+      return map
+    })
+
     const monthLabel = computed(() => {
       const [, m] = txnStore.currentMonth.split('-')
       return `${Number(m)}月`
@@ -1185,18 +1198,32 @@ export default {
 
     /* ------------------------------------------------------ 生命周期 */
 
-    onMounted(() => {
-      if (!settingStore.loaded) {
-        settingStore.load().then(() => loadAll())
-      } else {
-        loadAll()
-      }
+    /*
+     * ★ 首页刷新闸门 ★
+     *   firstShow —— onMounted 已经查过，首次 onShow 不再查一遍
+     *   dirty     —— 流水/账户/预算/周期变化后才重查
+     *   旧实现每次切回首页都全量拉 9 条查询（账户 3 + 首页 6 + 标签/预算），
+     *   哪怕什么都没变。
+     */
+    let firstShow = true
+    let pageVisible = false
+    let dirty = false
+
+    onMounted(async () => {
+      if (!settingStore.loaded) await settingStore.load()
+      await loadAll()
+      dirty = false
     })
 
-    onShow(() => {
-      // 每次回到首页刷新，保证记账后数据即时可见
+    onShow(async () => {
+      pageVisible = true
       if (settingStore.loaded) {
-        loadAll(true)
+        if (firstShow) {
+          firstShow = false
+        } else if (dirty) {
+          await loadAll(true)
+          dirty = false
+        }
       }
       settingStore.syncSystemTheme()
       // 隐藏原生 tabBar（自绘底栏已经在显示，见 AppTabBar）
@@ -1204,6 +1231,10 @@ export default {
       // 在别的 tab 页点了记账按钮 → 这里补上打开动作
       const pending = uiStore.consumePendingAdd()
       if (pending) openQuickAddFor(pending)
+    })
+
+    onHide(() => {
+      pageVisible = false
     })
 
     /*
@@ -1217,13 +1248,44 @@ export default {
      *   这里收到就再拉一次。只在真补了账时才触发，
      *   没补账的日子不会有任何多余查询。
      */
-    uni.$on('cycle:caughtup', () => {
-      if (settingStore.loaded) loadAll(true)
-    })
+    function markDirty() {
+      dirty = true
+    }
 
-    /* 外部文件导入完成 → 整库换掉，首页概览 / 日历 / 今日列表全部重查 */
-    uni.$on('data:imported', () => {
-      if (settingStore.loaded) loadAll(true)
+    uni.$on('txn:changed', markDirty)
+    uni.$on('account:changed', markDirty)
+    uni.$on('budget:changed', markDirty)
+    uni.$on('category:changed', markDirty)
+
+    /*
+     * ★ 周期补记/导入是「必须立刻看见」的事件 ★
+     *   loadAll(true) 的 force 不能丢：走缓存等于没刷新，
+     *   补记的流水照样出不来（这是本文件最老的回归 bug）。
+     *   函数声明会提升，所以可以先注册、后定义；
+     *   用命名函数是为了 onUnmounted 能精确解绑自己这一份，
+     *   不会把统计/账户页的同名监听一起摘掉。
+     */
+    uni.$on('cycle:caughtup', onCycleCaughtUp)
+    function onCycleCaughtUp() {
+      dirty = true
+      if (pageVisible && settingStore.loaded) loadAll(true)
+    }
+
+    uni.$on('data:imported', onDataImported)
+    function onDataImported() {
+      dirty = true
+      if (pageVisible && settingStore.loaded) loadAll(true)
+    }
+
+    onUnmounted(() => {
+      try {
+        uni.$off('txn:changed', markDirty)
+        uni.$off('account:changed', markDirty)
+        uni.$off('budget:changed', markDirty)
+        uni.$off('category:changed', markDirty)
+        uni.$off('cycle:caughtup', onCycleCaughtUp)
+        uni.$off('data:imported', onDataImported)
+      } catch (e) {}
     })
 
     /*
@@ -1260,7 +1322,7 @@ export default {
       shiftCalMonth, backToCurrentMonth, isCurrentMonth, onDayClick,
       openQuickAddFor, onFabTap, onFabHoldEnd, onHoldStart, onHoldCancel,
       onParsingStart, onParsingEnd, onSaved,
-      txnTitle, txnSub, txnBadges, timeLabel,
+      txnTitle, txnSub, txnBadges, recentBadgeMap, timeLabel,
       /*
        * ★ tags 必须暴露给模板（bug 修复）★
        *   <TxnTagSheet :tags="tags"> 读的是模板作用域里的 tags，

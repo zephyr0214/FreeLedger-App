@@ -409,7 +409,8 @@ console.log('=== 5h. 首页流水显示时间 ===')
   const idxPage = read('pages/index/index.vue')
   check('首页金额块里有时间行', idxPage.includes('<text class="txn-time">{{ timeLabel(txn.occurred_at) }}</text>'), true)
   check('timeLabel 已定义', idxPage.includes('function timeLabel(ts) {'), true)
-  check('timeLabel 已暴露到模板', idxPage.includes('txnBadges, timeLabel,'), true)
+  // return 里多了一个 recentBadgeMap，这里按「timeLabel 后面跟逗号」判断暴露
+  check('timeLabel 已暴露到模板', /\btimeLabel,/.test(idxPage), true)
   check('导入了 formatTime', idxPage.includes('relativeDayLabel, formatTime'), true)
   check('时间字号 20rpx（与全部交易页一致）', idxPage.includes('.txn-time {'), true)
 }

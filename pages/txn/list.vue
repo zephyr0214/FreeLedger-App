@@ -144,9 +144,9 @@
                 <text class="txn-name ellipsis">{{ txnTitle(txn) }}</text>
               </view>
               <!-- 徽标：周期 / 组合账户 / 标签，统一描边胶囊，全部跟在分类名下面 -->
-              <view v-if="txnBadges(txn).length" class="txn-tag-list">
+              <view v-if="(badgeMap[txn.id] || []).length" class="txn-tag-list">
                 <text
-                  v-for="t in txnBadges(txn)"
+                  v-for="t in (badgeMap[txn.id] || [])"
                   :key="t.key"
                   class="txn-tag"
                   :style="{ backgroundColor: t.bg, color: t.color, borderColor: t.border }"
@@ -517,6 +517,8 @@ export default {
       if (!ok) return
       try {
         await deleteTransaction(txn.id)
+        // 通知首页/统计/我的标脏，下次显示时重查
+        uni.$emit('txn:changed')
         uni.showToast({ title: '已删除', icon: 'none' })
         await loadFirstPage()
       } catch (e) {
@@ -704,6 +706,7 @@ export default {
           const txn = tagSheetTxn.value
           if (!txn) return
           await updateTransaction(txn.id, { tag_ids: ids })
+          uni.$emit('txn:changed')
           uni.showToast({ title: '标签已更新', icon: 'none' })
           await loadFirstPage()
         }
@@ -763,6 +766,19 @@ export default {
         map.get(day).list.push(txn)
       }
       return Array.from(map.values())
+    })
+
+    /*
+     * ★ 徽标缓存 ★
+     *   模板每行调用两次 txnBadges(txn)（v-if + v-for），
+     *   一行两遍、还要各自 new 数组。按 id 预算一次，模板查表即可。
+     */
+    const badgeMap = computed(() => {
+      const map = {}
+      for (const txn of list.value) {
+        map[txn.id] = txnBadges(txn)
+      }
+      return map
     })
 
     /* ------------------------------------------------------ 分类加载 */
@@ -1248,7 +1264,7 @@ export default {
       onSwipeDelete, onSwipeEdit, onSwipeTag, onTxnSaved,
       onBatchDelete, openBatchTag, onBatchExcludeBudget, onBatchPendingReimburse,
       onTagSheetPicked, onTagCreated,
-      txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
+      txnTitle, txnSub, txnBadges, badgeMap, timeLabel, goDetail, goBack
     }
   }
 }

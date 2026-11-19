@@ -764,6 +764,15 @@ export async function createTransaction(input) {
     throw new Error('「已报销」请到「报销管理」页确认，记账不能直接改成已报销')
   }
 
+  /*
+   * ★ 待报销必须同时不计收支、不计预算 ★
+   *   这两个标记是统计层唯一的开关。只写 reimburse_status = 1
+   *   而标记是 0 的话，这笔钱会同时出现在「待报销」和本月支出里 ——
+   *   用户会看到「还没报销的钱已经算我花掉了」。
+   *   以前只靠 UI 传，API/AI/周期补记绕过时会漏，这里统一兜住。
+   */
+  const pendingReimburse = Number(input.reimburse_status) === 1 && input.type === 'expense'
+
   const id = input.id || prefixedId('txn')
   const now = Date.now()
   // ★ 时间：优先用用户给的时刻 ★
@@ -822,8 +831,8 @@ export async function createTransaction(input) {
         input.original_currency || null,
         input.original_amount_cents || null,
         input.exchange_rate || null,
-        input.exclude_from_budget ? 1 : 0,
-        input.exclude_from_stats ? 1 : 0,
+        pendingReimburse ? 1 : (input.exclude_from_budget ? 1 : 0),
+        pendingReimburse ? 1 : (input.exclude_from_stats ? 1 : 0),
         Number(input.reimburse_status) || 0
       ]
     )
@@ -858,6 +867,42 @@ export async function updateTransaction(id, patch) {
   if (!existing) throw new Error('交易不存在')
 
   /*
+   * ★ 已报销 / 报销单内的流水不能改关键字段 ★
+   *   金额、账户、分类、日期改了，单头的原支出合计、实报金额、
+   *   坏账/盈余都不会跟着变，卡片上的数字会和明细对不上。
+   *   要改只能先在报销管理页撤销这张单，改完再重新报销。
+   *   备注/标签不影响口径，仍然允许编辑。
+   */
+  let lockedByBatch = false
+  if (existing.batch_id) {
+    try {
+      const batch = await queryOne(
+        'SELECT deleted_at FROM reimburse_batch WHERE id = ?',
+        [existing.batch_id]
+      )
+      lockedByBatch = !!(batch && !batch.deleted_at)
+    } catch (e) {
+      // 老设备迁移没跑成时 reimburse_batch 可能不存在：按未锁定处理
+      if (!/no such table/i.test(e && e.message ? e.message : '')) throw e
+    }
+  }
+  if (Number(existing.reimburse_status) === 2 || lockedByBatch) {
+    const financialKeys = [
+      'type', 'amount_cents', 'account_id', 'to_account_id', 'category_id',
+      'occurred_at', 'occurred_day',
+      'original_currency', 'original_amount_cents', 'exchange_rate',
+      'exclude_from_budget', 'exclude_from_stats'
+    ]
+    const changed = financialKeys.some((k) => {
+      if (patch[k] === undefined) return false
+      return String(patch[k] === null ? '' : patch[k]) !== String(existing[k] === null ? '' : existing[k])
+    })
+    if (changed) {
+      throw new Error('已报销的流水不能修改金额/账户/分类/日期，请先在报销管理页撤销这张报销单')
+    }
+  }
+
+  /*
    * ★ 已报销不能由编辑保存「造出来」（本轮用户第 5 条）★
    *   编辑一笔已报销的账时原样带回 status=2 是允许的（值没变）；
    *   但把一笔没报销的账直接改成 2 不行 —— 那会绕过报销台账。
@@ -869,6 +914,8 @@ export async function updateTransaction(id, patch) {
   const merged = { ...existing, ...patch }
   validate(merged)
   await assertReimburseAllowed(merged)
+  // 待报销 = 不计收支 + 不计预算（与 createTransaction 同口径）
+  const pendingReimburse = Number(merged.reimburse_status) === 1 && merged.type === 'expense'
 
   const amount = Math.abs(Math.round(Number(merged.amount_cents) || 0))
   // ★ 改了日期就重算时刻：只有日期时按 resolveOccurredTime 的规则取
@@ -930,8 +977,8 @@ export async function updateTransaction(id, patch) {
         merged.original_currency || null,
         merged.original_amount_cents || null,
         merged.exchange_rate || null,
-        merged.exclude_from_budget ? 1 : 0,
-        merged.exclude_from_stats ? 1 : 0,
+        pendingReimburse ? 1 : (merged.exclude_from_budget ? 1 : 0),
+        pendingReimburse ? 1 : (merged.exclude_from_stats ? 1 : 0),
         /*
          * ★ 报销状态也要能编辑（本轮用户第 3、5 条）★
          *   旧版这条 UPDATE 里根本没有 reimburse_status，
@@ -1019,9 +1066,40 @@ export async function setReimburseStatus(id, status) {
   const existing = await getTransaction(id)
   if (!existing) throw new Error('交易不存在')
 
+  const next = Number(status)
+  /*
+   * ★ 这里只能设 0/1 ★
+   *   status=2（已报销）必须走 reimburseTxns：要算实报金额、
+   *   挑到账账户、生成坏账/盈余和报销单。直接 UPDATE 成 2
+   *   会绕过整条台账，用户看到「已报销」但钱没到账。
+   */
+  if (![0, 1].includes(next)) {
+    throw new Error('「已报销」只能通过报销管理页确认')
+  }
+  if (next === 1 && existing.type !== 'expense') {
+    throw new Error('只有支出可以标记为待报销')
+  }
+  /*
+   * 系统分类（借出/借入/对账/报销派生）本来就不计收支，
+   * 这里一律拒绝改报销状态；否则「取消待报销」会把它们的
+   * exclude 标记清零，借款流水立刻被算进本月收支。
+   */
+  if (existing.category_id) {
+    const cat = await queryOne(
+      'SELECT name, type FROM category WHERE id = ? AND deleted_at IS NULL',
+      [existing.category_id]
+    )
+    if (cat && isSystemPresetName(cat.name, cat.type)) {
+      throw new Error(`「${cat.name}」是系统分类，不能标记待报销`)
+    }
+  }
+  await assertReimburseAllowed({ ...existing, reimburse_status: next })
+
   await execute(
-    'UPDATE txn SET reimburse_status = ?, updated_at = ? WHERE id = ?',
-    [Number(status) || 0, Date.now(), id]
+    `UPDATE txn SET reimburse_status = ?, exclude_from_budget = ?, exclude_from_stats = ?,
+       updated_at = ?
+     WHERE id = ?`,
+    [next, next === 1 ? 1 : 0, next === 1 ? 1 : 0, Date.now(), id]
   )
   return getTransaction(id)
 }
@@ -1106,13 +1184,20 @@ export async function deleteTransaction(id) {
          * 原始支出退回「待报销」：
          *   · 状态从已报销(2) 回到待报销(1)
          *   · 两个 exclude 标记置 1（待报销的标准状态）
-         *   · 清掉报销日/实报金额/到账账户/单据归属
+         *   · 清掉报销日/实报金额/到账账户
+         *
+         * ★ batch_id 必须保留 ★
+         *   撤销删除时要靠它把这一单的原支出找回来（见 restoreTransaction）。
+         *   清掉的话，恢复主流水后只有到账/差额回来，原支出却永远停在
+         *   「待报销」，一单账变成两半。
+         *   保留 batch_id 不影响待报销列表：单头已软删除，列表不会显示它；
+         *   用户重新报销时这个字段会被新的 batch_id 覆盖。
          */
         await execute(
           `UPDATE txn SET reimburse_status = 1,
              exclude_from_budget = 1, exclude_from_stats = 1,
              reimburse_day = NULL, reimburse_amount_cents = NULL,
-             reimburse_account_id = NULL, batch_id = NULL, updated_at = ?
+             reimburse_account_id = NULL, updated_at = ?
            WHERE deleted_at IS NULL AND id IN (${reimbursePlan.revertIds.map(() => '?').join(',')})`,
           [now, ...reimbursePlan.revertIds]
         )
@@ -1173,10 +1258,35 @@ export async function deleteTransaction(id) {
   return true
 }
 
-/** 恢复软删除（撤销） */
+/**
+ * 恢复软删除（撤销）
+ *
+ * ★ 必须把级联删除的兄弟流水一起恢复 ★
+ *   deleteTransaction 不是只删一行：
+ *     · 借款收回/归还 → 连带软删同一单的坏账/利息（带 LOAN_BOUNDARY_MARK）
+ *     · 报销单 → 连带软删到账/坏账/盈余，并把其余原支出退回待报销
+ *   旧版 restore 只恢复主流水，结果是一单账恢复了一半：
+ *   主流水回来了，差额/到账还躺在 deleted_at 里，余额和统计都对不上。
+ *
+ * ★ 怎么找到「同一次删除」的兄弟 ★
+ *   同一次删除里写入的 deleted_at 是同一个毫秒值：
+ *     · 借款差额带 LOAN_BOUNDARY_MARK
+ *     · 报销派生流水带同一个 batch_id
+ *   报销退回的原支出保留 batch_id（见 deleteTransaction 的注释），
+ *   所以也能顺着 batch_id 找回来。
+ */
 export async function restoreTransaction(id) {
   const row = await queryOne('SELECT * FROM txn WHERE id = ?', [id])
   if (!row) return false
+
+  const now = Date.now()
+  const touchedAccounts = new Set()
+  const track = (r) => {
+    if (!r) return
+    if (r.account_id) touchedAccounts.add(r.account_id)
+    if (r.to_account_id) touchedAccounts.add(r.to_account_id)
+  }
+
   await transaction(async () => {
     /*
      * 恢复借款流水时要清掉删除时打的边界标记，
@@ -1187,10 +1297,85 @@ export async function restoreTransaction(id) {
          via_combo_id = CASE WHEN via_combo_id = ? THEN NULL ELSE via_combo_id END,
          updated_at = ?
        WHERE id = ?`,
-      [LOAN_BOUNDARY_MARK, Date.now(), id]
+      [LOAN_BOUNDARY_MARK, now, id]
     )
-    await recalcBalance(row.account_id)
-    if (row.to_account_id) await recalcBalance(row.to_account_id)
+    track(row)
+
+    /*
+     * 1) 借款结清的连带差额
+     *    同一次删除 = 同一个 deleted_at + 同一个边界标记。
+     */
+    if (row.deleted_at) {
+      const siblings = await query(
+        `SELECT id, account_id, to_account_id FROM txn
+         WHERE deleted_at = ? AND via_combo_id = ? AND id <> ?`,
+        [row.deleted_at, LOAN_BOUNDARY_MARK, id]
+      )
+      if (siblings.length > 0) {
+        await execute(
+          `UPDATE txn SET deleted_at = NULL, via_combo_id = NULL, updated_at = ?
+           WHERE deleted_at = ? AND via_combo_id = ? AND id <> ?`,
+          [now, row.deleted_at, LOAN_BOUNDARY_MARK, id]
+        )
+        siblings.forEach(track)
+      }
+    }
+
+    /*
+     * 2) 报销单
+     *    只有「单头确实是和这笔流水同一次删除」时才整单恢复；
+     *    单头是更早删除的，说明不是这一轮，不能复活。
+     */
+    if (row.batch_id && row.deleted_at) {
+      const batch = await queryOne('SELECT * FROM reimburse_batch WHERE id = ?', [row.batch_id])
+      if (batch && Number(batch.deleted_at) === Number(row.deleted_at)) {
+        await execute(
+          'UPDATE reimburse_batch SET deleted_at = NULL, updated_at = ? WHERE id = ?',
+          [now, row.batch_id]
+        )
+
+        // 派生流水（到账 / 坏账 / 盈余）和主流水同时被软删
+        const derived = await query(
+          `SELECT id, account_id, to_account_id FROM txn
+           WHERE batch_id = ? AND deleted_at = ?`,
+          [row.batch_id, row.deleted_at]
+        )
+        if (derived.length > 0) {
+          await execute(
+            `UPDATE txn SET deleted_at = NULL, updated_at = ?
+             WHERE batch_id = ? AND deleted_at = ?`,
+            [now, row.batch_id, row.deleted_at]
+          )
+          derived.forEach(track)
+        }
+
+        /*
+         * 被退回「待报销」的原支出：状态 1、batch_id 还在。
+         * 恢复成已报销，并补回单头里的报销日/总额/到账账户
+         * （删除时这几列被清空了，只能从单头还原）。
+         */
+        const pending = await query(
+          `SELECT id, account_id, to_account_id FROM txn
+           WHERE batch_id = ? AND deleted_at IS NULL AND reimburse_status = 1`,
+          [row.batch_id]
+        )
+        if (pending.length > 0) {
+          await execute(
+            `UPDATE txn SET reimburse_status = 2,
+               exclude_from_budget = 1, exclude_from_stats = 1,
+               reimburse_day = ?, reimburse_amount_cents = ?,
+               reimburse_account_id = ?, updated_at = ?
+             WHERE batch_id = ? AND deleted_at IS NULL AND reimburse_status = 1`,
+            [batch.day, batch.total_done_cents, batch.account_id, now, row.batch_id]
+          )
+          pending.forEach(track)
+        }
+      }
+    }
+
+    for (const accId of touchedAccounts) {
+      await recalcBalance(accId)
+    }
   })
   return true
 }

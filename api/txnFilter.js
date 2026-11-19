@@ -10,7 +10,10 @@
  * 以后分类改名或增减，只改 api/db/schema.js 一处。
  */
 
-import { SETTLEMENT_ADJUSTMENT_CATEGORY_NAMES } from './db/schema.js'
+import {
+  SETTLEMENT_ADJUSTMENT_CATEGORY_NAMES,
+  SYSTEM_PRESET_GROUP_NAMES
+} from './db/schema.js'
 
 const NAME_SET = new Set(SETTLEMENT_ADJUSTMENT_CATEGORY_NAMES)
 
@@ -41,6 +44,12 @@ export function isSettlementAdjustmentTxn(txn) {
  *   分类 id 会随备份导入 / 分类重建变化，名字才是稳定语义；
  *   本仓库的借款、报销派生分类都按名字判断（isLoanSettleCategory 等）。
  *
+ * ★ 为什么还必须限定「父级是系统分类」★
+ *   分类表没有 (type, parent_id, name) 唯一约束，用户可以自建
+ *   一个叫「报销坏账」的普通分类。只按名字排除的话，用户自己
+ *   记的这类流水会被悄悄踢出账户余额 —— 名字对、但不是系统口径。
+ *   所以子查询同时要求父级是「系统分类 / 系统预置分类」。
+ *
  * ★ 为什么把名字直接拼进 SQL 而不走占位符 ★
  *   这份名单是 schema.js 里的常量，不含用户输入；
  *   拼成常量后调用方不用多传六个参数，列表查询的可读性更高。
@@ -50,8 +59,15 @@ export function isSettlementAdjustmentTxn(txn) {
  */
 export function notSettlementAdjustmentSql(alias = 't') {
   const a = alias || 't'
-  const names = SETTLEMENT_ADJUSTMENT_CATEGORY_NAMES
-    .map((n) => `'${String(n).replace(/'/g, "''")}'`)
-    .join(', ')
-  return `(${a}.category_id IS NULL OR ${a}.category_id NOT IN (SELECT id FROM category WHERE name IN (${names})))`
+  const quote = (n) => `'${String(n).replace(/'/g, "''")}'`
+  const names = SETTLEMENT_ADJUSTMENT_CATEGORY_NAMES.map(quote).join(', ')
+  const groupNames = SYSTEM_PRESET_GROUP_NAMES.map(quote).join(', ')
+  return `(${a}.category_id IS NULL OR ${a}.category_id NOT IN (
+    SELECT c.id
+    FROM category c
+    JOIN category p ON p.id = c.parent_id AND p.deleted_at IS NULL
+    WHERE c.deleted_at IS NULL
+      AND c.name IN (${names})
+      AND p.name IN (${groupNames})
+  ))`
 }

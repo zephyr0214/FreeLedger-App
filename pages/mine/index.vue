@@ -146,7 +146,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
@@ -348,10 +348,36 @@ export default {
       uni.navigateTo({ url: '/pages/settings/changelog' })
     }
 
+    /*
+     * ★ 刷新闸门 ★
+     *   setting 每次都要重读（AI Key / 主题可能刚改过），
+     *   但账户列表和流水统计只在数据真的变了时才查。
+     */
+    let firstShow = true
+    let dirty = false
+
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load()
       await loadStats()
+    })
+
+    function markDirty() {
+      dirty = true
+    }
+
+    uni.$on('txn:changed', markDirty)
+    uni.$on('account:changed', markDirty)
+    uni.$on('data:imported', markDirty)
+    uni.$on('cycle:caughtup', markDirty)
+
+    onUnmounted(() => {
+      try {
+        uni.$off('txn:changed', markDirty)
+        uni.$off('account:changed', markDirty)
+        uni.$off('data:imported', markDirty)
+        uni.$off('cycle:caughtup', markDirty)
+      } catch (e) {}
     })
 
     onShow(async () => {
@@ -371,8 +397,13 @@ export default {
          *   load() 只是读一张很小的 setting 表，开销可以忽略。
          */
         await settingStore.load()
-        await accountStore.load(true)
-        await loadStats()
+        if (firstShow) {
+          firstShow = false
+        } else if (dirty) {
+          await accountStore.load(true)
+          await loadStats()
+          dirty = false
+        }
       }
       settingStore.syncSystemTheme()
       // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，

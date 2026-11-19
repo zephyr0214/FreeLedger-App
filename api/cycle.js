@@ -56,7 +56,12 @@ function normalizeCycle(row) {
      *   老周期没有这两列时按 0 处理，行为与升级前完全一致。
      */
     exclude_from_budget: Number(row.exclude_from_budget) === 1,
-    reimburse_status: Number(row.reimburse_status) || 0
+    reimburse_status: Number(row.reimburse_status) || 0,
+    // v17：外币模板的两个字段。老库没有这两列时按 null（人民币）处理。
+    original_currency: row.original_currency || null,
+    original_amount_cents: row.original_amount_cents === null || row.original_amount_cents === undefined
+      ? null
+      : Number(row.original_amount_cents)
   }
 }
 
@@ -165,12 +170,20 @@ export async function createCycle(input) {
     `INSERT INTO cycle (
       id, type, amount_cents, account_id, to_account_id, category_id, note,
       recurrence, weekday, day_of_month, month_of_year, interval_days,
+      original_currency, original_amount_cents,
       created_at, updated_at, deleted_at,
       last_caught_up_day, exclude_from_budget, reimburse_status
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
     [
       id,
       input.type,
+      /*
+       * ★ 周期的 amount_cents 是「原币金额」★
+       *   模板还没有发生日，不能提前折算；真正乘汇率在
+       *   recordCycleForDay() 里按发生日汇率做。
+       *   original_currency / original_amount_cents 必须一起落库，
+       *   否则外币周期会被当成人民币模板补记（$20 → ¥20）。
+       */
       Math.round(Number(input.amount_cents)),
       input.account_id,
       input.type === 'transfer' ? input.to_account_id : null,
@@ -181,6 +194,10 @@ export async function createCycle(input) {
       ['monthly', 'yearly'].includes(input.recurrence) ? (Number(input.day_of_month) || 1) : null,
       input.recurrence === 'yearly' ? (Number(input.month_of_year) || 1) : null,
       input.recurrence === 'interval' ? (Number(input.interval_days) || 1) : null,
+      input.original_currency || null,
+      input.original_amount_cents === null || input.original_amount_cents === undefined
+        ? null
+        : Math.round(Number(input.original_amount_cents)),
       now,
       now,
       toDayKey(), // 游标初始化为今天：创建当天是否记，交给弹窗决定；历史不回补
@@ -239,6 +256,21 @@ export async function updateCycle(id, patch) {
     assign('interval_days', mergedRec === 'interval' ? (Number(n) || 1) : null)
   }
   /*
+   * ★ 外币模板字段（v17）★
+   *   CyclePanel 保存时会把 original_currency / original_amount_cents 一起传上来；
+   *   旧版这里漏了赋值，导致新建/编辑的外币周期在库里永远是 NULL，
+   *   补记时按人民币处理（$20 记成 ¥20）。
+   */
+  if (patch.original_currency !== undefined) {
+    assign('original_currency', patch.original_currency || null)
+  }
+  if (patch.original_amount_cents !== undefined) {
+    assign(
+      'original_amount_cents',
+      patch.original_amount_cents === null ? null : Math.round(Number(patch.original_amount_cents))
+    )
+  }
+  /*
    * 报销 / 预算标记（v22）
    * ★ 只认支出的值 ★
    *   切换成收入/转账时（patch.type 一起给的场景）要把它们清零，
@@ -278,19 +310,13 @@ export async function recordCycle(id) {
   if (!c) throw new Error('周期不存在')
 
   const day = nextOccurrence(c)
-  return createTransaction({
-    type: c.type,
-    amount_cents: c.amount_cents,
-    account_id: c.account_id,
-    to_account_id: c.type === 'transfer' ? c.to_account_id : null,
-    category_id: c.type === 'transfer' ? null : c.category_id,
-    note: c.note || '',
-    occurred_day: day,
-    cycle_id: id,
-    // 报销 / 预算标记随周期一起带进流水（v22，理由见 recordCycleForDay）
-    exclude_from_budget: c.exclude_from_budget === true,
-    reimburse_status: Number(c.reimburse_status) === 1 ? 1 : 0
-  })
+  /*
+   * ★ 必须走 recordCycleForDay，不能直接 createTransaction ★
+   *   外币周期模板的 amount_cents 是原币金额，只有 recordCycleForDay
+   *   会按「发生日」汇率折算并写入原币快照。
+   *   这里曾经直接拿 c.amount_cents 记成人民币，$20 会变成 ¥20。
+   */
+  return recordCycleForDay(id, day)
 }
 
 /** 两个本地日期相差多少天（用 UTC 归一，避开夏令时） */

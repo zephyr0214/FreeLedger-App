@@ -24,7 +24,11 @@
  */
 
 import { query } from './db/index.js'
-import { LOAN_CATEGORY_NAMES, LOAN_SETTLE_CATEGORY_NAMES } from './db/schema.js'
+import {
+  LOAN_CATEGORY_NAMES,
+  LOAN_SETTLE_CATEGORY_NAMES,
+  SYSTEM_PRESET_GROUP_NAMES
+} from './db/schema.js'
 import { splitLoanOrders } from './loanOrders.js'
 
 /**
@@ -151,8 +155,22 @@ export async function findLoanCascade(txn) {
   if (!person) return { ids: [], accountIds: [], matched: true }
 
   const names = [def.main, def.back, def.positive, def.negative]
+  /*
+   * ★ 必须限定父级是系统分类 ★
+   *   只按 name 查会撞上用户自建的同名分类，删一笔借款可能连带
+   *   删掉用户自己的流水。系统分类父级的名字直接拼成常量
+   *   （来自 schema.js，不含用户输入）。
+   */
+  const groupNames = SYSTEM_PRESET_GROUP_NAMES
+    .map((n) => `'${String(n).replace(/'/g, "''")}'`)
+    .join(', ')
   const cats = await query(
-    `SELECT id, name FROM category WHERE deleted_at IS NULL AND name IN (?,?,?,?)`,
+    `SELECT c.id, c.name
+     FROM category c
+     JOIN category p ON p.id = c.parent_id AND p.deleted_at IS NULL
+     WHERE c.deleted_at IS NULL
+       AND c.name IN (?,?,?,?)
+       AND p.name IN (${groupNames})`,
     names
   )
   const byName = {}

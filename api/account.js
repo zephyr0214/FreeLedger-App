@@ -16,6 +16,19 @@ import { toDayKey, makeDateKeys } from '../utils/date.js'
 import { ensureReconcileCategory } from './category.js'
 import { getSetting, setSetting } from './settings.js'
 import { notSettlementAdjustmentSql } from './txnFilter.js'
+import { SYSTEM_PRESET_GROUP_NAMES } from './db/schema.js'
+
+/**
+ * 系统分类父级的 SQL 常量（「系统分类」/「系统预置分类」）。
+ *
+ * ★ 为什么借款汇总必须带父级条件 ★
+ *   下面按分类名判断借入/借出方向。如果只写 c.name = '借入'，
+ *   用户自建一个同名收入分类也会被算成负债。
+ *   限定 p 是系统分类父级后，只有真正的系统固定子类参与汇总。
+ */
+const SYSTEM_GROUP_SQL = SYSTEM_PRESET_GROUP_NAMES
+  .map((n) => `'${String(n).replace(/'/g, "''")}'`)
+  .join(', ')
 
 /**
  * 账户类型
@@ -296,7 +309,24 @@ export async function getAssetOverview() {
                      ELSE 0 END), 0) AS loan_debt
        FROM txn t
        JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
-       WHERE t.deleted_at IS NULL`
+       LEFT JOIN category p ON p.id = c.parent_id AND p.deleted_at IS NULL
+       WHERE t.deleted_at IS NULL
+         AND (
+           p.name IN (${SYSTEM_GROUP_SQL})
+           /*
+            * 兼容老库/老测试：没有「系统分类」父级时，固定分类可能是
+            * 一级分类。只要库里存在系统分类组，就只认它下面的子类 ——
+            * 用户自建的同名一级分类不会再被算进负债/应收。
+            */
+           OR (
+             c.parent_id IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM category g
+               WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+                 AND g.name IN (${SYSTEM_GROUP_SQL})
+             )
+           )
+         )`
     ),
     // 复用同一个函数，保证「借出」口径只有一处定义（别在这里复制一份 SQL）
     getOutstandingLending(),
@@ -386,7 +416,19 @@ export async function getOutstandingLending() {
                    ELSE 0 END), 0) AS lending
      FROM txn t
      JOIN category c ON c.id = t.category_id AND c.deleted_at IS NULL
-     WHERE t.deleted_at IS NULL`
+     LEFT JOIN category p ON p.id = c.parent_id AND p.deleted_at IS NULL
+     WHERE t.deleted_at IS NULL
+       AND (
+         p.name IN (${SYSTEM_GROUP_SQL})
+         OR (
+           c.parent_id IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM category g
+             WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+               AND g.name IN (${SYSTEM_GROUP_SQL})
+           )
+         )
+       )`
   )
   return Math.max(0, Number(row ? row.lending : 0) || 0)
 }
@@ -1011,6 +1053,46 @@ export async function deleteAccount(id) {
     // 3) 软删除账户 + 清掉它的快照
     await execute('UPDATE account SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
     await execute('DELETE FROM account_snapshot WHERE account_id = ?', [id])
+
+    /*
+     * 3.1) 周期 / 报销单里的账户引用一起清理
+     *
+     * ★ 周期必须软删除 ★
+     *   cycle.account_id / to_account_id 是 NOT NULL 的模板字段，
+     *   账户删了还留着模板，补记时会往已删账户里写流水；
+     *   recalcBalance 对不存在的账户返回 0，用户会看到一笔
+     *   「记了但余额没变」的账，极难排查。
+     *
+     * ★ 报销单的历史账户只能置空 ★
+     *   reimburse_batch 是历史单据，单头保留（金额/笔数/日期），
+     *   账户字段置 NULL 后页面显示「无账户」，但不会指向已删除行。
+     *   同理，原始支出上的 reimburse_account_id 也置空。
+     */
+    /*
+     * 这三张表/列都是后续迁移才有的：老库迁移没跑成、或测试里的
+     * 最小 schema 可能缺表缺列。清理是附带动作，不能因此让删账户失败。
+     */
+    const cleanup = async (sql, params) => {
+      try {
+        await execute(sql, params)
+      } catch (e) {
+        const msg = e && e.message ? e.message : ''
+        if (!/no such table|no such column/i.test(msg)) throw e
+      }
+    }
+    await cleanup(
+      `UPDATE cycle SET deleted_at = ?, updated_at = ?
+       WHERE deleted_at IS NULL AND (account_id = ? OR to_account_id = ?)`,
+      [now, now, id, id]
+    )
+    await cleanup(
+      'UPDATE reimburse_batch SET account_id = NULL, updated_at = ? WHERE account_id = ?',
+      [now, id]
+    )
+    await cleanup(
+      'UPDATE txn SET reimburse_account_id = NULL, updated_at = ? WHERE reimburse_account_id = ?',
+      [now, id]
+    )
 
     /*
      * 3.5) 组合账户的成员关系必须清掉

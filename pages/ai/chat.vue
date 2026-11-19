@@ -193,7 +193,7 @@ import { askFinance } from '@/api/aiParse.js'
 import { normalizeChartSpec, fetchChartData } from '@/api/aiChartData.js'
 import { renderMarkdown } from '@/utils/markdown.js'
 import { buildAiChartUri } from '@/utils/aiChart.js'
-import { toMonthKey, toDayKey, shiftDay, monthRange } from '@/utils/date.js'
+import { toMonthKey, toDayKey, shiftDay } from '@/utils/date.js'
 import { confirmDialog } from '@/utils/dialog.js'
 
 const HISTORY_KEY = 'aiChatHistory'
@@ -322,7 +322,14 @@ export default {
       // 月报 / 默认：整月聚合 + 趋势 + 二级细分 + 环比
       const summary = await getAiSummary(thisMonth)
       const comparison = await getMonthComparison(thisMonth)
-      const scope = monthRange(thisMonth)
+      /*
+       * ★ 统计层只认字符串日期，不认 Date 对象 ★
+       *   monthRange() 返回 {start: Date, end: Date}，stats.js 的
+       *   normalizeRange() 读不到 startDay/endDay/monthKey，会把区间
+       *   当成「不限时间」—— AI 就会拿全部历史回答「本月」。
+       *   这里直接传 monthKey，让 expandRange() 补成当月首尾日。
+       */
+      const scope = { monthKey: thisMonth }
 
       // 每日趋势（本月）
       const trend = await getDailyTrendRange(scope)
@@ -346,6 +353,7 @@ export default {
       return {
         ...summary,
         range: thisMonth,
+        monthKey: thisMonth,
         rangeType: 'month',
         compare: {
           expenseChangePct: comparison.expenseChangePct,
@@ -392,7 +400,7 @@ export default {
 
         const scope = ctx && ctx.rangeType === 'week'
           ? { startDay: ctx.startDay, endDay: ctx.endDay }
-          : monthRange(ctx && ctx.monthKey ? ctx.monthKey : toMonthKey())
+          : { monthKey: ctx && ctx.monthKey ? ctx.monthKey : toMonthKey() }
 
         let data
         try {
@@ -406,7 +414,9 @@ export default {
         const uri = buildAiChartUri(spec.type, data.items, {
           title: spec.title,
           textColor,
-          color: primaryColor.value
+          color: primaryColor.value,
+          // 环形图的分母用「全部数据」的合计，不是 Top N 的和
+          total: data.total
         })
         if (!uri) continue
 
@@ -420,7 +430,9 @@ export default {
           title: spec.title,
           uri,
           // ★ 原始数据：历史记录靠它还原图表 ★
-          items: data.items
+          items: data.items,
+          // 合计也要存：否则重画时只能拿 Top N 求和当分母
+          total: data.total
         })
       }
       return out
@@ -439,7 +451,8 @@ export default {
         return buildAiChartUri(chart.type, chart.items, {
           title: chart.title,
           textColor,
-          color: primaryColor.value
+          color: primaryColor.value,
+          total: chart.total
         })
       } catch (e) {
         return ''
@@ -577,7 +590,8 @@ export default {
             item.charts = m.charts.map((c) => ({
               type: c.type,
               title: c.title,
-              items: c.items || []
+              items: c.items || [],
+              total: c.total
             }))
           }
           return item
@@ -598,7 +612,8 @@ export default {
                 item.charts = m.charts.map((c) => ({
                   type: c.type,
                   title: c.title,
-                  items: c.items || []
+                  items: c.items || [],
+                  total: c.total
                 }))
               }
               return item
@@ -657,7 +672,7 @@ export default {
         if (!c || !c.items || !c.items.length) continue
         const uri = rebuildChart(c)
         if (!uri) continue
-        out.push({ type: c.type, title: c.title, uri, items: c.items })
+        out.push({ type: c.type, title: c.title, uri, items: c.items, total: c.total })
       }
       return out
     }

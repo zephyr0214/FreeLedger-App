@@ -327,7 +327,16 @@ console.log('=== AI 速记链路：币种必须被消费，不能只识别不用
 
   // 解析层必须产出 currency 字段
   const ai = read('api/aiParse.js')
-  check('解析层返回 currency', /currency,/.test(ai) && /const currency = SUPPORTED_CURRENCIES/.test(ai), true)
+  /*
+   * 解析层必须产出 currency 字段，并且先做「别名 → ISO 代码」归一。
+   * 归一表是后加的：模型会输出 YEN / RMB / 日元，直接按白名单比
+   * 会把这些都退成 CNY（2000 日元变 ¥2000）。
+   */
+  check(
+    '解析层返回 currency 并做币种归一',
+    /currency,/.test(ai) && /CURRENCY_ALIASES/.test(ai),
+    true
+  )
   check('提示词含币种白名单', /CURRENCY_CODES/.test(ai), true)
   check('提示词明令禁止输出汇率', /绝对不要输出汇率/.test(ai), true)
 }

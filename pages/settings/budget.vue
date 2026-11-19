@@ -625,6 +625,15 @@ export default {
      *   用户这次明确要求「子预算总额度不能超过月预算」，
      *   所以这里先本地校验给出明确的差多少，后端的硬校验兜底。
      */
+    /** 预算变了：首页/统计页据此标脏，下次显示时重查 */
+    function notifyBudgetChanged() {
+      try {
+        if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
+          uni.$emit('budget:changed')
+        }
+      } catch (e) {}
+    }
+
     async function saveBudget() {
       const cents = yuanToCents(editorAmount.value)
       if (!(cents > 0)) {
@@ -647,6 +656,7 @@ export default {
           }
           closeEditor()
           await load()
+          notifyBudgetChanged()
           uni.showToast({ title: '已保存', icon: 'success' })
         } catch (e) {
           await alertDialog({ title: '保存失败', content: e.message })
@@ -701,6 +711,7 @@ export default {
         }
         closeEditor()
         await load()
+        notifyBudgetChanged()
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '保存失败', content: e.message })
@@ -720,6 +731,7 @@ export default {
       try {
         await deleteBudget(b.id)
         await load()
+        notifyBudgetChanged()
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '删除失败', content: e.message })
@@ -753,6 +765,7 @@ export default {
         await deleteBudget(id)
         closeEditor()
         await load()
+        notifyBudgetChanged()
         uni.showToast({ title: '已删除', icon: 'success' })
       } catch (e) {
         await alertDialog({ title: '删除失败', content: e.message })

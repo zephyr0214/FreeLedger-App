@@ -50,8 +50,13 @@ import { query, queryOne, execute, transaction } from './db/index.js'
 import { prefixedId } from '../utils/id.js'
 import { toDayKey, makeDateKeys } from '../utils/date.js'
 import { ensurePresetCategories } from './category.js'
-import { INTERNAL_ONLY_CATEGORY_NAMES, REIMBURSE_CATEGORY_NAMES } from './db/schema.js'
-import { recalcBalance, writeTodaySnapshot } from './account.js'
+import {
+  INTERNAL_ONLY_CATEGORY_NAMES,
+  LOAN_CATEGORY_NAMES,
+  REIMBURSE_CATEGORY_NAMES,
+  SYSTEM_PRESET_GROUP_NAMES
+} from './db/schema.js'
+import { getAccount, recalcBalance, writeTodaySnapshot } from './account.js'
 
 /** 报销状态常量 */
 export const REIMBURSE_STATUS = {
@@ -248,13 +253,24 @@ export async function getReimburseSummary() {
  */
 export async function setTxnPendingReimburse(id, pending) {
   const txn = await queryOne(
-    `SELECT t.id, t.type, t.exclude_from_budget, t.exclude_from_stats, c.name AS category_name
+    `SELECT t.id, t.type, t.exclude_from_budget, t.exclude_from_stats,
+            t.reimburse_status, t.batch_id, c.name AS category_name
      FROM txn t LEFT JOIN category c ON c.id = t.category_id
      WHERE t.id = ? AND t.deleted_at IS NULL`,
     [id]
   )
   if (!txn) throw new Error('交易不存在')
   if (txn.type !== 'expense') throw new Error('只有支出可以报销')
+
+  /*
+   * ★ 已报销的流水不能在这里直接「取消待报销」★
+   *   它的状态、单头、到账/坏账/盈余是一整套。改状态而不撤销
+   *   报销单，会留下「单还在、原始支出变回待报销」的半张单。
+   *   要撤销请走报销管理页的「撤销本报销单」。
+   */
+  if (Number(txn.reimburse_status) === 2 || txn.batch_id) {
+    throw new Error('这笔已经报销过了，请先在报销管理页撤销这张报销单')
+  }
 
   /*
    * 借款类流水（借出 / 借出坏账…）本来就不计收支且不能报销了结，
@@ -383,11 +399,24 @@ export async function reimburseTxns(input) {
   if (!totalCents) throw new Error('请输入报销金额')
   if (!input.accountId) throw new Error('请选择报销账户')
 
-  // 选出这批待报销流水的原金额合计
+  /*
+   * ★ 到账账户必须是可用的真实账户 ★
+   *   已删除账户 getAccount 返回 null，组合账户写入时会被
+   *   recalcBalance 强制成 0 —— 钱会凭空消失。
+   */
+  const targetAccount = await getAccount(input.accountId)
+  if (!targetAccount) throw new Error('报销账户不存在或已删除，请重新选择')
+  if (targetAccount.isCombo) throw new Error('报销到账不能用组合账户，请选择真实账户')
+
+  // 选出这批待报销流水的原金额合计（带类型与分类，下面要校验）
   const placeholders = ids.map(() => '?').join(',')
   const rows = await query(
-    `SELECT id, amount_cents, reimburse_status FROM txn
-     WHERE deleted_at IS NULL AND id IN (${placeholders})`,
+    `SELECT t.id, t.amount_cents, t.reimburse_status, t.type,
+            t.exclude_from_budget, t.exclude_from_stats,
+            c.name AS category_name, c.type AS category_type
+     FROM txn t
+     LEFT JOIN category c ON c.id = t.category_id
+     WHERE t.deleted_at IS NULL AND t.id IN (${placeholders})`,
     ids
   )
   if (rows.length === 0) throw new Error('选中的流水不存在')
@@ -403,6 +432,29 @@ export async function reimburseTxns(input) {
   }
   const notPending = rows.find((r) => Number(r.reimburse_status) !== REIMBURSE_STATUS.PENDING)
   if (notPending) throw new Error('选中的流水里有不是「待报销」的，请刷新后重试')
+
+  /*
+   * ★ 只允许「日常支出」进入报销 ★
+   *   以前只校验存在 + 状态，API 层可以被传入收入、转账、
+   *   借出/对账/报销派生分类。那会把系统的借款或差额流水
+   *   标成已报销，整张台账和余额都对不上。
+   */
+  const badType = rows.find((r) => r.type !== 'expense')
+  if (badType) throw new Error('选中的流水里有收入或转账，只有支出可以报销')
+
+  const loanCategoryNames = new Set(
+    Object.values(LOAN_CATEGORY_NAMES).map((d) => d.name)
+  )
+  const badCategory = rows.find((r) => {
+    if (!r.category_name) return false
+    if (INTERNAL_ONLY_CATEGORY_NAMES.includes(r.category_name)) return true
+    // 借出 / 借款归还：虽然是支出，但属于借入借出资金往来，不能走报销
+    if (loanCategoryNames.has(r.category_name)) return true
+    return !!r.category_type && r.category_type !== 'expense'
+  })
+  if (badCategory) {
+    throw new Error(`「${badCategory.category_name}」是系统分类，不能走报销`)
+  }
 
   const originCents = rows.reduce((a, r) => a + (Number(r.amount_cents) || 0), 0)
   const day = input.day || toDayKey()
@@ -523,8 +575,16 @@ export async function reimburseTxns(input) {
      */
     for (const id of ids) {
       await execute(
+        /*
+         * ★ 顺手把两个 exclude 标记钉成 1 ★
+         *   待报销的语义是「还没真的花掉」：不计收支、不计预算。
+         *   如果历史数据/绕过 UI 的调用把标记写成了 0，
+         *   完成报销后这笔原支出会永久留在统计里（报销后也不该放回来）。
+         *   这里统一兜住，保证「待报销 → 已报销」两态口径一致。
+         */
         `UPDATE txn SET reimburse_status = ?, reimburse_day = ?, reimburse_amount_cents = ?,
-           reimburse_account_id = ?, batch_id = ?, updated_at = ?
+           reimburse_account_id = ?, batch_id = ?,
+           exclude_from_budget = 1, exclude_from_stats = 1, updated_at = ?
          WHERE id = ?`,
         [REIMBURSE_STATUS.DONE, day, totalCents, input.accountId, batchId, now, id]
       )
@@ -933,14 +993,24 @@ export async function listReimburseBatches(opt = {}) {
      *   也当候选（那条也是 0，但它没有对应的报销动作）。
      *   后面还有金额精确匹配兜着，这里多一道过滤。
      */
+    /*
+     * ★ 派生分类还必须属于「系统分类」★
+     *   报销到账/坏账/盈余是按名字识别的，用户自建同名分类
+     *   不应该被卷进老数据的只读分组。父级条件由 schema 常量拼入。
+     */
+    const systemGroups = SYSTEM_PRESET_GROUP_NAMES
+      .map((n) => `'${String(n).replace(/'/g, "''")}'`)
+      .join(', ')
     const derivedRows = await query(
       `SELECT ${TXN_SELECT}
        FROM txn t
        ${TXN_JOINS}
+       JOIN category p ON p.id = c.parent_id AND p.deleted_at IS NULL
        WHERE t.deleted_at IS NULL
          AND t.batch_id IS NULL
          AND t.reimburse_status = 0
          AND c.name IN (?, ?, ?)
+         AND p.name IN (${systemGroups})
        ORDER BY t.occurred_at ASC
        LIMIT ?`,
       [...DERIVED_CATEGORY_NAMES, cap]

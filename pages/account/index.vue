@@ -257,7 +257,7 @@
 
 <script>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onHide } from '@dcloudio/uni-app'
 import AppHeader from '@/components/AppHeader.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -477,6 +477,21 @@ export default {
     uni.navigateTo({ url: '/pages/settings/profile' })
   }
 
+    /*
+     * ★ 账户页刷新闸门 ★
+     *   onMounted 已经查过，首次 onShow 不再重复；
+     *   只有流水/账户/周期/导入变化后才重新拉余额和资产趋势。
+     */
+    let firstShow = true
+    let pageVisible = false
+    let dirty = false
+
+    async function reloadAccountPage() {
+      await accountStore.refresh()
+      await loadTrend()
+      dirty = false
+    }
+
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await accountStore.load(true)
@@ -486,18 +501,39 @@ export default {
     onUnmounted(() => {
       // 手势闸门里可能还挂着一个长按计时器，页面走了要清掉
       rowPress.dispose()
+      try {
+        uni.$off('txn:changed', markDirty)
+        uni.$off('account:changed', markDirty)
+        uni.$off('cycle:caughtup', onCycleCaughtUp)
+        uni.$off('data:imported', onDataImported)
+      } catch (e) {}
     })
 
     onShow(async () => {
+      pageVisible = true
       if (settingStore.loaded) {
-        await accountStore.refresh()
-        await loadTrend()
+        if (firstShow) {
+          firstShow = false
+        } else if (dirty) {
+          await reloadAccountPage()
+        }
       }
       settingStore.syncSystemTheme()
       // 重刷原生 tabBar：只有 tab 页才有 tabBar 实例，
       // 主题设置页改完主题后要靠这里把颜色刷回来
       settingStore.refreshTabBar()
     })
+
+    onHide(() => {
+      pageVisible = false
+    })
+
+    function markDirty() {
+      dirty = true
+    }
+
+    uni.$on('txn:changed', markDirty)
+    uni.$on('account:changed', markDirty)
 
     /*
      * 周期补记完成后立刻刷新
@@ -507,20 +543,19 @@ export default {
      * 余额和资产趋势就会停在补记前的数字。
      * App.vue 补记成功且有新增时 emit 这个事件，这里重新拉一次。
      */
-    uni.$on('cycle:caughtup', async () => {
-      if (settingStore.loaded) {
-        await accountStore.refresh()
-        await loadTrend()
-      }
-    })
+    uni.$on('cycle:caughtup', onCycleCaughtUp)
+    function onCycleCaughtUp() {
+      dirty = true
+      if (!pageVisible || !settingStore.loaded) return
+      accountStore.refresh().then(() => loadTrend())
+    }
 
-    /* 外部文件导入完成 → 账户与资产趋势全部换了一遍，重新拉 */
-    uni.$on('data:imported', async () => {
-      if (settingStore.loaded) {
-        await accountStore.refresh()
-        await loadTrend()
-      }
-    })
+    uni.$on('data:imported', onDataImported)
+    function onDataImported() {
+      dirty = true
+      if (!pageVisible || !settingStore.loaded) return
+      accountStore.refresh().then(() => loadTrend())
+    }
 
     return {
       settingStore, accountStore,

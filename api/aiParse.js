@@ -10,7 +10,11 @@
  */
 
 import { chat } from './ai.js'
-import { SYSTEM_PRESET_GROUP_NAME, INTERNAL_ONLY_CATEGORY_NAMES } from './db/schema.js'
+import {
+  SYSTEM_PRESET_GROUP_NAME,
+  SYSTEM_PRESET_GROUP_NAMES,
+  INTERNAL_ONLY_CATEGORY_NAMES
+} from './db/schema.js'
 
 /**
  * 这个分类是不是「只由系统写入」的内部口径
@@ -45,6 +49,37 @@ const MAX_ITEMS = 20
  *   校验层还会再挡一次：不在白名单的币种一律退回 CNY。
  */
 const CURRENCY_CODES = SUPPORTED_CURRENCIES.map((c) => `${c.code}（${c.name}）`).join('、')
+
+/**
+ * 币种常见别名 → ISO 代码。
+ *
+ * 模型可能输出「日元」「RMB」「YEN」这类非标准写法；
+ * 只要能唯一映射就先归一，映射不到再拒绝（见 validateItem）。
+ * 以前映射不到会静默按人民币记，2000 日元会变成 ¥2000。
+ */
+const CURRENCY_ALIASES = {
+  CNY: 'CNY', RMB: 'CNY', '人民币': 'CNY', '元': 'CNY', '¥': 'CNY', '￥': 'CNY',
+  USD: 'USD', '美元': 'USD', '美金': 'USD', 'US$': 'USD', $: 'USD',
+  EUR: 'EUR', '欧元': 'EUR', '€': 'EUR',
+  JPY: 'JPY', YEN: 'JPY', '日元': 'JPY', '日圆': 'JPY', '円': 'JPY',
+  GBP: 'GBP', '英镑': 'GBP', '£': 'GBP',
+  HKD: 'HKD', '港币': 'HKD', '港元': 'HKD', 'HK$': 'HKD',
+  TWD: 'TWD', '新台币': 'TWD', '台币': 'TWD', 'NT$': 'TWD',
+  KRW: 'KRW', '韩元': 'KRW', '₩': 'KRW',
+  THB: 'THB', '泰铢': 'THB',
+  SGD: 'SGD', '新加坡元': 'SGD', 'S$': 'SGD',
+  MYR: 'MYR', '林吉特': 'MYR',
+  AUD: 'AUD', '澳元': 'AUD', 'A$': 'AUD',
+  CAD: 'CAD', '加元': 'CAD', 'C$': 'CAD',
+  CHF: 'CHF', '瑞士法郎': 'CHF', '瑞郎': 'CHF',
+  VND: 'VND', '越南盾': 'VND',
+  RUB: 'RUB', '卢布': 'RUB', '₽': 'RUB',
+  NZD: 'NZD', '新西兰元': 'NZD'
+}
+
+/** 这段文字是不是「借入借出」意图；独立出来方便单测和复用 */
+const NON_LOAN_AFTER_HAI =
+  '(?:房贷|车贷|信用卡|信用|花呗|白条|借呗|网商贷|贷款|账单|月供|房租|水电|话费|学费|利息|本金|尾款|分期|罚息|违约金)'
 
 /** 一次解析最多自动重试几次（用户要求：最多 2 次） */
 const MAX_PARSE_RETRIES = 2
@@ -377,8 +412,14 @@ export function detectLoanIntent(text) {
       re: new RegExp(
         '(?<![不没未别先再否想真太很需也才刚又])' +
         '(?:还给|还回|归还|偿还|还钱|把钱还|' +
-        // 弱关键词：光秃秃一个「还」，后面再设一道防
-        '还(?![价钱是有要能在得好的行不会可款剩差算用需想真太很没]))'
+        /*
+         * 弱关键词：光秃秃一个「还」，后面再设两道防。
+         * 第一道是「还房贷 / 还车贷 / 还信用卡 / 还花呗 / 还白条…」——
+         * 这些是固定账单，不是人情借还，命中后不能把模型已经解析对的
+         * 转账（信用卡还款）或居住分类改写成「借款归还」。
+         */
+        '还' + `(?!(?:${NON_LOAN_AFTER_HAI}))` +
+        '(?![价钱是有要能在得好的行不会可款剩差算用需想真太很没]))'
       )
     }
   ]
@@ -416,10 +457,28 @@ export function validateItem(raw, ctx) {
    *     汇率由调用方（TxnPanel / 补记流程）从 exchange_rate 表或接口取，
    *     计算也在那边做 —— AI 全程不参与金额换算。
    */
-  const rawCurrency = String(raw.currency || '').toUpperCase().trim()
-  const currency = SUPPORTED_CURRENCIES.some((c) => c.code === rawCurrency)
-    ? rawCurrency
-    : 'CNY'
+  const rawCurrencyText = String(raw.currency || '').trim()
+  const rawCurrency = rawCurrencyText.toUpperCase().replace(/\s+/g, '')
+  let currency = 'CNY'
+  if (rawCurrency) {
+    /*
+     * ★ 未知币种必须拒绝，不能静默按人民币记 ★
+     *   「2000 日元」被归一成 CNY 后，金额会原样写成 ¥2000，
+     *   误差是 20 倍级别。宁可让这一条进 warnings 让用户补，
+     *   也不能把错钱记进账本。
+     */
+    const mapped = CURRENCY_ALIASES[rawCurrency] || CURRENCY_ALIASES[rawCurrencyText]
+    if (mapped) {
+      currency = mapped
+    } else if (SUPPORTED_CURRENCIES.some((c) => c.code === rawCurrency)) {
+      currency = rawCurrency
+    } else {
+      return {
+        ok: false,
+        reason: `无法识别币种「${rawCurrencyText}」，请写成 ${CURRENCY_CODES} 里的代码`
+      }
+    }
+  }
 
   // 类型：非法值退化为支出（记账里支出最常见）
   let type = String(raw.type || '').toLowerCase().trim()
@@ -522,7 +581,12 @@ export function validateItem(raw, ctx) {
   if (rawCat && type !== 'transfer') {
     // 提示文本 = 备注 + 原句，用来在一级分类下猜二级
     const hint = [raw.note, ctx.hintText].filter(Boolean).join(' ')
-    const hit = matchCategory(rawCat, ctx.categories, hint)
+    /*
+     * ★ 分类必须和收支方向一致 ★
+     *   模型偶尔会把支出归到「工资」这类收入分类。
+     *   只校验「名字存在」挡不住，必须在匹配时按 type 过滤。
+     */
+    const hit = matchCategory(rawCat, ctx.categories, hint, type)
     /*
      * ★ 内部口径分类不接受（本轮用户第 6 条）★
      *   借入利息 / 借出坏账 / 借出利息 / 借入未还 / 报销坏账 / 报销盈余
@@ -545,9 +609,13 @@ export function validateItem(raw, ctx) {
    * 否则借入借出页面按分类统计时抓不到这一笔。
    */
   if (loanIntent) {
-    const target = ctx.categories.find(
-      (c) => c.name === loanIntent.categoryName && c.type === loanIntent.type
-    )
+    /*
+     * ★ 只挂到「系统分类」下的固定子类 ★
+     *   分类表允许用户自建同名分类（修复后创建会被拦，
+     *   但老库里可能已经有）。按名字全局 find 可能挂到用户分类上，
+     *   借入借出页就抓不到这一笔了。
+     */
+    const target = findSystemCategory(ctx.categories, loanIntent.categoryName, loanIntent.type)
     if (target) {
       categoryId = target.id
       categoryName = target.name
@@ -677,6 +745,24 @@ export function validateItem(raw, ctx) {
 }
 
 /**
+ * 在分类树里找「系统分类」下的固定子类。
+ *
+ * 分类 id 会随导入变化，名字才是稳定语义；但名字必须配合
+ * 「父级是系统分类」一起判断，否则用户自建的同名分类会被误认。
+ */
+function findSystemCategory(categories, name, type) {
+  const list = Array.isArray(categories) ? categories : []
+  const groupIds = new Set(
+    list
+      .filter((c) => !c.parent_id && SYSTEM_PRESET_GROUP_NAMES.includes(c.name))
+      .map((c) => c.id)
+  )
+  return list.find(
+    (c) => c.name === name && c.type === type && groupIds.has(c.parent_id)
+  ) || null
+}
+
+/**
  * 分类匹配
  *
  * ★ 速记必须落到二级分类 ★
@@ -783,8 +869,8 @@ export function buildCategoryOptions(categories = []) {
 
   for (const p of parents) {
     const children = list.filter((c) => c.parent_id === p.id)
-    // 系统分类：子类直接给短名
-    const isPreset = p.name === SYSTEM_PRESET_GROUP_NAME
+    // 系统分类：子类直接给短名（新旧两个组名都认）
+    const isPreset = SYSTEM_PRESET_GROUP_NAMES.includes(p.name)
 
     if (children.length === 0) {
       // 没有二级，一级本身就是最细的粒度
@@ -870,9 +956,10 @@ export function guessChildByText(children = [], text = '') {
  * @param {*} rawValue 模型给的分类（可能是 id、名字、「餐饮/午餐」）
  * @param {Array} categories 全部分类（含二级）
  * @param {string} hintText 备注 + 原句，用于在一级分类下猜二级
+ * @param {string} [expectedType] 'expense' | 'income'；给了就只匹配同类型
  * @returns {object|null} 命中的分类
  */
-export function matchCategory(rawValue, categories = [], hintText = '') {
+export function matchCategory(rawValue, categories = [], hintText = '', expectedType = '') {
   if (!rawValue) return null
   const v = String(rawValue).trim()
   if (!v) return null
@@ -885,7 +972,15 @@ export function matchCategory(rawValue, categories = [], hintText = '') {
    *   下面的「名字包含」匹配会把它撞到「借出利息」上 ——
    *   一条普通的银行利息收入就被归成了借出结清分类。
    */
-  const list = (categories || []).filter((c) => !isInternalOnlyCategory(c.name))
+  const list = (categories || [])
+    .filter((c) => !isInternalOnlyCategory(c.name))
+    /*
+     * ★ 只保留同类型分类 ★
+     *   支出只能落到 expense 分类，收入只能落到 income 分类。
+     *   找不到同类型时返回 null，由调用方挂到同类型的兜底分类，
+     *   绝不把「工资」挂到一笔支出上。
+     */
+    .filter((c) => !expectedType || !c.type || c.type === expectedType)
 
   // 「餐饮/午餐」这种带路径的写法
   if (v.indexOf('/') !== -1) {
@@ -981,6 +1076,53 @@ export function isReimburseDoneText(text) {
 /* -------------------------------------------------------------- 主入口 */
 
 /**
+ * 把一条消息拆成「分句」。
+ *
+ * AI 会在一句话里解析出多笔（「午饭45，还姐姐200」）。旧实现把整句
+ * 当作每一笔的 hintText，借还/时间/转账方向这些确定性兜底会串味：
+ * 第二句的「还」会把第一句的午饭也改成「借款归还」。
+ * 按标点拆开后，每笔只拿自己那一句做兜底。
+ */
+export function splitMessageClauses(message) {
+  return String(message || '')
+    .split(/[，,；;。\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * 给某一条解析结果挑「自己的」原文。
+ *
+ * 优先按条数一一对应；条数对不上时，用备注/金额去包含它的那一句，
+ * 都找不到就只给备注（绝不再退整句，避免串味）。
+ */
+export function pickItemHint(message, raw, index, total) {
+  const clauses = splitMessageClauses(message)
+  if (clauses.length === total && clauses[index]) return clauses[index]
+
+  const note = String((raw && raw.note) || '').trim()
+  if (note) {
+    const hit = clauses.find((c) => c.indexOf(note) !== -1)
+    if (hit) return hit
+  }
+
+  const amount = raw && raw.amount !== undefined && raw.amount !== null
+    ? String(raw.amount)
+    : ''
+  if (amount) {
+    /*
+     * 用数字边界匹配，避免 200 命中 2000。
+     * 金额可能是 45 或 45.5，统一按「前后不是数字/小数点」判断。
+     */
+    const re = new RegExp(`(^|\\D)${amount.replace('.', '\\.')}(\\D|$)`)
+    const hit = clauses.find((c) => re.test(c))
+    if (hit) return hit
+  }
+
+  return note || (clauses.length === 1 ? clauses[0] : '')
+}
+
+/**
  * 用 AI 把一条消息解析成多条记账记录
  *
  * @param {string} text 用户输入
@@ -1009,7 +1151,13 @@ export async function parseMessageToTransactions(text, ctx) {
    *   现在改成只识别「已经报完」的语义（已报销 / 报销到账 / 钱回来了…），
    *   命中才给用户指路，其余「报销」字样交给下面正常记账 + 标记待报销。
    */
-  if (isReimburseDoneText(message)) {
+  /*
+   * ★ 只有「整句就是一笔已报销」时才提前拦截 ★
+   *   多笔消息里可能夹着一笔已完成报销（「昨天吃饭200已报销，今天午饭30」），
+   *   整句拦截会让另一笔明明可以记的账也记不上。
+   *   多笔场景交给下面的逐条判断：命中完成态的那一条跳过并给警告。
+   */
+  if (splitMessageClauses(message).length <= 1 && isReimburseDoneText(message)) {
     const err = new Error(
       '「已报销」只能在「我的 → 报销管理」里确认：' +
       'AI 记账和手动记账都只能把那笔支出标成「待报销」。'
@@ -1069,6 +1217,8 @@ export async function parseMessageToTransactions(text, ctx) {
    - 给的分类列表里每项都是「一级/二级」这种完整路径，直接原样填进 category 字段；
      少数几项是短名（如「借款归还」「借出」），也原样填。
    - 不要只填一级（如「餐饮食品」）。若列表里只有一级分类没有二级，才填一级。
+   - **分类必须和 type 一致**：支出只能选支出分类，收入只能选收入分类。
+     例：一笔支出绝不能填「工资」这种收入分类。
    - 选不到就给 null，不要编造分类名。
 7. **★★ 优先归到已有分类：只能用列表里的，绝不自己造 ★★**
    - **只能从下面给的分类列表里选**。列表里没有的分类名一律不要输出。
@@ -1271,13 +1421,27 @@ ${knownPeople.map((n) => `- ${n}`).join('\n')}
   const warnings = []
 
   for (let i = 0; i < rawItems.length; i++) {
+    /*
+     * ★ 每条只拿自己那一句做兜底 ★
+     *   整句 hint 会让第二句的「还姐姐」把第一句的午饭改成借款归还。
+     */
+    const itemHint = pickItemHint(message, rawItems[i], i, rawItems.length)
+
+    // 多笔消息里单独一条是「已报销」→ 跳过这条，不拖累其它条
+    if (isReimburseDoneText(itemHint)) {
+      warnings.push(
+        `第 ${i + 1} 条已跳过：「已报销」只能在「我的 → 报销管理」里确认`
+      )
+      continue
+    }
+
     const res = validateItem(rawItems[i], {
       categories: ctx.categories,
       accounts: ctx.accounts,
       tags: ctx.tags || [],
       baseDate,
-      // 提示文本 = 用户原句，用来在一级分类下猜二级
-      hintText: message
+      // 提示文本 = 这一条对应的分句（单笔时就是整句）
+      hintText: itemHint
     })
 
     if (!res.ok) {
@@ -1327,7 +1491,7 @@ ${knownPeople.map((n) => `- ${n}`).join('\n')}
       if (cat && !cat.parent_id) {
         const children = ctx.categories.filter((c) => c.parent_id === cat.id)
         if (children.length > 0) {
-          const hint = [item.note, message].filter(Boolean).join(' ')
+          const hint = [item.note, itemHint].filter(Boolean).join(' ')
           const guess = guessChildByText(children, hint)
           if (guess) {
             item.category_id = guess.id
@@ -1338,9 +1502,12 @@ ${knownPeople.map((n) => `- ${n}`).join('\n')}
       }
     }
 
-    // 备注兜底：模型没给备注时，把原句作为备注（用户要求）
+    /*
+     * 备注兜底：模型没给备注时用这一条自己的分句。
+     * 多笔消息下用整句会让每笔都带上别人的内容（「午饭45，还姐姐200」）。
+     */
     if (!item.note) {
-      item.note = message
+      item.note = itemHint || message
     }
 
     if (!item.account_id) {

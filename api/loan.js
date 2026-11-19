@@ -35,6 +35,7 @@ import { toDayKey } from '../utils/date.js'
 import { isSettlementAdjustmentName } from './txnFilter.js'
 import { LOAN_BOUNDARY_MARK } from './loanCleanup.js'
 import { splitLoanOrders } from './loanOrders.js'
+import { SYSTEM_PRESET_GROUP_NAMES } from './db/schema.js'
 
 /** 借出 / 借入两个方向 */
 export const LOAN_DIRECTIONS = { lend: 'lend', borrow: 'borrow' }
@@ -233,8 +234,21 @@ export async function resolveLoanCategoryIds() {
     listCategories('expense', true),
     listCategories('income', true)
   ])
+  /*
+   * ★ 只认「系统分类」下的固定子类 ★
+   *   用户可能自建一个同名分类（如「借入」）。按名字全局 find
+   *   会随机命中两行中的一行，把用户自己的流水算进借款统计。
+   */
+  const groupIds = new Set(
+    expenseList.concat(incomeList)
+      .filter((c) => !c.parent_id && SYSTEM_PRESET_GROUP_NAMES.includes(c.name))
+      .map((c) => c.id)
+  )
   const pick = (list, name) => {
-    const hit = list.find((c) => c.name === name)
+    // 新库只认系统分类下的固定子类；老库没有这一组时才退回按名字找
+    const hit = groupIds.size > 0
+      ? list.find((c) => c.name === name && groupIds.has(c.parent_id))
+      : list.find((c) => c.name === name && !c.parent_id)
     return hit ? hit.id : ''
   }
   return {
