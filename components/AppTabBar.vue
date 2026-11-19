@@ -1,6 +1,6 @@
 <template>
   <view
-    v-if="!hidden"
+    v-show="!hidden"
     class="tabbar-host"
     :class="{ pressing }"
     :style="hostStyle"
@@ -69,9 +69,10 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { TABBAR_ICON_VERSION, glassVars } from '@/utils/theme.js'
+import { hideNativeTabBar } from '@/utils/tabBar.js'
 
 /**
  * 长按触发时长（ms）
@@ -142,6 +143,39 @@ export default {
     let startY = 0
 
     const primaryColor = computed(() => settingStore.primaryColor)
+
+    /**
+     * 把原生 webview / 页面背景同步到当前深浅色
+     *
+     * ★ 解决切 tab 第一帧闪白 ★
+     *   页面 CSS 里的 `page` 背景拿不到 `.app-page` 上的 CSS 变量，
+     *   新 webview 首帧会先露出浅色底。这里在底栏挂载时（首帧渲染前）
+     *   就把页面背景设成与主题一致的纯色，切换时不至于先白一下。
+     */
+    function syncPageBackground() {
+      const bg = settingStore.isDark ? '#000000' : '#F7F8FA'
+      try {
+        if (typeof uni !== 'undefined' && typeof uni.setBackgroundColor === 'function') {
+          uni.setBackgroundColor({
+            backgroundColor: bg,
+            backgroundColorTop: bg,
+            backgroundColorBottom: bg
+          })
+        }
+      } catch (e) {}
+      try {
+        if (typeof plus !== 'undefined' && plus.webview &&
+            typeof plus.webview.currentWebview === 'function') {
+          const wv = plus.webview.currentWebview()
+          if (wv && typeof wv.setStyle === 'function') wv.setStyle({ background: bg })
+        }
+      } catch (e) {}
+    }
+
+    // setup 阶段先藏一次原生底栏 / 同步背景，比 onShow 更早
+    hideNativeTabBar()
+    syncPageBackground()
+    watch(() => settingStore.isDark, syncPageBackground)
 
     /** 未选中态的文字色：跟着深浅模式走，与 theme.json 的 tabFontColor 一致 */
     const fontColor = computed(() => (settingStore.isDark ? '#A1A1A6' : '#646566'))
@@ -252,6 +286,11 @@ export default {
      */
     function onTabClick(item) {
       if (item.active) return
+      /*
+       * 切页前先把原生 tabBar 藏掉：
+       * 否则系统会先画出原生栏，下一页 onShow 才隐藏，中间闪一条白栏。
+       */
+      hideNativeTabBar()
       try {
         uni.switchTab({ url: item.path })
       } catch (e) {}
@@ -400,6 +439,9 @@ export default {
     }
 
     onMounted(() => {
+      // 首帧后再补一次：原生 tabBar 偶尔在 setup 时还没建好
+      hideNativeTabBar()
+      syncPageBackground()
       bindKeyboard()
     })
 
@@ -502,6 +544,13 @@ export default {
   padding: 0 10rpx;
   /* 只有 pill 本体吃点击 */
   pointer-events: auto;
+}
+
+/* 深浅色兜底：首帧变量还没套上时，也不要先闪一块白 */
+@media (prefers-color-scheme: dark) {
+  .tabbar {
+    background-color: var(--glass-bg-solid, rgba(28, 28, 30, 0.94));
+  }
 }
 
 /*

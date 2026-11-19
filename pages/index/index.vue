@@ -963,14 +963,15 @@ export default {
       try {
         tags.value = await listTags()
       } catch (e) {
-        tags.value = []
+        // 刷新失败保留上一份，避免切 tab 时标签胶囊先消失再回来
+        console.warn('[index] 刷新标签失败:', e && e.message)
       }
 
       // 预算
       try {
         budgets.value = await getBudgetUsage(txnStore.currentMonth)
       } catch (e) {
-        budgets.value = []
+        console.warn('[index] 刷新预算失败:', e && e.message)
       }
 
       // 子预算的折叠状态（跟预算数据一起刷，保证跨设备/跨启动一致）

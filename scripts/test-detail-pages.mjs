@@ -112,7 +112,7 @@ check(
 )
 check(
   '本月 = 当前年/月/全部日',
-  /function resetDateToCurrentMonth[\s\S]{0,220}?dateMode\.value = 'period'[\s\S]{0,120}?dateRange\.value = defaultSelection\(\)/.test(statsPage),
+  /function resetDateToCurrentMonth[\s\S]{0,260}?const next = defaultSelection\(\)[\s\S]{0,220}?dateMode\.value = 'period'[\s\S]{0,300}?dateRange\.value = next/.test(statsPage),
   true
 )
 check(

@@ -1384,7 +1384,7 @@ export default {
         })
       } catch (e) {
         console.warn('[stats] 同比计算失败:', e && e.message)
-        comparison.value = null
+        // 保留上一次结果，切 tab 时不至于整块先消失再回来
       }
 
       /*
@@ -1401,7 +1401,7 @@ export default {
         })
       } catch (e) {
         console.warn('[stats] 环比计算失败:', e && e.message)
-        momComparison.value = null
+        // 保留上一次结果
       }
 
       /*
@@ -1414,7 +1414,7 @@ export default {
         savings.value = await getSavingsRate(r)
       } catch (e) {
         console.warn('[stats] 储蓄率计算失败:', e && e.message)
-        savings.value = { income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 }
+        // 保留上一次结果
       }
       /*
        * 右列：全部数据的储蓄率（本轮第 10 条）
@@ -1427,7 +1427,7 @@ export default {
         })
       } catch (e) {
         console.warn('[stats] 全部储蓄率计算失败:', e && e.message)
-        savingsAll.value = { income: 0, expense: 0, balance: 0, rate: null, savedCents: 0 }
+        // 保留上一次结果
       }
 
       /*
@@ -1444,7 +1444,7 @@ export default {
         })
       } catch (e) {
         console.warn('[stats] 预算执行计算失败:', e && e.message)
-        budgetExecution.value = { hasBudget: false, limit: 0, used: 0, remaining: 0, percent: 0, over: false, items: [] }
+        // 保留上一次结果，避免切 tab 时整块面板闪空
       }
 
       /*
@@ -1606,8 +1606,14 @@ export default {
      * 标签详情等明确带了 selection 的导航会在之后覆盖它（如全部年月日）。
      */
     function resetDateToCurrentMonth() {
-      dateMode.value = 'period'
-      dateRange.value = defaultSelection()
+      const next = defaultSelection()
+      if (dateMode.value !== 'period') dateMode.value = 'period'
+      const cur = dateRange.value || {}
+      if (Number(cur.year) !== next.year ||
+          Number(cur.month) !== next.month ||
+          Number(cur.day) !== next.day) {
+        dateRange.value = next
+      }
     }
 
     function applyPendingStatsFilter() {

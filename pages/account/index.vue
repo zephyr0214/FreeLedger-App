@@ -320,7 +320,8 @@ export default {
       try {
         trendData.value = await getAssetChangePoints(trendRange.value)
       } catch (e) {
-        trendData.value = []
+        // 刷新失败保留上一份，避免切 tab 时趋势图先空一下
+        console.warn('[account] 刷新资产趋势失败:', e && e.message)
       }
     }
 

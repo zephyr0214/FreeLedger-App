@@ -555,6 +555,35 @@ page {
   height: 100%;
 }
 
+/*
+ * 首帧背景兜底
+ *
+ * ★ 为什么 page 上面已经写了还要补 ★
+ *   --app-bg 注入在 .app-page 根节点上，page/html/body 本身拿不到
+ *   CSS 变量，只能吃 #f7f8fa 兜底。深色主题下切 tab 时，
+ *   新 webview 第一帧会先露出浅色底，再被 .app-page 盖住 —— 就是闪白。
+ *   这里按系统深浅色先铺一层正确底色；手动深色由 AppTabBar 在
+ *   setup 里调 uni.setBackgroundColor / webview.setStyle 再兜一次。
+ */
+html,
+body,
+#app,
+uni-page-body,
+uni-page-wrapper {
+  background-color: #F7F8FA;
+}
+
+@media (prefers-color-scheme: dark) {
+  page,
+  html,
+  body,
+  #app,
+  uni-page-body,
+  uni-page-wrapper {
+    background-color: #000000;
+  }
+}
+
 view, text, scroll-view, image {
   box-sizing: border-box;
 }
