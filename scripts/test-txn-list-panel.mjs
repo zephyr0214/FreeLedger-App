@@ -65,8 +65,9 @@ check('有占位文案样式', /\.filter-row-value\.placeholder\s*\{/.test(filte
 
 /* -------------------------------- 3. 子弹层复用 */
 
-check('只有一个 wd-action-sheet', (filterTemplate.match(/<wd-action-sheet/g) || []).length, 1)
-check('选项表由 pickerActions 驱动', filterTemplate.includes(':actions="pickerActions"'), true)
+check('不再有 wd-action-sheet', (filterTemplate.match(/<wd-action-sheet/g) || []).length, 0)
+check('周期筛选用自绘 OptionPickerSheet', /<OptionPickerSheet/.test(filterTemplate), true)
+check('周期选项由 cyclePickerOptions 驱动', /:options="cyclePickerOptions"/.test(filterTemplate), true)
 check('标签筛选用 TxnTagSheet', /<TxnTagSheet/.test(filterTemplate), true)
 check('账户筛选用自绘面板', /<AccountPickerSheet/.test(filterTemplate), true)
 check('用了分类多选弹层', /<CategoryMultiPickerSheet/.test(filterTemplate), true)

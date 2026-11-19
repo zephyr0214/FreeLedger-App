@@ -20,8 +20,8 @@
           :class="{ active: opt.key === selectedKey }"
           @click="pick(opt)"
         >
-          <!-- 图标：线性图标 / 图片预览（图标样式用） -->
-          <view class="opt-icon">
+          <!-- 图标：线性图标 / 图片预览（没有图标时不占位） -->
+          <view v-if="opt.icon || opt.image" class="opt-icon">
             <LineIcon
               v-if="opt.icon"
               :name="opt.icon"

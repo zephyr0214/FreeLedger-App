@@ -162,14 +162,14 @@
       @picked="onAccountPicked"
     />
 
-    <!-- 周期选择 -->
-    <wd-action-sheet
+    <!-- 周期选择：与账户/选项单选面板同一套自绘样式 -->
+    <OptionPickerSheet
       v-model="showPicker"
       title="选择周期"
-      :actions="pickerActions"
+      :options="cyclePickerOptions"
+      :selected-key="draft.cycleId"
       :z-index="childZIndex"
-      cancel-text="取消"
-      @select="onCyclePicked"
+      @picked="onCyclePicked"
     />
 
     <!-- 标签筛选：复用全局标签面板，顺序也与标签管理页一致 -->
@@ -200,6 +200,7 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
 import CategoryMultiPickerSheet from '@/components/CategoryMultiPickerSheet.vue'
+import OptionPickerSheet from '@/components/OptionPickerSheet.vue'
 import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { useAccountStore } from '@/stores/account.js'
@@ -212,7 +213,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnFilterSheet',
-  components: { AccountPickerSheet, CategoryMultiPickerSheet, TxnTagSheet },
+  components: { AccountPickerSheet, CategoryMultiPickerSheet, OptionPickerSheet, TxnTagSheet },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 已生效的筛选条件；打开时拷一份到 draft，改完点应用才提交 */
@@ -369,9 +370,9 @@ export default {
       return `${cycleLabel(c)} · ${recurrenceLabel(c)}`
     })
 
-    const pickerActions = computed(() => {
-      const list = [{ name: '不指定周期', value: '' }]
-      for (const c of cycles.value) list.push({ name: cycleLabel(c), value: c.id })
+    const cyclePickerOptions = computed(() => {
+      const list = [{ key: '', label: '不指定周期' }]
+      for (const c of cycles.value) list.push({ key: c.id, label: cycleLabel(c) })
       return list
     })
 
@@ -448,10 +449,9 @@ export default {
       showPicker.value = true
     }
 
-    function onCyclePicked(e) {
-      const item = e && e.item ? e.item : null
+    function onCyclePicked(item) {
       if (!item) return
-      draft.cycleId = item.value || ''
+      draft.cycleId = item.key || ''
     }
 
     function resetFilter() {
@@ -471,7 +471,7 @@ export default {
     return {
       visible, draft, statusBarHeight, primaryColor, childZIndex, popupStyle,
       typeOptions, accountList, multiCatSource, tags, cycles, categoryCounts,
-      accountLabel, multiCatLabel, tagLabel, cycleFilterLabel, pickerActions,
+      accountLabel, multiCatLabel, tagLabel, cycleFilterLabel, cyclePickerOptions,
       showAccountPicker, showTagFilter, showMultiCat, showPicker,
       onTypeChange, openMultiCatPicker, onAccountPicked, onTagFilterPicked, onTagCreated,
       onMultiCatConfirm, openCyclePicker, onCyclePicked, resetFilter, applyFilter

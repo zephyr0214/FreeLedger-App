@@ -132,10 +132,14 @@ check('没有中间的长破折号分隔', /custom-sep/.test(barRaw), false)
 // --- 预设下拉（用户第二批要求：最左侧一个下拉框）
 console.log('\n--- 最左侧预设下拉 ---')
 
-check('用原生 picker mode="selector" 做预设下拉', /<picker[\s\S]{0,240}?mode="selector"/.test(barTpl), true)
-check('预设下拉绑了 range', /:range="PRESET_LABELS"/.test(barTpl), true)
-check('预设下拉绑了 value', /:value="presetIndex"/.test(barTpl), true)
-check('预设下拉有 change 处理', /@change="onPresetChange"/.test(barTpl), true)
+check('预设下拉改成自绘下拉（不再用原生 picker）', /<picker/.test(barTpl), false)
+check('预设下拉遍历 PRESETS', /v-for="p in PRESETS"/.test(barTpl), true)
+check('预设项点击走 pickPreset', /@click="pickPreset\(p\)"/.test(barTpl), true)
+check(
+  '预设下拉与年月日同款面板',
+  /preset-mask/.test(barTpl) && /preset-panel/.test(barTpl) && /preset-opt/.test(barTpl),
+  true
+)
 
 // 六项，顺序照用户说的
 const presetBlock = (barCode.match(/const PRESETS = \[([\s\S]*?)\n\]/) || [])[1] || ''

@@ -346,11 +346,12 @@
     />
 
     <!-- 人员选择：已经从流水里出现过的人名（借款归还/借款收回用它匹配） -->
-    <wd-action-sheet
+    <OptionPickerSheet
       v-model="showPersonPicker"
-      :actions="personActions"
-      cancel-text="取消"
-      @select="onPersonSelect"
+      title="选择人员"
+      :options="personOptions"
+      :selected-key="form.note"
+      @picked="onPersonPicked"
     />
 
     <!--
@@ -425,6 +426,7 @@ import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
+import OptionPickerSheet from '@/components/OptionPickerSheet.vue'
 import { getCategoryTxnCounts } from '@/api/stats.js'
 import {
   isLoanPersonCategory, isLoanSettleCategory, allowsNewPerson, listLoanPeople
@@ -441,7 +443,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnPanel',
-  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet, CategoryGlyph },
+  components: { AccountPickerSheet, OptionPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags , TxnTagSheet, CategoryGlyph },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑模式传入已有交易 */
@@ -820,15 +822,15 @@ export default {
     })
 
     /**
-     * 人员候选项（action-sheet 用）
+     * 人员候选项（自绘单选面板用）
      *
      * ★ 借款归还 / 借款收回 只允许选已有人名 ★
      *   这两类是在结一笔旧账，人名必须能和原流水对上；
      *   允许手输新名字等于允许「还给了不存在的人」，账永远结不清。
      *   所以这两类点「选择」时给的是历史人员列表，列表为空就提示。
      */
-    const personActions = computed(() =>
-      loanPeople.value.map((name) => ({ name }))
+    const personOptions = computed(() =>
+      loanPeople.value.map((name) => ({ key: name, label: name }))
     )
 
     const currentAccountName = computed(() => {
@@ -1031,9 +1033,8 @@ export default {
       showPersonPicker.value = true
     }
 
-    function onPersonSelect({ index }) {
-      const name = loanPeople.value[index]
-      if (name) form.note = name
+    function onPersonPicked(opt) {
+      if (opt && opt.key) form.note = opt.key
       showPersonPicker.value = false
     }
 
@@ -1604,9 +1605,9 @@ export default {
       /* 外币记账 */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
-      currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personActions, onFlagsUpdate,
+      currentCategory, isPersonCategory, isSettleCategory, personPlaceholder, personOptions, onFlagsUpdate,
       reimburseDisabled,
-      showPersonPicker, openPersonPicker, onPersonSelect,
+      showPersonPicker, openPersonPicker, onPersonPicked,
       sourceAccountList, toAccountList, currentAccountName, toAccountName,
       /*
        * ★ tags 必须暴露给模板（bug 修复）★

@@ -49,18 +49,17 @@
         同一个组件，翻月、今天高亮、选中态才会长得一模一样。
     -->
     <view v-else class="custom-row">
-      <picker
+      <!-- 预设：和年月日一样的下拉菜单，不再用原生 picker 的底部弹层 -->
+      <view
         class="custom-preset"
-        mode="selector"
-        :range="PRESET_LABELS"
-        :value="presetIndex"
-        @change="onPresetChange"
+        :class="{ 'is-open': presetOpen }"
+        @click="togglePreset"
       >
         <view class="preset-inner">
           <text class="preset-text">{{ activePresetLabel }}</text>
-          <DropdownArrow />
+          <DropdownArrow :active="presetOpen" />
         </view>
-      </picker>
+      </view>
 
       <!--
         ★ 一个格显示整段区间（用户本轮第 5 条）★
@@ -73,6 +72,28 @@
         <text class="custom-value" :class="{ placeholder: !startDay || !endDay }">
           {{ rangeText }}
         </text>
+      </view>
+
+      <!-- 预设下拉：遮罩 + 面板，样式与年月日的 .drp-mask / .drp-panel 一致 -->
+      <view
+        v-if="presetOpen"
+        class="preset-mask"
+        @click="closePreset"
+        @touchmove.stop
+      />
+      <view v-if="presetOpen" class="preset-panel">
+        <scroll-view class="preset-panel-scroll" scroll-y>
+          <view
+            v-for="p in PRESETS"
+            :key="p.key"
+            class="preset-opt"
+            :class="{ 'is-active': p.key === activePresetKey }"
+            @click="pickPreset(p)"
+          >
+            <text class="preset-opt-label">{{ p.label }}</text>
+            <text v-if="p.key === activePresetKey" class="preset-opt-check">✓</text>
+          </view>
+        </scroll-view>
       </view>
     </view>
 
@@ -164,8 +185,6 @@ const PRESETS = [
  */
 const CALENDAR_Z_INDEX = 1100
 
-const PRESET_LABELS = PRESETS.map((p) => p.label)
-
 /** 把毫秒时间戳转成 YYYY-MM-DD（按本地时区，不能用 toISOString） */
 function tsToDay(ts) {
   return toDayKey(new Date(ts))
@@ -254,6 +273,9 @@ export default {
      */
     const rangeValue = ref([Date.now(), Date.now()])
 
+    /** 自定义筛选左侧预设下拉是否展开 */
+    const presetOpen = ref(false)
+
     /**
      * 左边下拉当前应该显示哪一项 —— 反推出来的。
      *
@@ -274,10 +296,6 @@ export default {
       const hit = PRESETS.find((p) => p.key === activePresetKey.value)
       return hit ? hit.label : '自定义'
     })
-
-    const presetIndex = computed(() =>
-      Math.max(0, PRESETS.findIndex((p) => p.key === activePresetKey.value))
-    )
 
     /**
      * 区间格子里显示的文字
@@ -315,6 +333,7 @@ export default {
 
     function pickMode(next) {
       if (props.mode === next) return
+      closePreset()
       emit('update:mode', next)
       emit('mode-change', next)
     }
@@ -344,10 +363,26 @@ export default {
      *   不清空已有日期（清空会把用户刚选好的区间弄丢），
      *   也不提交任何新值 —— 用户选完日历才算真正改了区间。
      */
-    function onPresetChange(e) {
-      const idx = Number(e.detail.value)
-      const preset = PRESETS[idx]
+    /** 收起预设下拉 */
+    function closePreset() {
+      presetOpen.value = false
+    }
+
+    /** 点预设格：展开 / 收起 */
+    function togglePreset() {
+      presetOpen.value = !presetOpen.value
+    }
+
+    /**
+     * 选中预设
+     *
+     * ★ 选「自定义」要能真的选中（bug 修复）★
+     *   选它时直接打开区间日历让用户手动选；不清空已有日期，
+     *   也不提交新值 —— 用户选完日历才算真正改了区间。
+     */
+    function pickPreset(preset) {
       if (!preset) return
+      closePreset()
       if (preset.key === 'custom') {
         openCalendar()
         return
@@ -369,6 +404,7 @@ export default {
      *   用「近一个月」作为初始视图最符合记账习惯（大多数人看的就是最近一个月）。
      */
     async function openCalendar() {
+      closePreset()
       const a = props.startDay ? parseDayKey(props.startDay).getTime() : null
       const b = props.endDay ? parseDayKey(props.endDay).getTime() : null
       if (a && b) {
@@ -437,6 +473,7 @@ export default {
      *   现在中间隔了一层组件，得把这个方法透传出去。
      */
     function collapse() {
+      closePreset()
       if (periodRef.value && typeof periodRef.value.collapse === 'function') {
         periodRef.value.collapse()
       }
@@ -452,12 +489,11 @@ export default {
     }
 
     return {
-      PRESET_LABELS,
       CALENDAR_Z_INDEX,
-      periodRef, rangeCalRef, rangeValue,
-      minDate, maxDate,
-      activePresetKey, activePresetLabel, presetIndex, rangeText,
-      pickMode, onPeriodChange, onPresetChange, openCalendar,
+      periodRef, rangeCalRef, rangeValue, presetOpen,
+      minDate, maxDate, PRESETS,
+      activePresetKey, activePresetLabel, rangeText,
+      pickMode, onPeriodChange, togglePreset, closePreset, pickPreset, openCalendar,
       onRangeConfirm,
       collapse
     }
@@ -516,11 +552,17 @@ export default {
  *   下面的内容不会因为换了个 tab 就上下跳一下。
  */
 .custom-row {
+  position: relative;
+  /*
+   * 与 DateRangePicker 的 .drp 同层级：高于页面滚动内容、低于弹层。
+   * 下拉面板需要溢出 .custom-row，所以 overflow 不能是 hidden。
+   */
+  z-index: 5;
   display: flex;
   align-items: center;
   background-color: var(--app-card);
   border-radius: 16rpx;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .custom-preset,
@@ -542,9 +584,71 @@ export default {
 
 /* 预设下拉固定宽度：它是「模式」不是「日期」，不需要和日期格平分 */
 .custom-preset {
+  position: relative;
+  z-index: 3;
   flex: none;
   width: 168rpx;
   border-right: 1rpx solid var(--app-line);
+}
+
+.custom-preset.is-open .preset-text {
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+/* 预设下拉遮罩：和 DateRangePicker 的 .drp-mask 同一层级/行为 */
+.preset-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+/* 预设下拉面板：和 .drp-panel 同一套卡片、阴影、圆角 */
+.preset-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 2;
+  margin-top: 8rpx;
+  background-color: var(--app-card);
+  border-radius: 16rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.preset-panel-scroll {
+  max-height: 520rpx;
+}
+
+.preset-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22rpx 28rpx;
+  border-bottom: 1rpx solid var(--app-line);
+}
+
+.preset-opt:last-child {
+  border-bottom: none;
+}
+
+.preset-opt-label {
+  font-size: 27rpx;
+  color: var(--app-text);
+}
+
+.preset-opt.is-active .preset-opt-label {
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+.preset-opt-check {
+  font-size: 26rpx;
+  color: var(--app-primary);
 }
 
 .custom-cell {

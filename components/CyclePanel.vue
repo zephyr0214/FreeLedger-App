@@ -300,27 +300,27 @@
       @picked="onToAccountPicked"
     />
 
-    <!-- 周期规则 -->
-    <wd-action-sheet
+    <!-- 周期规则：与账户/选项单选面板同一套自绘样式 -->
+    <OptionPickerSheet
       v-model="showRecurrencePicker"
-      :actions="recurrenceActions"
       title="触发周期"
-      cancel-text="取消"
-      @select="onRecurrenceSelect"
+      :options="recurrenceOptions"
+      :selected-key="form.recurrence"
+      @picked="onRecurrencePicked"
     />
-    <wd-action-sheet
+    <OptionPickerSheet
       v-model="showWeekdayPicker"
-      :actions="weekdayActions"
       title="每周几"
-      cancel-text="取消"
-      @select="onWeekdaySelect"
+      :options="weekdayOptions"
+      :selected-key="String(form.weekday)"
+      @picked="onWeekdayPicked"
     />
-    <wd-action-sheet
+    <OptionPickerSheet
       v-model="showDayPicker"
-      :actions="dayActions"
       title="每月几号"
-      cancel-text="取消"
-      @select="onDaySelect"
+      :options="dayOptions"
+      :selected-key="String(form.day_of_month)"
+      @picked="onDayPicked"
     />
 
     <!--
@@ -364,6 +364,7 @@ import { confirmDialog, alertDialog, promptDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
 import { pushLayer } from '@/utils/layerStack.js'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
+import OptionPickerSheet from '@/components/OptionPickerSheet.vue'
 
 const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const RECURRENCES = [
@@ -377,7 +378,7 @@ const RECURRENCES = [
 
 export default {
   name: 'CyclePanel',
-  components: { AccountPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags, CategoryGlyph },
+  components: { AccountPickerSheet, OptionPickerSheet, NumberKeyboard, AppDialog, CategoryPickerSheet, LineIcon, ExcludeFlags, CategoryGlyph },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 编辑已有周期时传入 */
@@ -606,21 +607,29 @@ export default {
       accountStore.list.filter((a) => a.id !== form.account_id && !a.isCombo)
     )
 
-    const recurrenceActions = computed(() => RECURRENCES.map((r) => ({ name: r.name })))
+    const recurrenceOptions = computed(() =>
+      RECURRENCES.map((r) => ({ key: r.key, label: r.name }))
+    )
 
     const recurrenceLabel = computed(() => {
       const r = RECURRENCES.find((x) => x.key === form.recurrence)
       return r ? r.name : '每月'
     })
 
-    const weekdayActions = computed(() =>
-      [1, 2, 3, 4, 5, 6, 7].map((w) => ({ name: WEEKDAY_NAMES[w] }))
+    const weekdayOptions = computed(() =>
+      [1, 2, 3, 4, 5, 6, 7].map((w) => ({
+        key: String(w),
+        label: WEEKDAY_NAMES[w]
+      }))
     )
 
     const weekdayLabel = computed(() => WEEKDAY_NAMES[Number(form.weekday) || 1])
 
-    const dayActions = computed(() =>
-      Array.from({ length: 31 }, (_, i) => ({ name: `${i + 1} 号` }))
+    const dayOptions = computed(() =>
+      Array.from({ length: 31 }, (_, i) => ({
+        key: String(i + 1),
+        label: `${i + 1} 号`
+      }))
     )
 
     const dayOfMonthLabel = computed(() => `${Number(form.day_of_month) || 1} 号`)
@@ -765,8 +774,8 @@ export default {
       showToAccountPicker.value = false
     }
 
-    function onRecurrenceSelect({ index }) {
-      const r = RECURRENCES[index]
+    function onRecurrencePicked(opt) {
+      const r = opt && RECURRENCES.find((x) => x.key === opt.key)
       if (!r) return
       form.recurrence = r.key
       if (r.key === 'yearly' && !form.month_of_year) form.month_of_year = 1
@@ -802,13 +811,15 @@ export default {
       form.interval_days = n
     }
 
-    function onWeekdaySelect({ index }) {
-      form.weekday = index + 1
+    function onWeekdayPicked(opt) {
+      const w = Number(opt && opt.key)
+      form.weekday = w >= 1 && w <= 7 ? w : 1
       showWeekdayPicker.value = false
     }
 
-    function onDaySelect({ index }) {
-      form.day_of_month = index + 1
+    function onDayPicked(opt) {
+      const d = Number(opt && opt.key)
+      form.day_of_month = d >= 1 && d <= 31 ? d : 1
       showDayPicker.value = false
     }
 
@@ -1158,8 +1169,8 @@ export default {
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,
       convertedPreview, onCurrencyChange, iconInk,
       sourceAccountList, toAccountList, currentAccountName, toAccountName,
-      recurrenceActions, recurrenceLabel, weekdayActions, weekdayLabel,
-      dayActions, dayOfMonthLabel, onFlagsUpdate, reimburseDisabled,
+      recurrenceOptions, recurrenceLabel, weekdayOptions, weekdayLabel,
+      dayOptions, dayOfMonthLabel, onFlagsUpdate, reimburseDisabled,
       isWeekdayRecurrence, yearlyRanges, yearlyValue, monthDayLabel,
       intervalDaysLabel, onYearlyPick, openIntervalPrompt,
       showAccountPicker, showToAccountPicker, showRecurrencePicker,
@@ -1167,8 +1178,8 @@ export default {
       catIconStyle, switchType, pickCategory,
       openAccountPicker, openToAccountPicker, openRecurrencePicker,
       openWeekdayPicker, openDayPicker,
-      onAccountPicked, onToAccountPicked, onRecurrenceSelect,
-      onWeekdaySelect, onDaySelect,
+      onAccountPicked, onToAccountPicked, onRecurrencePicked,
+      onWeekdayPicked, onDayPicked,
       onFinish, onClose, onDelete
     }
   }
