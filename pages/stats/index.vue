@@ -1188,9 +1188,13 @@ export default {
      *   拿不到页面上的 CSS 变量。
      */
     const donutTextColor = computed(() => {
-      // 深色主题用浅字，浅色主题用深字
-      const isDark = /dark/i.test(settingStore.theme || '')
-      return isDark ? '#9CA3AF' : '#666666'
+      /*
+       * ★ 必须读 store 真正存在的字段 ★
+       *   旧代码读 settingStore.theme —— store 里没有这个字段
+       *   （只有 themeMode / themePreset / isDark），表达式恒为 false，
+       *   深色下环图文字始终 #666，在 #1C1C1E 卡片上几乎看不清。
+       */
+      return settingStore.isDark ? '#9CA3AF' : '#666666'
     })
 
     /** 分类统计环形图（SVG data URI） */

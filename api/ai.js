@@ -130,7 +130,13 @@ function extractContent(data) {
  */
 export async function chat(messages, opt = {}) {
   const settings = await getAllSettings()
-  const ai = settings.ai || {}
+  /*
+   * ★ opt.ai 允许调用方传「未保存的临时配置」★
+   *   设置页的「测试连通性」必须能测用户刚输入、还没点保存的
+   *   Base URL / Key / 模型。以前只能先写库再测，测试失败就把
+   *   原本可用的配置覆盖成了坏值。
+   */
+  const ai = opt.ai ? { ...(settings.ai || {}), ...opt.ai } : (settings.ai || {})
   const aiChat = settings.aiChat || {}
 
   if (!ai.apiKey) throw new Error('未配置 API Key，请到「设置 → AI」中填写')
@@ -389,13 +395,22 @@ function extractError(res) {
 }
 
 /** 连通性测试 */
-export async function testConnection() {
+export async function testConnection(aiOverride = null) {
   const reply = await chat(
     [
       { role: 'system', content: '你是一个测试助手。' },
       { role: 'user', content: '回复"ok"两个字母即可。' }
     ],
-    { maxTokens: 16, temperature: 0, timeoutMs: 15000 }
+    {
+      maxTokens: 16,
+      temperature: 0,
+      timeoutMs: 15000,
+      /*
+       * 传了就用临时配置；不传仍读已保存的设置。
+       * 测试绝不写库 —— 保存是「保存」按钮的职责。
+       */
+      ai: aiOverride || undefined
+    }
   )
   return { ok: true, reply: reply.slice(0, 50) }
 }

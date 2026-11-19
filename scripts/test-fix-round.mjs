@@ -334,6 +334,59 @@ console.log('=== 隐私模式与手动重算已删除 ===')
   check('account store 没有 repair', /async repair\(/.test(read('stores/account.js')), false)
 }
 
+/* ------------------------------------------ 11. 列表分页 / 暗色 / 测试 */
+
+console.log('=== 全部交易：首屏 100 条 + 手动加载更多 ===')
+
+{
+  const list = read('pages/txn/list.vue')
+  check('每页 100 条', /const PAGE_SIZE = 100/.test(list), true)
+  check('不再随滚动自动追加', /@scrolltolower="loadMore"/.test(list), false)
+  check('使用 HeaderAction 按钮', /<HeaderAction[\s\S]{0,120}加载更多/.test(list), true)
+  check('加载中显示加载态', /loading\s*\?\s*'加载中…'|v-if="loading"[\s\S]{0,80}加载中/.test(list), true)
+}
+
+console.log('=== 暗色环图文字色 ===')
+
+{
+  const stats = read('pages/stats/index.vue')
+  check('读 store 的 isDark', /return settingStore\.isDark \?/.test(stats), true)
+  // 注释里会提到旧字段，这里只看真实表达式
+  check('不再读不存在的 theme 字段', /settingStore\.theme\s*\|\|/.test(stats), false)
+}
+
+console.log('=== AI 测试连接不落库 ===')
+
+{
+  const ai = read('api/ai.js')
+  check('chat 支持临时配置', /const ai = opt\.ai \?/.test(ai), true)
+  check('testConnection 支持临时配置', /export async function testConnection\(aiOverride/.test(ai), true)
+
+  const page = read('pages/settings/ai.vue')
+  const testBody = page.slice(page.indexOf('async function onTest'), page.indexOf('async function onSave'))
+  check('测试前不再 setAi', /setAi\s*\(/.test(testBody), false)
+  check('测试传表单临时值', /testConnection\(\{[\s\S]{0,300}?apiKey: form\.apiKey/.test(testBody), true)
+}
+
+console.log('=== 周期补记失败不丢日期 ===')
+
+{
+  const cycle = read('api/cycle.js')
+  check('失败时停住', /failed = true/.test(cycle), true)
+  check('失败游标停在失败日前一天', /if \(!cursor\) cursor = shiftDay\(d, -1\)/.test(cycle), true)
+  check('达到上限只停在上次处理日', /capped = true/.test(cycle) && /if \(!failed && !capped\) cursor = today/.test(cycle), true)
+}
+
+console.log('=== AI 图表支持收入/近 N 天 ===')
+
+{
+  const chart = read('api/aiChartData.js')
+  check('规格支持 metric', /export const CHART_METRICS/.test(chart), true)
+  check('分类查询按 metric', /getSubCategoryStatsRange\(scope, metric\)/.test(chart), true)
+  check('趋势按 metric 取值', /Number\(t\[metric\]\)/.test(chart), true)
+  check('days 覆盖滚动窗口', /scope = \{ startDay: shiftDay\(end, -\(spec\.days - 1\)\), endDay: end \}/.test(chart), true)
+}
+
 /* ------------------------------------------------------------ 汇总 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

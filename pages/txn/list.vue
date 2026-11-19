@@ -67,7 +67,6 @@
       class="list-scroll"
       scroll-y
       @scroll="onListScroll"
-      @scrolltolower="loadMore"
     >
       <view v-if="groups.length === 0" class="empty-wrap">
         <EmptyState
@@ -178,7 +177,18 @@
       </view>
 
       <view v-if="hasMore" class="load-more">
-        <text class="load-text">加载中…</text>
+        <text v-if="loading" class="load-text">加载中…</text>
+        <!--
+          ★ 手动加载更多（用户要求）★
+            首屏 100 条，点一次追加 100 条；不再随滚动自动追加。
+            样式直接复用首页「智能助手」的 HeaderAction 胶囊，
+            保证与首页按钮一致，不另写一套。
+        -->
+        <HeaderAction
+          v-else
+          text="加载更多"
+          @action-click="loadMore"
+        />
       </view>
       <view v-else-if="groups.length > 0" class="load-more">
         <text class="load-text">没有更多了</text>
@@ -279,6 +289,7 @@ import {
   customToRange, customRangeLabel, defaultCustomRange, toDayKey
 } from '@/utils/date.js'
 import TxnIcon from '@/components/TxnIcon.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { isLoanPersonCategory } from '@/api/loan.js'
 import { buildTxnBadges } from '@/utils/txnBadges.js'
 import { formatWanYuan } from '@/utils/money.js'
@@ -287,10 +298,14 @@ import { handleBackPress } from '@/utils/layerStack.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { createRowPressController } from '@/utils/rowPress.js'
 
-const PAGE_SIZE = 50
+/*
+ * 首屏 100 条；点「加载更多」再追加 100 条。
+ * 原来 50 条 + 滚动到底自动追加，用户要求改成手动按钮。
+ */
+const PAGE_SIZE = 100
 
 export default {
-  components: { MoneyText, EmptyState, DateFilterBar, TxnFilterSheet, TxnSwipeActions, TxnTagSheet, TxnPanel, TxnBatchBar, AppDialog, UpdateDialog, TxnIcon },
+  components: { MoneyText, EmptyState, DateFilterBar, TxnFilterSheet, TxnSwipeActions, TxnTagSheet, TxnPanel, TxnBatchBar, AppDialog, UpdateDialog, TxnIcon, HeaderAction },
   setup() {
     const settingStore = useSettingStore()
     const accountStore = useAccountStore()
@@ -1574,7 +1589,10 @@ export default {
 }
 
 .load-more {
-  text-align: center;
+  /* 让 HeaderAction 以内容宽度显示成胶囊，而不是撑满整行 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
   padding: 24rpx 0;
 }
 

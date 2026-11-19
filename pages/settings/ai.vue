@@ -232,17 +232,21 @@ export default {
 
       testing.value = true
       try {
-        // 测试时先把当前表单值临时保存，否则 chat() 读的是旧配置
-        await settingStore.setAi({
+        /*
+         * ★ 只测试，不落库 ★
+         *   把当前表单值作为临时配置传给 testConnection；
+         *   测试失败不会覆盖原本可用的 Key / Base URL。
+         *   用户确认没问题后再点「保存」。
+         */
+        const res = await testConnection({
           baseUrl: form.baseUrl.trim(),
           apiKey: form.apiKey.trim(),
           model: form.model.trim(),
           timeoutMs: Number(timeoutSec.value) * 1000
         })
-        const res = await testConnection()
         await alertDialog({
           title: '连接成功',
-          content: `模型已响应：${res.reply}`
+          content: `模型已响应：${res.reply}\n\n（尚未保存，记得点「保存」）`
         })
       } catch (e) {
         await alertDialog({

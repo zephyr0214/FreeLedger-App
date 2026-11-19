@@ -1616,12 +1616,22 @@ export async function askFinance(history, summary, opt = {}) {
    */
   const chartRule = allowCharts
     ? `
-5. 如果回答涉及「构成 / 占比 / 排名」这类适合看图的内容，在 charts 数组里给出图表规格。
+5. 如果回答涉及「构成 / 占比 / 排名 / 趋势」这类适合看图的内容，在 charts 数组里给出图表规格。
    可用的图表类型只有三种：
-   - {"type":"donut","dimension":"category","title":"本月支出构成"}     环形图：按一级分类看构成
-   - {"type":"donut","dimension":"subcategory","title":"本月支出明细"}   环形图：按二级分类看构成
-   - {"type":"bar","dimension":"category","title":"各类消费对比"}        条形图：分类之间比大小
-   - {"type":"trend","title":"每日支出趋势","days":30}                 折线图：按天看变化
+   - {"type":"donut","dimension":"category","metric":"expense","title":"本月支出构成"}
+       环形图：按一级分类看构成
+   - {"type":"donut","dimension":"subcategory","metric":"expense","title":"本月支出明细"}
+       环形图：按二级分类看构成
+   - {"type":"donut","dimension":"category","metric":"income","title":"本月收入构成"}
+       用户问收入构成时，metric 必须填 income
+   - {"type":"bar","dimension":"category","metric":"expense","title":"各类消费对比"}
+       条形图：分类之间比大小
+   - {"type":"trend","metric":"expense","title":"每日支出趋势"}
+       折线图：跟随当前对话区间（本月/上月/今年）
+   - {"type":"trend","metric":"expense","title":"近30天支出趋势","days":30}
+       用户明确说「近 N 天」时才填 days（7~90）
+   metric 只能是 "expense" 或 "income"；没提就填 "expense"。
+   days 只在用户说「近 N 天 / 最近 N 天」时填；问本月、上月、今年时不要填。
    最多给 2 张图。没有必要时就给空数组 []。`
     : `
 5. 不要生成图表，charts 一律给空数组 []。`

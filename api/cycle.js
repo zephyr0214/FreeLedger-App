@@ -678,8 +678,14 @@ async function listCycleSkips(cycleId) {
  *
  * ★ 安全上限 ★
  *   单个周期单次最多补 MAX_CATCHUP_PER_CYCLE 条，防止极端断更
- *   （如一年没开 + 每天周期）刷出几百条。达到上限后游标仍推到今天，
- *   剩余「历史空缺」不再追溯（极端情况，可接受）。
+ *   （如一年没开 + 每天周期）一次刷出几百条。
+ *   ★ 达到上限时游标停在最后一条已处理的日期 ★
+ *     下次打开 App 会从下一天继续补，不再把剩余历史空缺永久丢掉。
+ *
+ * ★ 单日失败不推进游标 ★
+ *   某一天写库失败（磁盘/约束/临时错误）时，游标停在它的前一天，
+ *   下次启动会重试这一天。旧实现无论成败都把游标推到今天，
+ *   失败的账永远不会再补。
  *
  * @returns {{ cycleId: string, added: number }[]} 每个周期补记了几条
  */
@@ -702,31 +708,62 @@ export async function catchUpCycles(today = toDayKey()) {
     }
 
     let added = 0
+    /*
+     * 游标只推进到「真正处理完」的那一天：
+     *   · 正常补记 / 已存在 / 用户跳过 → cursor = d
+     *   · 写库失败 → cursor 停在前一天，下次重试 d
+     *   · 达到 90 条上限 → cursor 停在最后处理日，下次继续
+     *   · 全部处理完 → cursor = today
+     */
+    let cursor = c.last_caught_up_day || ''
+    let failed = false
+    let capped = false
     // 一次性取出该周期的跳过日，避免逐日查库
     const skipped = await listCycleSkips(c.id)
     for (const d of days) {
-      if (added >= MAX_CATCHUP_PER_CYCLE) break
-      /*
-       * ★ 用户明确说过「这天不要」，就永远不补 ★
-       *   两种情况会写进 cycle_skip：
-       *     · 建周期时选「本天先不记」
-       *     · 用户主动删掉了这天由周期产生的流水
-       *   不加这个判断的话，用户删一次、下次进 App 又补回来，
-       *   删多少次都没用 —— 这正是反馈里的 bug。
-       */
-      if (skipped.has(d)) continue
-      const has = await cycleHasTxnOn(c.id, d)
-      if (has) continue
+      if (added >= MAX_CATCHUP_PER_CYCLE) {
+        capped = true
+        break
+      }
       try {
+        /*
+         * ★ 用户明确说过「这天不要」，就永远不补 ★
+         *   两种情况会写进 cycle_skip：
+         *     · 建周期时选「本天先不记」
+         *     · 用户主动删掉了这天由周期产生的流水
+         *   不加这个判断的话，用户删一次、下次进 App 又补回来，
+         *   删多少次都没用 —— 这正是反馈里的 bug。
+         */
+        if (skipped.has(d)) {
+          cursor = d
+          continue
+        }
+        // 第二道防重：游标异常时也不产生重复账
+        if (await cycleHasTxnOn(c.id, d)) {
+          cursor = d
+          continue
+        }
         await recordCycleForDay(c.id, d)
         added++
+        cursor = d
       } catch (e) {
-        console.warn('[cycle] catchUp 记一笔失败:', c.id, d, e && e.message)
+        failed = true
+        /*
+         * 失败日要重试：游标停在它的前一天。
+         * 如果之前没有游标（极老数据），也补一个「前一天」，
+         * 否则下次 start=今天 会直接跳过这一天。
+         */
+        if (!cursor) cursor = shiftDay(d, -1)
+        console.warn('[cycle] catchUp 记一笔失败，游标停在失败日前一天:', c.id, d, e && e.message)
+        break
       }
     }
 
-    // 推进游标到今天
-    await execute('UPDATE cycle SET last_caught_up_day = ? WHERE id = ?', [today, c.id])
+    if (!failed && !capped) cursor = today
+    // 首次失败且没有旧游标时，cursor 可能仍是空串；此时不写，交给下次
+    if (cursor && cursor !== c.last_caught_up_day) {
+      await execute('UPDATE cycle SET last_caught_up_day = ? WHERE id = ?', [cursor, c.id])
+    }
     if (added > 0) result.push({ cycleId: c.id, added })
   }
 

@@ -46,7 +46,7 @@ console.log('=== 图表规格归一化（白名单） ===')
 check(
   'donut + category 是合法的',
   normalizeChartSpec({ type: 'donut', dimension: 'category', title: '支出构成' }),
-  { type: 'donut', dimension: 'category', title: '支出构成', limit: 6 }
+  { type: 'donut', dimension: 'category', title: '支出构成', metric: 'expense', limit: 6, days: null }
 )
 
 check(
@@ -89,7 +89,25 @@ check(
 check(
   'trend 不带维度',
   normalizeChartSpec({ type: 'trend', title: '趋势' }),
-  { type: 'trend', title: '趋势', days: 30 }
+  { type: 'trend', title: '趋势', metric: 'expense', days: null }
+)
+
+check(
+  '收入构成：metric=income',
+  normalizeChartSpec({ type: 'donut', dimension: 'category', metric: 'income' }).metric,
+  'income'
+)
+
+check(
+  '非法 metric → null',
+  normalizeChartSpec({ type: 'donut', dimension: 'category', metric: 'balance' }),
+  null
+)
+
+check(
+  '近 30 天趋势：days 保留',
+  normalizeChartSpec({ type: 'trend', metric: 'expense', days: 30 }).days,
+  30
 )
 
 check(

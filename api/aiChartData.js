@@ -25,7 +25,7 @@ import {
   getSubCategoryStatsRange,
   getDailyTrendRange
 } from './stats.js'
-import { toMonthKey } from '../utils/date.js'
+import { toMonthKey, toDayKey, shiftDay } from '../utils/date.js'
 import { AI_CHART_PALETTE } from '../utils/aiChart.js'
 
 /** 支持的图表类型 */
@@ -33,6 +33,22 @@ export const CHART_TYPES = ['donut', 'bar', 'trend']
 
 /** 支持的维度（决定「按什么分组」） */
 export const CHART_DIMENSIONS = ['category', 'subcategory']
+
+/** 支持的指标：支出 / 收入 */
+export const CHART_METRICS = ['expense', 'income']
+
+/**
+ * 把 days 夹到 7~90；没传 / 非法 → null。
+ *
+ * ★ null 和 30 的区别很重要 ★
+ *   null 表示「跟随当前对话的区间」（本月/上月/今年）；
+ *   只有用户明确说「近 30 天」时才应该覆盖成滚动窗口。
+ */
+function normalizeDays(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.max(7, Math.min(90, Math.round(n)))
+}
 
 /**
  * 归一化模型给的图表规格。
@@ -46,12 +62,16 @@ export function normalizeChartSpec(spec) {
   const type = String(spec.type || '').toLowerCase().trim()
   if (!CHART_TYPES.includes(type)) return null
 
+  const metric = String(spec.metric || 'expense').toLowerCase().trim()
+  if (!CHART_METRICS.includes(metric)) return null
+
   // 折线图只按天看，没有「维度」概念
   if (type === 'trend') {
     return {
       type,
       title: String(spec.title || '每日趋势').slice(0, 40),
-      days: Math.max(7, Math.min(90, Number(spec.days) || 30))
+      metric,
+      days: normalizeDays(spec.days)
     }
   }
 
@@ -73,7 +93,9 @@ export function normalizeChartSpec(spec) {
     type,
     dimension,
     title: String(spec.title || '分类构成').slice(0, 40),
-    limit: Math.max(3, Math.min(8, limit))
+    metric,
+    limit: Math.max(3, Math.min(8, limit)),
+    days: normalizeDays(spec.days)
   }
 }
 /**
@@ -93,9 +115,22 @@ export async function fetchChartData(spec, range) {
    *   stats.js 的 normalizeRange 只读 startDay/endDay/monthKey。
    *   传 {start: Date, end: Date} 会被当成「不限时间」，图表就变成全量历史。
    */
-  const scope = range && range.startDay
+  let scope = range && range.startDay
     ? range
     : { monthKey: (range && range.monthKey) || toMonthKey() }
+
+  /*
+   * ★ days 是「滚动窗口」覆盖 ★
+   *   只有模型明确写了 days（用户说「近 30 天」）才覆盖当前区间；
+   *   没写就跟随对话上下文（本月/上月/今年），不会把「本月趋势」
+   *   悄悄变成「最近 30 天」。
+   */
+  if (spec.days) {
+    const end = toDayKey()
+    scope = { startDay: shiftDay(end, -(spec.days - 1)), endDay: end }
+  }
+
+  const metric = spec.metric === 'income' ? 'income' : 'expense'
 
   /* -------------------------------------------------- 折线：每日趋势 */
   if (spec.type === 'trend') {
@@ -103,7 +138,7 @@ export async function fetchChartData(spec, range) {
     // getDailyTrendRange 返回 {bucket,label,expense,income}
     const items = (trend || []).map((t) => ({
       day: t.label,
-      total: Math.round((Number(t.expense) || 0) / 100),
+      total: Math.round((Number(t[metric]) || 0) / 100),
       income: Math.round((Number(t.income) || 0) / 100)
     }))
     const total = items.reduce((a, b) => a + b.total, 0)
@@ -112,8 +147,8 @@ export async function fetchChartData(spec, range) {
 
   /* ------------------------------------- 环形 / 条形：按分类分组 */
   const rows = spec.dimension === 'subcategory'
-    ? await getSubCategoryStatsRange(scope, 'expense')
-    : await getCategoryStatsRange(scope, 'expense')
+    ? await getSubCategoryStatsRange(scope, metric)
+    : await getCategoryStatsRange(scope, metric)
 
   /*
    * ★ 合计必须在截断之前算 ★
