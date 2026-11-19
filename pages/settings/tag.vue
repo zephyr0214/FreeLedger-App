@@ -87,49 +87,13 @@
       <view class="bottom-space" />
     </scroll-view>
 
-    <!-- 编辑弹层 -->
-    <wd-popup v-model="showEditor" position="bottom" :safe-area-inset-bottom="true">
-      <view class="editor">
-        <view class="editor-head">
-          <text class="editor-cancel" @click="showEditor = false">取消</text>
-          <text class="editor-title">{{ editingId ? '编辑标签' : '新建标签' }}</text>
-          <text class="editor-save" @click="onSave">保存</text>
-        </view>
-
-        <view class="editor-body">
-          <view class="editor-row">
-            <text class="editor-label">名称</text>
-            <input
-              v-model="form.name"
-              class="editor-input"
-              placeholder="如 2026装修"
-              placeholder-class="editor-placeholder"
-              :maxlength="12"
-            />
-          </view>
-
-          <view class="editor-row editor-row-column">
-            <text class="editor-label">颜色</text>
-            <view class="color-grid">
-              <view
-                v-for="c in colors"
-                :key="c.value"
-                class="color-cell"
-                :class="{ active: form.color === c.value }"
-                @click="form.color = c.value"
-              >
-                <view class="color-dot" :style="{ backgroundColor: c.value }" />
-                <text class="color-name">{{ c.name }}</text>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <view v-if="editingId" class="editor-danger">
-          <text class="danger-link" @click="onDelete">删除这个标签</text>
-        </view>
-      </view>
-    </wd-popup>
+    <!-- 标签编辑 / 新建弹层（与标签选择面板里的「添加标签」共用） -->
+    <TagEditorSheet
+      v-model="showEditor"
+      :tag="editingTag"
+      @saved="onEditorSaved"
+      @deleted="onEditorDeleted"
+    />
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
@@ -140,39 +104,35 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import MoneyText from '@/components/MoneyText.vue'
+import TagEditorSheet from '@/components/TagEditorSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
-import { listTags, createTag, updateTag, deleteTag } from '@/api/tag.js'
+import { listTags, deleteTag } from '@/api/tag.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
-import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
-import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
+import { handleBackPress } from '@/utils/layerStack.js'
 import { chineseDayLabel, relativeDayFromDayKey } from '@/utils/date.js'
 
 export default {
-  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, UpdateDialog },
+  components: { PageNav, EmptyState, AppDialog, LineIcon, MoneyText, TagEditorSheet, UpdateDialog },
   setup() {
     const settingStore = useSettingStore()
 
     const tags = ref([])
     const showEditor = ref(false)
-    const editingId = ref('')
-    const form = reactive({ name: '', color: '' })
+    const editingTag = ref(null)
 
     /**
      * wd-swipe-action 的展开状态。
      * key 是标签 id，值是该行当前是否展开（右滑打开）。
      */
     const swipeStates = reactive({})
-
-    /* 与分类页共用同一套 16 色 + 中文名色板 */
-    const colors = COLOR_PALETTE
 
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
@@ -218,16 +178,12 @@ export default {
     }
 
     function openCreate() {
-      editingId.value = ''
-      form.name = ''
-      form.color = DEFAULT_COLOR
+      editingTag.value = null
       showEditor.value = true
     }
 
     function openEdit(tag) {
-      editingId.value = tag.id
-      form.name = tag.name
-      form.color = tag.color || DEFAULT_COLOR
+      editingTag.value = tag
       showEditor.value = true
     }
 
@@ -236,41 +192,14 @@ export default {
       uni.navigateTo({ url: `/pages/settings/tag-detail?id=${tag.id}` })
     }
 
-    async function onSave() {
-      if (!form.name.trim()) {
-        uni.showToast({ title: '请填写名称', icon: 'none' })
-        return
-      }
-      try {
-        if (editingId.value) {
-          await updateTag(editingId.value, { name: form.name.trim(), color: form.color })
-        } else {
-          await createTag({ name: form.name.trim(), color: form.color })
-        }
-        showEditor.value = false
-        await load()
-        uni.showToast({ title: '已保存', icon: 'success' })
-      } catch (e) {
-        await alertDialog({ title: '保存失败', content: e.message })
-      }
+    /** 编辑弹层保存成功：重新读标签列表 */
+    async function onEditorSaved() {
+      await load()
     }
 
-    async function onDelete() {
-      const ok = await confirmDialog({
-        title: '删除标签？',
-        content: '相关交易不会被删除，只是取消标签关联',
-        confirmText: '删除',
-        danger: true
-      })
-      if (!ok) return
-      try {
-        await deleteTag(editingId.value)
-        showEditor.value = false
-        await load()
-        uni.showToast({ title: '已删除', icon: 'success' })
-      } catch (e) {
-        await alertDialog({ title: '删除失败', content: e.message })
-      }
+    /** 编辑弹层删除成功：重新读标签列表 */
+    async function onEditorDeleted() {
+      await load()
     }
 
     function goBack() {
@@ -278,37 +207,20 @@ export default {
     }
 
     /**
-     * 编辑面板收起（取消/保存/删除）时，把右滑露出的「编辑」按钮也收起。
+     * 编辑面板收起（取消/保存/删除/点遮罩）时，把右滑露出的「编辑」按钮也收起。
      * 否则用户关掉弹层后，行还保持着右滑展开状态，很别扭。
+     *
+     * ★ 编辑弹层自己的弹层栈由 TagEditorSheet 登记 ★
+     *   页面这里只负责收起右滑状态。
      *
      * ★ 值必须是 'close' 而不是 false ★
      *   wd-swipe-action 的 modelValue 是字符串（'left' | 'close' | 'right'），
      *   传 false 会触发「Expected String, got Boolean」的类型警告，而且不生效。
      */
     watch(showEditor, (open) => {
-      if (open) {
-        // 编辑弹层打开 → 登记进弹层栈，侧滑返回先收起它而不是退出本页
-        if (!unregisterLayer) {
-          unregisterLayer = pushLayer(() => { showEditor.value = false }, 'tagEditor')
-        }
-        return
-      }
-      if (unregisterLayer) {
-        unregisterLayer()
-        unregisterLayer = null
-      }
-      const id = editingId.value
+      if (open) return
+      const id = editingTag.value && editingTag.value.id
       if (id) swipeStates[id] = 'close'
-    })
-
-    /** 弹层栈注销函数 */
-    let unregisterLayer = null
-
-    onUnmounted(() => {
-      if (unregisterLayer) {
-        unregisterLayer()
-        unregisterLayer = null
-      }
     })
 
     // 侧滑返回 / 返回键：标签编辑弹层打开时先收起弹层
@@ -320,9 +232,9 @@ export default {
     })
 
     return {
-      settingStore, tags, showEditor, editingId, form, colors, swipeStates,
+      settingStore, tags, showEditor, editingTag, swipeStates,
       primaryColor, pageStyle,
-      openCreate, openEdit, goDetail, onSave, onDelete, onDeleteTag, goBack,
+      openCreate, openEdit, goDetail, onEditorSaved, onEditorDeleted, onDeleteTag, goBack,
       tagRecentText
     }
   }

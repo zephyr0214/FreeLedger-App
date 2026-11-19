@@ -180,6 +180,7 @@
       title="选择标签"
       hint="可以选多个，命中任意一个标签的流水都会显示"
       @picked="onTagFilterPicked"
+      @tag-created="onTagCreated"
     />
 
     <!-- 分类多选 -->
@@ -425,6 +426,15 @@ export default {
       draft.tagIds = Array.isArray(ids) ? ids.slice() : []
     }
 
+    /** 标签面板里新建了标签：刷新筛选候选，面板保持打开 */
+    async function onTagCreated() {
+      try {
+        tags.value = await listTags()
+      } catch (e) {
+        console.warn('[filter] 刷新标签失败:', e && e.message)
+      }
+    }
+
     function onMultiCatConfirm(ids) {
       // 存用户勾选的原始 id，查询时再展开成「一级 + 二级」
       draft.categoryIds = Array.isArray(ids) ? ids.slice() : []
@@ -459,7 +469,7 @@ export default {
       typeOptions, accountList, multiCatSource, tags, cycles,
       accountLabel, multiCatLabel, tagLabel, cycleFilterLabel, pickerActions,
       showAccountPicker, showTagFilter, showMultiCat, showPicker,
-      onTypeChange, openMultiCatPicker, onAccountPicked, onTagFilterPicked,
+      onTypeChange, openMultiCatPicker, onAccountPicked, onTagFilterPicked, onTagCreated,
       onMultiCatConfirm, openCyclePicker, onCyclePicked, resetFilter, applyFilter
     }
   }

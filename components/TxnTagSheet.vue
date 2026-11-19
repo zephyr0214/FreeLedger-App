@@ -16,7 +16,11 @@
   >
     <view class="tag-sheet">
       <view class="tag-head">
-        <text class="tag-title">{{ title }}</text>
+        <view class="tag-head-left">
+          <text class="tag-title">{{ title }}</text>
+          <!-- 添加标签：与首页「智能助手」同款胶囊，文字不加 + -->
+          <HeaderAction @action-click="openAddTag">添加标签</HeaderAction>
+        </view>
         <text class="tag-clear" @click="clearAll">清空</text>
       </view>
 
@@ -43,7 +47,7 @@
         </view>
 
         <view v-if="tags.length === 0" class="tag-empty">
-          <text class="tag-empty-text">还没有标签，先去「我的 → 分类与标签」添加</text>
+          <text class="tag-empty-text">还没有标签，先新增标签</text>
         </view>
       </scroll-view>
 
@@ -57,15 +61,24 @@
       </view>
     </view>
   </wd-popup>
+
+  <!-- 新增 / 编辑标签：叠在标签选择面板之上 -->
+  <TagEditorSheet
+    v-model="showTagEditor"
+    @saved="onTagSaved"
+  />
 </template>
 
 <script>
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
+import HeaderAction from '@/components/HeaderAction.vue'
+import TagEditorSheet from '@/components/TagEditorSheet.vue'
 import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'TxnTagSheet',
+  components: { HeaderAction, TagEditorSheet },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 可选标签（listTags 的返回值） */
@@ -81,7 +94,7 @@ export default {
    *   confirm 是原生事件名（同 CategoryMultiPickerSheet 的说明），
    *   父组件写 @confirm 会被编译成监听根节点的原生事件，收不到。
    */
-  emits: ['update:modelValue', 'picked'],
+  emits: ['update:modelValue', 'picked', 'tag-created'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -93,6 +106,18 @@ export default {
 
     /** 临时选择：点「确定」才回传 */
     const draft = ref([])
+
+    /** 新增标签弹层 */
+    const showTagEditor = ref(false)
+
+    function openAddTag() {
+      showTagEditor.value = true
+    }
+
+    function onTagSaved(tag) {
+      showTagEditor.value = false
+      emit('tag-created', tag)
+    }
 
     let unregisterLayer = null
 
@@ -106,6 +131,8 @@ export default {
           }
           return
         }
+        // 标签面板关闭时，叠在上面的新增标签弹层也一起收起
+        showTagEditor.value = false
         if (unregisterLayer) {
           unregisterLayer()
           unregisterLayer = null
@@ -138,7 +165,10 @@ export default {
       visible.value = false
     }
 
-    return { visible, primaryColor, draft, toggle, clearAll, cancel, confirm }
+    return {
+      visible, primaryColor, draft, showTagEditor,
+      toggle, clearAll, cancel, confirm, openAddTag, onTagSaved
+    }
   }
 }
 </script>
@@ -155,6 +185,13 @@ export default {
   align-items: center;
   justify-content: space-between;
   padding: 28rpx 32rpx 16rpx;
+}
+
+.tag-head-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
 }
 
 .tag-title {

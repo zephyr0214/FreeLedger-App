@@ -233,6 +233,7 @@
       :title="tagSheetBatch ? '批量添加标签' : '选择标签'"
       :hint="tagSheetBatch ? `将给已选的 ${selectedIds.length} 笔流水都加上这些标签（不会影响原有标签）` : ''"
       @picked="onTagSheetPicked"
+      @tag-created="onTagCreated"
     />
 
     <!-- 右滑「编辑」打开的记账面板（编辑已有交易） -->
@@ -673,6 +674,15 @@ export default {
         await alertDialog({ title: '批量设置失败', content: e.message })
       } finally {
         batchBusy.value = false
+      }
+    }
+
+    /** 标签面板里新建了标签：刷新列表，面板保持打开 */
+    async function onTagCreated() {
+      try {
+        tags.value = await listTags()
+      } catch (e) {
+        console.warn('[txnList] 刷新标签失败:', e && e.message)
       }
     }
 
@@ -1238,7 +1248,7 @@ export default {
       onRowTouchStart, onRowTouchMove, onRowTouchEnd, onListScroll,
       onSwipeDelete, onSwipeEdit, onSwipeTag, onTxnSaved,
       onBatchDelete, openBatchTag, onBatchExcludeBudget, onBatchPendingReimburse,
-      onTagSheetPicked,
+      onTagSheetPicked, onTagCreated,
       txnTitle, txnSub, txnBadges, timeLabel, goDetail, goBack
     }
   }

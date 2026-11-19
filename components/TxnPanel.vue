@@ -342,6 +342,7 @@
       :selected-ids="form.tag_ids"
       title="选择标签"
       @picked="onTagSheetPicked"
+      @tag-created="onTagCreated"
     />
 
     <!-- 人员选择：已经从流水里出现过的人名（借款归还/借款收回用它匹配） -->
@@ -982,10 +983,12 @@ export default {
     }
 
     function openTagPicker() {
-      if (tags.value.length === 0) {
-        uni.showToast({ title: '还没有标签，可到「设置 → 标签管理」创建', icon: 'none' })
-        return
-      }
+      /*
+       * ★ 没有标签也要打开面板 ★
+       *   用户要求「记账面板没有标签时，也要弹出标签面板」；
+       *   面板里会显示「还没有标签，先新增标签」，并直接提供「添加标签」入口。
+       *   以前在这里弹 toast 让用户去设置页，路径太绕。
+       */
       showTagPicker.value = true
     }
 
@@ -1064,6 +1067,15 @@ export default {
      */
     function onTagSheetPicked(ids) {
       form.tag_ids = Array.isArray(ids) ? ids.slice() : []
+    }
+
+    /** 标签面板里新建了标签：刷新标签表，当前面板保持打开 */
+    async function onTagCreated() {
+      try {
+        tags.value = await listTags()
+      } catch (e) {
+        console.warn('[txnPanel] 刷新标签失败:', e && e.message)
+      }
     }
 
     function removeTag(id) {
@@ -1605,7 +1617,7 @@ export default {
        */
       tags,
       selectedTags, selectedTagNames, selectedTagDisplay, quickDays, isQuickDay, shortDate,
-      showAccountPicker, showToAccountPicker, showTagPicker, onTagSheetPicked, calendarRef, calendarValue, maxDate, minDate,
+      showAccountPicker, showToAccountPicker, showTagPicker, onTagSheetPicked, onTagCreated, calendarRef, calendarValue, maxDate, minDate,
       timePickerRef, timePickerValue, openTimePicker, onTimeConfirm,
       catIconStyle, isSameDay, switchType, pickCategory, pickDay,
       openAccountPicker, openToAccountPicker, openTagPicker, openCalendar,

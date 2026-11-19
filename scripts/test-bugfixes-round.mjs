@@ -81,7 +81,7 @@ const panels = [
   ['components/CyclePanel.vue', 'cyclePanel'],
   ['components/QuickAddBar.vue', 'quickAddBar'],
   ['components/CategoryEditorSheet.vue', 'categoryEditor'],
-  ['pages/settings/tag.vue', 'tagEditor'],
+  ['components/TagEditorSheet.vue', 'tagEditor'],
   ['pages/settings/budget.vue', 'budgetEditor']
 ]
 for (const [file, name] of panels) {
@@ -251,6 +251,39 @@ check('周期记账不再写 source', /source: 'cycle'/.test(cycleApi), false)
 
 const accApi = read('api/account.js')
 check('对账流水不再写 source', /'reconcile',/.test(accApi), false)
+
+/* ============================================== 标签选择面板：新增标签 */
+
+console.log('=== 标签选择面板：无标签也打开 + 添加标签 ===')
+
+{
+  const sheet = read('components/TxnTagSheet.vue')
+  const editor = read('components/TagEditorSheet.vue')
+  const txnPanel = read('components/TxnPanel.vue')
+  const indexPage = read('pages/index/index.vue')
+  const listPage = read('pages/txn/list.vue')
+  const filterSheet = read('components/TxnFilterSheet.vue')
+  const tagPage = read('pages/settings/tag.vue')
+
+  check('选择面板标题后有 HeaderAction「添加标签」', /<HeaderAction[^>]*>添加标签<\/HeaderAction>/.test(sheet), true)
+  check('添加标签不带 +', /添加标签/.test(sheet) && /\+\s*添加标签/.test(sheet), false)
+  check('空态只说先新增标签', /还没有标签，先新增标签/.test(sheet), true)
+  check('旧「我的 → 分类与标签」文案已删除', /我的 → 分类与标签/.test(sheet), false)
+  check('没有标签也打开面板', /function openTagPicker[\s\S]{0,500}?showTagPicker\.value = true/.test(txnPanel), true)
+  check('旧的「可到设置创建」toast 已删除', /还没有标签，可到/.test(txnPanel), false)
+
+  check('标签面板复用 TagEditorSheet', /<TagEditorSheet/.test(sheet), true)
+  check('新建标签后通知外层刷新', /emit\('tag-created'/.test(sheet), true)
+  check('记账面板刷新标签', /@tag-created="onTagCreated"/.test(txnPanel), true)
+  check('首页刷新标签', /@tag-created="onTagCreated"/.test(indexPage), true)
+  check('全部交易页刷新标签', /@tag-created="onTagCreated"/.test(listPage), true)
+  check('筛选面板刷新标签', /@tag-created="onTagCreated"/.test(filterSheet), true)
+
+  check('编辑器支持新建/编辑/删除', /createTag\(/.test(editor) && /updateTag\(/.test(editor) && /deleteTag\(/.test(editor), true)
+  check('编辑器自己登记弹层栈', /pushLayer\(\(\) => \{ visible\.value = false \}, 'tagEditor'\)/.test(editor), true)
+  check('标签管理页复用同一个编辑弹层', /<TagEditorSheet/.test(tagPage), true)
+  check('标签管理页不再自己写编辑弹层', /<wd-popup v-model="showEditor"/.test(tagPage), false)
+}
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

@@ -476,6 +476,7 @@
       :selected-ids="tagSheetIds"
       title="选择标签"
       @picked="onTagSheetPicked"
+      @tag-created="onTagCreated"
     />
 
     <AppDialog />
@@ -757,6 +758,15 @@ export default {
         await alertDialog({ title: '批量设置失败', content: e.message })
       } finally {
         batchBusy.value = false
+      }
+    }
+
+    /** 标签面板里新建了标签：刷新列表，面板保持打开 */
+    async function onTagCreated() {
+      try {
+        tags.value = await listTags()
+      } catch (e) {
+        console.warn('[index] 刷新标签失败:', e && e.message)
       }
     }
 
@@ -1261,7 +1271,7 @@ export default {
       tags,
       // 右滑快捷操作
       swipeStates, showTagSheet, tagSheetBatch, tagSheetIds,
-      onSwipeDelete, onSwipeEdit, onSwipeTag, onTagSheetPicked,
+      onSwipeDelete, onSwipeEdit, onSwipeTag, onTagSheetPicked, onTagCreated,
       goAddAccount, goProfile, goAllTxn, goTxnDetail, goBudget, goAiChat
     }
   }

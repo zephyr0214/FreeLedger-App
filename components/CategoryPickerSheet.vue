@@ -8,11 +8,12 @@
   >
     <view class="more-sheet">
       <view class="more-sheet-head">
-        <text class="more-sheet-title">选择分类</text>
-        <view class="more-sheet-actions">
-          <text class="more-sheet-add" @click="openAddRoot">+ 添加分类</text>
-          <text class="more-sheet-close" @click="close">关闭</text>
+        <view class="more-sheet-head-left">
+          <text class="more-sheet-title">选择分类</text>
+          <!-- 添加分类：与首页「智能助手」同款胶囊，文字不加 + -->
+          <HeaderAction @action-click="openAddRoot">添加分类</HeaderAction>
         </view>
+        <text class="more-sheet-close" @click="close">关闭</text>
       </view>
 
       <scroll-view class="more-sheet-scroll" scroll-y>
@@ -100,6 +101,7 @@ import { computed, ref, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import CategoryEditorSheet from '@/components/CategoryEditorSheet.vue'
+import HeaderAction from '@/components/HeaderAction.vue'
 import { groupCategoriesByParent } from '@/utils/categorySort.js'
 import { categoryIconFullStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
 import { isFixedCategory } from '@/api/category.js'
@@ -107,7 +109,7 @@ import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'CategoryPickerSheet',
-  components: { CategoryGlyph, CategoryEditorSheet },
+  components: { CategoryGlyph, CategoryEditorSheet, HeaderAction },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 可选分类（已按使用频率排序） */
@@ -265,24 +267,17 @@ export default {
   border-bottom: 1rpx solid var(--app-line);
 }
 
+.more-sheet-head-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+}
+
 .more-sheet-title {
   font-size: 30rpx;
   font-weight: 600;
   color: var(--app-text);
-}
-
-.more-sheet-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  flex-shrink: 0;
-}
-
-.more-sheet-add {
-  font-size: 26rpx;
-  color: var(--app-primary);
-  font-weight: 500;
 }
 
 .more-sheet-close {

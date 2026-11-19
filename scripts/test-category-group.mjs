@@ -393,7 +393,8 @@ console.log('\n=== 选择分类面板：组头与添加子类 ===')
     /function canAddChild/.test(picker) && /parent\.parent_id/.test(picker) && /isFixedCategory/.test(picker),
     true
   )
-  check('顶部右侧有「添加分类」', /class="more-sheet-add"/.test(picker) && /添加分类/.test(picker), true)
+  check('标题后有 HeaderAction「添加分类」', /<HeaderAction[^>]*>添加分类<\/HeaderAction>/.test(picker), true)
+  check('添加分类不带 +', /添加分类/.test(picker) && /\+\s*添加分类/.test(picker), false)
   check(
     '添加一级分类打开无父级的编辑弹层',
     /function openAddRoot/.test(picker) && /editorParent\.value\s*=\s*null/.test(picker),
