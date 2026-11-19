@@ -85,7 +85,11 @@ check('大数字是总结余', /summary-label">总结余/.test(tag), true)
 check('大数字用收入减支出', /summary-label">总结余[\s\S]*?:cents="totalStats\.income - totalStats\.expense"/.test(tag), true)
 check('结余用 balance 变体', /variant="balance"/.test(tag), true)
 check('标签详情有数据统计按钮', /<HeaderAction[\s\S]{0,80}?@action-click="goStats"[\s\S]{0,80}?数据统计/.test(tag), true)
-check('标签统计携带 tagIds', /openStatsWithFilter\(\{ tagIds: \[tagId\.value\] \}\)/.test(tag), true)
+check(
+  '标签统计携带 tagIds，并默认全部年月日',
+  /openStatsWithFilter\(\s*\{ tagIds: \[tagId\.value\] \},\s*\{\s*dateMode: 'period',\s*selection: \{ year: 0, month: 0, day: 0 \}\s*\}\s*\)/.test(tag),
+  true
+)
 
 const accountPage = read('pages/account/detail.vue')
 check('账户详情有数据统计按钮', /<HeaderAction[\s\S]{0,80}?@action-click="goStats"[\s\S]{0,80}?数据统计/.test(accountPage), true)
@@ -94,7 +98,12 @@ check('账户统计携带 accountId', /openStatsWithFilter\(\{ accountId: accoun
 const statsNav = read('utils/statsFilterNav.js')
 const statsPage = read('pages/stats/index.vue')
 check('统计跳转用 switchTab', /uni\.switchTab\(\{ url: '\/pages\/stats\/index' \}\)/.test(statsNav), true)
-check('统计页消费待生效筛选', /consumeStatsFilter\(\)/.test(statsPage), true)
+check('统计页消费待生效导航', /consumeStatsPayload\(\)/.test(statsPage), true)
+check(
+  '统计页应用全部年月日选择',
+  /payload\.selection[\s\S]{0,260}?dateRange\.value = \{/.test(statsPage),
+  true
+)
 check('统计页先清空旧条件再合并', /Object\.assign\(appliedFilter, createEmptyTxnFilter\(\), pending\)/.test(statsPage), true)
 check('重新进入统计页清空更多筛选', /if \(!hadPending && !pendingApplied\) resetAppliedFilter\(\)/.test(statsPage), true)
 check('小条目有总支出', /summary-row-label">总支出/.test(tag), true)
@@ -431,6 +440,29 @@ check(
   /color: isTotal \? '#1989FA'/.test(read('api/stats.js')),
   true
 )
+
+/* ------------------------- 标签详情 -> 统计页：默认全部年/月/日 */
+
+{
+  const storage = {}
+  globalThis.uni = {
+    setStorageSync(k, v) { storage[k] = v },
+    getStorageSync(k) { return storage[k] },
+    removeStorageSync(k) { delete storage[k] },
+    switchTab() {}
+  }
+  const nav = await import('../utils/statsFilterNav.js?t=' + Math.random())
+  nav.openStatsWithFilter(
+    { tagIds: ['t1'] },
+    { dateMode: 'period', selection: { year: 0, month: 0, day: 0 } }
+  )
+  const payload = nav.consumeStatsPayload()
+  check('统计导航保留 tagIds', payload && payload.filter.tagIds, ['t1'])
+  check('统计导航设置全部年/月/日', payload && payload.selection, { year: 0, month: 0, day: 0 })
+  check('统计导航设置年月日模式', payload && payload.dateMode, 'period')
+  check('导航数据只消费一次', nav.consumeStatsPayload(), null)
+  delete globalThis.uni
+}
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

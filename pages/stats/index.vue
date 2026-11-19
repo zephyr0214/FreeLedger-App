@@ -763,7 +763,7 @@ import { formatWanYuan } from '@/utils/money.js'
 import {
   createEmptyTxnFilter, countActiveFilters, buildTxnFilterQuery
 } from '@/utils/txnFilter.js'
-import { consumeStatsFilter } from '@/utils/statsFilterNav.js'
+import { consumeStatsPayload } from '@/utils/statsFilterNav.js'
 import { getSetting } from '@/api/settings.js'
 import { handleBackPress } from '@/utils/layerStack.js'
 /*
@@ -1600,8 +1600,9 @@ export default {
      * @returns {boolean} 是否真的带进来了条件
      */
     function applyPendingStatsFilter() {
-      const pending = consumeStatsFilter()
-      if (!pending) return false
+      const payload = consumeStatsPayload()
+      if (!payload) return false
+      const pending = payload.filter || {}
       Object.assign(appliedFilter, createEmptyTxnFilter(), pending)
       appliedFilter.categoryIds = Array.isArray(pending.categoryIds)
         ? pending.categoryIds.slice()
@@ -1609,6 +1610,21 @@ export default {
       appliedFilter.tagIds = Array.isArray(pending.tagIds)
         ? pending.tagIds.slice()
         : []
+      /*
+       * 标签详情明确要求「默认全部年 / 全部月 / 全部日」：
+       * 导航数据里带了 dateMode/selection 就一并应用。
+       * 账户详情不传，保持统计页原来的时间选择。
+       */
+      if (payload.dateMode === 'period' || payload.dateMode === 'custom') {
+        dateMode.value = payload.dateMode
+      }
+      if (payload.selection) {
+        dateRange.value = {
+          year: Number(payload.selection.year) || 0,
+          month: Number(payload.selection.month) || 0,
+          day: Number(payload.selection.day) || 0
+        }
+      }
       pendingApplied = true
       return true
     }

@@ -15,19 +15,42 @@
 const KEY = 'stats_pending_filter'
 const TTL_MS = 30 * 1000
 
-/** 跳转到统计页，并携带筛选条件（对象形状与 TxnFilterSheet 的 filter 一致） */
-export function openStatsWithFilter(filter) {
+/**
+ * 跳转到统计页，并携带筛选条件（对象形状与 TxnFilterSheet 的 filter 一致）
+ *
+ * @param {object} filter 账户 / 标签等筛选条件
+ * @param {{dateMode?:'period'|'custom', selection?:{year:number,month:number,day:number}}} [opt]
+ *   opt.selection 用来指定进入统计页后的时间选择；
+ *   标签详情要求默认「全部年 / 全部月 / 全部日」，就是传
+ *   { dateMode: 'period', selection: { year: 0, month: 0, day: 0 } }。
+ */
+export function openStatsWithFilter(filter, opt = {}) {
+  const payload = {
+    filter: filter || {},
+    at: Date.now()
+  }
+  if (opt && (opt.dateMode === 'period' || opt.dateMode === 'custom')) {
+    payload.dateMode = opt.dateMode
+  }
+  if (opt && opt.selection) {
+    payload.selection = {
+      year: Number(opt.selection.year) || 0,
+      month: Number(opt.selection.month) || 0,
+      day: Number(opt.selection.day) || 0
+    }
+  }
   try {
-    uni.setStorageSync(KEY, JSON.stringify({
-      filter: filter || {},
-      at: Date.now()
-    }))
+    uni.setStorageSync(KEY, JSON.stringify(payload))
   } catch (e) {}
   uni.switchTab({ url: '/pages/stats/index' })
 }
 
-/** 统计页消费待生效的筛选条件；没有 / 已过期返回 null */
-export function consumeStatsFilter() {
+/**
+ * 统计页消费完整的待生效导航数据；没有 / 已过期返回 null
+ *
+ * @returns {null|{filter:object, dateMode?:string, selection?:object}}
+ */
+export function consumeStatsPayload() {
   let raw = null
   try {
     raw = uni.getStorageSync(KEY)
@@ -46,7 +69,15 @@ export function consumeStatsFilter() {
       return null
     }
   }
-  if (!parsed || !parsed.filter) return null
+  if (!parsed) return null
   if (parsed.at && Date.now() - Number(parsed.at) > TTL_MS) return null
-  return parsed.filter
+  const hasFilter = parsed.filter && Object.keys(parsed.filter).length > 0
+  if (!hasFilter && !parsed.dateMode && !parsed.selection) return null
+  return parsed
+}
+
+/** 统计页消费待生效的筛选条件；没有 / 已过期返回 null */
+export function consumeStatsFilter() {
+  const payload = consumeStatsPayload()
+  return payload ? (payload.filter || {}) : null
 }

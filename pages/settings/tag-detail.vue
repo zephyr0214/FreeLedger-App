@@ -192,9 +192,15 @@ export default {
       uni.navigateTo({ url: `/pages/txn/list?tagId=${tagId.value}` })
     }
 
-    /** 跳统计页并只看这个标签 */
+    /** 跳统计页并只看这个标签；时间默认全部年 / 全部月 / 全部日 */
     function goStats() {
-      openStatsWithFilter({ tagIds: [tagId.value] })
+      openStatsWithFilter(
+        { tagIds: [tagId.value] },
+        {
+          dateMode: 'period',
+          selection: { year: 0, month: 0, day: 0 }
+        }
+      )
     }
 
     function goBack() {
