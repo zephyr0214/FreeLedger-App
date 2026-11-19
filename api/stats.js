@@ -32,13 +32,13 @@ import { query, queryOne } from './db/index.js'
 import { buildFilterWhere } from './transaction.js'
 import { monthRange, toMonthKey, toDayKey, monthProgress, shiftMonth, shiftDay, parseDayKey, monthSpan, TREND_DAY_MAX_MONTHS } from '../utils/date.js'
 /*
- * 同比窗口的换算统一收在 utils/compareRange.js
+ * 同比 / 环比窗口的换算统一收在 utils/compareRange.js
  *
  * ★ 为什么不在本文件里算 ★
- *   「本月到现在 → 上月同期」有月末夹取、闰年、跨年、整年、
- *   超长自定义区间五六个分支，是纯日期算术，和 SQL 一点关系都没有。
- *   抽成纯函数后可以拿固定日期把每个分支钉死（scripts/test-compare-range.mjs），
- *   页面文案也能复用同一份 label 生成逻辑。
+ *   「本月到现在 → 上月同期」「单日 → 昨天」「去年同期」有月末夹取、
+ *   闰年、跨年、整年、超长自定义区间五六个分支，是纯日期算术，
+ *   和 SQL 一点关系都没有。抽成纯函数后可以拿固定日期把每个分支钉死
+ *   （scripts/test-compare-range.mjs），页面文案也能复用同一份 label 生成逻辑。
  */
 import { buildCompareRange, changePercent } from '../utils/compareRange.js'
 import { ACCOUNT_TYPES } from './account.js'
@@ -1243,23 +1243,24 @@ async function topExpensesByScope(scope, limit) {
 }
 
 /**
- * 同比变化：所选区间 vs「上一段同期」
+ * 同比 / 环比变化：所选区间 vs 对比区间
  *
- * ★ 对比窗口怎么算（本轮用户第 2 条重新定义）★
- *   用户原话：「比如选中本月，应该是 11.1-今天同比 10 月最后相同天的变化，
- *             如果选中的范围全部有收支则全部同比，以此类推」。
- *   即：
- *     · 整月 / 一个月以内 → **上月同期**（同一段号），11/1~11/8 ↔ 10/1~10/8
- *     · 整年             → **去年同期**
- *     · 跨多月的自定义段 → 紧挨着的等长区间（不前跳重叠）
+ * ★ 口径（用户本轮重新定义）★
+ *   同比（默认）：**去年同期** —— 起止日期各往前推一年，2/29 夹到 2/28。
+ *   环比：**上一周期** ——
+ *     · 整年 → 上一年同期
+ *     · 单日 → 前一天
+ *     · 整月 / 从 1 号开始的月内区间 → 上个月同期
+ *     · 多个完整自然月 → 紧挨着的前 N 个完整月
+ *     · 其它滚动 / 自定义区间 → 紧挨着的上一段等长区间
  *   具体换算全在 utils/compareRange.js 的 buildCompareRange()，
  *   那里有完整分支与月末夹取，页面和测试共用同一份实现。
  *
  * ★ 「今天」和「没有数据的日子」★
  *   区间终点晚于今天时先截到今天（否则「半个空月」比「整月」，
- *   所有数字都会显示成暴跌）；截断后**对比窗口按截断后的长度对齐**。
+ *   所有数字都会显示成暴跌）；截断后再按上面的规则换算对比区间。
  *   区间里没有流水的那几天照样占窗口位置，不会因为「那天没记账」
- *   就把窗口缩短 —— 同比的前提是时间等长，不是数据等量。
+ *   就把窗口缩短 —— 对比的前提是时间对齐，不是数据等量。
  *
  * ★ 为什么返回分类维度的数组 ★
  *   面板下段要「每类别一行：分类名 + 变化值 + 百分比 + 双向柱状图」，
@@ -1269,7 +1270,7 @@ async function topExpensesByScope(scope, limit) {
  * @param {{level?:'root'|'sub', type?:'expense'|'income', today?:string}} [opt]
  *   level = 一级（默认，按一级分类归并）/ 二级（按二级分类，没有二级的归到自己）
  *   type  = 支出（默认）/ 收入 —— 决定下方分类列表走哪个方向
- *   mode  = 'yoy' 同比（默认）/ 'mom' 环比（紧邻等长区间）
+ *   mode  = 'yoy' 同比（默认，去年同期）/ 'mom' 环比（上一周期）
  *   today = 可注入的「今天」，测试用；不传给真实今天
  * @returns {Promise<null|{
  *   align:'year'|'month'|'span', clipped:boolean,

@@ -52,95 +52,165 @@ check('11/08 移一年 → 去年 11/08', shiftYearClamped('2026-11-08', -1), '2
 check('天数含首尾：11/1~11/8 是 8 天', daySpanInclusive('2026-11-01', '2026-11-08'), 8)
 check('天数含首尾：同一天是 1 天', daySpanInclusive('2026-11-08', '2026-11-08'), 1)
 
-/* ============================================ 整月 / 本月到今天的对齐 */
+/* ==================================================== 同比：去年同期 */
 
-console.log('=== 2. 整月与「本月到今天」===')
-const TODAY = '2026-11-08'
+console.log('=== 2. 同比：起止日期各往前一年 ===')
+const TODAY = '2026-11-19'
 
 {
-  // 本月完整（未截断，比如查历史月份）→ 上月整月，同一段号
   const cr = buildCompareRange({ startDay: '2026-10-01', endDay: '2026-10-31' }, TODAY)
-  check('10 月整月对比 9 月整月：起点', cr.prevStart, '2026-09-01')
-  check('10 月整月对比 9 月整月：终点', cr.prevEnd, '2026-09-30')
-  check('对齐方式是按月', cr.align, 'month')
+  check('整月同比去年同月：起点', cr.prevStart, '2025-10-01')
+  check('整月同比去年同月：终点', cr.prevEnd, '2025-10-31')
+  check('对齐方式是按年', cr.align, 'year')
   check('整月不会被今天截断', cr.clipped, false)
 }
 
 {
-  // 本月 1 号到今天（用户原话的场景）
+  // 本月 1 号到今天：先截到今天，再各减一年
   const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY)
-  check('本月到今天：当前终点被截到今天', cr.curEnd, '2026-11-08')
-  check('本月到今天：对比上月同期起点', cr.prevStart, '2026-10-01')
-  check('本月到今天：对比上月同期终点', cr.prevEnd, '2026-10-08')
+  check('本月到今天：当前终点被截到今天', cr.curEnd, '2026-11-19')
+  check('本月到今天：同比去年同日起点', cr.prevStart, '2025-11-01')
+  check('本月到今天：同比去年同日终点', cr.prevEnd, '2025-11-19')
   check('标记为被截断', cr.clipped, true)
   check('原始区间终点仍保留（给文案用）', cr.rangeEnd, '2026-11-30')
 }
 
 {
-  // 单日
+  // 单日同比 = 去年同一天（不是昨天）
   const cr = buildCompareRange({ startDay: '2026-11-08', endDay: '2026-11-08' }, TODAY)
-  check('单日对比上月同日：起点', cr.prevStart, '2026-10-08')
-  check('单日对比上月同日：终点', cr.prevEnd, '2026-10-08')
+  check('单日同比去年同日：起点', cr.prevStart, '2025-11-08')
+  check('单日同比去年同日：终点', cr.prevEnd, '2025-11-08')
 }
 
 {
-  // 月内半截（1/5~1/20）
+  // 月内半截同比去年同月同日，不再跳回上个月
   const cr = buildCompareRange({ startDay: '2026-01-05', endDay: '2026-01-20' }, '2026-02-10')
-  check('跨年半截月：起点', cr.prevStart, '2025-12-05')
-  check('跨年半截月：终点', cr.prevEnd, '2025-12-20')
+  check('半截月同比：起点', cr.prevStart, '2025-01-05')
+  check('半截月同比：终点', cr.prevEnd, '2025-01-20')
 }
 
 {
-  // 上个月只有 30 天，本区间终点是 31 号（用户可能选到 10/31 对比 9 月）
-  const cr = buildCompareRange({ startDay: '2026-10-01', endDay: '2026-10-31' }, '2026-11-08')
-  check('10/31 对上月 9/30 要夹取', cr.prevEnd, '2026-09-30')
+  // 闰日
+  const cr = buildCompareRange({ startDay: '2024-02-29', endDay: '2024-02-29' }, TODAY)
+  check('2/29 同比平年夹到 2/28', cr.prevStart, '2023-02-28')
+  check('2/29 同比终点也夹到 2/28', cr.prevEnd, '2023-02-28')
 }
 
-console.log('=== 3. 整年对齐去年同期 ===')
+console.log('=== 3. 整年同比 ===')
 
 {
+  const cr = buildCompareRange({ startDay: '2025-01-01', endDay: '2025-12-31' }, TODAY)
+  check('完整历史整年：起点', cr.prevStart, '2024-01-01')
+  check('完整历史整年：终点', cr.prevEnd, '2024-12-31')
+  check('对齐方式是按年', cr.align, 'year')
+}
+{
+  // 当前年没过完：当前截到今天，去年同期也只到同一天
   const cr = buildCompareRange({ startDay: '2026-01-01', endDay: '2026-12-31' }, TODAY)
-  check('整年对比去年同期：起点', cr.prevStart, '2025-01-01')
-  check('整年对比去年同期：终点（被今天截断）', cr.prevEnd, '2025-11-08')
+  check('当前整年被截断：同比起点', cr.prevStart, '2025-01-01')
+  check('当前整年被截断：同比终点', cr.prevEnd, '2025-11-19')
+}
+
+/* ==================================================== 环比：上一周期 */
+
+console.log('=== 4. 环比：上月同期 / 单日前一天 / 整年上一年 ===')
+
+{
+  // 完整自然月 -> 上一个完整自然月
+  const cr = buildCompareRange({ startDay: '2026-10-01', endDay: '2026-10-31' }, TODAY, 'mom')
+  check('整月环比：起点', cr.prevStart, '2026-09-01')
+  check('整月环比：终点（9 月只有 30 天）', cr.prevEnd, '2026-09-30')
+  check('对齐方式是按月', cr.align, 'month')
+}
+
+{
+  // 本月 1 号到今天 -> 上月 1 号到同日
+  const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'mom')
+  check('本月到今天环比：当前终点截到今天', cr.curEnd, '2026-11-19')
+  check('本月到今天环比：上月同期起点', cr.prevStart, '2026-10-01')
+  check('本月到今天环比：上月同期终点', cr.prevEnd, '2026-10-19')
+  check('对齐方式是按月', cr.align, 'month')
+}
+
+{
+  // 单日环比 = 前一天
+  const cr = buildCompareRange({ startDay: '2026-11-08', endDay: '2026-11-08' }, TODAY, 'mom')
+  check('单日环比对比昨天', cr.prevStart, '2026-11-07')
+  check('单日环比终点也是昨天', cr.prevEnd, '2026-11-07')
+}
+
+{
+  // 月内自定义半截（不从 1 号开始）-> 紧邻的上一段等长区间
+  const cr = buildCompareRange({ startDay: '2026-01-05', endDay: '2026-01-20' }, '2026-02-10', 'mom')
+  check('月内半截环比：起点', cr.prevStart, '2025-12-20')
+  check('月内半截环比：终点', cr.prevEnd, '2026-01-04')
+  check('首尾天数一致', daySpanInclusive(cr.prevStart, cr.prevEnd), daySpanInclusive(cr.curStart, cr.curEnd))
+}
+
+{
+  // 整年环比 = 上一年整年（闰年也不按 365 天硬推）
+  const cr = buildCompareRange({ startDay: '2025-01-01', endDay: '2025-12-31' }, TODAY, 'mom')
+  check('整年环比：起点', cr.prevStart, '2024-01-01')
+  check('整年环比：终点', cr.prevEnd, '2024-12-31')
   check('对齐方式是按年', cr.align, 'year')
 }
 
 {
-  // 已过去的整年（完整）
-  const cr = buildCompareRange({ startDay: '2025-01-01', endDay: '2025-12-31' }, TODAY)
-  check('完整历史整年：起点', cr.prevStart, '2024-01-01')
-  check('完整历史整年：终点', cr.prevEnd, '2024-12-31')
+  // 多个完整自然月 -> 紧挨着的前 N 个完整月
+  const cr = buildCompareRange({ startDay: '2026-01-01', endDay: '2026-02-28' }, TODAY, 'mom')
+  check('1~2 月环比：起点', cr.prevStart, '2025-11-01')
+  check('1~2 月环比：终点', cr.prevEnd, '2025-12-31')
+  check('对齐方式是按月', cr.align, 'month')
+}
+{
+  const cr = buildCompareRange({ startDay: '2026-04-01', endDay: '2026-06-30' }, TODAY, 'mom')
+  check('4~6 月环比：起点', cr.prevStart, '2026-01-01')
+  check('4~6 月环比：终点', cr.prevEnd, '2026-03-31')
 }
 
-console.log('=== 4. 跨多月的自定义区间 ===')
+console.log('=== 5. 滚动区间与跨多月自定义 ===')
 
 {
-  // 1~2 月（正好 2 个自然月）：按等长前后推，不按段号
-  const cr = buildCompareRange({ startDay: '2026-01-01', endDay: '2026-02-28' }, TODAY)
-  check('两个整月走等长区间', cr.align, 'span')
-  check('等长区间：起点', cr.prevStart, '2025-11-03')
-  check('等长区间：终点', cr.prevEnd, '2025-12-31')
-  check('等长区间长度一致', daySpanInclusive(cr.prevStart, cr.prevEnd), daySpanInclusive(cr.curStart, cr.curEnd))
+  // 近一周 -> 紧挨着的前 7 天
+  const cr = buildCompareRange({ startDay: '2026-11-13', endDay: '2026-11-19' }, TODAY, 'mom')
+  check('近一周环比：起点', cr.prevStart, '2026-11-06')
+  check('近一周环比：终点', cr.prevEnd, '2026-11-12')
+  check('近一周环比长度一致', daySpanInclusive(cr.prevStart, cr.prevEnd), 7)
 }
-
 {
-  // 三个多月
-  const cr = buildCompareRange({ startDay: '2026-06-15', endDay: '2026-09-30' }, TODAY)
-  check('多个月仍是等长区间', cr.align, 'span')
-  check('等长区间不重叠', cr.prevEnd < cr.curStart, true)
+  // 近一月（30 天）-> 紧挨着的前 30 天
+  const cr = buildCompareRange({ startDay: '2026-10-21', endDay: '2026-11-19' }, TODAY, 'mom')
+  check('近一月环比长度一致', daySpanInclusive(cr.prevStart, cr.prevEnd), 30)
+  check('近一月环比终点', cr.prevEnd, '2026-10-20')
+  check('近一月环比不重叠', cr.prevEnd < cr.curStart, true)
+}
+{
+  // 跨多月自定义：同比仍是去年同日期，环比仍是紧邻等长区间
+  const yoy = buildCompareRange({ startDay: '2026-06-15', endDay: '2026-09-30' }, TODAY)
+  check('跨多月同比：起点', yoy.prevStart, '2025-06-15')
+  check('跨多月同比：终点', yoy.prevEnd, '2025-09-30')
+  check('跨多月同比按年', yoy.align, 'year')
+
+  const mom = buildCompareRange({ startDay: '2026-06-15', endDay: '2026-09-30' }, TODAY, 'mom')
+  check('跨多月环比：等长', mom.align, 'span')
+  check('跨多月环比不重叠', mom.prevEnd < mom.curStart, true)
+  check('跨多月环比长度一致', daySpanInclusive(mom.prevStart, mom.prevEnd), daySpanInclusive(mom.curStart, mom.curEnd))
 }
 
-console.log('=== 5. 边界与空态 ===')
+console.log('=== 6. 边界与空态 ===')
 
 check('不限时间没有对比', buildCompareRange({ startDay: '', endDay: '' }, TODAY), null)
 check('未来区间没有对比', buildCompareRange({ startDay: '2026-12-01', endDay: '2026-12-31' }, TODAY), null)
 {
+  // 区间跨到今天之后：先截断，再按同比换算
   const cr = buildCompareRange({ startDay: '2026-01-01', endDay: '2026-06-30' }, '2026-03-10')
   check('区间中途的未来部分被今天截断', cr.curEnd, '2026-03-10')
-  check('截断后对比区间按截断后的长度算', daySpanInclusive(cr.prevStart, cr.prevEnd), daySpanInclusive(cr.curStart, cr.curEnd))
+  check('同比起点同步到去年同一天', cr.prevStart, '2025-01-01')
+  check('同比终点同步到去年同一天', cr.prevEnd, '2025-03-10')
+  check('标记为截断', cr.clipped, true)
 }
 
-console.log('=== 6. 百分比与文案 ===')
+console.log('=== 7. 百分比与文案 ===')
 
 check('上期为 0 + 本期有数 → null', changePercent(500, 0), null)
 check('上期为 0 + 本期为 0 → null', changePercent(0, 0), null)
@@ -160,58 +230,36 @@ check('算不出且本期有数 → 100%', percentText(null, 500), '100%')
 check('算不出且本期为 0 → 破折号', percentText(null, 0), '—')
 
 {
+  // 同比文案：去年年份必须写出来
   const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY)
-  /*
-   * ★ 括号说明已删除（本轮第 9b 条）★
-   *   用户要求「对比...后面的两个括号及其内容删除」。
-   */
-  check('本月到今天的文案（不再带括号说明）', compareRangeLabel(cr), '对比 10/01~10/08')
+  check('同比文案显示去年同期日期', compareRangeLabel(cr), '对比 2025/11/01~2025/11/19')
+}
+{
+  // 环比文案：同年上月只显示月/日
+  const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'mom')
+  check('环比文案显示上月同期日期', compareRangeLabel(cr), '对比 10/01~10/19')
 }
 {
   const cr = buildCompareRange({ startDay: '2026-01-01', endDay: '2026-12-31' }, TODAY)
   check('整年文案带年份', /\d{4}\/\d{2}\/\d{2}/.test(compareRangeLabel(cr)), true)
-  check('整年文案也不带括号说明', /\(/.test(compareRangeLabel(cr)), false)
+  check('文案不带括号说明', /\(/.test(compareRangeLabel(cr)), false)
 }
 
-console.log('=== 8. 环比模式（紧邻等长区间）===')
+console.log('=== 8. 同比 / 环比两种模式互不影响 ===')
+
 {
-  // 本月到今天：环比应该是「紧挨着的前 8 天」= 10/24~10/31
-  const cr = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'mom')
-  check('环比：当前终点截到今天', cr.curEnd, '2026-11-08')
-  check('环比：对比紧邻前 8 天起点', cr.prevStart, '2026-10-24')
-  check('环比：对比紧邻前 8 天终点', cr.prevEnd, '2026-10-31')
-  check('环比标记为等长区间', cr.align, 'span')
-  check('环比长度与当前一致', daySpanInclusive(cr.prevStart, cr.prevEnd), daySpanInclusive(cr.curStart, cr.curEnd))
-}
-{
-  // 整年环比：紧邻的前一年同长度（不是去年同期 —— 去年同期属于同比）
-  const cr = buildCompareRange({ startDay: '2025-01-01', endDay: '2025-12-31' }, TODAY, 'mom')
-  check('整年环比也是等长区间', cr.align, 'span')
-  /*
-   * ★ 2025 是 365 天，2024 是 366 天（闰年）★
-   *   等长区间往前推 365 天，终点 2024-12-31、起点就是 2024-01-02 ——
-   *   这就是「等长」的定义（宁可两边差一天边界，也不让窗口长度不等）。
-   *   写死成 2024-01-01 反而是错的（那样多了 366 天）。
-   */
-  check('整年环比紧邻前一年（闰年差一天）', cr.prevStart, '2024-01-02')
-  check('整年环比终点', cr.prevEnd, '2024-12-31')
-  check('整年环比长度不超当前区间', daySpanInclusive(cr.prevStart, cr.prevEnd) <= daySpanInclusive(cr.curStart, cr.curEnd), true)
-}
-{
-  // 单日环比 = 前一天
-  const cr = buildCompareRange({ startDay: '2026-11-08', endDay: '2026-11-08' }, TODAY, 'mom')
-  check('单日环比对比昨天', cr.prevStart, '2026-11-07')
-  check('单日环比终点也是昨天', cr.prevEnd, '2026-11-07')
-}
-{
-  // 同比默认行为不能被影响
   const yoy = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY)
   const yoy2 = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'yoy')
   check('不传 mode 时等价于 yoy', JSON.stringify(yoy), JSON.stringify(yoy2))
-  check('yoy 仍是上月同期', yoy.prevStart, '2026-10-01')
+  check('同比对比去年同期', yoy.prevStart, '2025-11-01')
+  check('同比终点也是去年同期同日', yoy.prevEnd, '2025-11-19')
+
+  const mom = buildCompareRange({ startDay: '2026-11-01', endDay: '2026-11-30' }, TODAY, 'mom')
+  check('环比对比上月同期', mom.prevStart, '2026-10-01')
+  check('环比终点是上月同日', mom.prevEnd, '2026-10-19')
 }
 
-console.log('=== 7. 结余百分比的方向 ===')
+console.log('=== 9. 结余百分比的方向 ===')
 
 /*
  * ★ 结余可以是负的，分母为负会把涨跌方向翻反 ★
@@ -226,7 +274,7 @@ check('上期结余为正、本期更少 → 负数', balanceChangePercent(500, 
 check('null 显示破折号', percentOnly(null), '—')
 check('0 显示 0%', percentOnly(0), '0%')
 
-console.log('=== 9. 徽标顺序（用户第 1 条）===')
+console.log('=== 10. 徽标顺序（用户第 1 条）===')
 
 {
   const B = await import('../utils/txnBadges.js')
@@ -254,7 +302,7 @@ console.log('=== 9. 徽标顺序（用户第 1 条）===')
   check('借款八类名单覆盖', B.LOAN_CATEGORY_NAMES.length, 8)
 }
 
-console.log('=== 四个大变化率：只显示箭头，不显示正负号 ===')
+console.log('=== 11. 四个大变化率：只显示箭头，不显示正负号 ===')
 
 {
   const panel = read('components/StatsComparePanel.vue')
@@ -279,7 +327,7 @@ console.log('=== 四个大变化率：只显示箭头，不显示正负号 ===')
   check('不再引入带符号的百分比工具', /percentText, percentOnly/.test(panel), false)
 }
 
-console.log('=== AI 回溯日期的默认时刻 ===')
+console.log('=== 12. AI 回溯日期的默认时刻 ===')
 
 {
   const { validateItem } = await import('../api/aiParse.js')

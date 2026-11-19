@@ -262,9 +262,9 @@ console.log('=== 总结余与底部查看全部 ===')
 
 /*
  * ★ 标签详情：总收入下方要有「总结余」（本轮新增）★
- *   用户原话：「标签管理页面大的价签总收入下方添加一个总结余」。
  *   口径 = 总收入 - 总支出，可能为负，所以走 variant="balance"
- *   （正绿负红、0 无色），不能用单向的 type。
+ *   保留正负号；颜色由 color="var(--app-text)" 固定为正文色
+ *   （用户要求大价签为黑色，深色主题下自动跟随正文变白）。
  */
 check('标签详情大价签是总结余', /summary-label">总结余/.test(tag), true)
 check(
@@ -272,7 +272,12 @@ check(
   /总结余[\s\S]{0,260}?totalStats\.income - totalStats\.expense/.test(tag),
   true
 )
-check('总结余用 balance 变体（正绿负红）', /variant="balance"/.test(tag), true)
+check('总结余用 balance 变体（保留正负号）', /variant="balance"/.test(tag), true)
+check(
+  '总结余大价签用正文色',
+  /summary-label">总结余[\s\S]{0,400}?color="var\(--app-text\)"/.test(tag),
+  true
+)
 check('总结余在下方小条目之前', tag.indexOf('summary-label">总结余') < tag.indexOf('summary-row-label">总支出'), true)
 
 /*

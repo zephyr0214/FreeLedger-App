@@ -1,26 +1,29 @@
 /**
- * 同比对比区间计算 —— 纯函数，可单测
+ * 同比 / 环比对比区间计算 —— 纯函数，可单测
  *
  *   node scripts/test-compare-range.mjs
  *
- * ★ 这个文件解决什么问题 ★
- *   「本月」这个选择在日历上是 11/1~11/30，但今天才 11/8 ——
- *   拿「11/1~11/8」去比「10/1~10/31」是不公平的（半个月比整月），
- *   用户明确要求：**比上月同期**，即 11/1~11/8 ↔ 10/1~10/8。
+ * ★ 口径 ★
+ *   同比：当前区间 vs **去年同期** —— 起止日期各往前推一年
+ *         （2/29 落到平年时夹到 2/28）。
+ *   环比：当前区间 vs **上一周期** ——
+ *     · 整年 → 上一年同期
+ *     · 单日 → 前一天
+ *     · 整月 / 从 1 号开始的月内区间 → 上个月同期
+ *     · 其它自定义 / 滚动区间 → 紧挨着的上一段等长区间
  *
- *   而「近一周」「自定义 10/5~10/20」这类区间的正确做法又不一样：
- *   它们不是日历锚定的，硬按「段号」对齐反而会跳到上个把月去。
+ * ★ 首尾日期怎么算 ★
+ *   当前区间终点晚于今天时先截到今天（否则「半个空月」比「整月」，
+ *   所有数字都会显示成暴跌）。截断后再换算对比区间：
+ *     · 同比按截断后的起止日期各减一年；
+ *     · 环比按月对齐时起止各减一个月，月末不足自动夹取；
+ *     · 等长区间用「含首尾」的天数，前一段终点 = 当前起点前一天，
+ *       起点 = 终点往前推 span-1 天，保证两段长度一致且不重叠。
  *
  * ★ 为什么必须抽成纯函数 ★
  *   这段逻辑有六七条分支 + 月末/闰年夹取，埋在 api/stats.js 里
  *   只能靠「跑起来看看对不对」，边界（31 号、2 月、闰日）永远测不到。
  *   抽出来后每个分支都能用固定日期钉死。
- *
- * ★ 三条对齐规则（按优先级）★
- *   1. **整年**（1/1~12/31）→ 上一年同期，见 alignYear
- *   2. **一个月以内**（含整月、单日、「11/1~今天」这种从 1 号起的半截月）
- *      → 上一个月同期（同一段号），见 shiftMonthClamped
- *   3. 其它跨多月的自定义区间 → 紧挨着的上一个等长区间（不前跳重叠）
  *
  * ★ 「今天」为什么要传进来 ★
  *   函数必须是纯的：测试要能伪造「今天是 11/8」。
@@ -101,11 +104,19 @@ function isWholeYear(startDay, endDay) {
   return startDay.slice(0, 4) === endDay.slice(0, 4)
 }
 
+/** 这一天是不是所在月的最后一天（用于识别「整月」区间） */
+function isMonthEnd(dayKey) {
+  const [y, m, d] = String(dayKey || '').split('-').map(Number)
+  if (!y || !m || !d) return false
+  return d === lastDayOfMonth(y, m)
+}
+
 /**
  * 算出「当前区间」与「用来对比的上期区间」
  *
  * @param {{startDay?:string,endDay?:string,monthKey?:string}} range
  * @param {string} [today] YYYY-MM-DD，默认真实今天（测试可传假值）
+ * @param {'yoy'|'mom'} [mode] yoy=同比（去年同期，默认）/ mom=环比（上一周期）
  * @returns {null|{
  *   curStart:string, curEnd:string,
  *   prevStart:string, prevEnd:string,
@@ -117,14 +128,6 @@ function isWholeYear(startDay, endDay) {
 export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
   const e = expandRange(range)
   const todayKey = String(today || toDayKey())
-  /*
-   * ★ 两种对比口径（本轮新增「环比」）★
-   *   'yoy'（同比，默认）：整年→去年同期、一个月以内→上月同期、
-   *        跨多月→等长区间。回答「和去年同期/上月同期比怎么样」。
-   *   'mom'（环比）：一律用**紧挨着的上一段等长区间**。
-   *        回答「和刚过去的那段时间比怎么样」，是趋势判断更常用的口径。
-   *   两者共用下面的「今天截断」逻辑，只是最后选哪个窗口不同。
-   */
   const isMom = mode === 'mom'
 
   // 1) 不限时间（全部）—— 没有「上一段」可言，直接不给对比
@@ -134,7 +137,7 @@ export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
    * 2) 用今天截断当前区间
    *
    * ★ 为什么一定要截 ★
-   *   「本月」是 11/1~11/30，可数据只到 11/8。
+   *   「本月」是 11/1~11/30，可数据只到 11/19。
    *   不截断的话，当前区间是「半个空月」，对比区间是整月，
    *   所有数字都会显示成「大幅下降」，用户会以为这个月花得特别少。
    */
@@ -153,19 +156,28 @@ export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
     rangeEnd: e.endDay
   }
 
-  // 4) 环比：跳过所有日历对齐，直接走等长区间
-  if (isMom) {
-    const span = daySpanInclusive(curStart, curEnd)
-    const prevEnd = shiftDays(curStart, -1)
+  /*
+   * 4) 同比：一律去年同期
+   *   起止日期各减一年，月末 / 闰日夹取，首尾都包含。
+   *   11/01~11/19 -> 去年 11/01~11/19（不是上月，也不是整年）。
+   */
+  if (!isMom) {
     return {
       ...base,
-      prevStart: shiftDays(prevEnd, -(span - 1)),
-      prevEnd,
-      align: 'span'
+      prevStart: shiftYearClamped(curStart, -1),
+      prevEnd: shiftYearClamped(curEnd, -1),
+      align: 'year'
     }
   }
 
-  // 5) 整年 → 上一年同期
+  /*
+   * 5) 环比：上一周期
+   *
+   * ★ 整年 ★
+   *   1/1~12/31 -> 上一年 1/1~12/31。
+   *   如果当前年还没过完、终点被截到今天，就按同样的截止日期比
+   *   去年同期，不能拿半截年去比完整年。
+   */
   if (isWholeYear(e.startDay, e.endDay)) {
     return {
       ...base,
@@ -176,18 +188,34 @@ export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
   }
 
   /*
-   * 6) 一个月以内 → 上一个月同期（同一段号）
-   *
-   *   11/1~11/8   → 10/1~10/8
-   *   10/1~10/31  → 9/1~9/30（整月对整月，天数不同但段号一致）
-   *   11/8        → 10/8（单日）
-   *   1/5~1/20    → 12/5~12/20（跨年由 shiftMonthClamped 处理）
-   *
-   * ★ 为什么用 monthSpan 而不是天数 ★
-   *   「9/1~9/30」和「10/1~10/31」天数不同，按天数判断会把整月区间
-   *   误判成跨月；按自然月跨度判断，整月永远是 1。
+   * 6) 单日 -> 前一天
+   *   环比是「上一期」：日粒度数据的上一期就是昨天。
    */
-  if (monthSpan(curStart, curEnd) <= 1) {
+  if (curStart === curEnd) {
+    const prevEnd = shiftDays(curStart, -1)
+    return {
+      ...base,
+      prevStart: prevEnd,
+      prevEnd,
+      align: 'span'
+    }
+  }
+
+  /*
+   * 7) 整月 / 从 1 号开始的月内区间 -> 上个月同期
+   *
+   *   11/01~11/19 -> 10/01~10/19
+   *   10/01~10/31 -> 09/01~09/30（月末不足自动夹取）
+   *   01/01~01/20 -> 去年 12/01~12/20（跨年）
+   *
+   * ★ 为什么「从 1 号开始」也算月内区间 ★
+   *   用户选「本月至今」时 startDay 是 1 号，但 customToRange 不会给
+   *   monthKey（不是完整月）。如果按等长区间往前推，会变成上个月
+   *   24 号~月底这种「连续 19 天」，和「上月同期」不是一回事。
+   */
+  const sameMonth = monthSpan(curStart, curEnd) <= 1
+  const startsAtMonthStart = curStart.slice(8, 10) === '01'
+  if (sameMonth && (e.monthKey || startsAtMonthStart)) {
     return {
       ...base,
       prevStart: shiftMonthClamped(curStart, -1),
@@ -197,13 +225,40 @@ export function buildCompareRange(range, today = toDayKey(), mode = 'yoy') {
   }
 
   /*
-   * 7) 跨多月的自定义区间 → 紧挨着的上一个等长区间
+   * 8) 多个完整自然月 -> 紧挨着的前 N 个完整月
    *
-   *   ★ 为什么这里不再按段号对齐 ★
-   *     9/15~11/8 如果整体前移一个月会变成 8/15~10/8，
-   *     和当前区间重叠近 24 天 —— 「同比」变成自己跟自己比，
-   *     涨幅永远接近 0，等于把面板做废。
-   *     往后平移等长窗口虽然跨月不好看，但口径是干净的。
+   *   1/1~2/28 -> 去年 11/1~12/31
+   *   4/1~6/30 -> 1/1~3/31
+   *
+   *   如果只按等长天数往前推，1~2 月会得到 11/3~12/31 ——
+   *   天数一样，但首尾不在月初 / 月末，读起来不像「上期」。
+   */
+  const monthCount = monthSpan(curStart, curEnd)
+  if (monthCount > 1 && startsAtMonthStart && isMonthEnd(curEnd)) {
+    const prevEnd = shiftDays(curStart, -1)
+    /*
+     * 先把 prevEnd 往前推 monthCount-1 个月，再把日号固定为 01。
+     * 例：prevEnd=12/31、monthCount=2 -> 11/30 -> 11/01。
+     */
+    const prevStart = `${shiftMonthClamped(prevEnd, -(monthCount - 1)).slice(0, 8)}01`
+    return {
+      ...base,
+      prevStart,
+      prevEnd,
+      align: 'month'
+    }
+  }
+
+  /*
+   * 9) 其它滚动 / 自定义区间 -> 紧挨着的上一个等长区间
+   *
+   *   近一周 11/13~11/19 -> 11/06~11/12
+   *   近一月 10/21~11/19 -> 09/21~10/20
+   *   跨多月自定义 6/15~9/30 -> 紧邻的前一段等长窗口
+   *
+   * ★ 首尾都包含 ★
+   *   prevEnd 是当前起点前一天，prevStart 再往前推 span-1 天；
+   *   两段天数完全一致，且不会重叠一天。
    */
   const span = daySpanInclusive(curStart, curEnd)
   const prevEnd = shiftDays(curStart, -1)
@@ -297,15 +352,19 @@ export function percentText(pct, cur) {
 /**
  * 对比区间的说明文案（面板副标题用）
  *
- *   '对比 10/01~10/08（上月同期）'
- *   '对比 2025/01/01~2025/11/08（去年同期）'
- *   '对比 07/23~09/14（等长区间）'
+ *   环比：'对比 10/01~10/19'（同年上月）
+ *   同比：'对比 2025/11/01~2025/11/19'（去年同期，年份必须写出来）
+ *   跨年：'对比 2025/12/01~2025/12/19'
+ *
+ * ★ 年份按「当前区间」判断，而不是系统今年 ★
+ *   用户在看 2027 年的账时，2026 年虽然等于系统当前年，
+ *   对 2027 来说仍是「去年」，同比文案必须带年份。
  */
 export function compareRangeLabel(cr) {
   if (!cr || !cr.prevStart || !cr.prevEnd) return ''
+  const curYear = Number(String(cr.curStart || '').slice(0, 4)) || new Date().getFullYear()
   const f = (d) => {
     const [y, m, dd] = String(d).split('-')
-    const curYear = new Date().getFullYear()
     // 跨年对比时把年份也写出来，否则「对比 12/01~12/08」看不出是哪一年
     return Number(y) === curYear ? `${m}/${dd}` : `${y}/${m}/${dd}`
   }

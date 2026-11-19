@@ -15,9 +15,15 @@
           </view>
 
           <text class="summary-label">总结余</text>
+          <!--
+            ★ 大价签固定用正文色，不按正负染红绿 ★
+              用户要求「结余大价签为黑色」；这里用 --app-text，
+              浅色主题下是近黑色，深色主题下自动跟随正文变白。
+          -->
           <MoneyText
             :cents="totalStats.income - totalStats.expense"
             variant="balance"
+            color="var(--app-text)"
             :size="72"
             :weight="600"
           />
