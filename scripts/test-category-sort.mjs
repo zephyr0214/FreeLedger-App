@@ -6,7 +6,8 @@
 
 import {
   sortCategoriesByUsage, isSelectableCategory,
-  sortCategoriesByCount, sortCategoryGroupsByCount, categoryGroupCount
+  sortCategoriesByCount, sortCategoryGroupsByCount, categoryGroupCount,
+  sortCategoryTreeByCount
 } from '../utils/categorySort.js'
 
 let pass = 0
@@ -175,6 +176,35 @@ check(
   ).map((c) => c.id),
   ['b', 'a']
 )
+
+const TREE = [
+  {
+    id: 'food', name: '餐饮', sort: 1,
+    children: [
+      { id: 'dinner', name: '晚餐', sort: 2 },
+      { id: 'lunch', name: '午餐', sort: 1 }
+    ]
+  },
+  {
+    id: 'car', name: '交通', sort: 2,
+    children: [{ id: 'taxi', name: '打车', sort: 1 }]
+  },
+  {
+    id: 'sys', name: '系统分类', sort: 0,
+    children: [{ id: 'lend', name: '借出', sort: 1 }]
+  }
+]
+check(
+  '分类管理树：一级按总笔数、系统分类最后',
+  sortCategoryTreeByCount(TREE, COUNTS).map((c) => c.id),
+  ['car', 'food', 'sys']
+)
+check(
+  '分类管理树：子类也按笔数排序',
+  sortCategoryTreeByCount(TREE, COUNTS)[1].children.map((c) => c.id),
+  ['lunch', 'dinner']
+)
+check('排序不修改原树', TREE.map((c) => c.id), ['food', 'car', 'sys'])
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

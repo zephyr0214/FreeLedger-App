@@ -436,6 +436,12 @@ console.log('\n=== 选择分类面板：组头与添加子类 ===')
   check('周期面板接住新分类事件', /@category-created="onCategoryCreated"/.test(cyclePanel), true)
   check('分类管理页复用同一个编辑弹层', /<CategoryEditorSheet/.test(categoryPage), true)
   check('分类管理页不再自己写编辑弹层', /<wd-popup v-model="showEditor"/.test(categoryPage), false)
+  check(
+    '分类管理页按笔数排序、系统分类最后',
+    /sortCategoryTreeByCount/.test(categoryPage) && /getCategoryTxnCounts/.test(categoryPage),
+    true
+  )
+  check('分类管理页「添加子分类」不带 +', /\+\s*添加子分类/.test(categoryPage), false)
 }
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

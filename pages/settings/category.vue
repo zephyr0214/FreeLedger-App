@@ -81,10 +81,10 @@
                 之前是 children.length > 0 才显示，
                 结果「还没建过子类的一级分类」看起来是个终点 ——
                 没有箭头、没有数量，用户不知道这里还能加子类，
-                只能去猜「+ 添加子分类」藏在哪。
+                只能去猜「添加子分类」藏在哪。
 
                 现在统一显示数量（没有就是 0），
-                点开就能看到「+ 添加子分类」，路径和已有子类的分类完全一致。
+                点开就能看到「添加子分类」，路径和已有子类的分类完全一致。
                 固定分类没有「添加子分类」入口，但「系统分类」
                 本身有固定子类，数量照常显示。
             -->
@@ -170,7 +170,7 @@
           </wd-swipe-action>
 
           <!--
-            「+ 添加子分类」保留：
+            「添加子分类」保留：
             加子分类是「在某个父类下加」，和右上角的「加一级分类」不是一回事。
 
             ★ 固定分类下不能加子类 ★
@@ -178,7 +178,7 @@
               混进一个用户自建的子类，和固定子类就分不清了。
           -->
           <view v-if="!isFixed(parent)" class="child-row child-add" @click="openCreate(parent)">
-            <text class="child-add-text">+ 添加子分类</text>
+            <text class="child-add-text">添加子分类</text>
           </view>
 
           <!-- 系统分类不再显示「不可编辑或删除」的整块提示 -->
@@ -224,7 +224,9 @@ import { useSettingStore } from '@/stores/setting.js'
 import {
   listCategoryTree, deleteCategory, isFixedCategory
 } from '@/api/category.js'
+import { getCategoryTxnCounts } from '@/api/stats.js'
 import { categoryTint } from '@/utils/categoryIcon.js'
+import { sortCategoryTreeByCount } from '@/utils/categorySort.js'
 import { refreshCategoryIconCache } from '@/api/iconCache.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
 import { handleBackPress } from '@/utils/layerStack.js'
@@ -291,7 +293,16 @@ export default {
     const pageStyle = computed(() => settingStore.cssVars)
 
     async function load() {
-      tree.value = await listCategoryTree(activeType.value, true)
+      const [rows, counts] = await Promise.all([
+        listCategoryTree(activeType.value, true),
+        getCategoryTxnCounts().catch(() => ({}))
+      ])
+      /*
+       * 分类管理页与记账/筛选分类选择保持同一口径：
+       * 一级按自身 + 子类总笔数降序，子类按自己笔数降序，
+       * 系统分类固定最后。
+       */
+      tree.value = sortCategoryTreeByCount(rows, counts || {})
     }
 
     /**

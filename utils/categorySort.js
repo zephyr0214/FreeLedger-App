@@ -152,6 +152,30 @@ export function sortCategoryGroupsByCount(groups, counts = {}) {
 }
 
 /**
+ * 分类管理页的「一级 + children」树按笔数排序
+ *
+ * 分类管理页拿到的结构是 [{ ...parent, children: [...] }]，
+ * 和选择面板的 { parent, members } 只是字段名不同；
+ * 这里转一下复用同一套规则：
+ *   · 一级按自身 + 子类总笔数降序；
+ *   · 子类按自己的笔数降序；
+ *   · 系统分类固定最后。
+ *
+ * 不修改入参。
+ */
+export function sortCategoryTreeByCount(tree, counts = {}) {
+  const list = Array.isArray(tree) ? tree : []
+  const groups = list.map((parent) => ({
+    parent,
+    members: Array.isArray(parent && parent.children) ? parent.children : []
+  }))
+  return sortCategoryGroupsByCount(groups, counts).map((g) => ({
+    ...g.parent,
+    children: g.members
+  }))
+}
+
+/**
  * 这个分类是不是「只由系统写入」的内部口径。
  *
  * @param {object|string|null} cat 分类对象或分类名
