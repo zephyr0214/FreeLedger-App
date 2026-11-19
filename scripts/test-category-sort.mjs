@@ -4,7 +4,10 @@
  *   node scripts/test-category-sort.mjs
  */
 
-import { sortCategoriesByUsage, isSelectableCategory } from '../utils/categorySort.js'
+import {
+  sortCategoriesByUsage, isSelectableCategory,
+  sortCategoriesByCount, sortCategoryGroupsByCount, categoryGroupCount
+} from '../utils/categorySort.js'
 
 let pass = 0
 let fail = 0
@@ -118,6 +121,60 @@ check('二级(饮品) → 可选', isSelectableCategory(EXP[2], EXP), true)
 // 空/非法
 check('空分类 → false', isSelectableCategory(null, EXP), false)
 check('空列表 → 一级不可选', isSelectableCategory(EXP[0], []), true)
+
+console.log('=== 按笔数排序（一级总笔数 / 子类笔数 / 系统分类最后）===')
+
+const COUNTS = {
+  lunch: 10,
+  dinner: 5,
+  taxi: 100,
+  lend: 999
+}
+const GROUPS = [
+  {
+    parent: { id: 'food', name: '餐饮', sort: 1 },
+    members: [
+      { id: 'dinner', name: '晚餐', sort: 2 },
+      { id: 'lunch', name: '午餐', sort: 1 }
+    ]
+  },
+  {
+    parent: { id: 'car', name: '交通', sort: 2 },
+    members: [{ id: 'taxi', name: '打车', sort: 1 }]
+  },
+  {
+    parent: { id: 'sys', name: '系统分类', sort: 0 },
+    members: [{ id: 'lend', name: '借出', sort: 1 }]
+  }
+]
+
+check('一级总笔数 = 自身 + 子类', categoryGroupCount(GROUPS[0].parent, GROUPS[0].members, COUNTS), 15)
+check(
+  '一级按总笔数降序，系统分类固定最后',
+  sortCategoryGroupsByCount(GROUPS, COUNTS).map((g) => g.parent.id),
+  ['car', 'food', 'sys']
+)
+check(
+  '组内子类按自己的笔数降序',
+  sortCategoryGroupsByCount(GROUPS, COUNTS)[1].members.map((c) => c.id),
+  ['lunch', 'dinner']
+)
+check(
+  '没有笔数的分类保持 sort 顺序',
+  sortCategoriesByCount(
+    [{ id: 'a', sort: 2 }, { id: 'b', sort: 1 }],
+    {}
+  ).map((c) => c.id),
+  ['b', 'a']
+)
+check(
+  '笔数相同按 sort 升序',
+  sortCategoriesByCount(
+    [{ id: 'a', sort: 2 }, { id: 'b', sort: 1 }],
+    { a: 3, b: 3 }
+  ).map((c) => c.id),
+  ['b', 'a']
+)
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

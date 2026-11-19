@@ -188,6 +188,7 @@
       v-model="showMultiCat"
       :categories="multiCatSource"
       :selected-ids="draft.categoryIds"
+      :usage-counts="categoryCounts"
       title="选择分类"
       :show-type-tabs="showCategory && draft.type === 'all'"
       :z-index="childZIndex"
@@ -206,6 +207,7 @@ import { useAccountStore } from '@/stores/account.js'
 import { listCategories } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import { listCycles, recurrenceLabel } from '@/api/cycle.js'
+import { getCategoryTxnCounts } from '@/api/stats.js'
 import { createEmptyTxnFilter } from '@/utils/txnFilter.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
@@ -280,6 +282,7 @@ export default {
 
     const draft = reactive(createEmptyTxnFilter())
     const allCategories = ref([])
+    const categoryCounts = ref({})
     const tags = ref([])
     const cycles = ref([])
 
@@ -387,14 +390,16 @@ export default {
           if (!accountStore.loaded) await accountStore.load()
         } catch (e) {}
         try {
-          const [cats, tgs, cys] = await Promise.all([
+          const [cats, tgs, cys, counts] = await Promise.all([
             listCategories(),
             listTags(),
-            listCycles()
+            listCycles(),
+            getCategoryTxnCounts().catch(() => ({}))
           ])
           allCategories.value = cats
           tags.value = tgs
           cycles.value = cys
+          categoryCounts.value = counts || {}
         } catch (e) {
           console.warn('[filter] 加载筛选选项失败:', e && e.message)
         }
@@ -466,7 +471,7 @@ export default {
 
     return {
       visible, draft, statusBarHeight, primaryColor, childZIndex, popupStyle,
-      typeOptions, accountList, multiCatSource, tags, cycles,
+      typeOptions, accountList, multiCatSource, tags, cycles, categoryCounts,
       accountLabel, multiCatLabel, tagLabel, cycleFilterLabel, pickerActions,
       showAccountPicker, showTagFilter, showMultiCat, showPicker,
       onTypeChange, openMultiCatPicker, onAccountPicked, onTagFilterPicked, onTagCreated,

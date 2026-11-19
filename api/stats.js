@@ -257,6 +257,32 @@ export async function getCategoryUsageCounts(days = 30) {
 }
 
 /**
+ * 各分类的历史总笔数（用于分类选择面板排序）
+ *
+ * ★ 和 getCategoryUsageCounts 的区别 ★
+ *   那个是「最近 N 天」的使用次数，服务于首页/记账面板的常用分类排序；
+ *   这里是用户要求的「按笔数排列」：不限定时间、不排除不计收支流水，
+ *   一笔账只要还活着就计入它所属的分类。
+ *   一级分类的笔数由调用方把「自身 + 子类」加总（见 utils/categorySort.js）。
+ *
+ * @returns {Promise<Object>} { categoryId: count }
+ */
+export async function getCategoryTxnCounts() {
+  const rows = await query(
+    `SELECT category_id AS id, COUNT(*) AS c
+     FROM txn
+     WHERE deleted_at IS NULL
+       AND category_id IS NOT NULL
+     GROUP BY category_id`
+  )
+  const map = {}
+  for (const r of rows) {
+    map[r.id] = Number(r.c) || 0
+  }
+  return map
+}
+
+/**
  * 总览聚合（区间版与按月版共用主体）。
  * count 为区间内全部交易笔数（含 transfer）；expense/income 不计 transfer。
  */

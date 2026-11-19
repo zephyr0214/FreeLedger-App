@@ -39,7 +39,7 @@
                 v-if="canAddChild(sec.parent)"
                 class="group-add"
                 @click.stop="openAddChild(sec.parent)"
-              >+ 添加子类</text>
+              >添加子类</text>
             </view>
 
             <view class="more-grid">
@@ -89,7 +89,7 @@
  * ★ 展示形态 ★
  *   1. 按**一级分类**分组：标题是一级分类（带图标），下面是它的二级分类；
  *   2. 「没有二级」的一级分类同样显示分组标题，和父级分类一致；
- *   3. 组头右侧提供「+ 添加子类」，直接在当前面板上叠出分类编辑弹层；
+ *   3. 组头右侧提供「添加子类」，直接在当前面板上叠出分类编辑弹层；
  *   4. 图标配色与交易流水一致：**浅色底 + 本色图标**（见 utils/categoryIcon.js）。
  *
  * ★ 分组顺序 ★
@@ -102,7 +102,7 @@ import { useSettingStore } from '@/stores/setting.js'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import CategoryEditorSheet from '@/components/CategoryEditorSheet.vue'
 import HeaderAction from '@/components/HeaderAction.vue'
-import { groupCategoriesByParent } from '@/utils/categorySort.js'
+import { groupCategoriesByParent, sortCategoryGroupsByCount } from '@/utils/categorySort.js'
 import { categoryIconFullStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
 import { isFixedCategory } from '@/api/category.js'
 import { pushLayer } from '@/utils/layerStack.js'
@@ -119,7 +119,9 @@ export default {
     /** 当前选中的分类 id */
     selectedId: { type: String, default: '' },
     /** 新建一级分类时的收支类型 */
-    type: { type: String, default: 'expense' }
+    type: { type: String, default: 'expense' },
+    /** 各分类历史总笔数：一级按自身+子类加总排序，子类按自己排序 */
+    usageCounts: { type: Object, default: () => ({}) }
   },
   emits: ['update:modelValue', 'pick-category', 'category-created'],
   setup(props, { emit }) {
@@ -139,16 +141,18 @@ export default {
      * 分组结果。
      *
      * 每项：{ key, parent, title, icon, members }
-     *   现在所有组都显示父级标题（含没有子类的一级分类）。
+     *   所有组都显示父级标题（含没有子类的一级分类）。
+     *   组和组内成员都按历史总笔数排序；系统分类固定最后。
      */
-    const sections = computed(() =>
-      groupCategoriesByParent(props.categories, props.allCategories).map((g) => ({
+    const sections = computed(() => {
+      const groups = groupCategoriesByParent(props.categories, props.allCategories)
+      return sortCategoryGroupsByCount(groups, props.usageCounts).map((g) => ({
         key: g.parent.id,
         parent: g.parent,
         title: g.parent.name,
         members: g.members
       }))
-    )
+    })
 
     /**
      * 这个父级能不能添加子类

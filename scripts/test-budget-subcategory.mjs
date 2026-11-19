@@ -394,11 +394,11 @@ console.log('=== 页面：月预算 / 子预算 / 结转勾选 ===')
   check('弹层不接受 hint 参数', /hint: \{/.test(sheet), false)
   check(
     '弹层标签是「一级-二级」',
-    /label: `\$\{root\.name\}-\$\{k\.name\}`/.test(sheet),
+    /label: g\.hasKids \? `\$\{root\.name\}-\$\{m\.name\}` : root\.name/.test(sheet),
     true
   )
   check('弹层有勾选框', /class="check-box"/.test(sheet), true)
-  check('弹层支持禁用项（已被别的子预算占用）', /disabled: disabled\.has\(k\.id\)/.test(sheet), true)
+  check('弹层支持禁用项（已被别的子预算占用）', /disabled: disabled\.has\(m\.id\)/.test(sheet), true)
   check('弹层点确定才回传', /emit\('picked', draft\.value\.slice\(\)\)/.test(sheet), true)
   check('弹层接入弹层栈', /pushLayer\(\(\) => \{ visible\.value = false \}, 'categoryMultiSheet'\)/.test(sheet), true)
   check('保存超月预算时硬拦', /checkCategoryAllocation\(usages\.value/.test(budgetPage), true)

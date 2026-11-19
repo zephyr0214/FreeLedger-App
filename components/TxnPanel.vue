@@ -363,6 +363,7 @@
       :all-categories="categories"
       :selected-id="form.category_id"
       :type="form.type"
+      :usage-counts="usageCounts"
       @pick-category="pickCategoryFromMore"
       @category-created="onCategoryCreated"
     />
@@ -424,7 +425,7 @@ import { listCategories, isSystemPresetName } from '@/api/category.js'
 import { listTags } from '@/api/tag.js'
 import TxnTagSheet from '@/components/TxnTagSheet.vue'
 import AccountPickerSheet from '@/components/AccountPickerSheet.vue'
-import { getCategoryUsageCounts } from '@/api/stats.js'
+import { getCategoryTxnCounts } from '@/api/stats.js'
 import {
   isLoanPersonCategory, isLoanSettleCategory, allowsNewPerson, listLoanPeople
 } from '@/api/loan.js'
@@ -602,7 +603,7 @@ export default {
      */
     const loanPeople = ref([])
     const showPersonPicker = ref(false)
-    /** 最近 30 天各分类的使用次数，用于分类排序 */
+    /** 各分类的历史总笔数，用于分类选择面板按笔数排序 */
     const usageCounts = ref({})
     const showAccountPicker = ref(false)
     const showToAccountPicker = ref(false)
@@ -633,9 +634,10 @@ export default {
      * 当前类型下的分类（已按使用频率排序）。
      *
      * 排序规则见 utils/categorySort.js：
-     *   1. 已选中的排第一
-     *   2. 最近 30 天用过的按次数降序
+     *   1. 已选中的排第一（直接显示的两行分类）
+     *   2. 用过的按历史总笔数降序
      *   3. 没用过的按用户设定的 sort 升序
+     * 分组弹层内部再按「一级总笔数 / 子类笔数」重排。
      */
     const categoryList = computed(() => {
       const type = form.type === 'income' ? 'income' : 'expense'
@@ -1112,7 +1114,7 @@ export default {
         listCategories(),
         listTags(),
         // 用不到排序统计时不能影响主流程
-        getCategoryUsageCounts(30).catch(() => ({})),
+        getCategoryTxnCounts().catch(() => ({})),
         // 人员列表同样不该拖垮面板：拿不到就当没有可选人员
         listLoanPeople().catch(() => [])
       ])

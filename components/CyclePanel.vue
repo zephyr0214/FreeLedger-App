@@ -333,6 +333,7 @@
       :all-categories="categories"
       :selected-id="form.category_id"
       :type="form.type"
+      :usage-counts="usageCounts"
       @pick-category="pickCategoryFromMore"
       @category-created="onCategoryCreated"
     />
@@ -358,7 +359,7 @@ import { evaluateAmount } from '@/utils/money.js'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { sortCategoriesByUsage, isSelectableCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
-import { getCategoryUsageCounts } from '@/api/stats.js'
+import { getCategoryTxnCounts } from '@/api/stats.js'
 import { confirmDialog, alertDialog, promptDialog } from '@/utils/dialog.js'
 import { toDayKey } from '@/utils/date.js'
 import { pushLayer } from '@/utils/layerStack.js'
@@ -513,7 +514,7 @@ export default {
 
     /* ------------------------------------------------------ 计算属性 */
 
-    // ★ 与首页「+」记账面板统一：按最近 30 天使用频率排序，已选中的排第一。
+    // ★ 与首页「+」记账面板统一：按历史总笔数排序，已选中的排第一。
     //   ★ 用 isSelectableCategory：二级 + 「无二级的一级」（如收入默认分类）都可选，
     //     修复选「收入」时分类列表空白的问题。
     /**
@@ -814,7 +815,7 @@ export default {
     async function loadOptions() {
       const [cats, counts] = await Promise.all([
         listCategories(),
-        getCategoryUsageCounts(30).catch(() => ({}))
+        getCategoryTxnCounts().catch(() => ({}))
       ])
       categories.value = cats
       usageCounts.value = counts || {}
@@ -1150,7 +1151,7 @@ export default {
 
     return {
       visible, editing, types, typeName, form, primaryColor,
-      categories, categoryRows, moreRowItems, allCategoryItems,
+      categories, categoryRows, moreRowItems, allCategoryItems, usageCounts,
       showMoreCategories, openMoreCategories, pickCategoryFromMore, onCategoryCreated,
       amountDisplay, isRawInput, computedPreview, amountFilled,
       /* 外币记账（与 TxnPanel 同款） */

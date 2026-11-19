@@ -116,6 +116,9 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { pushLayer } from '@/utils/layerStack.js'
+import {
+  sortCategoryGroupsByCount
+} from '@/utils/categorySort.js'
 
 export default {
   name: 'CategoryMultiPickerSheet',
@@ -123,6 +126,8 @@ export default {
     modelValue: { type: Boolean, default: false },
     /** 可选类别（扁平列表，含 parent_id / isParent 字段） */
     categories: { type: Array, default: () => [] },
+    /** 各分类历史总笔数：组和组内成员都按笔数排序 */
+    usageCounts: { type: Object, default: () => ({}) },
     /** 已选类别 id 数组 */
     selectedIds: { type: Array, default: () => [] },
     /** 禁用类别 id 数组（已在别处被占用） */
@@ -248,29 +253,28 @@ export default {
       }
 
       const roots = list.filter((c) => !c.parent_id)
-      const out = []
-
-      for (const root of roots) {
+      /*
+       * 先按「一级分类总笔数」排组、组内按子类笔数排；
+       * 系统分类由 sortCategoryGroupsByCount 固定压到最后。
+       */
+      const grouped = roots.map((root) => {
         const kids = list.filter((c) => c.parent_id === root.id)
-        if (kids.length === 0) {
-          out.push({
-            key: root.id,
-            title: root.name,
-            members: [{
-              id: root.id,
-              label: root.name,
-              disabled: disabled.has(root.id)
-            }]
-          })
-          continue
+        return {
+          parent: root,
+          members: kids.length > 0 ? kids : [root],
+          hasKids: kids.length > 0
         }
+      })
+      const out = []
+      for (const g of sortCategoryGroupsByCount(grouped, props.usageCounts)) {
+        const root = g.parent
         out.push({
           key: root.id,
           title: root.name,
-          members: kids.map((k) => ({
-            id: k.id,
-            label: `${root.name}-${k.name}`,
-            disabled: disabled.has(k.id)
+          members: g.members.map((m) => ({
+            id: m.id,
+            label: g.hasKids ? `${root.name}-${m.name}` : root.name,
+            disabled: disabled.has(m.id)
           }))
         })
       }

@@ -388,11 +388,13 @@ console.log('\n=== 选择分类面板：组头与添加子类 ===')
   check('无子类的一级分类也生成组标题', /title:\s*g\.parent\.name/.test(picker), true)
   check('组头不再按 sec.title 隐藏', /v-if="sec\.title"/.test(picker), false)
   check('组头右侧有「添加子类」', /class="group-add"/.test(picker) && /添加子类/.test(picker), true)
+  check('添加子类不带 +', /\+\s*添加子类/.test(picker), false)
   check(
     '固定分类/二级分类不显示添加入口',
     /function canAddChild/.test(picker) && /parent\.parent_id/.test(picker) && /isFixedCategory/.test(picker),
     true
   )
+  check('分类组和子类按笔数排序', /sortCategoryGroupsByCount/.test(picker) && /usageCounts/.test(picker), true)
   check('标题后有 HeaderAction「添加分类」', /<HeaderAction[^>]*>添加分类<\/HeaderAction>/.test(picker), true)
   check('添加分类不带 +', /添加分类/.test(picker) && /\+\s*添加分类/.test(picker), false)
   check(
@@ -408,6 +410,17 @@ console.log('\n=== 选择分类面板：组头与添加子类 ===')
   check(
     '全部交易筛选：无子类一级分类也显示组标题',
     /title:\s*root\.name/.test(multiPicker),
+    true
+  )
+  check(
+    '筛选分类面板按笔数排序且系统分类最后',
+    /sortCategoryGroupsByCount/.test(multiPicker) && /usageCounts/.test(multiPicker),
+    true
+  )
+  check(
+    '筛选面板传入分类笔数',
+    /:usage-counts="categoryCounts"/.test(read('components/TxnFilterSheet.vue')) &&
+      /getCategoryTxnCounts/.test(read('components/TxnFilterSheet.vue')),
     true
   )
 

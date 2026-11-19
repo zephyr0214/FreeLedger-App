@@ -10,7 +10,11 @@
  *   SQLite / uni 依赖，单测照样能在 node 里跑。
  *   本轮用户第 6 条要求：这些分类不能被 AI 记账，也不能在记账面板选。
  */
-import { INTERNAL_ONLY_CATEGORY_NAMES } from '../api/db/schema.js'
+import {
+  INTERNAL_ONLY_CATEGORY_NAMES,
+  SYSTEM_PRESET_GROUP_NAME,
+  SYSTEM_PRESET_LEGACY_NAME
+} from '../api/db/schema.js'
 
 /**
  * 排序规则（优先级从高到低）：
@@ -56,6 +60,95 @@ export function sortCategoriesByUsage(categories, usageCounts = {}, selectedId =
       return a.i - b.i
     })
     .map((x) => x.c)
+}
+
+/**
+ * 这个一级分类是不是系统固定分组
+ *
+ * 系统分类永远排在分类选择面板最后，不参与「按笔数排序」。
+ */
+export function isSystemGroupCategory(cat) {
+  const name = String((cat && cat.name) || '')
+  return name === SYSTEM_PRESET_GROUP_NAME || name === SYSTEM_PRESET_LEGACY_NAME
+}
+
+/**
+ * 某个分类的笔数（0 兜底）
+ */
+function countOf(counts, id) {
+  return Number((counts || {})[id]) || 0
+}
+
+/**
+ * 一组分类的笔数：一级分类自己 + 它下面所有成员，按 id 去重。
+ *
+ * 没有子类的一级分类成员就是它自己，不会重复计算。
+ */
+export function categoryGroupCount(parent, members, counts = {}) {
+  const ids = new Set()
+  if (parent && parent.id) ids.add(parent.id)
+  for (const m of members || []) {
+    if (m && m.id) ids.add(m.id)
+  }
+  let total = 0
+  for (const id of ids) total += countOf(counts, id)
+  return total
+}
+
+/**
+ * 分类列表按笔数降序；笔数相同按用户设定的 sort 升序，再按原顺序兜底。
+ *
+ * 不修改入参。选项对象只要带 id（和可选的 sort）就能用。
+ */
+export function sortCategoriesByCount(categories, counts = {}) {
+  const list = Array.isArray(categories) ? categories : []
+  return list
+    .map((c, i) => ({ c, i, count: countOf(counts, c && c.id) }))
+    .sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count
+      const aSort = Number.isFinite(a.c && a.c.sort) ? a.c.sort : 0
+      const bSort = Number.isFinite(b.c && b.c.sort) ? b.c.sort : 0
+      if (aSort !== bSort) return aSort - bSort
+      return a.i - b.i
+    })
+    .map((x) => x.c)
+}
+
+/**
+ * 分组列表按「一级分类总笔数」排序，并同步排序组内成员。
+ *
+ * 规则（用户本轮要求）：
+ *   1. 系统分类固定最后，不参与一级分类的笔数排序；
+ *   2. 其它一级分类按「自身 + 子类」的总笔数降序；
+ *   3. 同一组内的子分类按自己的笔数降序；
+ *   4. 笔数相同保持用户设定的 sort / 原顺序，避免每次打开乱跳。
+ *
+ * @param {Array<{parent:object,members:Array<object>}>} groups
+ * @param {Object} counts { categoryId: count }
+ * @returns {Array}
+ */
+export function sortCategoryGroupsByCount(groups, counts = {}) {
+  const list = Array.isArray(groups) ? groups : []
+  return list
+    .map((g, i) => ({
+      g,
+      i,
+      system: isSystemGroupCategory(g && g.parent),
+      count: categoryGroupCount(g && g.parent, g && g.members, counts)
+    }))
+    .sort((a, b) => {
+      // 系统分类固定最后
+      if (a.system !== b.system) return a.system ? 1 : -1
+      if (a.count !== b.count) return b.count - a.count
+      const aSort = Number.isFinite(a.g && a.g.parent && a.g.parent.sort) ? a.g.parent.sort : 0
+      const bSort = Number.isFinite(b.g && b.g.parent && b.g.parent.sort) ? b.g.parent.sort : 0
+      if (aSort !== bSort) return aSort - bSort
+      return a.i - b.i
+    })
+    .map((x) => ({
+      ...x.g,
+      members: sortCategoriesByCount(x.g && x.g.members, counts)
+    }))
 }
 
 /**
