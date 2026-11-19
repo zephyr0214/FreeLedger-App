@@ -367,5 +367,47 @@ const snapshot = JSON.stringify(ALL)
 groupCategoriesByParent(SELECTABLE.map((id) => ALL.find((c) => c.id === id)), ALL)
 check('不修改入参', JSON.stringify(ALL), snapshot)
 
+/* --------------------------- 记账面板分类选择器：无子类也有组头 + 添加子类 */
+
+console.log('\n=== 选择分类面板：组头与添加子类 ===')
+
+{
+  const { readFileSync } = await import('fs')
+  const { join, dirname, resolve } = await import('path')
+  const { fileURLToPath } = await import('url')
+  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const read = (p) => readFileSync(join(ROOT, p), 'utf-8')
+
+  const picker = read('components/CategoryPickerSheet.vue')
+  const editor = read('components/CategoryEditorSheet.vue')
+  const txnPanel = read('components/TxnPanel.vue')
+  const cyclePanel = read('components/CyclePanel.vue')
+  const categoryPage = read('pages/settings/category.vue')
+
+  check('无子类的一级分类也生成组标题', /title:\s*g\.parent\.name/.test(picker), true)
+  check('组头不再按 sec.title 隐藏', /v-if="sec\.title"/.test(picker), false)
+  check('组头右侧有「添加子类」', /class="group-add"/.test(picker) && /添加子类/.test(picker), true)
+  check(
+    '固定分类/二级分类不显示添加入口',
+    /function canAddChild/.test(picker) && /parent\.parent_id/.test(picker) && /isFixedCategory/.test(picker),
+    true
+  )
+  check('添加子类复用 CategoryEditorSheet', /<CategoryEditorSheet/.test(picker), true)
+  check('添加成功通知外层刷新分类', /emit\('category-created'/.test(picker), true)
+
+  check('编辑器支持新建与编辑', /createCategory\(/.test(editor) && /updateCategory\(/.test(editor), true)
+  check(
+    '编辑器自己登记弹层栈',
+    /pushLayer\(\(\) => \{ visible\.value = false \}, 'categoryEditor'\)/.test(editor),
+    true
+  )
+  check('编辑器保存后同步图标缓存', /syncCategoryIconCache\(form\.icon/.test(editor), true)
+
+  check('记账面板接住新分类事件', /@category-created="onCategoryCreated"/.test(txnPanel), true)
+  check('周期面板接住新分类事件', /@category-created="onCategoryCreated"/.test(cyclePanel), true)
+  check('分类管理页复用同一个编辑弹层', /<CategoryEditorSheet/.test(categoryPage), true)
+  check('分类管理页不再自己写编辑弹层', /<wd-popup v-model="showEditor"/.test(categoryPage), false)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)

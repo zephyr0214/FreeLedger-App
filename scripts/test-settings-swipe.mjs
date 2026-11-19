@@ -75,6 +75,7 @@ function check(name, actual, expected) {
 }
 
 const CATEGORY = 'pages/settings/category.vue'
+const CATEGORY_EDITOR = 'components/CategoryEditorSheet.vue'
 const BUDGET = 'pages/settings/budget.vue'
 
 function readFile(rel) {
@@ -150,29 +151,27 @@ console.log('=== B. 子类区不要竖线 ===')
 console.log('=== C. 编辑弹层里能删除 ===')
 
 {
-  const tpl = readTemplate(CATEGORY)
-  const script = readScript(CATEGORY)
+  const tpl = readTemplate(CATEGORY_EDITOR)
+  const script = readScript(CATEGORY_EDITOR)
 
   // 弹层里有「删除这个分类」入口
   check('弹层里有删除入口', /删除这个分类/.test(tpl), true)
-  check('删除入口绑到 onDeleteFromEditor', /@click="onDeleteFromEditor"/.test(tpl), true)
+  check('删除入口绑到 onDelete', /@click="onDelete"/.test(tpl), true)
 
-  // 只在编辑已有分类时显示（editingId 非空）
-  check('删除入口有 editingId 条件', /v-if="editingId/.test(tpl), true)
+  // 只在编辑已有分类时显示（canDelete 非空）
+  check('删除入口有 canDelete 条件', /v-if="canDelete"/.test(tpl), true)
 
-  // 固定分类不显示
   /*
-   * ★ v14 起改名了：isEditingReconcile -> isEditingFixed ★
-   *   判定范围也从「只有对账支出/对账收入」扩大到整组
-   *   「系统预置分类」（含借出 / 借入 / 对账支出 / 对账收入）。
-   *   测试要守的是「固定分类在编辑弹层里不显示删除入口」这个行为，
-   *   改名时这里要跟着改，否则会假失败（页面其实是对的）。
+   * ★ 固定分类不显示删除入口 ★
+   *   判定范围是「系统预置分类」（含借出 / 借入 / 对账支出 / 对账收入）。
+   *   现在编辑弹层是独立组件 CategoryEditorSheet，页面与记账分类面板共用。
    */
-  check('删除入口排除了固定分类', /isEditingFixed/.test(tpl), true)
+  check('删除入口排除了固定分类', /canDelete\s*=\s*computed/.test(script) && /isEditingFixed\.value/.test(script), true)
   check('有 isEditingFixed 的计算', /isEditingFixed\s*=\s*computed/.test(script), true)
 
-  // onDeleteFromEditor 必须在 return 里（否则模板绑定静默失效）
-  check('onDeleteFromEditor 在 return 里', /onDeleteFromEditor/.test(script.split('return {')[1] || ''), true)
+  // onDelete 必须在 return 里（否则模板绑定静默失效）
+  check('onDelete 在 return 里', /onDelete/.test(script.split('return {')[1] || ''), true)
+  check('分类管理页复用编辑组件', /<CategoryEditorSheet/.test(readTemplate(CATEGORY)), true)
 }
 
 console.log('=== D. 右滑操作区自动收起 ===')
@@ -198,30 +197,27 @@ console.log('=== D. 右滑操作区自动收起 ===')
   //   2. 保存成功
   //   3. 删除确认后
   //   4. onShow
-  check('取消按钮用 closeEditor', /@click="closeEditor"/.test(readTemplate(CATEGORY)), true)
+  check('取消按钮用 close', /@click="close"/.test(readTemplate(CATEGORY_EDITOR)), true)
   /*
    * ★ 「关闭编辑弹层后右滑自动收起」怎么断言 ★
    *   这件事的实现方式不是把 closeAllSwipes() 写进 closeEditor()，
    *   而是挂了一个 watch(showEditor)：一旦弹层关闭就收。
    *
-   *   为什么选 watch 而不是写在 closeEditor 里：
-   *     关弹层有两条路径 —— 点「取消」按钮调 closeEditor()，
-   *     以及点遮罩由 v-model 直接把 showEditor 置 false。
-   *     写在 closeEditor() 里只能覆盖第一条，遮罩那条会漏；
-   *     挂在 watch 上两条都兜得住。
+   *   为什么选 watch 而不是写在编辑器里：
+   *     关弹层有两条路径 —— 点「取消」按钮、点遮罩由 v-model 置 false，
+   *     以及保存/删除成功后组件自己关闭。
+   *     写在页面单一路径里覆盖不全；挂在 watch 上所有路径都兜得住。
    *
    *   所以断言要盯「行为链路」而不是「某一行代码」：
    *     1. 有 watch 监听 showEditor
    *     2. 关闭分支里写入 'close'
-   *   之前这里断言 closeEditor 函数体里必须出现 closeAllSwipes()，
-   *   与实现风格不符，导致两条一直失败（功能其实是好的）。
    */
   check(
     '关闭弹层会收起右滑（watch 实现）',
     /watch\(showEditor,\s*\(open\)\s*=>\s*\{[\s\S]*?swipeStates\[[^\]]*\]\s*=\s*'close'/.test(script),
     true
   )
-  check('onSaveCategory 里有 closeEditor', /function onSaveCategory[\s\S]*?closeEditor\(\)/.test(script), true)
+  check('编辑器保存成功后会关闭', /async function onSave[\s\S]*?close\(\)/.test(readScript(CATEGORY_EDITOR)), true)
   check('onDelete 里有 closeAllSwipes', /function onDelete[\s\S]*?closeAllSwipes\(\)/.test(script), true)
   check('有 onShow 且会收起右滑', /onShow\(\(\)\s*=>\s*\{[^}]*closeAllSwipes\(\)/s.test(script), true)
   check('switchType 里有 closeAllSwipes', /function switchType[\s\S]*?closeAllSwipes\(\)/.test(script), true)
@@ -290,8 +286,8 @@ console.log('=== 模板真的能编译 ===')
   check('分类页模板里有 swipe-delete 类', /swipe-delete/.test(code1), true)
   // 插槽里的 @click.stop 会被编译成 onClick: _withModifiers(...)
   check('分类页模板里右滑按钮的 click 带了 stop', /_withModifiers/.test(code1), true)
-  // 弹层里的删除入口也在产物里
-  check('分类页模板里有「删除这个分类」', /"删除这个分类"/.test(code1), true)
+  // 弹层里的删除入口在独立编辑组件的产物里
+  check('编辑组件模板里有「删除这个分类」', /"删除这个分类"/.test(compile(CATEGORY_EDITOR)), true)
 
   const code2 = compile(BUDGET)
   check('预算页模板编译产物非空', code2.length > 0, true)

@@ -80,7 +80,7 @@ const panels = [
   ['components/TxnPanel.vue', 'txnPanel'],
   ['components/CyclePanel.vue', 'cyclePanel'],
   ['components/QuickAddBar.vue', 'quickAddBar'],
-  ['pages/settings/category.vue', 'categoryEditor'],
+  ['components/CategoryEditorSheet.vue', 'categoryEditor'],
   ['pages/settings/tag.vue', 'tagEditor'],
   ['pages/settings/budget.vue', 'budgetEditor']
 ]

@@ -1256,11 +1256,17 @@ async function topExpensesByScope(scope, limit) {
  *   具体换算全在 utils/compareRange.js 的 buildCompareRange()，
  *   那里有完整分支与月末夹取，页面和测试共用同一份实现。
  *
- * ★ 「今天」和「没有数据的日子」★
- *   区间终点晚于今天时先截到今天（否则「半个空月」比「整月」，
- *   所有数字都会显示成暴跌）；截断后再按上面的规则换算对比区间。
- *   区间里没有流水的那几天照样占窗口位置，不会因为「那天没记账」
- *   就把窗口缩短 —— 对比的前提是时间对齐，不是数据等量。
+ * ★ 对比窗口：用「所选范围内第一笔到最后一笔交易」★
+ *   不是拿所选区间的空白历首尾去对齐：
+ *   用户选「近一月」但只有 11/05~11/12 有账时，当前段就是 11/05~11/12，
+ *   同比 = 去年 11/05~11/12，环比按上一周期规则换算。
+ *   首尾取数用与对比查询同一套筛选条件（日期 / 类型 / 账户 / 分类 / 标签 /
+ *   关键词），但只认参与收支统计的流水；没有可用流水时返回 null。
+ *
+ * ★ 「今天」★
+ *   如果区间终点晚于今天，当前段仍会先截到今天；
+ *   时间窗口里没有流水的那几天照样占位置 —— 对比的前提是时间对齐，
+ *   不是数据等量。
  *
  * ★ 为什么返回分类维度的数组 ★
  *   面板下段要「每类别一行：分类名 + 变化值 + 百分比 + 双向柱状图」，
@@ -1281,6 +1287,38 @@ async function topExpensesByScope(scope, limit) {
  *     current:number,previous:number,diff:number,pct:number|null}>
  * }>} null = 该区间算不出对比（不限时间 / 全在未来）
  */
+/**
+ * 所选区间内第一笔 / 最后一笔交易的日期。
+ *
+ * ★ 为什么对比窗口不用所选区间的首尾 ★
+ *   用户选「近一月」时，真正有数据的可能只有其中 8 天。
+ *   拿整整 30 天的区间去对齐「去年同期」，对比日期会包含一大段空白；
+ *   用户要的是「所选范围内第一笔到最后一笔交易」这个真实数据窗口。
+ *
+ * ★ 口径必须和对比查询一致 ★
+ *   用同一个 rangeScope()（日期 + 类型 / 账户 / 分类 / 标签 / 关键词），
+ *   只额外排除已删除流水；这样找到的首尾就是参与对比的那批流水。
+ *
+ * @param {object} range
+ * @returns {Promise<null|{firstDay:string,lastDay:string}>}
+ */
+async function getTxnDayBounds(range) {
+  const scope = rangeScope(range)
+  const where = scope.where
+    ? `${scope.where} AND t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}`
+    : `t.deleted_at IS NULL AND ${NOT_EXCLUDED_STATS}`
+  const row = await queryOne(
+    `SELECT MIN(t.occurred_day) AS first_day,
+            MAX(t.occurred_day) AS last_day
+     FROM txn t
+     WHERE ${where}`,
+    scope.params
+  )
+  const firstDay = row && row.first_day ? String(row.first_day) : ''
+  const lastDay = row && row.last_day ? String(row.last_day) : ''
+  return firstDay && lastDay ? { firstDay, lastDay } : null
+}
+
 export async function getPeriodComparison(range, opt = {}) {
   const level = opt.level === 'sub' ? 'sub' : 'root'
   const type = opt.type === 'income' ? 'income' : 'expense'
@@ -1294,7 +1332,20 @@ export async function getPeriodComparison(range, opt = {}) {
    */
   const mode = opt.mode === 'mom' ? 'mom' : 'yoy'
 
-  const cr = buildCompareRange(range, opt.today || toDayKey(), mode)
+  /*
+   * 不限时间（全部）没有对比；有日期 / 月份范围时，
+   * 先取「所选范围内第一笔到最后一笔交易」的真实数据窗口。
+   */
+  const hasScope = !!(range && (range.startDay || range.endDay || range.monthKey))
+  if (!hasScope) return null
+  const bounds = await getTxnDayBounds(range)
+  if (!bounds) return null
+
+  const cr = buildCompareRange(
+    { ...range, startDay: bounds.firstDay, endDay: bounds.lastDay },
+    opt.today || toDayKey(),
+    mode
+  )
   if (!cr) return null
 
   /* 两段各查一次总账（同一条 SQL，只换 where 参数） */

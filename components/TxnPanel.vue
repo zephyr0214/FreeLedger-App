@@ -362,6 +362,7 @@
       :all-categories="categories"
       :selected-id="form.category_id"
       @pick-category="pickCategoryFromMore"
+      @category-created="onCategoryCreated"
     />
 
     <!--
@@ -685,6 +686,21 @@ export default {
     function pickCategoryFromMore(cat) {
       form.category_id = cat.id
       showMoreCategories.value = false
+    }
+
+    /**
+     * 分类面板里新建了子类：刷新分类表
+     *
+     * ★ 不自动选中新分类 ★
+     *   用户可能只是顺手补一个子类，直接改掉当前分类会打断记账；
+     *   刷新后新子类会出现在原来的组里，再点一下就能选中。
+     */
+    async function onCategoryCreated() {
+      try {
+        categories.value = await listCategories()
+      } catch (e) {
+        console.warn('[txnPanel] 刷新分类失败:', e && e.message)
+      }
     }
 
     /**
@@ -1568,7 +1584,7 @@ export default {
     return {
       visible, types, form, primaryColor,
       categories, categoryList, categoryRows, moreRowItems, allCategoryItems, usageCounts,
-      showMoreCategories, openMoreCategories, pickCategoryFromMore,
+      showMoreCategories, openMoreCategories, pickCategoryFromMore, onCategoryCreated,
       amountDisplay, isRawInput, computedPreview, canSave, amountFilled,
       /* 外币记账 */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,

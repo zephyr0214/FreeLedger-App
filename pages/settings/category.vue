@@ -188,87 +188,19 @@
       <view class="bottom-space" />
     </scroll-view>
 
-    <!-- 编辑弹层 -->
-    <wd-popup v-model="showEditor" position="bottom" :safe-area-inset-bottom="true">
-      <view class="editor">
-        <view class="editor-head">
-          <text class="editor-cancel" @click="closeEditor">取消</text>
-          <text class="editor-title">{{ editorTitle }}</text>
-          <text class="editor-save" @click="onSaveCategory">保存</text>
-        </view>
-
-        <view class="editor-body">
-          <view class="editor-row">
-            <text class="editor-label">名称</text>
-            <input
-              v-model="editorForm.name"
-              class="editor-input"
-              :class="{ 'editor-input-locked': isEditingFixed }"
-              placeholder="分类名称"
-              placeholder-class="editor-placeholder"
-              :maxlength="10"
-              :disabled="isEditingFixed"
-            />
-          </view>
-
-          <!--
-            图标：编辑器里只显示当前图标 + 名称，点击进入独立的选择页。
-            图标页左侧分组、右侧图标，不在这里套滚动区。
-          -->
-          <view class="editor-row editor-row-icon" @click="openIconPicker">
-            <text class="editor-label">图标</text>
-            <view class="editor-icon-value">
-              <view class="editor-icon-preview">
-                <CategoryGlyph
-                  :icon="editorForm.icon"
-                  size="40rpx"
-                  :remote-size="60"
-                  :loading-fallback="false"
-                />
-              </view>
-              <text class="editor-icon-name">{{ currentIconLabel }}</text>
-              <text class="editor-icon-arrow">›</text>
-            </view>
-          </view>
-
-          <!-- 二级分类（含系统子类）颜色都跟随父级，不提供颜色选择 -->
-          <view v-if="!editorForm.parent_id" class="editor-row editor-row-column">
-            <text class="editor-label">颜色</text>
-            <view class="color-grid">
-              <view
-                v-for="c in colors"
-                :key="c.value"
-                class="color-cell"
-                :class="{ active: editorForm.color === c.value }"
-                @click="editorForm.color = c.value"
-              >
-                <view class="color-dot" :style="{ backgroundColor: c.value }" />
-                <text class="color-name">{{ c.name }}</text>
-              </view>
-            </view>
-          </view>
-          <view v-else class="editor-row">
-            <text class="editor-label">颜色</text>
-            <text class="editor-hint editor-hint-right">子分类颜色跟随父级「{{ parentNameOf(editorForm.parent_id) }}」</text>
-          </view>
-        </view>
-
-        <!--
-          删除入口（只在编辑已有分类时显示）
-
-          ★ 为什么弹层里也要能删 ★
-            用户反馈：「编辑里面也不可以删除，这是什么逻辑？」
-            进了编辑弹层就想把这一项改掉或删掉，
-            还得先关掉弹层再去右滑找删除，太绕。
-
-          ★ 固定分类不显示 ★
-            「对账支出」「对账收入」是余额对账的记账口径，不能删。
-        -->
-        <view v-if="editingId && !isEditingFixed" class="editor-danger">
-          <text class="danger-link" @click="onDeleteFromEditor">删除这个分类</text>
-        </view>
-      </view>
-    </wd-popup>
+    <!--
+      分类编辑 / 新建弹层
+      ★ 和记账面板分类选择器里的「+ 添加子类」共用同一个组件 ★
+        两边必须长得一样、调用同一套 create/update 逻辑。
+    -->
+    <CategoryEditorSheet
+      v-model="showEditor"
+      :type="activeType"
+      :parent="editorParent"
+      :category="editorCategory"
+      @saved="onEditorSaved"
+      @deleted="onEditorDeleted"
+    />
 
     <!-- 弹窗宿主：确定框统一用组件库样式 -->
     <AppDialog />
@@ -279,30 +211,28 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
-import { onLoad, onUnload, onShow, onBackPress } from '@dcloudio/uni-app'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { onShow, onBackPress } from '@dcloudio/uni-app'
 import PageNav from '@/components/PageNav.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import CategoryEditorSheet from '@/components/CategoryEditorSheet.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import { useSettingStore } from '@/stores/setting.js'
 import {
-  listCategoryTree, createCategory, updateCategory, deleteCategory,
-  isReconcileCategory, isFixedCategory, isPresetGroupCategory
+  listCategoryTree, deleteCategory, isFixedCategory
 } from '@/api/category.js'
-import { FALLBACK_EMOJI_CODE, categoryIconCode, emojiLabel } from '@/utils/emoji.js'
-import { COLOR_PALETTE, DEFAULT_COLOR } from '@/utils/colorPalette.js'
 import { categoryTint } from '@/utils/categoryIcon.js'
-import { syncCategoryIconCache, refreshCategoryIconCache } from '@/api/iconCache.js'
+import { refreshCategoryIconCache } from '@/api/iconCache.js'
 import { confirmDialog, alertDialog } from '@/utils/dialog.js'
-import { pushLayer, handleBackPress } from '@/utils/layerStack.js'
+import { handleBackPress } from '@/utils/layerStack.js'
 
 export default {
   components: {
     PageNav, EmptyState, AppDialog, LineIcon,
-    CategoryGlyph, UpdateDialog
+    CategoryGlyph, CategoryEditorSheet, UpdateDialog
   },
   setup() {
     const settingStore = useSettingStore()
@@ -311,8 +241,9 @@ export default {
     const tree = ref([])
     const expandedIds = ref([])
     const showEditor = ref(false)
-    const editingId = ref('')
-    const editorForm = reactive({ name: '', color: '', icon: FALLBACK_EMOJI_CODE, parent_id: null })
+    /** 当前编辑的目标：category 为空 = 新建；parent 用于子分类提示 */
+    const editorCategory = ref(null)
+    const editorParent = ref(null)
 
     /**
      * wd-swipe-action 的展开状态。
@@ -356,55 +287,8 @@ export default {
       { key: 'income', name: '收入分类' }
     ]
 
-    /*
-     * 16 色分类色板（与标签页共用 utils/colorPalette.js）
-     *
-     * 每项 { value, name }：色块显示 value，下方显示中文名。
-     * 顺序见 colorPalette.js 的注释。
-     */
-    const colors = COLOR_PALETTE
-
     const primaryColor = computed(() => settingStore.primaryColor)
     const pageStyle = computed(() => settingStore.cssVars)
-
-    /** 编辑器里显示的当前图标名称（中文优先） */
-    const currentIconLabel = computed(() => emojiLabel(editorForm.icon) || '选择图标')
-
-    /** 弹层标题：新建一级 / 新建子分类 / 编辑 */
-    const editorTitle = computed(() => {
-      if (editingId.value) {
-        if (isEditingFixed.value) {
-          return editorForm.parent_id ? '编辑系统子分类' : '编辑系统分类'
-        }
-        return editorForm.parent_id ? '编辑子分类' : '编辑一级分类'
-      }
-      return editorForm.parent_id ? '新建子分类' : '新建一级分类'
-    })
-
-    /** 某个父级分类的名字（编辑子分类时提示「颜色跟随父级 X」） */
-    function parentNameOf(parentId) {
-      if (!parentId) return ''
-      for (const p of tree.value) {
-        if (p.id === parentId) return p.name
-      }
-      return ''
-    }
-
-    /**
-     * 当前正在编辑的是不是固定分类
-     *
-     * 固定分类不显示弹层里的「删除这个分类」。
-     */
-    const isEditingFixed = computed(() => {
-      if (!editingId.value) return false
-      for (const p of tree.value) {
-        if (p.id === editingId.value) return isFixedCategory(p)
-        for (const c of p.children) {
-          if (c.id === editingId.value) return isFixedCategory(c)
-        }
-      }
-      return false
-    })
 
     async function load() {
       tree.value = await listCategoryTree(activeType.value, true)
@@ -447,23 +331,13 @@ export default {
       return isFixedCategory(cat)
     }
 
-    /**
-     * 打开独立图标选择页
-     *
-     * ★ 为什么不在编辑器里内嵌图标网格 ★
-     *   选择器有几百个图标 + 搜索，塞进底部弹层会形成
-     *   「弹层里再套一层滚动」；用户明确要求改成一个单独页面，
-     *   左边分组、右边图标，编辑弹层只保留「当前图标」一行。
-     */
-    function openIconPicker() {
-      uni.navigateTo({
-        url: `/pages/settings/category-icon?icon=${encodeURIComponent(editorForm.icon || '')}`
-      })
-    }
-
-    /** 图标页选完后通过 uni.$emit 回传（见下面的 $on/$off） */
-    function onIconPicked(code) {
-      if (code) editorForm.icon = code
+    /** 找到某个分类的父级（编辑子分类时传给编辑弹层显示「颜色跟随父级」） */
+    function parentOf(cat) {
+      if (!cat || !cat.parent_id) return null
+      for (const p of tree.value) {
+        if (p.id === cat.parent_id) return p
+      }
+      return null
     }
 
     /**
@@ -476,77 +350,28 @@ export default {
         uni.showToast({ title: '固定分类不能添加子分类', icon: 'none' })
         return
       }
-      editingId.value = ''
-      editorForm.name = ''
-      editorForm.color = DEFAULT_COLOR
-      /**
-       * 二级分类的图标不再强制继承父级了 ——
-       * 用户要能给每个子类单独配图标，默认给父级的，
-       * 但用户可以改。（颜色仍然继承父级。）
-       */
-      editorForm.icon = parent
-        ? categoryIconCode(parent.icon, parent.name)
-        : FALLBACK_EMOJI_CODE
-      if (parent && parent.color) editorForm.color = parent.color
-      editorForm.parent_id = parent ? parent.id : null
+      editorCategory.value = null
+      editorParent.value = parent || null
       showEditor.value = true
     }
 
     function openEdit(cat) {
-      editingId.value = cat.id
-      editorForm.name = cat.name
-      editorForm.color = cat.color || DEFAULT_COLOR
-      editorForm.icon = categoryIconCode(cat.icon, cat.name)
-      editorForm.parent_id = cat.parent_id
+      editorCategory.value = cat
+      editorParent.value = parentOf(cat)
       showEditor.value = true
     }
 
-    /**
-     * 关闭编辑弹层
-     *
-     * ★ 右滑收起交给 watch(showEditor) ★
-     *   （点遮罩关闭时 v-model 也会把 showEditor 置 false，watch 一并兜住）
-     */
-    function closeEditor() {
-      showEditor.value = false
+    /** 编辑弹层保存成功：重新读分类树 */
+    async function onEditorSaved() {
+      await load()
     }
 
-    async function onSaveCategory() {
-      if (!editorForm.name.trim()) {
-        uni.showToast({ title: '请填写名称', icon: 'none' })
-        return
-      }
-
-      try {
-        if (editingId.value) {
-        /*
-         * ★ 系统分类只允许改图标 / 颜色 ★
-         *   名称不提交（输入框也已禁用），删除入口不显示；
-         *   API 层还会再兜一次，防止绕过 UI。
-         */
-        const patch = { icon: editorForm.icon }
-        if (!isEditingFixed.value) patch.name = editorForm.name.trim()
-        if (!editorForm.parent_id) patch.color = editorForm.color
-        await updateCategory(editingId.value, patch)
-      } else {
-          await createCategory({
-            name: editorForm.name.trim(),
-            type: activeType.value,
-            color: editorForm.color,
-            parent_id: editorForm.parent_id,
-            icon: editorForm.icon
-          })
-        }
-        closeEditor()
-        await load()
-        // 新图标五种样式同步落到本地缓存；旧码点由 warm 里的 prune 清理
-        syncCategoryIconCache(editorForm.icon, editorForm.name.trim()).catch((e) => {
-          console.warn('[category] 同步图标缓存失败:', e && e.message)
-        })
-        uni.showToast({ title: '已保存', icon: 'success' })
-      } catch (e) {
-        await alertDialog({ title: '保存失败', content: e.message })
-      }
+    /** 编辑弹层删除成功：重新读树并清理旧图标缓存 */
+    async function onEditorDeleted() {
+      await load()
+      refreshCategoryIconCache().catch((e) => {
+        console.warn('[category] 刷新图标缓存失败:', e && e.message)
+      })
     }
 
     /**
@@ -558,10 +383,8 @@ export default {
      *   （把交易的 category_id 置 NULL，删一级时连带软删子分类）。
      *
      * @param {object} cat 要删的分类
-     * @param {boolean} fromEditor true = 从编辑弹层里点的删除
-     *   （弹层要跟着一起关掉）
      */
-    async function onDelete(cat, fromEditor) {
+    async function onDelete(cat) {
       // 固定分类不能删
       if (isFixed(cat)) {
         uni.showToast({ title: `「${cat.name}」是固定分类，不能删除`, icon: 'none' })
@@ -581,7 +404,6 @@ export default {
       if (!ok) return
       try {
         await deleteCategory(cat.id)
-        if (fromEditor) showEditor.value = false
         await load()
         refreshCategoryIconCache().catch((e) => {
           console.warn('[category] 刷新图标缓存失败:', e && e.message)
@@ -590,29 +412,6 @@ export default {
       } catch (e) {
         await alertDialog({ title: '无法删除', content: e.message })
       }
-    }
-
-    /**
-     * 编辑弹层里的「删除这个分类」
-     *
-     * ★ 为什么弹层里也要有删除入口 ★
-     *   用户反馈：「编辑里面也不可以删除，这是什么逻辑？」
-     *   进了编辑弹层就想把这一项改掉或删掉，
-     *   还得先关掉弹层再去右滑找删除，太绕。
-     */
-    function onDeleteFromEditor() {
-      if (!editingId.value) return
-      const all = tree.value.slice()
-      for (const p of tree.value) {
-        for (const c of p.children) all.push(c)
-      }
-      const target = all.find((c) => c.id === editingId.value)
-      if (!target) return
-      if (isFixed(target)) {
-        uni.showToast({ title: `「${target.name}」是固定分类，不能删除`, icon: 'none' })
-        return
-      }
-      onDelete(target, true)
     }
 
     /**
@@ -635,51 +434,22 @@ export default {
      * 编辑面板收起（取消/保存/删除/点遮罩关闭）时，把右滑露出的「编辑」按钮也收起。
      * 否则用户关掉弹层后，行还保持着右滑展开状态，很别扭。
      *
+     * ★ 编辑弹层自己的弹层栈由 CategoryEditorSheet 登记 ★
+     *   页面这里只负责收起右滑状态。
+     *
      * ★ 值必须是 'close' 而不是 false ★
      *   wd-swipe-action 的 modelValue 是字符串（'left' | 'close' | 'right'），
      *   传 false 会触发「Expected String, got Boolean」的类型警告，而且不生效。
      */
     watch(showEditor, (open) => {
-      if (open) {
-        /*
-         * ★ 编辑弹层打开 → 登记进弹层栈 ★
-         *   全面屏侧滑返回 / 返回键会先收起这个弹层，
-         *   而不是直接退出「分类管理」页。
-         */
-        if (!unregisterLayer) {
-          unregisterLayer = pushLayer(() => { showEditor.value = false }, 'categoryEditor')
-        }
-        return
-      }
-      if (unregisterLayer) {
-        unregisterLayer()
-        unregisterLayer = null
-      }
-      const id = editingId.value
+      if (open) return
+      const id = editorCategory.value && editorCategory.value.id
       if (id) swipeStates[id] = 'close'
-    })
-
-    /** 弹层栈注销函数 */
-    let unregisterLayer = null
-
-    onUnmounted(() => {
-      if (unregisterLayer) {
-        unregisterLayer()
-        unregisterLayer = null
-      }
     })
 
     onMounted(async () => {
       if (!settingStore.loaded) await settingStore.load()
       await load()
-    })
-
-    // 接收独立图标页选完的结果
-    onLoad(() => {
-      uni.$on('category-icon-picked', onIconPicked)
-    })
-    onUnload(() => {
-      uni.$off('category-icon-picked', onIconPicked)
     })
 
     /**
@@ -698,12 +468,11 @@ export default {
 
     return {
       settingStore, activeType, tree, expandedIds,
-      showEditor, editingId, editorForm, types, colors, swipeStates,
-      editorTitle, isEditingFixed, currentIconLabel,
+      showEditor, editorCategory, editorParent, types, swipeStates,
       primaryColor, pageStyle,
-      switchType, toggleExpand, openCreate, openEdit, parentNameOf,
-      isFixed, goDetail, closeEditor, closeAllSwipes, onDeleteFromEditor,
-      openIconPicker, onSaveCategory, onDelete, goBack, categoryTint
+      switchType, toggleExpand, openCreate, openEdit,
+      isFixed, goDetail, closeAllSwipes,
+      onEditorSaved, onEditorDeleted, onDelete, goBack, categoryTint
     }
   }
 }

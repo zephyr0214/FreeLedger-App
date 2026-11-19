@@ -2,6 +2,7 @@
   <wd-popup
     v-model="visible"
     position="bottom"
+    :z-index="110"
     :safe-area-inset-bottom="true"
     custom-style="background-color: var(--app-card); border-radius: 28rpx 28rpx 0 0;"
   >
@@ -16,14 +17,25 @@
           <view v-for="sec in sections" :key="sec.key" class="more-group">
             <!--
               一级分类的分组标题。
-              「自己就是一组」的一级分类（如收入的「工资」）不显示标题 ——
-              标题和下面那一个分类同名，重复一遍反而啰嗦。
+              ★ 没有子类的一级分类也要显示 ★
+                它和有子类的父级一样需要一行「图标 + 名称」，
+                否则用户看到的是孤零零一个格子，不知道它其实也能加子类。
             -->
-            <view v-if="sec.title" class="group-head">
+            <view class="group-head">
               <view class="group-icon" :style="groupIconStyle(sec.parent)">
                 <CategoryGlyph :icon="sec.parent.icon" :name="sec.parent.name" size="28rpx" :remote-size="60" />
               </view>
-              <text class="group-name">{{ sec.title }}</text>
+              <text class="group-name">{{ sec.parent.name }}</text>
+              <!--
+                ★ 右侧「添加子类」★
+                  固定分类（系统分类及其固定子类）的结构锁死，不显示入口；
+                  其它一级分类都可以在自己的组头里直接添加子类。
+              -->
+              <text
+                v-if="canAddChild(sec.parent)"
+                class="group-add"
+                @click.stop="openAddChild(sec.parent)"
+              >+ 添加子类</text>
             </view>
 
             <view class="more-grid">
@@ -50,6 +62,14 @@
       </scroll-view>
     </view>
   </wd-popup>
+
+  <!-- 添加子类：复用分类管理页同一个编辑弹层，叠在分类面板之上 -->
+  <CategoryEditorSheet
+    v-model="showChildEditor"
+    :parent="childParent"
+    :type="childParent ? childParent.type : 'expense'"
+    @saved="onChildSaved"
+  />
 </template>
 
 <script>
@@ -64,24 +84,27 @@
  *
  * ★ 展示形态 ★
  *   1. 按**一级分类**分组：标题是一级分类（带图标），下面是它的二级分类；
- *   2. 「没有二级」的一级分类（收入的工资/奖金等）自己就是一组，不重复显示标题；
- *   3. 图标配色与交易流水一致：**浅色底 + 本色图标**（见 utils/categoryIcon.js）。
+ *   2. 「没有二级」的一级分类同样显示分组标题，和父级分类一致；
+ *   3. 组头右侧提供「+ 添加子类」，直接在当前面板上叠出分类编辑弹层；
+ *   4. 图标配色与交易流水一致：**浅色底 + 本色图标**（见 utils/categoryIcon.js）。
  *
  * ★ 分组顺序 ★
  *   组按「组内第一个分类」在传入列表里的位置排序，
  *   而传入列表已按最近 30 天使用频率排好序 ——
  *   所以最常用的分类所在的那一组一定排在最前面。
  */
-import { computed, watch, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
+import CategoryEditorSheet from '@/components/CategoryEditorSheet.vue'
 import { groupCategoriesByParent } from '@/utils/categorySort.js'
 import { categoryIconFullStyle, categoryGroupIconStyle } from '@/utils/categoryIcon.js'
+import { isFixedCategory } from '@/api/category.js'
 import { pushLayer } from '@/utils/layerStack.js'
 
 export default {
   name: 'CategoryPickerSheet',
-  components: { CategoryGlyph },
+  components: { CategoryGlyph, CategoryEditorSheet },
   props: {
     modelValue: { type: Boolean, default: false },
     /** 可选分类（已按使用频率排序） */
@@ -91,7 +114,7 @@ export default {
     /** 当前选中的分类 id */
     selectedId: { type: String, default: '' }
   },
-  emits: ['update:modelValue', 'pick-category'],
+  emits: ['update:modelValue', 'pick-category', 'category-created'],
   setup(props, { emit }) {
     const settingStore = useSettingStore()
     const primaryColor = computed(() => settingStore.primaryColor)
@@ -101,24 +124,46 @@ export default {
       set: (v) => emit('update:modelValue', v)
     })
 
+    /** 添加子类弹层：父级 + 开关 */
+    const showChildEditor = ref(false)
+    const childParent = ref(null)
+
     /**
      * 分组结果。
      *
      * 每项：{ key, parent, title, icon, members }
-     *   title 为空串 = 这一组不需要标题（自己就是一组的一级分类）。
+     *   现在所有组都显示父级标题（含没有子类的一级分类）。
      */
     const sections = computed(() =>
-      groupCategoriesByParent(props.categories, props.allCategories).map((g) => {
-        // 自己就是一组的一级分类（无二级）：不显示重复的分组标题
-        const isSelf = g.members.length === 1 && g.members[0].id === g.parent.id
-        return {
-          key: g.parent.id,
-          parent: g.parent,
-          title: isSelf ? '' : g.parent.name,
-          members: g.members
-        }
-      })
+      groupCategoriesByParent(props.categories, props.allCategories).map((g) => ({
+        key: g.parent.id,
+        parent: g.parent,
+        title: g.parent.name,
+        members: g.members
+      }))
     )
+
+    /**
+     * 这个父级能不能添加子类
+     *
+     * 固定分类（系统分类及其固定子类）的结构锁死，不能加；
+     * 二级分类不能再往下加，避免出现三级分类。
+     */
+    function canAddChild(parent) {
+      if (!parent || parent.parent_id) return false
+      return !isFixedCategory(parent)
+    }
+
+    function openAddChild(parent) {
+      if (!canAddChild(parent)) return
+      childParent.value = parent
+      showChildEditor.value = true
+    }
+
+    function onChildSaved(category) {
+      showChildEditor.value = false
+      emit('category-created', category)
+    }
 
     /**
      * 分类图标的配色（未选中浅灰底；选中浅色底 + 主题色圈；图标始终是分类本色）
@@ -166,6 +211,9 @@ export default {
           }
           return
         }
+        // 选择面板关闭时，叠在上面的添加子类弹层也一起收起
+        showChildEditor.value = false
+        childParent.value = null
         if (unregisterLayer) {
           unregisterLayer()
           unregisterLayer = null
@@ -182,6 +230,7 @@ export default {
 
     return {
       visible, sections, primaryColor,
+      showChildEditor, childParent, canAddChild, openAddChild, onChildSaved,
       iconStyle, groupIconStyle, onPick, close
     }
   }
@@ -256,6 +305,16 @@ export default {
 .group-name {
   font-size: 24rpx;
   color: var(--app-text-2);
+  font-weight: 500;
+}
+
+/* 组头右侧：添加子类 */
+.group-add {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 4rpx 0 4rpx 16rpx;
+  font-size: 22rpx;
+  color: var(--app-primary);
   font-weight: 500;
 }
 

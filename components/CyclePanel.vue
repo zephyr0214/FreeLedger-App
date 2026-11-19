@@ -333,6 +333,7 @@
       :all-categories="categories"
       :selected-id="form.category_id"
       @pick-category="pickCategoryFromMore"
+      @category-created="onCategoryCreated"
     />
 
     <AppDialog />
@@ -706,6 +707,15 @@ export default {
     function pickCategoryFromMore(cat) {
       form.category_id = cat.id
       showMoreCategories.value = false
+    }
+
+    /** 分类面板里新建了子类：刷新分类表（与记账面板同一套处理） */
+    async function onCategoryCreated() {
+      try {
+        categories.value = await listCategories()
+      } catch (e) {
+        console.warn('[cyclePanel] 刷新分类失败:', e && e.message)
+      }
     }
 
     function openAccountPicker() {
@@ -1140,7 +1150,7 @@ export default {
     return {
       visible, editing, types, typeName, form, primaryColor,
       categories, categoryRows, moreRowItems, allCategoryItems,
-      showMoreCategories, openMoreCategories, pickCategoryFromMore,
+      showMoreCategories, openMoreCategories, pickCategoryFromMore, onCategoryCreated,
       amountDisplay, isRawInput, computedPreview, amountFilled,
       /* 外币记账（与 TxnPanel 同款） */
       currencyNames, currencyIndex, isForeign, exchangeRate, formatRate,

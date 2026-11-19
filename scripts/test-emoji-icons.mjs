@@ -307,6 +307,7 @@ console.log('=== 图标加载：防串图 / OpenMoji SVG / 选择页无灰块 ==
 
 const glyph = readFileSync(join(ROOT, 'components', 'CategoryGlyph.vue'), 'utf-8')
 const catPage = readFileSync(join(ROOT, 'pages', 'settings', 'category.vue'), 'utf-8')
+const catEditor = readFileSync(join(ROOT, 'components', 'CategoryEditorSheet.vue'), 'utf-8')
 const iconPage = readFileSync(join(ROOT, 'pages', 'settings', 'category-icon.vue'), 'utf-8')
 
 check('图标节点按 src 重建（防止旧图串到新分类）', /:key="src"/.test(glyph), true)
@@ -347,7 +348,7 @@ check(
   /DETAIL_PAGE_CODES = \['1F3F7', '1F4E4', '1F4E5', '1F9FE'\]/.test(cacheApi),
   true
 )
-check('分类保存后同步新图标缓存', /syncCategoryIconCache\(editorForm\.icon/.test(catPage), true)
+check('分类保存后同步新图标缓存', /syncCategoryIconCache\(form\.icon/.test(catEditor), true)
 check('分类删除后清理旧缓存', /refreshCategoryIconCache\(\)/.test(catPage), true)
 check('缓存覆盖全部五种样式', /EMOJI_STYLES\.map\(\(s\) => cacheIcon/.test(cacheUtil), true)
 check('清理时会删掉已移除样式的缓存', /validStyles\.has\(style\)/.test(cacheUtil), true)

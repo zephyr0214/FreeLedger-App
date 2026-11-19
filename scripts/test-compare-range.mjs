@@ -368,5 +368,24 @@ console.log('=== 12. AI 回溯日期的默认时刻 ===')
   check('昨天说了时间 → 用说的那个', withTime.item && withTime.item.occurred_time, '12:30')
 }
 
+console.log('=== 13. 对比窗口取所选范围内首末交易日期 ===')
+
+{
+  const statsSrc = read('api/stats.js')
+  check(
+    '先查区间内首末交易日',
+    /async function getTxnDayBounds/.test(statsSrc) &&
+      /MIN\(t\.occurred_day\)/.test(statsSrc) &&
+      /MAX\(t\.occurred_day\)/.test(statsSrc),
+    true
+  )
+  check(
+    '对比区间用首末交易日构造',
+    /startDay:\s*bounds\.firstDay[\s\S]{0,120}?endDay:\s*bounds\.lastDay/.test(statsSrc),
+    true
+  )
+  check('没有交易时不给对比', /if \(!bounds\) return null/.test(statsSrc), true)
+}
+
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
 if (fail > 0) process.exit(1)
