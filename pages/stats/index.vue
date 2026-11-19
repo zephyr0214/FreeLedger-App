@@ -1599,6 +1599,17 @@ export default {
      *
      * @returns {boolean} 是否真的带进来了条件
      */
+    /**
+     * 时间选择回到「本月」
+     *
+     * 用户要求：重新进入统计页默认本月。
+     * 标签详情等明确带了 selection 的导航会在之后覆盖它（如全部年月日）。
+     */
+    function resetDateToCurrentMonth() {
+      dateMode.value = 'period'
+      dateRange.value = defaultSelection()
+    }
+
     function applyPendingStatsFilter() {
       const payload = consumeStatsPayload()
       if (!payload) return false
@@ -1611,10 +1622,11 @@ export default {
         ? pending.tagIds.slice()
         : []
       /*
-       * 标签详情明确要求「默认全部年 / 全部月 / 全部日」：
-       * 导航数据里带了 dateMode/selection 就一并应用。
-       * 账户详情不传，保持统计页原来的时间选择。
+       * 从详情页进来也默认本月：
+       * 标签详情带了 selection（全部年 / 全部月 / 全部日），在下面覆盖；
+       * 账户详情没带，就停在本月。
        */
+      resetDateToCurrentMonth()
       if (payload.dateMode === 'period' || payload.dateMode === 'custom') {
         dateMode.value = payload.dateMode
       }
@@ -1693,13 +1705,16 @@ export default {
          */
         await loadPanelSettings()
         /*
-         * ★ 重新进入统计页默认清空「更多筛选」★
+         * ★ 重新进入统计页默认清空「更多筛选」并回到本月 ★
          *   只有从账户/标签详情带条件跳过来时才保留这次条件。
          *   pendingApplied 用来兼容 onMounted 已经消费过 pending 的情况，
          *   否则 onShow 会把刚带进来的条件又清掉。
          */
         const hadPending = applyPendingStatsFilter()
-        if (!hadPending && !pendingApplied) resetAppliedFilter()
+        if (!hadPending && !pendingApplied) {
+          resetAppliedFilter()
+          resetDateToCurrentMonth()
+        }
         pendingApplied = false
         await loadAllCategories()
         await loadAll()

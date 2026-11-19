@@ -105,7 +105,21 @@ check(
   true
 )
 check('统计页先清空旧条件再合并', /Object\.assign\(appliedFilter, createEmptyTxnFilter\(\), pending\)/.test(statsPage), true)
-check('重新进入统计页清空更多筛选', /if \(!hadPending && !pendingApplied\) resetAppliedFilter\(\)/.test(statsPage), true)
+check(
+  '重新进入统计页清空筛选并回到本月',
+  /if \(!hadPending && !pendingApplied\) \{[\s\S]*?resetAppliedFilter\(\)[\s\S]*?resetDateToCurrentMonth\(\)/.test(statsPage),
+  true
+)
+check(
+  '本月 = 当前年/月/全部日',
+  /function resetDateToCurrentMonth[\s\S]{0,220}?dateMode\.value = 'period'[\s\S]{0,120}?dateRange\.value = defaultSelection\(\)/.test(statsPage),
+  true
+)
+check(
+  '标签详情带来的全部年月日会覆盖本月',
+  /resetDateToCurrentMonth\(\)[\s\S]{0,500}?if \(payload\.selection\)/.test(statsPage),
+  true
+)
 check('小条目有总支出', /summary-row-label">总支出/.test(tag), true)
 check('小条目有总收入', /summary-row-label">总收入/.test(tag), true)
 check('小条目有总笔数', /summary-row-label">总笔数/.test(tag), true)
