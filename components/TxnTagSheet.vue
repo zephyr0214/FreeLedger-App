@@ -25,11 +25,10 @@
       </view>
 
       <!--
-        ★ 批量模式给一句说明 ★
-          用户勾了 12 笔流水再点「标签」，得让他知道
-          「这几个标签会加到每一笔上」，而不是替换掉原有的。
+        ★ 不显示任何说明小字 ★
+          用户要求标签选择面板不要出现「可以选择多个…」这类提示；
+          勾选交互本身已经足够直观。
       -->
-      <text v-if="hint" class="tag-hint">{{ hint }}</text>
 
       <scroll-view class="tag-scroll" scroll-y>
         <view
@@ -86,9 +85,7 @@ export default {
     tags: { type: Array, default: () => [] },
     /** 已选标签 id（打开时回显） */
     selectedIds: { type: Array, default: () => [] },
-    title: { type: String, default: '选择标签' },
-    /** 额外说明文案（批量模式用） */
-    hint: { type: String, default: '' }
+    title: { type: String, default: '选择标签' }
   },
   /*
    * ★ 事件名叫 picked 不叫 confirm ★
@@ -232,13 +229,6 @@ export default {
 
 .tag-clear {
   font-size: 26rpx;
-  color: var(--app-text-3);
-}
-
-.tag-hint {
-  padding: 0 32rpx 16rpx;
-  font-size: 22rpx;
-  line-height: 1.5;
   color: var(--app-text-3);
 }
 

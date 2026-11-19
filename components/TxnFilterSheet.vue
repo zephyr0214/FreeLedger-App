@@ -178,7 +178,6 @@
       :tags="tags"
       :selected-ids="draft.tagIds"
       title="选择标签"
-      hint="可以选多个，命中任意一个标签的流水都会显示"
       @picked="onTagFilterPicked"
       @tag-created="onTagCreated"
     />

@@ -231,7 +231,6 @@
       :tags="tags"
       :selected-ids="tagSheetIds"
       :title="tagSheetBatch ? '批量添加标签' : '选择标签'"
-      :hint="tagSheetBatch ? `将给已选的 ${selectedIds.length} 笔流水都加上这些标签（不会影响原有标签）` : ''"
       @picked="onTagSheetPicked"
       @tag-created="onTagCreated"
     />
