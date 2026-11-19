@@ -30,7 +30,12 @@ function normalizeTag(row) {
 }
 
 /**
- * 标签列表（附带使用统计，并按最近使用时间倒序）
+ * 标签列表（附带使用统计，并按最近使用日期时间倒序）
+ *
+ * ★ 排序按 occurred_at（完整时间），不是 occurred_day ★
+ *   同一天可能打多个标签；只按日期会分不出先后，
+ *   用毫秒时间戳才能保证「刚用过的标签」稳定排到最上面。
+ *   展示的 last_day 仍取 occurred_day（标签管理只显示到天）。
  *
  * ★ 为什么在 API 层排序而不是页面各排各的 ★
  *   标签管理页和所有标签选择面板（记账、筛选、右滑、批量）都调用
@@ -56,8 +61,8 @@ export async function listTags(includeArchived = false) {
        LEFT JOIN txn t ON t.id = tt.txn_id AND t.deleted_at IS NULL
       WHERE tg.deleted_at IS NULL${includeArchived ? '' : ' AND tg.archived = 0'}
       GROUP BY tg.id
-      ORDER BY CASE WHEN MAX(t.occurred_day) IS NULL THEN 1 ELSE 0 END,
-               MAX(t.occurred_day) DESC,
+      ORDER BY CASE WHEN MAX(t.occurred_at) IS NULL THEN 1 ELSE 0 END,
+               MAX(t.occurred_at) DESC,
                tg.sort ASC,
                tg.created_at ASC`
   )
