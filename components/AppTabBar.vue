@@ -421,11 +421,29 @@ export default {
      */
     const keyboardHeight = ref(0)
 
+    /**
+     * 宿主样式。
+     *
+     * ★★★ 必须永远返回对象，不能返回 null ★★★
+     *   根节点是 v-show="!hidden" + :style="hostStyle"。
+     *   v-show 的隐藏靠内联 `display: none`；
+     *   而 Vue 的 patchStyle 在「这次是 null、上次是对象」时会走
+     *   `el.removeAttribute('style')`，把 display:none 一起抹掉，
+     *   而且 hidden 没变化、v-show 不会重新执行 —— 底栏就冒出来了。
+     *
+     *   真机复现路径（用户截图）：
+     *     打开记账面板（hidden=true，底栏藏好）
+     *     → 点备注 → 键盘弹出（hostStyle 变成 {transform}）
+     *     → 收起键盘（hostStyle 回到 null）→ removeAttribute('style')
+     *     → display:none 被删 → 底栏盖在面板底部。
+     *
+     *   所以无键盘时也返回空对象，只清 transform，不碰整个 style 属性。
+     */
     const hostStyle = computed(() => {
       // 键盘弹出时往下顶回去，抵消 webview 收缩带来的上移
       return keyboardHeight.value > 0
         ? { transform: `translateY(${keyboardHeight.value}px)` }
-        : null
+        : {}
     })
 
     function bindKeyboard() {

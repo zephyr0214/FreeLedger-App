@@ -44,7 +44,7 @@
  *   scripts/test-version.mjs 会核对：
  *     manifest.json 是否同步、次版本号是否等于 SCHEMA_VERSION。
  */
-export const APP_VERSION = '1.25.5'
+export const APP_VERSION = '1.25.6'
 
 /**
  * 三段式版本号（兜底补零）
@@ -116,7 +116,7 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   v19 借款不进收支 + 结清派生分类、v20 系统分类全部可选、
  *   v21 报销台账、v22 周期的报销/预算标记、v23 报销单、
  *   v24 分类图标三样式、v25 周期新增每年/每间隔天），
- *   结构版本仍是 25；1.25.0 之后没有新迁移，按修订号递增，当前 **1.25.5**。
+ *   结构版本仍是 25；1.25.0 之后没有新迁移，按修订号递增，当前 **1.25.6**。
  *   ★ 这三条迁移没有拆成 1.14 / 1.15 / 1.16 三个版本 ★
  *     它们是同一天、同一批需求做出来的、一次打包发出去的，
  *     版本号直接对齐到最终的结构版本 16，中间不单独发版。
@@ -167,6 +167,19 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
  *   日志是写给用户看的（「修复了…」）。
  */
 export const RELEASES = [
+  {
+    version: '1.25.6',
+    date: '2026-11-21',
+    schemaVersion: 25,
+    sections: [
+      {
+        title: '修复',
+        items: [
+          '记账面板里改完备注、收起输入法后，底部导航栏会浮在面板上方遮挡内容'
+        ]
+      }
+    ]
+  },
   {
     version: '1.25.5',
     date: '2026-11-19',
