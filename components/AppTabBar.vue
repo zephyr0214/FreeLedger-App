@@ -72,7 +72,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { TABBAR_ICON_VERSION, glassVars } from '@/utils/theme.js'
-import { hideNativeTabBar } from '@/utils/tabBar.js'
+import { hideNativeTabBar, hideNativeTabBarAfterKeyboard } from '@/utils/tabBar.js'
 
 /**
  * 长按触发时长（ms）
@@ -428,15 +428,54 @@ export default {
         : null
     })
 
+    /**
+     * 键盘收起时补藏原生 tabBar。
+     *
+     * ★ 真机 bug ★
+     *   adjustResize 下 Android 重新布局窗口时，部分 ROM 会把之前
+     *   hideTabBar() 藏掉的原生 tabBar 重新显示出来。它是系统 view，
+     *   层级高于 webview，所以会盖在全屏记账面板底部（面板刚好露一条）。
+     *   键盘收起（height=0）时连藏几轮，跨过布局完成那一刻。
+     *
+     * ★ 只在「键盘刚从弹出变成收起」时补一次 ★
+     *   每次 height 变化都排一串定时器没有意义，也会增加负担。
+     */
+    let keyboardWasUp = false
+    let hiddenBefore = props.hidden
+
     function bindKeyboard() {
       try {
         if (typeof uni.onKeyboardHeightChange === 'function') {
           uni.onKeyboardHeightChange((res) => {
-            keyboardHeight.value = res.height || 0
+            const h = res.height || 0
+            keyboardHeight.value = h
+            if (h > 0) {
+              keyboardWasUp = true
+            } else if (keyboardWasUp) {
+              keyboardWasUp = false
+              hideNativeTabBarAfterKeyboard()
+            }
           })
         }
       } catch (e) {}
     }
+
+    /*
+     * ★ 弹层打开期间也要守住原生 tabBar ★
+     *   面板打开时自绘底栏是 hidden 的，但原生 tabBar 有可能因为
+     *   键盘/窗口重排被系统重新显示。这里在 hidden 从 false → true 时
+     *   再补藏一轮，作为键盘回调之外的第二道保险。
+     */
+    watch(
+      () => props.hidden,
+      (hidden) => {
+        // false → true：弹层刚打开，自绘底栏收起，原生栏不能露出来
+        if (hidden && !hiddenBefore) {
+          hideNativeTabBarAfterKeyboard()
+        }
+        hiddenBefore = hidden
+      }
+    )
 
     onMounted(() => {
       // 首帧后再补一次：原生 tabBar 偶尔在 setup 时还没建好

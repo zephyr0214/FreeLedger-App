@@ -435,6 +435,7 @@ import { toDayKey, shiftDay, formatDayHeader, formatTime, currentTimeText, combi
 import { parseAmountInput, evaluateAmount } from '@/utils/money.js'
 import { SUPPORTED_CURRENCIES, BASE_SYMBOL, getCurrencyMeta, buildOriginalNoteTag, applyNoteTag, stripNoteTag } from '@/utils/currency.js'
 import { fetchLatestRates } from '@/api/exchangeRate.js'
+import { hideNativeTabBarAfterKeyboard } from '@/utils/tabBar.js'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 import { sortCategoriesByUsage, isSelectableCategory, isInternalOnlyCategory } from '@/utils/categorySort.js'
 import { categoryIconFullStyle } from '@/utils/categoryIcon.js'
@@ -1560,6 +1561,16 @@ export default {
          * 用户切到外币时 fxCache 里已经有值，不用等网络。
          */
         prefetchRates()
+
+        /*
+         * ★ 打开面板时再补藏一轮原生 tabBar ★
+         *   Android adjustResize 下，键盘收起后系统可能把原生 tabBar
+         *   重新显示出来，而它是系统 view，会盖在面板底部（自绘底栏
+         *   此时已经 hidden，挡不住它）。
+         *   AppTabBar 的键盘回调是第一道；这里在面板打开时再补一次，
+         *   覆盖「面板打开前键盘刚收过、回调已经跑完」的情况。
+         */
+        hideNativeTabBarAfterKeyboard()
       }
     )
 

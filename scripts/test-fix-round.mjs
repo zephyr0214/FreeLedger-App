@@ -387,6 +387,22 @@ console.log('=== AI 图表支持收入/近 N 天 ===')
   check('days 覆盖滚动窗口', /scope = \{ startDay: shiftDay\(end, -\(spec\.days - 1\)\), endDay: end \}/.test(chart), true)
 }
 
+console.log('=== 键盘收起后原生 tabBar 不能盖住面板 ===')
+
+{
+  const tabUtil = read('utils/tabBar.js')
+  check('提供键盘后补藏函数', /export function hideNativeTabBarAfterKeyboard/.test(tabUtil), true)
+  check('补藏跨多轮布局', /\[0, 120, 320, 700\]/.test(tabUtil), true)
+  check('补藏有节流', /KEYBOARD_HIDE_WINDOW_MS/.test(tabUtil), true)
+
+  const bar = read('components/AppTabBar.vue')
+  check('键盘收起触发补藏', /keyboardWasUp = true/.test(bar) && /hideNativeTabBarAfterKeyboard\(\)/.test(bar), true)
+  check('弹层打开时再补藏一次', /hidden && !hiddenBefore/.test(bar), true)
+
+  const panel = read('components/TxnPanel.vue')
+  check('记账面板打开时补藏原生栏', /hideNativeTabBarAfterKeyboard\(\)/.test(panel), true)
+}
+
 /* ------------------------------------------------------------ 汇总 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)
