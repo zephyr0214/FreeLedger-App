@@ -387,6 +387,21 @@ console.log('=== AI 图表支持收入/近 N 天 ===')
   check('days 覆盖滚动窗口', /scope = \{ startDay: shiftDay\(end, -\(spec\.days - 1\)\), endDay: end \}/.test(chart), true)
 }
 
+console.log('=== 底栏不依赖页面传 hidden，自己订阅弹层栈 ===')
+
+{
+  const stack = read('utils/layerStack.js')
+  check('提供弹层开合订阅', /export function subscribeLayerOpen/.test(stack), true)
+  check('入栈时通知', /stack\.push\(\{ key, close \}\)[\s\S]{0,200}?notify\(\)/.test(stack), true)
+  check('出栈时通知', /stack\.splice\(i, 1\)[\s\S]{0,80}?notify\(\)/.test(stack), true)
+
+  const bar = read('components/AppTabBar.vue')
+  check('底栏 import 订阅函数', /subscribeLayerOpen/.test(bar), true)
+  check('底栏根节点用 visuallyHidden', /v-show="!visuallyHidden"/.test(bar), true)
+  check('显式 hidden 与弹层状态取或', /props\.hidden \|\| layerOpen\.value/.test(bar), true)
+  check('卸载时取消订阅', /unsubLayer\(\)/.test(bar), true)
+}
+
 /* ------------------------------------------------------------ 汇总 */
 
 console.log(`\n=== 结果: ${pass} 通过 / ${fail} 失败 ===`)

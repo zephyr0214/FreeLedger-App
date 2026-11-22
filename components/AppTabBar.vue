@@ -1,6 +1,6 @@
 <template>
   <view
-    v-show="!hidden"
+    v-show="!visuallyHidden"
     class="tabbar-host"
     :class="{ pressing }"
     :style="hostStyle"
@@ -69,10 +69,11 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useSettingStore } from '@/stores/setting.js'
 import { TABBAR_ICON_VERSION, glassVars } from '@/utils/theme.js'
 import { hideNativeTabBar } from '@/utils/tabBar.js'
+import { subscribeLayerOpen } from '@/utils/layerStack.js'
 
 /**
  * 长按触发时长（ms）
@@ -134,6 +135,25 @@ export default {
 
     const pressing = ref(false)
     const progress = ref(0)
+
+    /*
+     * ★ 底栏自己的「有弹层打开」状态 ★
+     *   记账面板 / 周期面板用的是 wd-popup，默认 z-index 只有 10，
+     *   而底栏是 300 —— 只要底栏露出来，它一定压在弹层之上。
+     *   历史上靠页面逐个传 :hidden 规避，新增分类 / 新增标签这类
+     *   从别处叠出来的弹层一漏，底栏就浮上来了。
+     *
+     *   现在底栏直接订阅弹层栈：只要栈里还有任何弹层，就隐藏。
+     *   graph 订阅在 setup 里注册，onUnmounted 时取消。
+     */
+    const layerOpen = ref(false)
+    let unsubLayer = null
+
+    /**
+     * 最终是否隐藏 = 页面显式要求隐藏 || 有任何弹层打开。
+     * 两者取或，页面传的 hidden 继续生效，但不再是唯一防线。
+     */
+    const visuallyHidden = computed(() => props.hidden || layerOpen.value)
 
     let startTs = 0
     let longFired = false
@@ -461,11 +481,23 @@ export default {
       hideNativeTabBar()
       syncPageBackground()
       bindKeyboard()
+      // 订阅弹层栈：有任何弹层打开时把底栏收起来（见 layerOpen 的注释）
+      unsubLayer = subscribeLayerOpen((open) => {
+        layerOpen.value = open
+      })
+    })
+
+    onUnmounted(() => {
+      if (unsubLayer) {
+        unsubLayer()
+        unsubLayer = null
+      }
     })
 
     return {
       items, primaryColor, fontColor, barStyle, ringStyle, sliderStyle, pressing,
       hostStyle,
+      visuallyHidden,
       iconOf, onTabClick,
       onTouchStart, onTouchEnd, onTouchCancel, onTouchMove
     }
