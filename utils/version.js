@@ -169,13 +169,14 @@ export const APP_VERSION_LABEL = `v${APP_VERSION}`
 export const RELEASES = [
   {
     version: '1.25.6',
-    date: '2026-11-21',
+    date: '2026-11-22',
     schemaVersion: 25,
     sections: [
       {
         title: '修复',
         items: [
-          '记账面板里改完备注、收起输入法后，底部导航栏会浮在面板上方遮挡内容'
+          '记账面板里改完备注、收起输入法后，底部导航栏会浮在面板上方遮挡内容',
+          '新增分类、新增子分类、新增标签时，输入名称后收起输入法，底部导航栏同样会浮出遮挡弹层'
         ]
       }
     ]
