@@ -89,7 +89,7 @@
         </view>
 
         <!--
-          最近流水（按日期分组，10 条）
+          最近流水（按日期分组，50 条）
 
           ★ 底部「查看全部 ›」与标签/分类/预算/周期详情页同一套 ★
             都用 RecentTxnList 的 show-footer-more：
@@ -215,10 +215,10 @@ export default {
 
       loading.value = true
       try {
-        // 只取最近 10 条：RecentTxnList 按日期分组后也是显示这 10 条；
+        // 只取最近 50 条：RecentTxnList 按日期分组后也是显示这 50 条；
         // 另查一次总笔数，供列表底部判断「是否还有没显示完的流水」
         const [list, sum, total] = await Promise.all([
-          listTransactions({ accountId: accountId.value, limit: 10 }),
+          listTransactions({ accountId: accountId.value, limit: 50 }),
           sumTransactions({ accountId: accountId.value, monthKey: toMonthKey(), hideAdjustments: true }),
           countTransactions({ accountId: accountId.value })
         ])

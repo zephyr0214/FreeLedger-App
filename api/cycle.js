@@ -436,9 +436,9 @@ export async function listCycleTxns(cycleId, opt = {}) {
 }
 
 /**
- * 某周期最近的流水（详情页用，默认 10 条）。
+ * 某周期最近的流水（详情页用，默认 50 条）。
  */
-export async function listRecentCycleTxns(cycleId, limit = 10) {
+export async function listRecentCycleTxns(cycleId, limit = 50) {
   return listTransactions({ cycleId, limit })
 }
 

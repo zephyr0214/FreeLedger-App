@@ -210,7 +210,7 @@ export default {
           listTransactions({
             categoryId: categoryId.value,
             includeSubcategories: isParent.value,
-            limit: 10
+            limit: 50
           }),
           sumTransactions({
             categoryId: categoryId.value,

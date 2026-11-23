@@ -159,7 +159,7 @@ export default {
       loading.value = true
       try {
         const [list, sum, all, range] = await Promise.all([
-          listTransactions({ tagId: tagId.value, limit: 10 }),
+          listTransactions({ tagId: tagId.value, limit: 50 }),
           sumTransactions({ tagId: tagId.value, monthKey: toMonthKey() }),
           sumTransactions({ tagId: tagId.value }),
           getTagTxnRange(tagId.value)

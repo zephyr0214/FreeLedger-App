@@ -232,7 +232,7 @@ export default {
         }
 
         const [list, sum] = await Promise.all([
-          listTransactions({ ...filter, monthKey: toMonthKey(), limit: 10 }),
+          listTransactions({ ...filter, monthKey: toMonthKey(), limit: 50 }),
           sumTransactions({ ...filter, monthKey: toMonthKey() })
         ])
         txnList.value = list
