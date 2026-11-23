@@ -439,12 +439,18 @@ export default {
  *   改一处五个页面同步变紧凑。
  *   数值与首页 / 全部交易页一致。
  */
+/*
+ * ★ 分隔线用 1px，不用 1rpx（用户反馈：暗色下有的线显示不出来）★
+ *   1rpx ≈ 0.5 CSS px，底边落在物理像素缝里时会被抗锯齿摊薄；
+ *   行高随徽标 / 副标题行数变化，每条线的落点不同，于是同一列表里
+ *   「有的线有、有的线没有」。1px 对齐整数像素，渲染稳定。
+ */
 .txn-item {
   display: flex;
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 24rpx;
-  border-bottom: 1rpx solid var(--app-line);
+  border-bottom: 1px solid var(--app-line);
 }
 
 .txn-item:last-child {

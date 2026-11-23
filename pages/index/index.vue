@@ -1778,12 +1778,20 @@ export default {
   color: #ffffff;
 }
 
+/*
+ * ★ 分隔线用 1px，不用 1rpx（用户反馈：暗色下有的线显示不出来）★
+ *   1rpx 在 750 设计宽度下只有约 0.5 CSS px：底边正好压在物理像素
+ *   边界上时清晰，骑在像素缝里时会被抗锯齿摊到两行像素上，颜色混进
+ *   卡片底色（暗色下 #2E2E31 与 #1C1C1E 只差约 18 级，一摊就没）。
+ *   交易行高度随徽标 / 副标题行数变化，每条线的小数落点都不同，
+ *   所以同一列表里才会「有的线有、有的线没有」。1px 对齐整数像素，稳定。
+ */
 .txn-item {
   display: flex;
   align-items: center;
   padding: 18rpx 24rpx;
   gap: 16rpx;
-  border-bottom: 1rpx solid var(--app-line);
+  border-bottom: 1px solid var(--app-line);
 }
 
 /*

@@ -1454,12 +1454,18 @@ export default {
  *   数值必须与首页 .txn-item 完全一致 ——
  *   同一笔账在两个页面里行高不同，切换时会明显感到“跳”。
  */
+/*
+ * ★ 分隔线用 1px，不用 1rpx（与首页同一原因）★
+ *   1rpx ≈ 0.5 CSS px，骑在物理像素缝里会被抗锯齿摊薄；行高随徽标 /
+ *   副标题行数变化，落点不同，于是有的线可见、有的像没画。
+ *   暗色下线条与卡片对比度本来就低，被摊薄后更容易整条消失。
+ */
 .txn-item {
   display: flex;
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 24rpx;
-  border-bottom: 1rpx solid var(--app-line);
+  border-bottom: 1px solid var(--app-line);
 }
 
 /* 最后一行不画分隔线（加了右滑容器后要选进去，见下） */
